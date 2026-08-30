@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192" role="img" aria-labelledby="title desc">
+  <title id="title">Agnee symbol</title>
+  <desc id="desc">A conversational speech form fused with a warm spark.</desc>
+  <defs>
+    <linearGradient id="agnee-green" x1="34" y1="20" x2="150" y2="174" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#C7FF35"/>
+      <stop offset="0.48" stop-color="#42DF58"/>
+      <stop offset="1" stop-color="#00A96B"/>
+    </linearGradient>
+    <mask id="agnee-cutout">
+      <rect width="192" height="192" fill="black"/>
+      <path fill="white" d="M101 10c34 23 60 56 60 96 0 48-37 83-84 83H59l-27 17 8-32c-18-17-28-41-28-67 0-34 19-62 48-79-5 23 0 42 12 56 22-18 36-43 29-74Z"/>
+      <path fill="black" d="M100 74c18 16 27 34 25 52-3 25-22 44-48 44-10 0-19-3-27-9 24-3 40-15 47-34 7-16 8-34 3-53Z"/>
+    </mask>
+  </defs>
+  <rect width="192" height="192" fill="url(#agnee-green)" mask="url(#agnee-cutout)"/>
+</svg>

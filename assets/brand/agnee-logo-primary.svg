@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 200" role="img" aria-labelledby="title desc">
+  <title id="title">Agnee by Beweix</title>
+  <desc id="desc">Agnee wordmark with a combined conversational spark symbol.</desc>
+  <defs>
+    <linearGradient id="agnee-green" x1="24" y1="18" x2="132" y2="174" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#C7FF35"/>
+      <stop offset="0.48" stop-color="#42DF58"/>
+      <stop offset="1" stop-color="#00A96B"/>
+    </linearGradient>
+    <mask id="agnee-cutout">
+      <rect width="160" height="190" fill="black"/>
+      <path fill="white" d="M83 7C113 28 137 58 137 94c0 45-34 78-77 78H43l-24 15 7-29C10 142 1 120 1 96c0-31 17-57 43-72-4 21 0 38 11 51 20-17 33-39 28-68Z"/>
+      <path fill="black" d="M82 65c17 15 25 31 23 48-2 23-20 40-43 40-9 0-17-3-24-8 22-3 36-14 43-31 6-15 6-31 1-49Z"/>
+    </mask>
+  </defs>
+
+  <g transform="translate(10 5)">
+    <rect width="160" height="190" fill="url(#agnee-green)" mask="url(#agnee-cutout)"/>
+    <path d="M54 76c19-16 31-37 29-64 22 18 38 39 46 61-21-5-45-4-75 3Z" fill="#B9FF2C" opacity=".74"/>
+  </g>
+
+  <text x="185" y="126" fill="url(#agnee-green)" font-family="Nunito Sans, Avenir Next, Arial Rounded MT Bold, sans-serif" font-size="108" font-weight="700" letter-spacing="-6">agnee</text>
+  <g transform="translate(505 151)">
+    <text x="0" y="0" fill="#315047" font-family="Inter, Avenir Next, Arial, sans-serif" font-size="24" font-weight="400" letter-spacing=".4">by</text>
+    <text x="34" y="0" fill="#173A30" font-family="Inter, Avenir Next, Arial, sans-serif" font-size="24" font-weight="700" letter-spacing=".2">beweix</text>
+  </g>
+</svg>

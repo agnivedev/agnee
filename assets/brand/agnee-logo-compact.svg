@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 655 180" role="img" aria-labelledby="title desc">
+  <title id="title">Agnee</title>
+  <desc id="desc">Compact Agnee wordmark with conversational spark symbol.</desc>
+  <defs>
+    <linearGradient id="agnee-green" x1="20" y1="12" x2="130" y2="166" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#C7FF35"/>
+      <stop offset="0.48" stop-color="#42DF58"/>
+      <stop offset="1" stop-color="#00A96B"/>
+    </linearGradient>
+    <mask id="agnee-cutout">
+      <rect width="150" height="175" fill="black"/>
+      <path fill="white" d="M79 5c29 20 52 48 52 83 0 42-32 73-73 73H42l-23 14 7-27C11 133 2 112 2 90c0-29 16-54 41-68-4 20 0 36 10 48 19-16 31-37 26-65Z"/>
+      <path fill="black" d="M78 60c16 14 24 29 22 45-2 22-19 38-41 38-8 0-16-3-23-8 21-3 34-13 41-29 6-14 6-29 1-46Z"/>
+    </mask>
+  </defs>
+  <rect x="8" width="150" height="175" fill="url(#agnee-green)" mask="url(#agnee-cutout)"/>
+  <text x="170" y="119" fill="url(#agnee-green)" font-family="Nunito Sans, Avenir Next, Arial Rounded MT Bold, sans-serif" font-size="103" font-weight="700" letter-spacing="-6">agnee</text>
+</svg>

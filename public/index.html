@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#14241f">
+  <title>Agnee — Customer conversations</title>
+  <link rel="icon" href="/brand/agnee-mark.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <main id="loginView" class="login-view">
+    <section class="login-story" aria-label="Agnee introduction">
+      <img src="/brand/agnee-logo-primary.svg" alt="Agnee by beweix" class="login-logo">
+      <div class="story-copy">
+        <p class="eyebrow">YOUR CONVERSATION DESK</p>
+        <h1>Lead datang.<br><span>Percakapan bergerak.</span></h1>
+        <p>Satukan WhatsApp, FAQ, dan handoff sales dalam satu ruang kerja yang tenang.</p>
+      </div>
+      <div class="story-signal"><span></span> WhatsApp adapter ready</div>
+    </section>
+
+    <section class="login-panel">
+      <form id="loginForm" class="login-form">
+        <div>
+          <p class="eyebrow">WELCOME BACK</p>
+          <h2>Masuk ke Agnee</h2>
+          <p class="subtle">Kelola percakapan pelanggan dan tindak lanjut sales.</p>
+        </div>
+        <label>Email
+          <input id="email" name="email" type="email" autocomplete="username" value="admin@agnee.local" required>
+        </label>
+        <label>Password
+          <input id="password" name="password" type="password" autocomplete="current-password" value="agnee-demo" minlength="6" required>
+        </label>
+        <p id="loginError" class="form-error" role="alert"></p>
+        <button class="primary-button" type="submit">Masuk <span aria-hidden="true">→</span></button>
+        <p class="demo-note">Local MVP · credential dapat diganti dari environment.</p>
+      </form>
+    </section>
+  </main>
+
+  <main id="appView" class="app-view" hidden>
+    <aside class="rail">
+      <img src="/brand/agnee-mark.svg" alt="Agnee" class="rail-logo">
+      <nav aria-label="Main navigation">
+        <button id="inboxButton" class="rail-action active" aria-label="Inbox" data-label="Inbox">⌁</button>
+        <button id="contactsButton" class="rail-action" aria-label="Kontak" data-label="Kontak">◎</button>
+        <button id="funnelButton" class="rail-action" aria-label="Funnel" data-label="Funnel">↗</button>
+      </nav>
+      <button id="logoutButton" class="rail-action logout" aria-label="Keluar" data-label="Keluar">↪</button>
+    </aside>
+
+    <section id="inboxPanel" class="inbox-panel">
+      <header class="inbox-head">
+        <div><p class="eyebrow">MEJA PERCAKAPAN</p><h1>Inbox</h1></div>
+        <button id="newConversationButton" class="icon-button" aria-label="Percakapan baru">＋</button>
+      </header>
+      <label class="search-box"><span aria-hidden="true">⌕</span><input id="searchInput" type="search" placeholder="Cari percakapan"></label>
+      <div class="filter-row" aria-label="Filter percakapan">
+        <button class="filter active" data-filter="all">Semua</button><button class="filter" data-filter="unread">Belum dibaca</button><button class="filter" data-filter="qualified">Qualified</button>
+      </div>
+      <div id="chatList" class="chat-list" aria-live="polite"></div>
+      <button id="loadMoreChats" class="load-more" type="button" hidden>Muat percakapan lain</button>
+    </section>
+
+    <section id="conversationPanel" class="conversation-panel">
+      <header class="conversation-head">
+        <button id="mobileBack" class="mobile-back" aria-label="Kembali ke inbox">←</button>
+        <div id="activeAvatar" class="avatar">N</div>
+        <div class="conversation-title"><h2 id="activeName">Pilih percakapan</h2><p id="activeMeta">WhatsApp</p></div>
+        <button id="connectionButton" class="connection-pill" aria-label="Koneksi WhatsApp"><span></span><strong id="connectionLabel">Memeriksa</strong></button>
+        <button id="contextToggle" class="icon-button context-toggle" aria-label="Buka konteks lead">◫</button>
+        <button id="conversationMenuButton" class="icon-button more-button" aria-label="Menu percakapan">•••</button>
+      </header>
+      <button id="pinnedBar" class="pinned-bar" type="button" hidden>
+        <span class="pinned-icon">⌖</span>
+        <span><strong id="pinnedLabel">Pesan disematkan</strong><small id="pinnedSummary"></small></span>
+        <b id="pinnedCount">1</b>
+      </button>
+      <div id="emptyState" class="empty-state">
+        <img src="/brand/agnee-mark.svg" alt="">
+        <h2>Mulai dari percakapan</h2>
+        <p>Pilih kontak di sebelah kiri untuk membaca dan membalas pesan.</p>
+      </div>
+      <div id="messageList" class="message-list" hidden aria-live="polite"></div>
+      <form id="composer" class="composer" hidden>
+        <div id="replyBar" class="composer-context" hidden><div><strong id="replyLabel">Membalas</strong><span id="replyText"></span></div><button id="cancelReply" type="button" aria-label="Cancel reply">×</button></div>
+        <div id="attachmentBar" class="composer-context attachment-context" hidden><div><strong>Lampiran</strong><span id="attachmentName"></span></div><button id="cancelAttachment" type="button" aria-label="Remove attachment">×</button></div>
+        <input id="attachmentInput" type="file" accept="image/*,video/*,audio/*,application/pdf" hidden>
+        <button id="attachmentButton" type="button" class="composer-utility" aria-label="Attach file">＋</button>
+        <textarea id="messageInput" rows="1" maxlength="4096" placeholder="Tulis balasan…"></textarea>
+        <span id="composerStatus" class="composer-status" role="status"></span>
+        <span class="composer-hint">Enter kirim</span>
+        <button class="send-button" type="submit" aria-label="Send message">↗</button>
+      </form>
+    </section>
+
+    <aside id="contextPanel" class="context-panel">
+      <div class="context-head"><p class="eyebrow">KONTEKS LEAD</p><button id="contextClose" class="icon-button" aria-label="Tutup konteks">×</button></div>
+      <div class="lead-card"><div class="lead-score"><span id="leadScore">—</span><small>intent</small></div><div><strong id="leadTitle">Belum dikualifikasi</strong><p id="leadDetail">Belum dianalisis oleh AI.</p></div></div>
+      <section><h3>Funnel</h3><div class="stage-line"><i></i><span id="leadStage">Inbox</span><small>Otomatis</small></div></section>
+      <section><h3>Ringkasan</h3><p id="leadSummary">Pilih percakapan untuk melihat konteks lead.</p></section>
+      <section><h3>Label</h3><div class="tag-row"><span>WhatsApp</span><span>Inbound</span></div></section>
+      <button id="handoffButton" class="handoff-button">Teruskan ke sales <span>→</span></button>
+    </aside>
+  </main>
+
+  <dialog id="connectionDialog" class="connection-dialog">
+    <button id="closeDialog" class="dialog-close" aria-label="Tutup">×</button>
+    <img src="/brand/agnee-mark.svg" alt="" class="dialog-mark">
+    <p class="eyebrow">KONEKSI WHATSAPP</p>
+    <h2 id="dialogTitle">Hubungkan WhatsApp</h2>
+    <p id="dialogCopy">Buka WhatsApp → Linked Devices, lalu scan kode ini.</p>
+    <div class="qr-shell"><img id="qrImage" alt="WhatsApp pairing QR code"></div>
+    <p id="qrNote" class="demo-note"></p>
+  </dialog>
+
+  <dialog id="newConversationDialog" class="workspace-dialog">
+    <form id="newConversationForm">
+      <header><div><p class="eyebrow">PERCAKAPAN BARU</p><h2>Mulai WhatsApp</h2></div><button id="closeNewConversation" type="button" class="dialog-close" aria-label="Tutup">×</button></header>
+      <label>Nomor WhatsApp<input name="to" inputmode="tel" placeholder="0812 3456 7890" required></label>
+      <label>Pesan pertama<textarea name="text" rows="4" maxlength="4096" placeholder="Tulis pesan…" required></textarea></label>
+      <p id="newConversationError" class="form-error" role="alert"></p>
+      <button class="primary-button" type="submit">Kirim pesan <span>→</span></button>
+    </form>
+  </dialog>
+
+  <dialog id="utilityDialog" class="workspace-dialog utility-dialog">
+    <header><div><p id="utilityEyebrow" class="eyebrow">WORKSPACE</p><h2 id="utilityTitle">Panel</h2></div><button id="closeUtilityDialog" type="button" class="dialog-close" aria-label="Tutup">×</button></header>
+    <div id="utilityContent" class="utility-content"></div>
+  </dialog>
+
+  <dialog id="mediaViewer" class="media-viewer" aria-label="Lihat media">
+    <header class="media-toolbar">
+      <div><strong id="mediaViewerTitle">Foto</strong><span id="mediaZoomLabel">100%</span></div>
+      <nav aria-label="Kontrol media">
+        <button id="mediaZoomOut" class="image-control" type="button" aria-label="Perkecil">−</button>
+        <button id="mediaReset" class="image-control" type="button" aria-label="Reset zoom">Sesuai</button>
+        <button id="mediaZoomIn" class="image-control" type="button" aria-label="Perbesar">＋</button>
+        <button id="mediaDownload" type="button" aria-label="Unduh">↓</button>
+        <button id="mediaClose" type="button" aria-label="Tutup">×</button>
+      </nav>
+    </header>
+    <div id="mediaStage" class="media-stage">
+      <img id="mediaViewerImage" alt="">
+      <video id="mediaViewerVideo" controls playsinline preload="metadata" hidden></video>
+    </div>
+    <p class="media-help">Scroll atau pinch untuk zoom · drag untuk geser · double-click untuk reset</p>
+  </dialog>
+
+  <script src="/app.js" defer></script>
+</body>
+</html>

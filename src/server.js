@@ -242,6 +242,10 @@ async function buildApp(overrides = {}) {
       state.qrDataUrl = await QRCode.toDataURL(qr, { margin: 1, width: 320 });
       state.lastError = null;
       app.log.info('WhatsApp QR generated');
+      // WhatsApp rotates the QR roughly every 20s; push it immediately instead
+      // of waiting for the frontend's 30s polling fallback, which otherwise
+      // shows an already-expired code by the time the user scans it.
+      broadcastEvent('whatsapp_phase', { phase: 'waiting_for_qr', qrDataUrl: state.qrDataUrl });
     });
     whatsapp.on('authenticated', () => {
       if (state.phase === 'ready') return; // whatsapp-web.js can re-fire 'authenticated' after 'ready'

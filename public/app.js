@@ -726,6 +726,9 @@ function connectEvents() {
       clearInterval(state.connectionTimer);
       state.connectionTimer = null;
     }
+    if (payload.phase === 'waiting_for_qr' && payload.qrDataUrl) {
+      ui.qrImage.src = payload.qrDataUrl;
+    }
     if (payload.phase === 'authenticated') {
       ui.dialogTitle.textContent = 'Sesi sedang diatur…';
       ui.dialogCopy.textContent = 'Tunggu sebentar, kami sedang menyiapkan percakapan Anda.';

@@ -35,6 +35,8 @@ const ui = {
   contextToggle: document.querySelector('#contextToggle'),
   contextClose: document.querySelector('#contextClose'),
   filterButtons: [...document.querySelectorAll('.filter[data-filter]')],
+  tabButtons: [...document.querySelectorAll('.tab[data-tab]')],
+  filterRow: document.querySelector('#filterRow'),
   contactsButton: document.querySelector('#contactsButton'),
   inboxButton: document.querySelector('#inboxButton'),
   funnelButton: document.querySelector('#funnelButton'),
@@ -86,6 +88,7 @@ const state = {
   attachment: null,
   pinnedMessages: [],
   media: { src: '', filename: '', kind: 'image', scale: 1, x: 0, y: 0, pointers: new Map(), pinchDistance: 0, pinchScale: 1 },
+  activeTab: 'inbox',
   activeFilter: 'all',
   connectionTimer: null,
   workspaceTimer: null,
@@ -540,6 +543,7 @@ async function selectChat(chat, resetLimit = true) {
   state.pinnedMessages = [];
   ui.pinnedBar.hidden = true;
   sessionStorage.setItem('agnee_active_chat', chat.id);
+  api(`/v1/chats/${encodeURIComponent(chat.id)}/mark-read`, { method: 'POST' }).catch(() => {});
   renderChats();
   ui.activeName.textContent = chat.name;
   ui.activeMeta.textContent = chat.isGroup ? 'WhatsApp grup' : 'WhatsApp · lead aktif';
@@ -642,11 +646,12 @@ async function loadChats(reset = false) {
   state.loadingChats = true;
   try {
     const offset = reset ? 0 : state.chats.length;
+    const filter = state.activeTab === 'archived' ? 'archived' : state.activeFilter;
     const params = new URLSearchParams({
       limit: String(state.chatPageSize),
       offset: String(offset),
       q: ui.searchInput.value.trim(),
-      filter: state.activeFilter,
+      filter,
     });
     const data = await api(`/v1/chats?${params}`);
     const newChats = reset ? data.chats || [] : [...state.chats, ...(data.chats || [])];
@@ -1011,6 +1016,14 @@ ui.searchInput.addEventListener('input', () => {
   clearTimeout(state.searchTimer);
   state.searchTimer = setTimeout(() => loadChats(true), 250);
 });
+for (const button of ui.tabButtons) {
+  button.addEventListener('click', async () => {
+    state.activeTab = button.dataset.tab;
+    for (const item of ui.tabButtons) item.classList.toggle('active', item === button);
+    ui.filterRow.hidden = state.activeTab === 'archived';
+    await loadChats(true);
+  });
+}
 for (const button of ui.filterButtons) {
   button.addEventListener('click', async () => {
     state.activeFilter = button.dataset.filter;

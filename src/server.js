@@ -129,9 +129,10 @@ function demoDataset() {
   const now = Math.floor(Date.now() / 1000);
   return {
     chats: [
-      { id: 'demo-nadia', name: 'Nadia — Kopi Pagi', preview: 'Bisa bantu paket untuk 3 cabang?', timestamp: now - 120, unreadCount: 2, isGroup: false, pinned: false },
-      { id: 'demo-raka', name: 'Raka Studio', preview: 'Oke, saya cek proposalnya dulu.', timestamp: now - 1860, unreadCount: 0, isGroup: false, pinned: true },
-      { id: 'demo-maya', name: 'Maya Retail', preview: 'Ada integrasi ke CRM kami?', timestamp: now - 7200, unreadCount: 1, isGroup: false },
+      { id: 'demo-nadia', name: 'Nadia — Kopi Pagi', preview: 'Bisa bantu paket untuk 3 cabang?', timestamp: now - 120, unreadCount: 2, isGroup: false, pinned: false, archived: false },
+      { id: 'demo-raka', name: 'Raka Studio', preview: 'Oke, saya cek proposalnya dulu.', timestamp: now - 1860, unreadCount: 0, isGroup: false, pinned: true, archived: false },
+      { id: 'demo-maya', name: 'Maya Retail', preview: 'Ada integrasi ke CRM kami?', timestamp: now - 7200, unreadCount: 1, isGroup: false, archived: false },
+      { id: 'demo-old', name: 'Old Client', preview: 'Terima kasih sudah menggunakan Agnee', timestamp: now - 86400, unreadCount: 0, isGroup: false, pinned: false, archived: true },
     ],
     messages: {
       'demo-nadia': [
@@ -317,6 +318,7 @@ async function buildApp(overrides = {}) {
         unreadCount: chat.unreadCount || 0,
         isGroup: Boolean(chat.isGroup),
         pinned: Boolean(chat.pinned),
+        archived: Boolean(chat.archived),
       })).sort((a, b) => Number(b.pinned) - Number(a.pinned) || Number(b.timestamp) - Number(a.timestamp));
     } catch (error) {
       app.log.warn({ err: error }, 'Standard WhatsApp chat serialization failed; using safe snapshot');
@@ -346,6 +348,7 @@ async function buildApp(overrides = {}) {
               unreadCount: Number(chat.unreadCount || 0),
               isGroup: Boolean(chat.groupMetadata) || id.endsWith('@g.us'),
               pinned: Boolean(chat.pin || chat.__x_pin),
+              archived: Boolean(chat.archived || chat.__x_archived),
             };
           } catch {
             return null;
@@ -656,18 +659,21 @@ async function buildApp(overrides = {}) {
       limit: { type: 'integer', minimum: 1, maximum: 50, default: 12 },
       offset: { type: 'integer', minimum: 0, maximum: 5000, default: 0 },
       q: { type: 'string', maxLength: 100, default: '' },
-      filter: { type: 'string', enum: ['all', 'unread', 'qualified'], default: 'all' },
+      filter: { type: 'string', enum: ['all', 'unread', 'qualified', 'archived', 'inbox'], default: 'inbox' },
     } } },
   }, async (request) => {
     const limit = request.query.limit || 12;
     const offset = request.query.offset || 0;
     if (!config.demoMode && state.phase !== 'ready') return { chats: [], phase: state.phase };
     const query = String(request.query.q || '').trim().toLocaleLowerCase('id-ID');
-    const filter = request.query.filter || 'all';
+    const filter = request.query.filter || 'inbox';
     let chats = config.demoMode ? [...demo.chats] : await getChatsForUi();
+    if (filter === 'inbox') chats = chats.filter((chat) => !chat.archived);
+    if (filter === 'archived') chats = chats.filter((chat) => chat.archived);
+    if (filter === 'unread') chats = chats.filter((chat) => chat.unreadCount > 0 && !chat.archived);
+    if (filter === 'qualified') chats = chats.filter((chat) => !chat.archived && ['qualified', 'assigned'].includes(getLeadState(chat.id).stage));
+    if (filter === 'all') chats = chats;
     if (query) chats = chats.filter((chat) => `${chat.name} ${chat.preview}`.toLocaleLowerCase('id-ID').includes(query));
-    if (filter === 'unread') chats = chats.filter((chat) => chat.unreadCount > 0);
-    if (filter === 'qualified') chats = chats.filter((chat) => ['qualified', 'assigned'].includes(getLeadState(chat.id).stage));
     chats.sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) || Number(b.timestamp || 0) - Number(a.timestamp || 0));
     return {
       chats: chats.slice(offset, offset + limit),
@@ -773,6 +779,31 @@ async function buildApp(overrides = {}) {
     leadStates.set(request.params.chatId, lead);
     broadcastEvent('lead', lead);
     return lead;
+  });
+
+  app.post('/v1/chats/:chatId/mark-read', {
+    schema: {
+      params: { type: 'object', required: ['chatId'], properties: {
+        chatId: { type: 'string', minLength: 1, maxLength: 128 },
+      } },
+    },
+  }, async (request, reply) => {
+    const { chatId } = request.params;
+    if (config.demoMode) {
+      const chat = demo.chats.find((c) => c.id === chatId);
+      if (chat) chat.unreadCount = 0;
+      return { success: true };
+    }
+    if (state.phase !== 'ready') return reply.code(503).send({ error: 'WhatsApp is not ready', phase: state.phase });
+    try {
+      await whatsapp.pupPage.evaluate(async (requestedChatId) => {
+        await window.WWebJS.sendSeen(requestedChatId);
+      }, chatId);
+      return { success: true };
+    } catch (error) {
+      app.log.warn({ err: error, chatId }, 'Failed to mark chat as read');
+      return reply.code(500).send({ error: 'Failed to mark chat as read' });
+    }
   });
 
   app.get('/v1/chats/:chatId/avatar', {

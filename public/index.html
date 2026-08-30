@@ -60,7 +60,11 @@
         <button id="newConversationButton" class="icon-button" aria-label="Percakapan baru">＋</button>
       </header>
       <label class="search-box"><span aria-hidden="true">⌕</span><input id="searchInput" type="search" placeholder="Cari percakapan"></label>
-      <div class="filter-row" aria-label="Filter percakapan">
+      <div class="tab-row" aria-label="Tab percakapan">
+        <button class="tab active" data-tab="inbox" aria-label="Tab Inbox">Inbox</button>
+        <button class="tab" data-tab="archived" aria-label="Tab Archived">Archived</button>
+      </div>
+      <div class="filter-row" aria-label="Filter percakapan" id="filterRow">
         <button class="filter active" data-filter="all">Semua</button><button class="filter" data-filter="unread">Belum dibaca</button><button class="filter" data-filter="qualified">Qualified</button>
       </div>
       <div id="chatList" class="chat-list" aria-live="polite"></div>

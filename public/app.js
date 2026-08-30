@@ -543,7 +543,10 @@ async function selectChat(chat, resetLimit = true) {
   state.pinnedMessages = [];
   ui.pinnedBar.hidden = true;
   sessionStorage.setItem('agnee_active_chat', chat.id);
-  api(`/v1/chats/${encodeURIComponent(chat.id)}/mark-read`, { method: 'POST' }).catch(() => {});
+  api(`/v1/chats/${encodeURIComponent(chat.id)}/mark-read`, { method: 'POST' }).then(() => {
+    chat.unreadCount = 0;
+    renderChats();
+  }).catch(() => {});
   renderChats();
   ui.activeName.textContent = chat.name;
   ui.activeMeta.textContent = chat.isGroup ? 'WhatsApp grup' : 'WhatsApp · lead aktif';

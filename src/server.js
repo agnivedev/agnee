@@ -980,8 +980,13 @@ async function buildApp(overrides = {}) {
       state.lastError = error.message;
       app.log.error({ err: error }, 'WhatsApp initialization failed');
     });
-    restoredSessionTimer = setTimeout(async () => {
-      if (!['starting', 'authenticated'].includes(state.phase) || !whatsapp?.pupPage) return;
+    let restoredSessionAttempts = 0;
+    const tryResumeRestoredSession = async () => {
+      restoredSessionAttempts += 1;
+      if (!['starting', 'authenticated'].includes(state.phase) || !whatsapp?.pupPage) {
+        restoredSessionTimer = null;
+        return;
+      }
       try {
         const connectionState = await whatsapp.getState().catch(() => null);
         if (connectionState === 'CONNECTED') {
@@ -990,6 +995,8 @@ async function buildApp(overrides = {}) {
           state.account = whatsapp.info?.wid?._serialized || null;
           state.lastError = null;
           app.log.info('Restored WhatsApp session confirmed connected');
+          broadcastEvent('whatsapp_phase', { phase: 'ready', account: state.account });
+          restoredSessionTimer = null;
           return;
         }
         const kicked = await whatsapp.pupPage.evaluate(() => {
@@ -1002,7 +1009,9 @@ async function buildApp(overrides = {}) {
       } catch (error) {
         app.log.warn({ err: error }, 'Could not resume restored WhatsApp session sync');
       }
-    }, 5000);
+      if (restoredSessionAttempts < 12) restoredSessionTimer = setTimeout(tryResumeRestoredSession, 5000);
+    };
+    restoredSessionTimer = setTimeout(tryResumeRestoredSession, 5000);
   });
   return app;
 }

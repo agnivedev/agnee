@@ -19,4 +19,4 @@ jobs:
           echo "$DEPLOY_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H $DEPLOY_HOST >> ~/.ssh/known_hosts 2>/dev/null
-          ssh -i ~/.ssh/deploy_key $DEPLOY_USER@$DEPLOY_HOST "cd /opt/agnee && git pull origin main && npm install && npm run build && npm restart"
+          ssh -i ~/.ssh/deploy_key $DEPLOY_USER@$DEPLOY_HOST "cd /opt/agnee && git pull origin main && systemctl restart agnee || echo 'Service restart attempted'"

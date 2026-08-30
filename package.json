@@ -10,7 +10,8 @@
     "mcp:http": "node src/mcp-http.mjs",
     "test:mcp": "node scripts/mcp-smoke.mjs",
     "check": "node --check src/server.js && node --check src/mcp-server.mjs && node --check src/mcp-http.mjs",
-    "test": "node --test"
+    "test": "node --test",
+    "test-openrouter": "node scripts/test-openrouter-models.js"
   },
   "engines": {
     "node": ">=22"

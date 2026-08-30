@@ -8,6 +8,13 @@ const fastifyStatic = require('@fastify/static');
 const QRCode = require('qrcode');
 const { Client, LocalAuth } = require('whatsapp-web.js');
 
+process.on('unhandledRejection', (reason) => {
+  console.error('Unhandled promise rejection (WhatsApp adapter kept alive):', reason);
+});
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught exception (WhatsApp adapter kept alive):', error);
+});
+
 function loadConfig(overrides = {}) {
   const startupEnabled = process.env.WA_STARTUP_ENABLED !== 'false';
   const config = {

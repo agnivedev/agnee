@@ -991,14 +991,28 @@ async function buildApp(overrides = {}) {
       try {
         const connectionState = await whatsapp.getState().catch(() => null);
         if (connectionState === 'CONNECTED') {
-          state.phase = 'ready';
-          state.connectedAt = new Date().toISOString();
-          state.account = whatsapp.info?.wid?._serialized || null;
-          state.lastError = null;
-          app.log.info('Restored WhatsApp session confirmed connected');
-          broadcastEvent('whatsapp_phase', { phase: 'ready', account: state.account });
-          restoredSessionTimer = null;
-          return;
+          let injected = await whatsapp.pupPage.evaluate(() => Boolean(window.WWebJS)).catch(() => false);
+          if (!injected) {
+            // getState() reads the raw WA socket and can be CONNECTED even when
+            // whatsapp-web.js's own page-side helpers never finished loading
+            // (e.g. a prior Client.inject() crashed mid-way). Re-run it so
+            // WWebJS-dependent endpoints (send, mark-read, pinned) work.
+            await whatsapp.inject().catch((error) => {
+              app.log.warn({ err: error }, 'Re-injecting WhatsApp page helpers failed');
+            });
+            injected = await whatsapp.pupPage.evaluate(() => Boolean(window.WWebJS)).catch(() => false);
+          }
+          if (injected) {
+            state.phase = 'ready';
+            state.connectedAt = new Date().toISOString();
+            state.account = whatsapp.info?.wid?._serialized || null;
+            state.lastError = null;
+            app.log.info('Restored WhatsApp session confirmed connected');
+            broadcastEvent('whatsapp_phase', { phase: 'ready', account: state.account });
+            restoredSessionTimer = null;
+            return;
+          }
+          app.log.warn('WhatsApp socket connected but page helpers are still missing; will retry');
         }
         const kicked = await whatsapp.pupPage.evaluate(() => {
           const socket = window.require?.('WAWebSocketModel')?.Socket;

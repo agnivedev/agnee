@@ -717,9 +717,17 @@ function connectEvents() {
   events.addEventListener('whatsapp_phase', async (event) => {
     let payload = {};
     try { payload = JSON.parse(event.data || '{}'); } catch { /* ignore */ }
-    if (payload.phase === 'ready' && state.connectionTimer) {
+    state.whatsapp = { phase: payload.phase, account: payload.account };
+    renderConnection(state.whatsapp);
+    if (state.connectionTimer) {
       clearInterval(state.connectionTimer);
       state.connectionTimer = null;
+    }
+    if (payload.phase === 'authenticated') {
+      ui.dialogTitle.textContent = 'Sesi sedang diatur…';
+      ui.dialogCopy.textContent = 'Tunggu sebentar, kami sedang menyiapkan percakapan Anda.';
+    }
+    if (payload.phase === 'ready') {
       ui.dialogTitle.textContent = 'WhatsApp terhubung';
       ui.dialogCopy.textContent = 'Mengambil percakapan terbaru…';
       ui.qrNote.textContent = payload.account || '';
@@ -874,7 +882,7 @@ async function openConnection() {
     ui.qrNote.textContent = error.message;
   }
   clearInterval(state.connectionTimer);
-  state.connectionTimer = setInterval(checkConnection, 2500);
+  state.connectionTimer = setInterval(checkConnection, 30000);
 }
 
 async function checkConnection() {

@@ -982,6 +982,7 @@ async function buildApp(overrides = {}) {
       app.log.error({ err: error }, 'WhatsApp initialization failed');
     });
     let restoredSessionAttempts = 0;
+    let restartAttempted = false;
     const tryResumeRestoredSession = async () => {
       restoredSessionAttempts += 1;
       if (!['starting', 'authenticated'].includes(state.phase) || !whatsapp?.pupPage) {
@@ -998,7 +999,8 @@ async function buildApp(overrides = {}) {
           // listeners on every call, so a full client restart (same recovery
           // path as the 'disconnected' handler) is used instead once.
           const injected = await whatsapp.pupPage.evaluate(() => Boolean(window.WWebJS)).catch(() => false);
-          if (!injected && restoredSessionAttempts === 1) {
+          if (!injected && !restartAttempted) {
+            restartAttempted = true;
             app.log.warn('WhatsApp socket connected but page helpers never loaded; restarting client');
             restoredSessionTimer = null;
             const stale = whatsapp;

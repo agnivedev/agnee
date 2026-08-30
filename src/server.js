@@ -244,6 +244,7 @@ async function buildApp(overrides = {}) {
       app.log.info('WhatsApp QR generated');
     });
     whatsapp.on('authenticated', () => {
+      if (state.phase === 'ready') return; // whatsapp-web.js can re-fire 'authenticated' after 'ready'
       state.phase = 'authenticated';
       state.qrDataUrl = null;
       state.lastError = null;

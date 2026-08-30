@@ -8,6 +8,10 @@ Semua perubahan penting Agnee dicatat di file ini. Format mengikuti prinsip
 
 ### Added
 
+- Setup dan operations runbook lengkap, knowledge FAQ per kategori, sales
+  funneling playbook, qualification schema, lead scoring, serta reply policy.
+- Work history untuk mencatat keputusan arsitektur, UX WhatsApp, MCP, deployment,
+  dan konsolidasi ke repository canonical Agnee.
 - OAuth 2.1 Authorization Code + PKCE untuk koneksi ChatGPT, termasuk protected
   resource metadata, authorization-server discovery, dynamic client
   registration, rotating refresh token, dan login admin Agnee.

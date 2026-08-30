@@ -117,6 +117,8 @@ LLM berada di sisi ChatGPT, bukan di dalam MCP gateway.
 .
 ├── assets/brand/          Logo dan aset brand Agnee
 ├── public/                Frontend HTML, CSS, dan browser JavaScript
+├── docs/                  Setup, operations, dan work history
+├── knowledge/             FAQ, funnel, dan reply policy untuk retrieval
 ├── scripts/               Helper server dan MCP smoke test
 ├── src/
 │   ├── server.js          App/API, auth, SSE, dan WhatsApp adapter

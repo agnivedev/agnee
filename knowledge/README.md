@@ -1,54 +1,52 @@
-# Knowledge Base
+---
+title: Agnee Knowledge Base
+version: 1.0.0
+language: id-ID
+audience: [customer, customer-service, sales, chatbot]
+status: draft
+---
 
-Folder ini berisi FAQ dan funneling untuk auto-reply LLM.
+# Agnee Knowledge Base
 
-## Struktur
+Folder ini menjadi sumber pengetahuan chatbot, copilot agent, dan tim sales.
+Konten sengaja dipisahkan dari kode agar dapat diindeks, direview, dan diganti
+tanpa mengubah MCP.
 
-```
-knowledge/
-├── README.md (file ini)
-├── bzone-ea.md          # FAQ & funneling untuk bZone EA
-└── [product-name].md    # Knowledge base untuk produk lain
-```
+## Kategori
 
-## Format
+| Kategori | File | Isi |
+| --- | --- | --- |
+| Produk | [`faq/product.md`](faq/product.md) | Definisi, kegunaan, dan positioning |
+| Fitur | [`faq/features.md`](faq/features.md) | Inbox, FAQ, AI, MCP, dan n8n |
+| Integrasi | [`faq/integrations.md`](faq/integrations.md) | WhatsApp, OpenRouter, on-prem, API |
+| Harga & onboarding | [`faq/pricing-onboarding.md`](faq/pricing-onboarding.md) | Paket, demo, implementasi |
+| Keamanan & batasan | [`faq/security-limitations.md`](faq/security-limitations.md) | Data, unofficial adapter, SLA |
+| Sales funnel | [`funnel/sales-funnel.md`](funnel/sales-funnel.md) | Stage, pertanyaan, scoring, handoff |
+| Kebijakan jawaban | [`policies/reply-policy.md`](policies/reply-policy.md) | Tone, guardrails, eskalasi |
 
-Setiap file menggunakan Markdown dengan struktur:
+## Status fakta
 
-### 1. Product Info
-```
-# Product Name
-**Deskripsi singkat produk**
-```
+- `confirmed`: sudah benar dan dapat dijawab langsung.
+- `provisional`: arah produk sudah ada tetapi detail perlu dikonfirmasi manusia.
+- `unknown`: jangan ditebak; tanyakan kebutuhan lalu handoff.
+- `internal-only`: tidak boleh diungkap sebagai informasi publik.
 
-### 2. FAQ Section
-```
-## FAQ
+## Aturan retrieval
 
-### Q: Pertanyaan 1?
-**A:** Jawaban singkat dan jelas.
+1. Ambil hanya bagian yang relevan dengan pertanyaan terbaru.
+2. Prioritaskan `confirmed` dibanding `provisional`.
+3. Jangan mengarang harga, SLA, timeline, sertifikasi, atau integrasi.
+4. Gunakan satu pertanyaan klarifikasi per balasan.
+5. Simpan ringkasan lead terstruktur agar histori penuh tidak dikirim ke LLM.
+6. Ketika informasi belum pasti, katakan dengan jujur dan tawarkan handoff.
 
-### Q: Pertanyaan 2?
-**A:** Jawaban...
-```
+## Format entri FAQ
 
-### 3. Funneling / Intent
-```
-## Funneling Intent
+Setiap entri menggunakan:
 
-### Intent: greeting
-**Trigger:** "halo", "pagi", "salam"
-**Response:** Template jawaban...
-
-### Intent: product-inquiry
-**Trigger:** keyword yang related
-**Response:** Penjelasan produk...
-```
-
-## Usage
-
-LLM akan membaca file ini saat:
-1. User mengirim pesan WhatsApp
-2. Backend detect intent dari pesan
-3. Retrieve relevant FAQ/funneling
-4. Generate auto-reply
+- `ID`: identifier stabil untuk analytics;
+- `Status`: tingkat kepastian;
+- `Intent`: frasa yang dapat memicu retrieval;
+- `Jawaban`: fakta inti;
+- `Contoh balasan`: versi conversational;
+- `Next action`: pertanyaan atau handoff berikutnya.

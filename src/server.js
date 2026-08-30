@@ -991,16 +991,28 @@ async function buildApp(overrides = {}) {
       try {
         const connectionState = await whatsapp.getState().catch(() => null);
         if (connectionState === 'CONNECTED') {
-          let injected = await whatsapp.pupPage.evaluate(() => Boolean(window.WWebJS)).catch(() => false);
-          if (!injected) {
-            // getState() reads the raw WA socket and can be CONNECTED even when
-            // whatsapp-web.js's own page-side helpers never finished loading
-            // (e.g. a prior Client.inject() crashed mid-way). Re-run it so
-            // WWebJS-dependent endpoints (send, mark-read, pinned) work.
-            await whatsapp.inject().catch((error) => {
-              app.log.warn({ err: error }, 'Re-injecting WhatsApp page helpers failed');
+          // getState() reads the raw WA socket and can be CONNECTED even when
+          // whatsapp-web.js's own page-side helpers never finished loading
+          // (e.g. a prior Client.inject() crashed mid-way). Calling inject()
+          // again in place is not safe to retry — it re-registers page-side
+          // listeners on every call, so a full client restart (same recovery
+          // path as the 'disconnected' handler) is used instead once.
+          const injected = await whatsapp.pupPage.evaluate(() => Boolean(window.WWebJS)).catch(() => false);
+          if (!injected && restoredSessionAttempts === 1) {
+            app.log.warn('WhatsApp socket connected but page helpers never loaded; restarting client');
+            restoredSessionTimer = null;
+            const stale = whatsapp;
+            whatsapp = null;
+            await stale.destroy().catch(() => {});
+            state.phase = 'starting';
+            state.lastError = null;
+            createWhatsappClient();
+            whatsapp.initialize().catch((error) => {
+              state.phase = 'error';
+              state.lastError = error.message;
+              app.log.error({ err: error }, 'WhatsApp re-initialization failed');
             });
-            injected = await whatsapp.pupPage.evaluate(() => Boolean(window.WWebJS)).catch(() => false);
+            return;
           }
           if (injected) {
             state.phase = 'ready';

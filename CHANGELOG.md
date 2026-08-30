@@ -8,6 +8,37 @@ Semua perubahan penting Agnee dicatat di file ini. Format mengikuti prinsip
 
 ### Added
 
+- Endpoint `POST /v1/chats/:chatId/mark-read` yang menandai chat sebagai
+  terbaca (mengirim `sendSeen` ke WhatsApp) begitu chat tersebut dibuka;
+  badge unread langsung hilang di UI tanpa menunggu refresh.
+- Tab Inbox dan Archived terpisah di daftar percakapan, dengan filter
+  `inbox`/`archived` di endpoint `GET /v1/chats` dan properti `archived`
+  pada setiap chat.
+
+### Changed
+
+- Notifikasi status WhatsApp (`whatsapp_phase`) kini didorong secara
+  real-time lewat SSE ke UI alih-alih menunggu polling; polling hanya
+  dipakai sebagai fallback setiap 30 detik.
+- Workflow deploy GitHub Actions sekarang benar-benar menjalankan
+  `docker-compose build` + `up -d` di server, bukan sekadar `git pull` dan
+  me-restart systemd service lama yang sudah tidak dipakai.
+
+### Fixed
+
+- Server tidak lagi crash total ketika whatsapp-web.js melempar error
+  internal (mis. `TargetCloseError` saat `Client.inject`); ditambahkan
+  handler `unhandledRejection`/`uncaughtException` di level proses.
+- Sesi WhatsApp yang di-restore dari disk tidak lagi macet selamanya di
+  fase `authenticated`; pengecekan pemulihan sesi sekarang diulang setiap
+  5 detik (maks. 12 kali) alih-alih hanya sekali di detik ke-5.
+- Event `authenticated` yang kadang ditembak ulang oleh whatsapp-web.js
+  setelah `ready` tidak lagi memundurkan status koneksi di UI.
+- Form login tidak lagi terisi otomatis dengan kredensial default lama
+  (`admin@agnee.local` / `agnee-demo`) yang sudah tidak berlaku di server.
+- Grid layout panel inbox diperbaiki setelah penambahan tab Inbox/Archived
+  (baris grid yang hilang menyebabkan filter row tumpang tindih).
+
 - Setup dan operations runbook lengkap, knowledge FAQ per kategori, sales
   funneling playbook, qualification schema, lead scoring, serta reply policy.
 - Work history untuk mencatat keputusan arsitektur, UX WhatsApp, MCP, deployment,

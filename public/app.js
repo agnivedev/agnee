@@ -1441,7 +1441,17 @@ if (refreshQrBtn) {
       const data = await api('/v1/whatsapp/qr-refresh', { method: 'POST' });
       if (data?.qrDataUrl) {
         ui.qrImage.src = data.qrDataUrl;
+        ui.qrShell.hidden = false;
         setTimeout(() => { refreshQrBtn.classList.remove('loading'); refreshQrBtn.disabled = false; }, 400);
+      } else if (data?.restarting) {
+        // Server is restarting WhatsApp client — show waiting state, SSE will push the new QR
+        ui.qrShell.hidden = true;
+        ui.qrNote.textContent = 'Memulai ulang koneksi WhatsApp…';
+        // Re-enable button after delay so user can retry if needed
+        setTimeout(() => { refreshQrBtn.classList.remove('loading'); refreshQrBtn.disabled = false; }, 5000);
+      } else {
+        refreshQrBtn.classList.remove('loading');
+        refreshQrBtn.disabled = false;
       }
     } catch (err) {
       console.warn('QR refresh failed:', err.message);

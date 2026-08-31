@@ -875,6 +875,24 @@ async function buildApp(overrides = {}) {
       demoQr ||= await QRCode.toDataURL('AGNEE-DEMO-PAIRING', { margin: 1, width: 320, color: { dark: '#173A30', light: '#FFFFFF' } });
       return { qrDataUrl: demoQr, demoMode: true };
     }
+    // When client is stuck in error state, restart it so a fresh QR is generated
+    if (state.phase === 'error') {
+      const stale = whatsapp;
+      whatsapp = null;
+      stale?.destroy().catch(() => {});
+      state.phase = 'starting';
+      state.qrDataUrl = null;
+      state.lastError = null;
+      broadcastEvent('whatsapp_phase', { phase: 'starting' });
+      createWhatsappClient();
+      whatsapp.initialize().catch((error) => {
+        state.phase = 'error';
+        state.lastError = error.message;
+        app.log.error({ err: error }, 'WhatsApp re-initialization after manual refresh failed');
+        broadcastEvent('whatsapp_phase', { phase: 'error', error: error.message });
+      });
+      return { restarting: true, phase: 'starting' };
+    }
     if (!state.qrDataUrl) return reply.code(404).send({ error: 'QR is not available', phase: state.phase });
     return { qrDataUrl: state.qrDataUrl, demoMode: false };
   });
@@ -1253,12 +1271,32 @@ async function buildApp(overrides = {}) {
   });
   app.decorate('startWhatsapp', async () => {
     if (!config.startupEnabled || config.demoMode || whatsapp) return;
-    createWhatsappClient();
-    whatsapp.initialize().catch((error) => {
-      state.phase = 'error';
-      state.lastError = error.message;
-      app.log.error({ err: error }, 'WhatsApp initialization failed');
-    });
+    let initRetries = 0;
+    const initWithRetry = () => {
+      createWhatsappClient();
+      whatsapp.initialize().catch((error) => {
+        state.phase = 'error';
+        state.lastError = error.message;
+        app.log.error({ err: error }, 'WhatsApp initialization failed');
+        broadcastEvent('whatsapp_phase', { phase: 'error', error: error.message });
+        if (initRetries < 2) {
+          initRetries += 1;
+          const delay = initRetries * 10_000;
+          app.log.info(`WhatsApp will auto-retry initialization in ${delay / 1000}s (attempt ${initRetries}/2)`);
+          setTimeout(() => {
+            if (state.phase !== 'error') return;
+            const stale = whatsapp;
+            whatsapp = null;
+            stale?.destroy().catch(() => {});
+            state.phase = 'starting';
+            state.lastError = null;
+            broadcastEvent('whatsapp_phase', { phase: 'starting' });
+            initWithRetry();
+          }, delay);
+        }
+      });
+    };
+    initWithRetry();
     let restoredSessionAttempts = 0;
     let restartAttempted = false;
     const tryResumeRestoredSession = async () => {

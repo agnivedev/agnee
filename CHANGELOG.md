@@ -38,6 +38,16 @@ Semua perubahan penting Agnee dicatat di file ini. Format mengikuti prinsip
   (`admin@agnee.local` / `agnee-demo`) yang sudah tidak berlaku di server.
 - Grid layout panel inbox diperbaiki setelah penambahan tab Inbox/Archived
   (baris grid yang hilang menyebabkan filter row tumpang tindih).
+- Status `ready` tidak lagi dilaporkan palsu saat sesi WhatsApp yang
+  di-restore terhubung secara socket (`getState() === 'CONNECTED'`) tapi
+  helper halaman whatsapp-web.js (`window.WWebJS`) belum selesai ter-inject
+  — endpoint yang bergantung padanya (mark-read, kirim pesan, pinned) gagal
+  diam-diam sebelumnya. Sekarang di-restart penuh (destroy + reinit, sesi
+  LocalAuth tetap dipakai) sekali begitu ketidaksesuaian ini terdeteksi.
+- QR pairing kini diperbarui via dua mekanisme: SSE push segera saat
+  WhatsApp merotasi QR (~setiap 20 detik), didukung polling fallback 15
+  detik yang tetap jalan meski SSE terputus sejenak — sehingga QR di
+  layar tidak expired sebelum sempat di-scan.
 
 - Setup dan operations runbook lengkap, knowledge FAQ per kategori, sales
   funneling playbook, qualification schema, lead scoring, serta reply policy.

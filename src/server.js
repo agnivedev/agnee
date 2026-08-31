@@ -7,6 +7,8 @@ const Fastify = require('fastify');
 const fastifyStatic = require('@fastify/static');
 const QRCode = require('qrcode');
 const { Client, LocalAuth } = require('whatsapp-web.js');
+const KnowledgeBase = require('./knowledge-loader.js');
+const LlmService = require('./llm-service.js');
 
 process.on('unhandledRejection', (reason) => {
   console.error('Unhandled promise rejection (WhatsApp adapter kept alive):', reason);
@@ -34,6 +36,11 @@ function loadConfig(overrides = {}) {
     webhookSecret: process.env.INBOUND_WEBHOOK_SECRET || '',
     ackEnabled: process.env.WA_ACK_ENABLED === 'true',
     ackText: process.env.WA_ACK_TEXT || 'Terima kasih, pesan Anda sudah kami terima.',
+    llmEnabled: process.env.LLM_ENABLED === 'true',
+    openrouterApiKey: process.env.OPENROUTER_API_KEY || '',
+    openrouterModel: process.env.OPENROUTER_MODEL || 'qwen-2.5-72b-instruct',
+    llmMaxTokens: Number(process.env.LLM_MAX_TOKENS || 512),
+    knowledgeClient: process.env.KNOWLEDGE_CLIENT || 'bzone',
     ...overrides,
   };
   if (process.env.NODE_ENV === 'production') {
@@ -167,6 +174,14 @@ async function buildApp(overrides = {}) {
   const eventClients = new Set();
   const sendReceipts = new Map();
   const leadStates = new Map();
+  const knowledgeBase = new KnowledgeBase({ clientId: config.knowledgeClient });
+  const llmService = new LlmService({
+    apiKey: config.openrouterApiKey,
+    model: config.openrouterModel,
+    maxTokens: config.llmMaxTokens,
+    enabled: config.llmEnabled,
+  });
+  if (config.llmEnabled) await knowledgeBase.load();
   const state = {
     phase: config.demoMode ? 'demo' : config.startupEnabled ? 'starting' : 'disabled',
     qrDataUrl: null,
@@ -218,6 +233,23 @@ async function buildApp(overrides = {}) {
       signal: AbortSignal.timeout(10_000),
     });
     if (!response.ok) throw new Error(`Inbound webhook returned HTTP ${response.status}`);
+  }
+
+  async function generateAutoReply(message) {
+    if (!config.llmEnabled) return null;
+    if (message.from.endsWith('@g.us')) return null;
+    if (!message.body || !message.body.trim()) return null;
+
+    const relevantFaqs = knowledgeBase.findRelevantFaq(message.body);
+    const leadState = getLeadState(message.from);
+
+    const result = await llmService.generateReply(message.body, {
+      systemPrompt: knowledgeBase.getSystemPrompt(),
+      relevantFaqs,
+      leadState,
+    });
+
+    return result?.text || null;
   }
 
   function createWhatsappClient() {
@@ -299,7 +331,12 @@ async function buildApp(overrides = {}) {
       if (message.fromMe || message.from === 'status@broadcast') return;
       try {
         await deliverInboundWebhook(message);
-        if (config.ackEnabled && message.body) await message.reply(config.ackText);
+        const autoReply = await generateAutoReply(message);
+        if (autoReply) {
+          await message.reply(autoReply);
+        } else if (config.ackEnabled && message.body) {
+          await message.reply(config.ackText);
+        }
       } catch (error) {
         app.log.error({ err: error }, 'Inbound message handling failed');
       }

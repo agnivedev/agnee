@@ -3,7 +3,7 @@
 class LlmService {
   constructor(config = {}) {
     this.apiKey = config.apiKey || process.env.OPENROUTER_API_KEY;
-    this.model = config.model || process.env.OPENROUTER_MODEL || 'grok-2-1212';
+    this.model = config.model || process.env.OPENROUTER_MODEL || 'qwen-2.5-72b-instruct';
     this.baseUrl = 'https://openrouter.ai/api/v1';
     this.contextWindow = config.contextWindow || 8000;
     this.maxTokens = config.maxTokens || 512;

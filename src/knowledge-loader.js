@@ -4,7 +4,9 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 class KnowledgeBase {
-  constructor() {
+  constructor(options = {}) {
+    this.clientId = options.clientId || process.env.KNOWLEDGE_CLIENT || 'bzone';
+    this.clientProfile = null;
     this.faqDatabase = new Map();
     this.funnelRules = null;
     this.replyPolicy = null;
@@ -12,7 +14,7 @@ class KnowledgeBase {
   }
 
   async load() {
-    const knowledgeDir = path.join(__dirname, '..', 'knowledge');
+    const knowledgeDir = path.join(__dirname, '..', 'knowledge', 'clients', this.clientId);
 
     if (!fs.existsSync(knowledgeDir)) {
       console.warn('Knowledge base directory not found');
@@ -20,6 +22,11 @@ class KnowledgeBase {
     }
 
     try {
+      const profileFile = path.join(knowledgeDir, 'tenant.json');
+      if (fs.existsSync(profileFile)) {
+        this.clientProfile = JSON.parse(fs.readFileSync(profileFile, 'utf8'));
+      }
+
       // Load FAQ files
       const faqDir = path.join(knowledgeDir, 'faq');
       if (fs.existsSync(faqDir)) {
@@ -44,7 +51,7 @@ class KnowledgeBase {
       }
 
       this.loaded = true;
-      console.log(`✓ Knowledge base loaded: ${this.faqDatabase.size} FAQ entries`);
+      console.log(`✓ Knowledge base loaded: ${this.clientId} (${this.faqDatabase.size} FAQ entries)`);
     } catch (err) {
       console.error('Failed to load knowledge base:', err.message);
     }
@@ -55,69 +62,89 @@ class KnowledgeBase {
     let currentFaqId = null;
     let currentIntent = [];
     let currentAnswer = '';
-    let isReading = false;
+    let activeField = null; // which bold field continuation lines belong to
 
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
+    const flush = () => {
+      if (currentFaqId && currentAnswer) {
+        this.faqDatabase.set(currentFaqId, {
+          id: currentFaqId,
+          intent: currentIntent,
+          answer: currentAnswer.trim(),
+          source: filename,
+        });
+      }
+    };
 
+    for (const line of lines) {
       // Match FAQ ID (e.g., ## FAQ-PRODUCT-001)
       if (line.match(/^##\s+FAQ-[A-Z]+-\d+/)) {
-        if (currentFaqId && currentAnswer) {
-          this.faqDatabase.set(currentFaqId, {
-            id: currentFaqId,
-            intent: currentIntent,
-            answer: currentAnswer.trim(),
-            source: filename,
-          });
-        }
-        currentFaqId = line.replace(/^##\s+/, '').split(/\s+—|\s+/)[0];
+        flush();
+        currentFaqId = line.replace(/^##\s+/, '').split(/\s+/)[0];
         currentIntent = [];
         currentAnswer = '';
-        isReading = true;
+        activeField = null;
         continue;
       }
 
-      // Parse intent line
-      if (line.match(/^-\s+\*\*Intent:\*\*/)) {
-        const intentText = line.replace(/^-\s+\*\*Intent:\*\*\s+/, '').trim();
-        currentIntent = intentText.split(/,\s+/).map(s => s.toLowerCase().trim());
+      if (!currentFaqId) continue;
+
+      // New bullet field: - **Field:** value
+      const fieldMatch = line.match(/^-\s+\*\*([^*]+):\*\*\s*(.*)$/);
+      if (fieldMatch) {
+        const field = fieldMatch[1].trim().toLowerCase();
+        const value = fieldMatch[2].trim();
+
+        if (field === 'intent') {
+          currentIntent = value.split(/,\s*/).map(s => s.toLowerCase().trim()).filter(Boolean);
+          activeField = null;
+        } else if (field === 'jawaban') {
+          currentAnswer = value;
+          activeField = 'jawaban';
+        } else {
+          activeField = null;
+        }
+        continue;
       }
 
-      // Parse answer line
-      if (line.match(/^-\s+\*\*Jawaban:\*\*/)) {
-        currentAnswer = line.replace(/^-\s+\*\*Jawaban:\*\*\s+/, '').trim();
+      // Soft-wrapped continuation line (indented, no leading "-")
+      const continuation = line.match(/^\s{2,}(\S.*)$/);
+      if (continuation && activeField === 'jawaban') {
+        currentAnswer += (currentAnswer ? ' ' : '') + continuation[1].trim();
+        continue;
       }
 
-      // Collect multi-line answers
-      if (isReading && line.match(/^-\s+/) && !line.match(/Status:|Intent:|Jawaban:|Contoh|Next/)) {
-        if (currentAnswer) currentAnswer += ' ';
-        currentAnswer += line.replace(/^-\s+/, '').trim();
+      // Blank line or unrelated content ends the active field
+      if (line.trim() === '') {
+        activeField = null;
       }
     }
 
-    // Save last FAQ
-    if (currentFaqId && currentAnswer) {
-      this.faqDatabase.set(currentFaqId, {
-        id: currentFaqId,
-        intent: currentIntent,
-        answer: currentAnswer.trim(),
-        source: filename,
-      });
-    }
+    flush();
   }
 
   findRelevantFaq(userMessage, maxResults = 3) {
     if (this.faqDatabase.size === 0) return [];
 
     const userLower = userMessage.toLowerCase();
+    const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const hasWord = (word) => new RegExp(`\\b${escapeRegex(word)}\\b`, 'i').test(userLower);
+
     const relevantFaqs = [];
 
     for (const [_, faq] of this.faqDatabase) {
-      const matchScore = faq.intent.reduce((score, keyword) => {
-        if (userLower.includes(keyword)) score += 2;
-        if (userLower.match(new RegExp(keyword.split('').join('\\s*'), 'i'))) score += 1;
-        return score;
-      }, 0);
+      let matchScore = 0;
+
+      for (const keyword of faq.intent) {
+        if (hasWord(keyword)) {
+          matchScore += 3; // exact phrase, word-boundary safe
+          continue;
+        }
+        const words = keyword.split(/\s+/).filter((w) => w.length > 2);
+        if (words.length === 0) continue;
+        const hits = words.filter(hasWord).length;
+        if (hits === words.length) matchScore += 2; // all words present, different order
+        else if (hits > 0) matchScore += hits; // partial overlap
+      }
 
       if (matchScore > 0) {
         relevantFaqs.push({ ...faq, score: matchScore });
@@ -138,7 +165,10 @@ class KnowledgeBase {
   }
 
   getSystemPrompt() {
-    return `Anda adalah chatbot customer service Agnee yang membantu menjawab pertanyaan dan mengkualifikasi leads.
+    const brand = this.clientProfile?.brandName || this.clientId;
+    const assistant = this.clientProfile?.assistantName || 'customer service';
+    const business = this.clientProfile?.businessName || brand;
+    return `Anda adalah ${assistant}, customer service ${business}. Anda mewakili ${brand}, bukan platform Agnee. Tugas Anda menjawab pertanyaan produk dan mengkualifikasi leads berdasarkan knowledge client aktif.
 
 ${this.replyPolicy ? `\n## REPLY POLICY\n${this.replyPolicy}` : ''}
 

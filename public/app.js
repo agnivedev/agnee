@@ -722,10 +722,6 @@ function connectEvents() {
     try { payload = JSON.parse(event.data || '{}'); } catch { /* ignore */ }
     state.whatsapp = { phase: payload.phase, account: payload.account };
     renderConnection(state.whatsapp);
-    if (state.connectionTimer) {
-      clearInterval(state.connectionTimer);
-      state.connectionTimer = null;
-    }
     if (payload.phase === 'waiting_for_qr' && payload.qrDataUrl) {
       ui.qrImage.src = payload.qrDataUrl;
     }
@@ -888,7 +884,7 @@ async function openConnection() {
     ui.qrNote.textContent = error.message;
   }
   clearInterval(state.connectionTimer);
-  state.connectionTimer = setInterval(checkConnection, 30000);
+  state.connectionTimer = setInterval(checkConnection, 15000);
 }
 
 async function checkConnection() {

@@ -298,6 +298,9 @@ async function buildApp(overrides = {}) {
       app.log.info({ account: state.account }, 'WhatsApp ready');
       broadcastEvent('whatsapp_phase', { phase: 'ready', account: state.account });
     });
+    // auth_failure never fires when using LocalAuth: BaseAuthStrategy.onAuthenticationNeeded()
+    // always returns { failed: false }, so a stale/expired session silently falls through to
+    // the QR flow instead. Handler kept as a defensive catch-all for other auth strategies.
     whatsapp.on('auth_failure', (message) => {
       state.phase = 'auth_failure';
       state.lastError = String(message);
@@ -319,6 +322,7 @@ async function buildApp(overrides = {}) {
         state.phase = 'starting';
         state.lastError = null;
         app.log.info('WhatsApp restarting after disconnect');
+        broadcastEvent('whatsapp_phase', { phase: 'starting' });
         createWhatsappClient();
         whatsapp.initialize().catch((error) => {
           state.phase = 'error';
@@ -1094,13 +1098,9 @@ async function buildApp(overrides = {}) {
           }
           app.log.warn('WhatsApp socket connected but page helpers are still missing; will retry');
         }
-        const kicked = await whatsapp.pupPage.evaluate(() => {
-          const socket = window.require?.('WAWebSocketModel')?.Socket;
-          if (!socket?.hasSynced || typeof socket.trigger !== 'function') return false;
-          socket.trigger('change:hasSynced');
-          return true;
-        });
-        if (kicked) app.log.info('Restored WhatsApp session sync resumed');
+        // inject() already handles the case where hasSynced fired before our listener was
+        // registered — it checks the flag and calls the handler immediately. Manual triggering
+        // here risks double-initialization, so we just wait and retry.
       } catch (error) {
         app.log.warn({ err: error }, 'Could not resume restored WhatsApp session sync');
       }

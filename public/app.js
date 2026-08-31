@@ -1428,14 +1428,25 @@ document.querySelector('#closeDialog').addEventListener('click', () => {
   ui.connectionDialog.close();
 });
 
-document.querySelector('#refreshQr')?.addEventListener('click', async () => {
-  try {
-    const data = await api('/v1/whatsapp/qr-refresh', { method: 'POST' });
-    if (data?.qrDataUrl) ui.qrImage.src = data.qrDataUrl;
-  } catch (err) {
-    console.warn('QR refresh failed:', err.message);
-  }
-});
+const refreshQrBtn = document.querySelector('#refreshQr');
+if (refreshQrBtn) {
+  refreshQrBtn.addEventListener('click', async () => {
+    if (refreshQrBtn.disabled) return;
+    refreshQrBtn.disabled = true;
+    refreshQrBtn.classList.add('loading');
+    try {
+      const data = await api('/v1/whatsapp/qr-refresh', { method: 'POST' });
+      if (data?.qrDataUrl) {
+        ui.qrImage.src = data.qrDataUrl;
+        setTimeout(() => { refreshQrBtn.classList.remove('loading'); refreshQrBtn.disabled = false; }, 400);
+      }
+    } catch (err) {
+      console.warn('QR refresh failed:', err.message);
+      refreshQrBtn.classList.remove('loading');
+      refreshQrBtn.disabled = false;
+    }
+  });
+}
 
 ui.changeNumberBtn.addEventListener('click', async () => {
   ui.changeNumberBtn.disabled = true;

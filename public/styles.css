@@ -202,12 +202,15 @@ button:disabled { cursor: not-allowed; opacity: .42; transform: none !important;
 .connection-dialog.is-closing { animation: dialog-out .3s ease forwards; }
 .connection-dialog.is-closing::backdrop { animation: dialog-out .3s ease forwards; }
 @keyframes dialog-out { to { opacity: 0; transform: scale(.97); } }
-.dialog-controls { position: absolute; top: 12px; right: 12px; display: flex; gap: 6px; }
-.refresh-qr { width: 32px; height: 32px; padding: 0; border: 0; border-radius: 50%; background: rgba(20,36,31,.08); cursor: pointer; font-size: 16px; display: flex; align-items: center; justify-content: center; transition: background .2s, transform .15s ease; }
-.refresh-qr:hover { background: rgba(20,36,31,.14); transform: rotate(15deg); }
-.refresh-qr:active { transform: rotate(-5deg); }
-.dialog-close { position: static; width: 32px; height: 32px; border: 0; border-radius: 50%; background: rgba(20,36,31,.08); cursor: pointer; font-size: 20px; line-height: 1; transition: background .2s; }
-.dialog-close:hover { background: rgba(20,36,31,.14); }
+.dialog-controls { position: absolute; top: 10px; right: 10px; display: flex; gap: 8px; }
+.refresh-qr { width: 36px; height: 36px; padding: 0; border: 0; border-radius: 8px; background: linear-gradient(135deg, rgba(25,198,102,.12), rgba(25,198,102,.05)); cursor: pointer; font-size: 18px; display: flex; align-items: center; justify-content: center; transition: all .2s ease; box-shadow: 0 2px 6px rgba(0,0,0,.08); }
+.refresh-qr:hover { background: linear-gradient(135deg, rgba(25,198,102,.18), rgba(25,198,102,.1)); transform: scale(1.05); box-shadow: 0 4px 12px rgba(25,198,102,.2); }
+.refresh-qr:active { transform: scale(0.95); }
+.refresh-qr:disabled { opacity: .5; cursor: not-allowed; }
+.refresh-qr.loading { animation: spin .8s linear infinite; }
+@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+.dialog-close { position: static; width: 36px; height: 36px; border: 0; border-radius: 8px; background: rgba(20,36,31,.08); cursor: pointer; font-size: 22px; line-height: 1; transition: all .2s; display: flex; align-items: center; justify-content: center; }
+.dialog-close:hover { background: rgba(20,36,31,.14); transform: scale(1.05); }
 .dialog-mark { width: 50px; }
 .connection-dialog h2 { margin: 5px 0 8px; }
 .connection-dialog > p { color: var(--muted); }

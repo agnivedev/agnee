@@ -208,6 +208,9 @@ button:disabled { cursor: not-allowed; opacity: .42; transform: none !important;
 .connection-dialog > p { color: var(--muted); }
 .qr-shell { width: 250px; min-height: 250px; margin: 22px auto 16px; padding: 12px; display: grid; place-items: center; border-radius: 18px; background: white; }
 .qr-shell img { width: 100%; display: block; }
+.change-number-btn { margin-top: 14px; padding: 0; border: 0; background: none; color: var(--muted); font: 400 12px/1.5 "IBM Plex Mono", monospace; text-decoration: underline; cursor: pointer; }
+.change-number-btn:hover { color: var(--ink); }
+.change-number-btn:disabled { opacity: .5; cursor: default; text-decoration: none; }
 
 .workspace-dialog { width: min(92vw, 470px); max-height: min(80dvh, 720px); padding: 26px; overflow: auto; border: 0; border-radius: 25px 25px 9px 25px; color: var(--ink); background: #f8f7f1; box-shadow: var(--shadow); }
 .workspace-dialog::backdrop { background: rgba(10,25,19,.48); backdrop-filter: blur(7px); }

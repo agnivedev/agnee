@@ -31,6 +31,7 @@ const ui = {
   qrImage: document.querySelector('#qrImage'),
   qrShell: document.querySelector('.qr-shell'),
   qrNote: document.querySelector('#qrNote'),
+  changeNumberBtn: document.querySelector('#changeNumberBtn'),
   contextPanel: document.querySelector('#contextPanel'),
   contextToggle: document.querySelector('#contextToggle'),
   contextClose: document.querySelector('#contextClose'),
@@ -723,16 +724,26 @@ function connectEvents() {
     state.whatsapp = { phase: payload.phase, account: payload.account };
     renderConnection(state.whatsapp);
     if (payload.phase === 'waiting_for_qr' && payload.qrDataUrl) {
+      if (ui.connectionDialog.open && ui.qrShell.hidden) {
+        showDialogQr();
+        ui.qrNote.textContent = 'QR diperbarui otomatis oleh adapter.';
+      }
       ui.qrImage.src = payload.qrDataUrl;
     }
     if (payload.phase === 'authenticated') {
-      ui.dialogTitle.textContent = 'Sesi sedang diatur…';
-      ui.dialogCopy.textContent = 'Tunggu sebentar, kami sedang menyiapkan percakapan Anda.';
+      if (ui.connectionDialog.open) {
+        ui.dialogTitle.textContent = 'Sesi sedang diatur…';
+        ui.dialogCopy.textContent = 'Tunggu sebentar, kami sedang menyiapkan percakapan Anda.';
+        ui.qrShell.hidden = true;
+        ui.changeNumberBtn.hidden = true;
+      }
     }
     if (payload.phase === 'ready') {
-      ui.dialogTitle.textContent = 'WhatsApp terhubung';
-      ui.dialogCopy.textContent = 'Mengambil percakapan terbaru…';
-      ui.qrNote.textContent = payload.account || '';
+      if (ui.connectionDialog.open) {
+        ui.dialogTitle.textContent = 'WhatsApp terhubung';
+        ui.dialogCopy.textContent = 'Mengambil percakapan terbaru…';
+        ui.qrNote.textContent = payload.account || '';
+      }
       await loadWorkspace();
       ui.connectionDialog.classList.add('is-closing');
       setTimeout(() => {
@@ -862,26 +873,47 @@ function renderConnection(whatsapp) {
   ui.connectionLabel.textContent = whatsapp.phase === 'demo' ? 'Demo' : ready ? 'Terhubung' : 'Hubungkan';
 }
 
+function showDialogQr() {
+  ui.qrShell.hidden = false;
+  ui.changeNumberBtn.hidden = true;
+  ui.dialogTitle.textContent = 'Hubungkan WhatsApp';
+  ui.dialogCopy.textContent = 'Buka WhatsApp → Linked Devices, lalu scan kode ini.';
+}
+
 async function openConnection() {
   ui.connectionDialog.showModal();
   ui.qrImage.removeAttribute('src');
-  ui.qrShell.hidden = false;
-  if (state.whatsapp?.phase === 'ready') {
+  ui.qrShell.hidden = true;
+  ui.changeNumberBtn.hidden = true;
+
+  const phase = state.whatsapp?.phase;
+
+  if (phase === 'ready' || phase === 'demo') {
     ui.dialogTitle.textContent = 'WhatsApp terhubung';
     ui.dialogCopy.textContent = 'Sesi aktif dan percakapan tersinkron dengan Customer Desk.';
     ui.qrNote.textContent = state.whatsapp.account || 'Terhubung';
-    ui.qrShell.hidden = true;
+    ui.changeNumberBtn.hidden = false;
     return;
   }
-  ui.dialogTitle.textContent = 'Hubungkan WhatsApp';
-  ui.dialogCopy.textContent = 'Buka WhatsApp → Linked Devices, lalu scan kode ini.';
+
+  if (phase === 'starting' || phase === 'authenticated') {
+    ui.dialogTitle.textContent = phase === 'authenticated' ? 'Menghubungkan…' : 'Memulihkan sesi WhatsApp…';
+    ui.dialogCopy.textContent = 'Ditemukan sesi tersimpan, sedang menghubungkan ulang ke WhatsApp.';
+    ui.qrNote.textContent = '';
+    clearInterval(state.connectionTimer);
+    state.connectionTimer = setInterval(checkConnection, 5000);
+    return;
+  }
+
+  // waiting_for_qr / disconnected / auth_failure / error — genuinely needs scan
+  showDialogQr();
   ui.qrNote.textContent = 'Menyiapkan QR…';
   try {
     const data = await api('/v1/whatsapp/qr');
     ui.qrImage.src = data.qrDataUrl;
     ui.qrNote.textContent = data.demoMode ? 'Demo QR untuk menguji alur UI. Nonaktifkan WA_DEMO_MODE untuk pairing nyata.' : 'QR diperbarui otomatis oleh adapter.';
-  } catch (error) {
-    ui.qrNote.textContent = error.message;
+  } catch {
+    ui.qrNote.textContent = 'Menunggu QR dari WhatsApp…';
   }
   clearInterval(state.connectionTimer);
   state.connectionTimer = setInterval(checkConnection, 15000);
@@ -906,7 +938,11 @@ async function checkConnection() {
       }, 300);
       return;
     }
-    if (whatsapp.hasQr && !whatsapp.demoMode) {
+    if (whatsapp.hasQr && !whatsapp.demoMode && ui.connectionDialog.open) {
+      if (ui.qrShell.hidden) {
+        showDialogQr();
+        ui.qrNote.textContent = 'QR diperbarui otomatis oleh adapter.';
+      }
       const data = await api('/v1/whatsapp/qr');
       if (ui.qrImage.src !== data.qrDataUrl) ui.qrImage.src = data.qrDataUrl;
     }
@@ -1183,6 +1219,24 @@ document.querySelector('#closeDialog').addEventListener('click', () => {
   clearInterval(state.connectionTimer);
   state.connectionTimer = null;
   ui.connectionDialog.close();
+});
+ui.changeNumberBtn.addEventListener('click', async () => {
+  ui.changeNumberBtn.disabled = true;
+  ui.changeNumberBtn.textContent = 'Memutus sesi…';
+  try {
+    await api('/v1/whatsapp/logout', { method: 'POST' });
+    state.whatsapp = { phase: 'starting' };
+    ui.dialogTitle.textContent = 'Memutus sesi…';
+    ui.dialogCopy.textContent = 'WhatsApp sedang logout, QR baru akan muncul sebentar.';
+    ui.qrShell.hidden = true;
+    ui.changeNumberBtn.hidden = true;
+    clearInterval(state.connectionTimer);
+    state.connectionTimer = setInterval(checkConnection, 5000);
+  } catch (error) {
+    ui.changeNumberBtn.textContent = 'Ganti Nomor WhatsApp';
+    ui.changeNumberBtn.disabled = false;
+    ui.qrNote.textContent = error.message;
+  }
 });
 document.querySelector('#mobileBack').addEventListener('click', () => {
   ui.conversationPanel.classList.add('mobile-hidden');

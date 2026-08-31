@@ -703,6 +703,31 @@ async function buildApp(overrides = {}) {
     return { qrDataUrl: state.qrDataUrl, demoMode: false };
   });
 
+  app.post('/v1/whatsapp/logout', async (_request, reply) => {
+    if (config.demoMode) return reply.code(409).send({ error: 'Cannot logout in demo mode' });
+    if (!whatsapp) return reply.code(409).send({ error: 'WhatsApp client not initialized' });
+    try {
+      await whatsapp.logout();
+    } catch {
+      // logout() may throw if already disconnected — force restart anyway
+      const stale = whatsapp;
+      whatsapp = null;
+      await stale.destroy().catch(() => {});
+      state.phase = 'starting';
+      state.qrDataUrl = null;
+      state.account = null;
+      state.lastError = null;
+      broadcastEvent('whatsapp_phase', { phase: 'starting' });
+      createWhatsappClient();
+      whatsapp.initialize().catch((error) => {
+        state.phase = 'error';
+        state.lastError = error.message;
+        app.log.error({ err: error }, 'WhatsApp re-initialization after logout failed');
+      });
+    }
+    return { ok: true };
+  });
+
   app.get('/v1/chats', {
     schema: { querystring: { type: 'object', properties: {
       limit: { type: 'integer', minimum: 1, maximum: 50, default: 12 },

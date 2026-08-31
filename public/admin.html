@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#14241f">
+  <title>Agnee Admin — Auto Reply Playground</title>
+  <link rel="icon" href="/brand/agnee-mark.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/admin.css">
+</head>
+<body>
+  <div class="admin-shell">
+    <aside class="admin-sidebar">
+      <a class="admin-brand" href="/" aria-label="Kembali ke Agnee Inbox">
+        <img src="/brand/agnee-mark.svg" alt="">
+        <span><strong>Agnee</strong><small>Admin</small></span>
+      </a>
+
+      <nav aria-label="Admin navigation">
+        <a href="#overview"><span>⌂</span>Overview</a>
+        <a class="active" href="#playground"><span>◫</span>Playground</a>
+      </nav>
+
+      <div class="sidebar-foot">
+        <span class="status-dot"></span>
+        <div><strong id="sidebarStatus">Memeriksa OpenRouter</strong><small id="sidebarModel">—</small></div>
+      </div>
+    </aside>
+
+    <main class="admin-main">
+      <header class="admin-header" id="overview">
+        <div>
+          <p class="eyebrow">ADMIN WORKSPACE</p>
+          <h1>Auto Reply Playground</h1>
+          <p>Uji knowledge, gaya balasan, token, dan biaya tanpa mengirim pesan ke WhatsApp.</p>
+        </div>
+        <a class="back-link" href="/">← Kembali ke inbox</a>
+      </header>
+
+      <section class="config-strip" aria-label="Konfigurasi playground">
+        <div><small>MODEL</small><strong id="modelName">Memuat…</strong></div>
+        <div><small>OPENROUTER</small><strong id="llmStatus">Memeriksa…</strong></div>
+        <div><small>DATABASE</small><strong id="databaseStatus">Memeriksa…</strong></div>
+        <div><small>MODE</small><strong>Preview only</strong></div>
+      </section>
+
+      <section class="ai-settings-card" aria-labelledby="aiSettingsTitle">
+        <div class="ai-settings-head">
+          <div>
+            <p class="eyebrow">KONFIGURASI RUNTIME</p>
+            <h2 id="aiSettingsTitle">AI Mode & Model Chain</h2>
+            <p class="ai-settings-desc">Perubahan langsung aktif tanpa restart. Reset saat server di-deploy ulang.</p>
+          </div>
+          <label class="toggle-wrap" aria-label="Aktifkan AI auto-reply">
+            <input type="checkbox" id="aiEnabledToggle" role="switch">
+            <span class="toggle-track"><span class="toggle-thumb"></span></span>
+            <span class="toggle-label" id="toggleLabel">Memuat…</span>
+          </label>
+        </div>
+
+        <div class="model-chain-grid">
+          <div class="model-chain-info">
+            <p>Urutan fallback: model pertama dicoba dulu, kalau gagal lanjut ke berikutnya.</p>
+          </div>
+          <div id="modelSlots" class="model-slots"></div>
+          <div class="model-chain-actions">
+            <button id="saveAiSettings" class="save-settings-btn" type="button">Simpan perubahan</button>
+            <span id="aiSettingsSaved" class="settings-saved-badge" hidden>Tersimpan ✓</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="playground-grid" id="playground">
+        <form id="playgroundForm" class="playground-card prompt-card">
+          <div class="card-head">
+            <div><p class="eyebrow">INPUT</p><h2>Pesan customer</h2></div>
+            <span class="safe-badge">Tidak dikirim</span>
+          </div>
+
+          <label>Knowledge client
+            <select id="clientId" name="clientId" required></select>
+          </label>
+
+          <label>Pesan
+            <textarea id="message" name="message" rows="8" maxlength="2000" placeholder="Contoh: Bisa lihat demo dulu ga?" required></textarea>
+          </label>
+
+          <div class="examples" aria-label="Contoh pesan">
+            <button type="button" data-message="Bisa lihat demo dulu ga?">Demo</button>
+            <button type="button" data-message="Berapa harganya per bulan?">Harga</button>
+            <button type="button" data-message="EA-nya sudah dipasang tapi belum buka posisi, harus cek apa dulu?">Support</button>
+            <button type="button" data-message="Saya mau lanjut bulan ini, bisa bicara sama timnya?">Handoff</button>
+          </div>
+
+          <p id="formError" class="form-error" role="alert"></p>
+          <button id="generateButton" class="generate-button" type="submit">
+            <span>Generate preview</span><b>→</b>
+          </button>
+          <p class="shortcut">⌘/Ctrl + Enter untuk generate</p>
+        </form>
+
+        <section class="playground-card result-card" aria-live="polite">
+          <div class="card-head">
+            <div><p class="eyebrow">OUTPUT</p><h2>Preview balasan</h2></div>
+            <button id="copyReply" class="copy-button" type="button" hidden>Copy</button>
+          </div>
+
+          <div id="emptyResult" class="empty-result">
+            <span>↗</span>
+            <strong>Belum ada preview</strong>
+            <p>Masukkan pesan customer lalu generate. Playground hanya membaca knowledge dan memanggil OpenRouter.</p>
+          </div>
+
+          <div id="loadingResult" class="loading-result" hidden>
+            <span></span><span></span><span></span>
+            <p>Menyiapkan balasan…</p>
+          </div>
+
+          <div id="resultContent" hidden>
+            <div class="match-block">
+              <small>MATCHED KNOWLEDGE</small>
+              <div id="matchedFaqs" class="faq-chips"></div>
+            </div>
+
+            <div class="reply-bubble"><p id="replyText"></p></div>
+
+            <div id="styleResult" class="style-result"></div>
+
+            <div class="metric-grid">
+              <div><small>INPUT</small><strong id="inputTokens">0</strong><span>tokens</span></div>
+              <div><small>OUTPUT</small><strong id="outputTokens">0</strong><span>tokens</span></div>
+              <div><small>TOTAL</small><strong id="totalTokens">0</strong><span>tokens</span></div>
+              <div class="cost-metric"><small>COST</small><strong id="costUsd">$0</strong><span>USD</span></div>
+            </div>
+
+            <footer class="result-meta"><span id="resultModel">—</span><span id="elapsedMs">—</span></footer>
+          </div>
+        </section>
+      </section>
+
+      <section class="history-card" aria-labelledby="historyTitle">
+        <div class="card-head">
+          <div><p class="eyebrow">POSTGRESQL HISTORY</p><h2 id="historyTitle">Run terbaru</h2></div>
+          <button id="refreshHistory" class="copy-button" type="button">Refresh</button>
+        </div>
+        <div id="historyEmpty" class="history-empty">Belum ada run yang tersimpan.</div>
+        <div class="history-table-wrap">
+          <table id="historyTable" hidden>
+            <thead><tr><th>Waktu</th><th>Client</th><th>Pesan</th><th>Token</th><th>Cost USD</th><th>Style</th></tr></thead>
+            <tbody id="historyBody"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="/admin.js" defer></script>
+</body>
+</html>

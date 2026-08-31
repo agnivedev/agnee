@@ -9,6 +9,8 @@ const QRCode = require('qrcode');
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const KnowledgeBase = require('./knowledge-loader.js');
 const LlmService = require('./llm-service.js');
+const { normalizeUsage, styleWarnings } = require('./reply-style.js');
+const Database = require('./database.js');
 
 process.on('unhandledRejection', (reason) => {
   console.error('Unhandled promise rejection (WhatsApp adapter kept alive):', reason);
@@ -41,6 +43,9 @@ function loadConfig(overrides = {}) {
     openrouterModel: process.env.OPENROUTER_MODEL || 'qwen-2.5-72b-instruct',
     llmMaxTokens: Number(process.env.LLM_MAX_TOKENS || 512),
     knowledgeClient: process.env.KNOWLEDGE_CLIENT || 'bzone',
+    databaseUrl: process.env.DATABASE_URL || '',
+    defaultCompanySlug: process.env.DEFAULT_COMPANY_SLUG || 'default',
+    defaultCompanyName: process.env.DEFAULT_COMPANY_NAME || 'Default Company',
     ...overrides,
   };
   if (process.env.NODE_ENV === 'production') {
@@ -175,18 +180,32 @@ async function buildApp(overrides = {}) {
   const sendReceipts = new Map();
   const leadStates = new Map();
   const knowledgeBase = new KnowledgeBase({ clientId: config.knowledgeClient });
-  const llmService = new LlmService({
+  const llmService = overrides.llmService || new LlmService({
     apiKey: config.openrouterApiKey,
     model: config.openrouterModel,
     maxTokens: config.llmMaxTokens,
     enabled: config.llmEnabled,
   });
+  // Runtime AI settings — survive without restart, reset on next deploy
+  const aiSettings = {
+    enabled: llmService.enabled,
+    modelChain: [],
+  };
+  const database = overrides.database || new Database({
+    connectionString: config.databaseUrl,
+    companySlug: config.defaultCompanySlug,
+    companyName: config.defaultCompanyName,
+    adminEmail: config.adminEmail,
+    logger: app.log,
+  });
+  await database.connect();
   if (config.llmEnabled) await knowledgeBase.load();
   const state = {
     phase: config.demoMode ? 'demo' : config.startupEnabled ? 'starting' : 'disabled',
     qrDataUrl: null,
     connectedAt: config.demoMode ? new Date().toISOString() : null,
     account: config.demoMode ? 'Agnee Demo Workspace' : null,
+    syncPercent: null,
     lastError: null,
   };
 
@@ -195,6 +214,7 @@ async function buildApp(overrides = {}) {
       phase: state.phase,
       connectedAt: state.connectedAt,
       account: state.account,
+      syncPercent: state.syncPercent,
       hasQr: Boolean(state.qrDataUrl) || config.demoMode,
       demoMode: config.demoMode,
       lastError: state.lastError,
@@ -241,7 +261,7 @@ async function buildApp(overrides = {}) {
     if (!message.body || !message.body.trim()) return null;
 
     const relevantFaqs = knowledgeBase.findRelevantFaq(message.body);
-    const leadState = getLeadState(message.from);
+    const leadState = await getLeadState(message.from);
 
     const result = await llmService.generateReply(message.body, {
       systemPrompt: knowledgeBase.getSystemPrompt(),
@@ -272,6 +292,7 @@ async function buildApp(overrides = {}) {
     whatsapp.on('qr', async (qr) => {
       state.phase = 'waiting_for_qr';
       state.qrDataUrl = await QRCode.toDataURL(qr, { margin: 1, width: 320 });
+      state.syncPercent = null;
       state.lastError = null;
       app.log.info('WhatsApp QR generated');
       // WhatsApp rotates the QR roughly every 20s; push it immediately instead
@@ -287,6 +308,14 @@ async function buildApp(overrides = {}) {
       app.log.info('WhatsApp authenticated');
       broadcastEvent('whatsapp_phase', { phase: 'authenticated' });
     });
+    whatsapp.on('loading_screen', (percent) => {
+      if (state.phase === 'ready') return;
+      state.phase = 'syncing';
+      state.qrDataUrl = null;
+      state.syncPercent = Number(percent);
+      state.lastError = null;
+      broadcastEvent('whatsapp_phase', { phase: 'syncing', percent: state.syncPercent });
+    });
     whatsapp.on('ready', () => {
       clearTimeout(restoredSessionTimer);
       restoredSessionTimer = null;
@@ -294,6 +323,7 @@ async function buildApp(overrides = {}) {
       state.connectedAt = new Date().toISOString();
       state.account = whatsapp.info?.wid?._serialized || null;
       state.qrDataUrl = null;
+      state.syncPercent = 100;
       state.lastError = null;
       app.log.info({ account: state.account }, 'WhatsApp ready');
       broadcastEvent('whatsapp_phase', { phase: 'ready', account: state.account });
@@ -303,6 +333,7 @@ async function buildApp(overrides = {}) {
     // the QR flow instead. Handler kept as a defensive catch-all for other auth strategies.
     whatsapp.on('auth_failure', (message) => {
       state.phase = 'auth_failure';
+      state.syncPercent = null;
       state.lastError = String(message);
       app.log.warn({ message }, 'WhatsApp auth_failure');
       broadcastEvent('whatsapp_phase', { phase: 'auth_failure' });
@@ -311,6 +342,7 @@ async function buildApp(overrides = {}) {
       state.phase = 'disconnected';
       state.connectedAt = null;
       state.account = null;
+      state.syncPercent = null;
       state.lastError = String(reason);
       app.log.warn({ reason }, 'WhatsApp disconnected');
       broadcastEvent('whatsapp_phase', { phase: 'disconnected' });
@@ -320,6 +352,7 @@ async function buildApp(overrides = {}) {
         } catch { /* ignore */ }
         whatsapp = null;
         state.phase = 'starting';
+        state.syncPercent = null;
         state.lastError = null;
         app.log.info('WhatsApp restarting after disconnect');
         broadcastEvent('whatsapp_phase', { phase: 'starting' });
@@ -357,6 +390,12 @@ async function buildApp(overrides = {}) {
     });
     whatsapp.on('message_ack', (message, ack) => {
       broadcastEvent('ack', { id: message.id?._serialized || null, ack: Number(ack) });
+    });
+    whatsapp.on('chat_archived', (chat, archived) => {
+      broadcastEvent('chat', {
+        chatId: chat.id?._serialized || null,
+        archived: Boolean(archived),
+      });
     });
   }
 
@@ -401,7 +440,7 @@ async function buildApp(overrides = {}) {
               unreadCount: Number(chat.unreadCount || 0),
               isGroup: Boolean(chat.groupMetadata) || id.endsWith('@g.us'),
               pinned: Boolean(chat.pin || chat.__x_pin),
-              archived: Boolean(chat.archived || chat.__x_archived),
+              archived: Boolean(chat.archive || chat.__x_archive),
             };
           } catch {
             return null;
@@ -573,8 +612,14 @@ async function buildApp(overrides = {}) {
     }, chatId, text, options);
   }
 
-  function getLeadState(chatId) {
-    return leadStates.get(chatId) || {
+  async function getLeadState(chatId) {
+    if (leadStates.has(chatId)) return leadStates.get(chatId);
+    const persisted = await database.getLeadState(chatId);
+    if (persisted) {
+      leadStates.set(chatId, persisted);
+      return persisted;
+    }
+    return {
       chatId,
       stage: 'inbox',
       score: null,
@@ -621,7 +666,7 @@ async function buildApp(overrides = {}) {
     decorateReply: false,
   });
 
-  app.get('/health', async () => ({ ok: true, service: 'agnee-app', whatsapp: publicState() }));
+  app.get('/health', async () => ({ ok: true, service: 'agnee-app', database: database.status(), whatsapp: publicState() }));
 
   app.post('/v1/auth/login', {
     schema: {
@@ -675,6 +720,124 @@ async function buildApp(overrides = {}) {
     return { ok: true };
   });
 
+  app.get('/v1/admin/config', async () => ({
+    llmEnabled: Boolean(llmService.enabled),
+    model: llmService.model || config.openrouterModel,
+    defaultKnowledgeClient: config.knowledgeClient,
+    database: database.status(),
+    knowledgeClients: [
+      { id: 'bzone', name: 'bZone Alpha / Bengkel EA Gold' },
+      { id: 'agnee', name: 'Agnee by Agnive' },
+    ],
+  }));
+
+  app.get('/v1/admin/ai-settings', async () => ({
+    enabled: aiSettings.enabled,
+    modelChain: aiSettings.modelChain,
+    defaultModel: config.openrouterModel,
+  }));
+
+  app.patch('/v1/admin/ai-settings', {
+    schema: {
+      body: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          enabled: { type: 'boolean' },
+          modelChain: {
+            type: 'array',
+            maxItems: 5,
+            items: { type: 'string', minLength: 1, maxLength: 200 },
+          },
+        },
+      },
+    },
+  }, async (request) => {
+    if (typeof request.body.enabled === 'boolean') {
+      aiSettings.enabled = request.body.enabled;
+      llmService.enabled = request.body.enabled && !!llmService.apiKey;
+    }
+    if (Array.isArray(request.body.modelChain)) {
+      aiSettings.modelChain = request.body.modelChain.filter(Boolean);
+      llmService.modelChain = aiSettings.modelChain;
+    }
+    return { ok: true, enabled: aiSettings.enabled, modelChain: aiSettings.modelChain };
+  });
+
+  app.post('/v1/admin/playground/auto-reply', {
+    schema: {
+      body: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['message', 'clientId'],
+        properties: {
+          message: { type: 'string', minLength: 1, maxLength: 2000 },
+          clientId: { type: 'string', enum: ['bzone', 'agnee'] },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    if (!llmService.enabled) {
+      return reply.code(503).send({ error: 'OpenRouter belum aktif. Periksa LLM_ENABLED dan OPENROUTER_API_KEY.' });
+    }
+
+    const message = request.body.message.trim();
+    if (!message) return reply.code(400).send({ error: 'Pesan tidak boleh kosong.' });
+
+    const playgroundKnowledge = new KnowledgeBase({ clientId: request.body.clientId });
+    await playgroundKnowledge.load();
+    if (!playgroundKnowledge.loaded) return reply.code(404).send({ error: 'Knowledge client tidak ditemukan.' });
+
+    const relevantFaqs = playgroundKnowledge.findRelevantFaq(message);
+    const startedAt = Date.now();
+    const result = await llmService.generateReply(message, {
+      systemPrompt: playgroundKnowledge.getSystemPrompt(),
+      relevantFaqs,
+    });
+    if (!result) return reply.code(502).send({ error: 'OpenRouter tidak menghasilkan balasan.' });
+
+    const expectsDirectHandoff = /\b(?:bicara|hubungkan|teruskan|handoff)\b.*\b(?:sales|tim|manusia|admin|agent)\b/i.test(message)
+      || /\b(?:sales|tim|manusia|admin|agent)\b.*\b(?:bicara|hubungkan|teruskan|handoff)\b/i.test(message);
+    const warnings = styleWarnings(result.text, { expectDirectHandoff: expectsDirectHandoff });
+
+    const response = {
+      reply: result.text,
+      model: result.model || llmService.model || config.openrouterModel,
+      clientId: request.body.clientId,
+      matchedFaqs: relevantFaqs.map((faq) => ({ id: faq.id, source: faq.source, score: faq.score })),
+      usage: normalizeUsage(result),
+      style: { passed: warnings.length === 0, warnings },
+      elapsedMs: Date.now() - startedAt,
+      sentToWhatsapp: false,
+    };
+    try {
+      const saved = await database.recordPlaygroundRun({
+        clientId: response.clientId,
+        message,
+        reply: response.reply,
+        model: response.model,
+        matchedFaqs: response.matchedFaqs,
+        usage: response.usage,
+        style: response.style,
+        elapsedMs: response.elapsedMs,
+      });
+      response.persistence = { driver: database.status().driver, saved: Boolean(saved), id: saved?.id || null };
+    } catch (error) {
+      app.log.error({ err: error }, 'Could not persist playground run');
+      response.persistence = { driver: database.status().driver, saved: false, id: null };
+    }
+    return response;
+  });
+
+  app.get('/v1/admin/playground/runs', {
+    schema: { querystring: { type: 'object', properties: {
+      limit: { type: 'integer', minimum: 1, maximum: 100, default: 20 },
+    } } },
+  }, async (request) => ({
+    database: database.status(),
+    runs: await database.listPlaygroundRuns(request.query.limit || 20),
+  }));
+
   app.get('/v1/whatsapp/status', async () => publicState());
   const SSE_MAX_CLIENTS = 50;
   app.get('/v1/events', async (request, reply) => {
@@ -720,6 +883,7 @@ async function buildApp(overrides = {}) {
       state.phase = 'starting';
       state.qrDataUrl = null;
       state.account = null;
+      state.syncPercent = null;
       state.lastError = null;
       broadcastEvent('whatsapp_phase', { phase: 'starting' });
       createWhatsappClient();
@@ -749,7 +913,10 @@ async function buildApp(overrides = {}) {
     if (filter === 'inbox') chats = chats.filter((chat) => !chat.archived);
     if (filter === 'archived') chats = chats.filter((chat) => chat.archived);
     if (filter === 'unread') chats = chats.filter((chat) => chat.unreadCount > 0 && !chat.archived);
-    if (filter === 'qualified') chats = chats.filter((chat) => !chat.archived && ['qualified', 'assigned'].includes(getLeadState(chat.id).stage));
+    if (filter === 'qualified') {
+      const states = await Promise.all(chats.map((chat) => getLeadState(chat.id)));
+      chats = chats.filter((chat, index) => !chat.archived && ['qualified', 'assigned'].includes(states[index].stage));
+    }
     if (filter === 'all') chats = chats;
     if (query) chats = chats.filter((chat) => `${chat.name} ${chat.preview}`.toLocaleLowerCase('id-ID').includes(query));
     chats.sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) || Number(b.timestamp || 0) - Number(a.timestamp || 0));
@@ -846,15 +1013,17 @@ async function buildApp(overrides = {}) {
       } },
     },
   }, async (request) => {
+    const currentLead = await getLeadState(request.params.chatId);
     const lead = {
-      ...getLeadState(request.params.chatId),
+      ...currentLead,
       stage: 'assigned',
-      score: getLeadState(request.params.chatId).score ?? 70,
+      score: currentLead.score ?? 70,
       title: 'Assigned lead',
       detail: `Ditugaskan ke ${request.body?.assignee || 'Sales team'}.`,
       assignee: request.body?.assignee || 'Sales team',
     };
     leadStates.set(request.params.chatId, lead);
+    await database.saveLeadState(lead);
     broadcastEvent('lead', lead);
     return lead;
   });
@@ -874,13 +1043,42 @@ async function buildApp(overrides = {}) {
     }
     if (state.phase !== 'ready') return reply.code(503).send({ error: 'WhatsApp is not ready', phase: state.phase });
     try {
-      await whatsapp.pupPage.evaluate(async (requestedChatId) => {
-        await window.WWebJS.sendSeen(requestedChatId);
-      }, chatId);
+      await whatsapp.sendSeen(chatId);
       return { success: true };
     } catch (error) {
       app.log.warn({ err: error, chatId }, 'Failed to mark chat as read');
       return reply.code(500).send({ error: 'Failed to mark chat as read' });
+    }
+  });
+
+  app.post('/v1/chats/:chatId/archive', {
+    schema: {
+      params: { type: 'object', required: ['chatId'], properties: {
+        chatId: { type: 'string', minLength: 1, maxLength: 128 },
+      } },
+      body: { type: 'object', additionalProperties: false, required: ['archived'], properties: {
+        archived: { type: 'boolean' },
+      } },
+    },
+  }, async (request, reply) => {
+    const { chatId } = request.params;
+    const { archived } = request.body;
+    if (config.demoMode) {
+      const chat = demo.chats.find((item) => item.id === chatId);
+      if (!chat) return reply.code(404).send({ error: 'Chat not found' });
+      chat.archived = archived;
+      return { success: true, archived };
+    }
+    if (state.phase !== 'ready') return reply.code(503).send({ error: 'WhatsApp is not ready', phase: state.phase });
+    try {
+      const success = archived
+        ? await whatsapp.archiveChat(chatId)
+        : await whatsapp.unarchiveChat(chatId);
+      if (!success) return reply.code(409).send({ error: 'WhatsApp did not change the archive state' });
+      return { success: true, archived };
+    } catch (error) {
+      app.log.warn({ err: error, chatId, archived }, 'Failed to change chat archive state');
+      return reply.code(500).send({ error: archived ? 'Failed to archive chat' : 'Failed to restore chat' });
     }
   });
 
@@ -1042,6 +1240,7 @@ async function buildApp(overrides = {}) {
     sendReceipts.clear();
     leadStates.clear();
     if (whatsapp) await whatsapp.destroy();
+    await database.close();
   });
   app.decorate('startWhatsapp', async () => {
     if (!config.startupEnabled || config.demoMode || whatsapp) return;

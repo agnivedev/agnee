@@ -4,10 +4,48 @@ class LlmService {
   constructor(config = {}) {
     this.apiKey = config.apiKey || process.env.OPENROUTER_API_KEY;
     this.model = config.model || process.env.OPENROUTER_MODEL || 'qwen-2.5-72b-instruct';
+    this.modelChain = config.modelChain || [];
     this.baseUrl = 'https://openrouter.ai/api/v1';
     this.contextWindow = config.contextWindow || 8000;
     this.maxTokens = config.maxTokens || 512;
     this.enabled = config.enabled !== false && !!this.apiKey;
+  }
+
+  async _callModel(model, userMessage, context) {
+    const systemPrompt = context.systemPrompt || this.getDefaultSystemPrompt();
+    const messages = this.buildMessages(userMessage, context);
+
+    const response = await fetch(`${this.baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${this.apiKey}`,
+        'HTTP-Referer': 'https://agnee.agnive.co',
+        'X-Title': 'Agnee Customer Service Bot',
+      },
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          ...messages,
+          { role: 'user', content: userMessage },
+        ],
+        temperature: 0.7,
+        max_tokens: this.maxTokens,
+        top_p: 0.95,
+      }),
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(`OpenRouter API error (${model}): ${error.error?.message || response.statusText}`);
+    }
+
+    const data = await response.json();
+    const reply = data.choices?.[0]?.message?.content;
+    if (!reply) throw new Error(`No reply content from ${model}`);
+
+    return { text: reply.trim(), model, usage: data.usage };
   }
 
   async generateReply(userMessage, context = {}) {
@@ -16,52 +54,20 @@ class LlmService {
       return null;
     }
 
-    try {
-      const systemPrompt = context.systemPrompt || this.getDefaultSystemPrompt();
-      const messages = this.buildMessages(userMessage, context);
+    const chain = this.modelChain.length ? this.modelChain : [this.model];
+    let lastError;
 
-      const response = await fetch(`${this.baseUrl}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${this.apiKey}`,
-          'HTTP-Referer': 'https://agnee.agnive.co',
-          'X-Title': 'Agnee Customer Service Bot',
-        },
-        body: JSON.stringify({
-          model: this.model,
-          messages: [
-            { role: 'system', content: systemPrompt },
-            ...messages,
-            { role: 'user', content: userMessage },
-          ],
-          temperature: 0.7,
-          max_tokens: this.maxTokens,
-          top_p: 0.95,
-        }),
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(`OpenRouter API error: ${error.error?.message || response.statusText}`);
+    for (const model of chain) {
+      try {
+        return await this._callModel(model, userMessage, context);
+      } catch (err) {
+        console.warn(`Model ${model} failed: ${err.message}${chain.length > 1 ? ', trying next...' : ''}`);
+        lastError = err;
       }
-
-      const data = await response.json();
-      const reply = data.choices?.[0]?.message?.content;
-
-      if (!reply) {
-        throw new Error('No reply content in OpenRouter response');
-      }
-
-      return {
-        text: reply.trim(),
-        model: this.model,
-        usage: data.usage,
-      };
-    } catch (err) {
-      console.error('LLM generation failed:', err.message);
-      return null;
     }
+
+    console.error('All models in chain failed. Last error:', lastError?.message);
+    return null;
   }
 
   buildMessages(userMessage, context = {}) {
@@ -110,20 +116,23 @@ class LlmService {
   }
 
   getDefaultSystemPrompt() {
-    return `Anda adalah chatbot customer service Agnee yang profesional dan membantu.
+    return `Anda adalah customer service Agnee yang membantu pelanggan lewat WhatsApp.
 
 Prinsip dasar:
-1. Jawab dengan ringkas, jelas, dan natural
-2. Gunakan bahasa Indonesia yang hangat tapi profesional
+1. Jawab langsung dengan bahasa Indonesia sehari-hari yang rapi
+2. Tulis seperti percakapan manusia, bukan artikel, brosur, atau jawaban AI
 3. Jika tidak tahu, tanyakan atau tawarkan handoff ke manusia
-4. Satu pertanyaan discovery per balasan maksimal
+4. Maksimal satu pertanyaan jika memang membantu langkah berikutnya; tidak semua balasan harus diakhiri pertanyaan
 5. Jangan mengarang informasi produk, harga, atau timeline
+6. Umumnya cukup 2–4 kalimat dan di bawah 80 kata
 
 Hindari:
-- Menambah emoji berlebihan
+- Salam dan perkenalan diri berulang
+- Kalimat template seperti "Saya memahami", "Terima kasih atas pertanyaannya", "Tentu saja", dan "Perlu diketahui"
+- Penutup generik seperti "Apakah ada hal lain yang bisa saya bantu?"
+- Emoji secara default, heading, bullet, dan prose yang terasa seperti AI
 - Mengarang detail produk yang tidak dikonfirmasi
-- Memaksa customer untuk data yang tidak perlu
-- Balasan panjang (target: 2-4 kalimat)`;
+- Memaksa customer untuk data yang tidak perlu`;
   }
 
   static async testModels(apiKey, models = []) {

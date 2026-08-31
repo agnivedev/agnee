@@ -870,6 +870,15 @@ async function buildApp(overrides = {}) {
     return { qrDataUrl: state.qrDataUrl, demoMode: false };
   });
 
+  app.post('/v1/whatsapp/qr-refresh', async (_request, reply) => {
+    if (config.demoMode) {
+      demoQr ||= await QRCode.toDataURL('AGNEE-DEMO-PAIRING', { margin: 1, width: 320, color: { dark: '#173A30', light: '#FFFFFF' } });
+      return { qrDataUrl: demoQr, demoMode: true };
+    }
+    if (!state.qrDataUrl) return reply.code(404).send({ error: 'QR is not available', phase: state.phase });
+    return { qrDataUrl: state.qrDataUrl, demoMode: false };
+  });
+
   app.post('/v1/whatsapp/logout', async (_request, reply) => {
     if (config.demoMode) return reply.code(409).send({ error: 'Cannot logout in demo mode' });
     if (!whatsapp) return reply.code(409).send({ error: 'WhatsApp client not initialized' });

@@ -197,17 +197,29 @@ button:disabled { cursor: not-allowed; opacity: .42; transform: none !important;
 .tag-row span { padding: 6px 8px; border-radius: 7px; background: var(--warm); font: 400 10px "IBM Plex Mono", monospace; }
 .handoff-button { width: 100%; margin-top: 8px; }
 
-.connection-dialog { width: min(92vw, 430px); padding: 34px; border: 0; border-radius: 28px 28px 10px 28px; color: var(--ink); background: #f8f7f1; box-shadow: var(--shadow); text-align: center; }
+.connection-dialog { width: min(92vw, 430px); padding: 34px; border: 0; border-radius: 28px 28px 10px 28px; color: var(--ink); background: #f8f7f1; box-shadow: var(--shadow); text-align: center; position: relative; }
 .connection-dialog::backdrop { background: rgba(10,25,19,.55); backdrop-filter: blur(7px); }
 .connection-dialog.is-closing { animation: dialog-out .3s ease forwards; }
 .connection-dialog.is-closing::backdrop { animation: dialog-out .3s ease forwards; }
 @keyframes dialog-out { to { opacity: 0; transform: scale(.97); } }
-.dialog-close { position: absolute; top: 14px; right: 14px; width: 34px; height: 34px; border: 0; border-radius: 50%; background: rgba(20,36,31,.06); cursor: pointer; }
+.dialog-controls { position: absolute; top: 12px; right: 12px; display: flex; gap: 6px; }
+.refresh-qr { width: 32px; height: 32px; padding: 0; border: 0; border-radius: 50%; background: rgba(20,36,31,.08); cursor: pointer; font-size: 16px; display: flex; align-items: center; justify-content: center; transition: background .2s, transform .15s ease; }
+.refresh-qr:hover { background: rgba(20,36,31,.14); transform: rotate(15deg); }
+.refresh-qr:active { transform: rotate(-5deg); }
+.dialog-close { position: static; width: 32px; height: 32px; border: 0; border-radius: 50%; background: rgba(20,36,31,.08); cursor: pointer; font-size: 20px; line-height: 1; transition: background .2s; }
+.dialog-close:hover { background: rgba(20,36,31,.14); }
 .dialog-mark { width: 50px; }
 .connection-dialog h2 { margin: 5px 0 8px; }
 .connection-dialog > p { color: var(--muted); }
 .qr-shell { width: 250px; min-height: 250px; margin: 22px auto 16px; padding: 12px; display: grid; place-items: center; border-radius: 18px; background: white; }
+.qr-shell[hidden] { display: none; }
 .qr-shell img { width: 100%; display: block; }
+.sync-shell { min-height: 250px; margin: 22px auto 16px; padding: 34px 18px; display: grid; place-content: center; justify-items: center; gap: 13px; border-radius: 18px; background: rgba(20,36,31,.045); }
+.sync-shell[hidden] { display: none; }
+.sync-shell strong { font-size: 17px; }
+.sync-shell > span:last-child { color: var(--muted); font-size: 13px; }
+.sync-spinner { width: 44px; height: 44px; margin-bottom: 5px; border: 4px solid rgba(25,198,102,.18); border-top-color: var(--green); border-radius: 50%; animation: sync-spin .8s linear infinite; }
+@keyframes sync-spin { to { transform: rotate(360deg); } }
 .change-number-btn { margin-top: 14px; padding: 0; border: 0; background: none; color: var(--muted); font: 400 12px/1.5 "IBM Plex Mono", monospace; text-decoration: underline; cursor: pointer; }
 .change-number-btn:hover { color: var(--ink); }
 .change-number-btn:disabled { opacity: .5; cursor: default; text-decoration: none; }
@@ -299,3 +311,33 @@ button:disabled { cursor: not-allowed; opacity: .42; transform: none !important;
   .media-toolbar button { min-width: 35px; height: 35px; padding: 0 8px; }
   .media-help { bottom: 12px; max-width: calc(100vw - 24px); overflow: hidden; text-overflow: ellipsis; }
 }
+
+/* Markdown rendering styles */
+.bubble p strong { font-weight: 600; }
+.bubble p em { font-style: italic; }
+.bubble p code {
+  background: rgba(255, 255, 255, 0.1);
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.9em;
+}
+.bubble p h1,
+.bubble p h2,
+.bubble p h3 {
+  margin: 8px 0 4px;
+  font-weight: 600;
+}
+.bubble p h1 { font-size: 1.3em; }
+.bubble p h2 { font-size: 1.15em; }
+.bubble p h3 { font-size: 1.05em; }
+
+/* Smooth transitions to prevent flickering */
+.message-enter { animation: slideIn 0.15s ease-out; }
+@keyframes slideIn {
+  from { opacity: 0; transform: translateY(2px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.message-list { scroll-behavior: smooth; }
+::view-transition-old(root) { animation: none; opacity: 0; }
+::view-transition-new(root) { animation: none; opacity: 1; }

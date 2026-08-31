@@ -50,6 +50,7 @@
         <button id="inboxButton" class="rail-action active" aria-label="Inbox" data-label="Inbox">⌁</button>
         <button id="contactsButton" class="rail-action" aria-label="Kontak" data-label="Kontak">◎</button>
         <button id="funnelButton" class="rail-action" aria-label="Funnel" data-label="Funnel">↗</button>
+        <button id="adminButton" class="rail-action" aria-label="Admin" data-label="Admin">⚙</button>
       </nav>
       <button id="logoutButton" class="rail-action logout" aria-label="Keluar" data-label="Keluar">↪</button>
     </aside>
@@ -114,12 +115,20 @@
   </main>
 
   <dialog id="connectionDialog" class="connection-dialog">
-    <button id="closeDialog" class="dialog-close" aria-label="Tutup">×</button>
+    <div class="dialog-controls">
+      <button id="refreshQr" class="refresh-qr" type="button" title="Refresh QR code" aria-label="Refresh QR code">🔄</button>
+      <button id="closeDialog" class="dialog-close" aria-label="Tutup">×</button>
+    </div>
     <img src="/brand/agnee-mark.svg" alt="" class="dialog-mark">
     <p class="eyebrow">KONEKSI WHATSAPP</p>
     <h2 id="dialogTitle">Hubungkan WhatsApp</h2>
     <p id="dialogCopy">Buka WhatsApp → Linked Devices, lalu scan kode ini.</p>
     <div class="qr-shell"><img id="qrImage" alt="WhatsApp pairing QR code"></div>
+    <div id="syncShell" class="sync-shell" hidden>
+      <span class="sync-spinner" aria-hidden="true"></span>
+      <strong>Menyinkronkan pesan…</strong>
+      <span id="syncProgress">Mohon biarkan WhatsApp tetap terbuka.</span>
+    </div>
     <p id="qrNote" class="demo-note"></p>
     <button id="changeNumberBtn" class="change-number-btn" type="button" hidden>Ganti Nomor WhatsApp</button>
   </dialog>

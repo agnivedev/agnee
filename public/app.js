@@ -1104,12 +1104,15 @@ async function openConnection() {
 
   // waiting_for_qr / disconnected / auth_failure / error — genuinely needs scan
   showDialogQr();
+  ui.qrShell.hidden = true;
   ui.qrNote.textContent = 'Menyiapkan QR…';
   try {
     const data = await api('/v1/whatsapp/qr');
     ui.qrImage.src = data.qrDataUrl;
+    ui.qrShell.hidden = false;
     ui.qrNote.textContent = data.demoMode ? 'Demo QR untuk menguji alur UI. Nonaktifkan WA_DEMO_MODE untuk pairing nyata.' : 'QR diperbarui otomatis oleh adapter.';
   } catch {
+    ui.qrShell.hidden = true;
     ui.qrNote.textContent = 'Menunggu QR dari WhatsApp…';
   }
   clearInterval(state.connectionTimer);

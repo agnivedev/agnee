@@ -30,6 +30,8 @@ const ui = {
   dialogCopy: document.querySelector('#dialogCopy'),
   qrImage: document.querySelector('#qrImage'),
   qrShell: document.querySelector('.qr-shell'),
+  syncShell: document.querySelector('#syncShell'),
+  syncProgress: document.querySelector('#syncProgress'),
   qrNote: document.querySelector('#qrNote'),
   changeNumberBtn: document.querySelector('#changeNumberBtn'),
   contextPanel: document.querySelector('#contextPanel'),
@@ -41,6 +43,7 @@ const ui = {
   contactsButton: document.querySelector('#contactsButton'),
   inboxButton: document.querySelector('#inboxButton'),
   funnelButton: document.querySelector('#funnelButton'),
+  adminButton: document.querySelector('#adminButton'),
   newConversationButton: document.querySelector('#newConversationButton'),
   newConversationDialog: document.querySelector('#newConversationDialog'),
   newConversationForm: document.querySelector('#newConversationForm'),
@@ -96,6 +99,7 @@ const state = {
   eventSource: null,
   searchTimer: null,
   liveRefreshTimer: null,
+  locallyReadChats: new Set(),
 };
 
 async function api(path, options = {}) {
@@ -114,9 +118,43 @@ async function api(path, options = {}) {
   return data;
 }
 
+let transitionInProgress = false;
 function transition(fn) {
-  if (document.startViewTransition) return document.startViewTransition(fn);
+  if (transitionInProgress) {
+    fn();
+    return;
+  }
+  if (document.startViewTransition) {
+    transitionInProgress = true;
+    const t = document.startViewTransition(fn);
+    t.finished.finally(() => { transitionInProgress = false; });
+    return t;
+  }
   fn();
+}
+
+function renderMarkdown(text) {
+  if (!text || typeof text !== 'string') return '';
+  let html = text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+
+  html = html
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+    .replace(/__([^_]+)__/g, '<strong>$1</strong>')
+    .replace(/_([^_]+)_/g, '<em>$1</em>')
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/^### (.*?)$/gm, '<h3>$1</h3>')
+    .replace(/^## (.*?)$/gm, '<h2>$1</h2>')
+    .replace(/^# (.*?)$/gm, '<h1>$1</h1>')
+    .replace(/\n- /g, '<br>• ')
+    .replace(/\n\d+\. /g, '<br>');
+
+  return html;
 }
 
 function showApp() {
@@ -166,8 +204,18 @@ function fillAvatar(container, chat) {
   image.alt = '';
   image.loading = 'lazy';
   image.decoding = 'async';
-  image.src = `/v1/chats/${encodeURIComponent(chat.id)}/avatar`;
-  image.addEventListener('error', () => image.remove());
+  const avatarUrl = `/v1/chats/${encodeURIComponent(chat.id)}/avatar`;
+  image.src = avatarUrl;
+  image.addEventListener('error', () => {
+    if (image.dataset.retried) {
+      image.remove();
+      return;
+    }
+    image.dataset.retried = 'true';
+    setTimeout(() => {
+      if (image.isConnected) image.src = `${avatarUrl}?retry=${Date.now()}`;
+    }, 1500);
+  });
   container.append(image);
 }
 
@@ -216,29 +264,59 @@ function dayLabel(timestamp) {
 }
 
 function renderChats() {
+  if (!state.chatNodeMap) state.chatNodeMap = new Map();
+  const nodeMap = state.chatNodeMap;
   if (!state.chats.length) {
+    nodeMap.clear();
     const empty = document.createElement('div');
     empty.className = 'inbox-empty';
-    empty.textContent = state.activeFilter === 'qualified'
-      ? 'Belum ada lead qualified.'
-      : ui.searchInput.value.trim() ? 'Percakapan tidak ditemukan.' : 'Belum ada percakapan.';
+    empty.textContent = ui.searchInput.value.trim()
+      ? 'Percakapan tidak ditemukan.'
+      : state.activeTab === 'archived'
+        ? 'Belum ada percakapan yang diarsipkan.'
+        : state.activeFilter === 'qualified'
+          ? 'Belum ada lead qualified.'
+          : state.activeFilter === 'unread'
+            ? 'Semua percakapan sudah dibaca.'
+            : 'Belum ada percakapan.';
     ui.chatList.replaceChildren(empty);
     return;
   }
-  ui.chatList.replaceChildren(...state.chats.map((chat) => {
-    const button = document.createElement('button');
+  const usedIds = new Set();
+  let prevNode = null;
+  for (const chat of state.chats) {
+    usedIds.add(chat.id);
+    let button = nodeMap.get(chat.id);
+    if (!button) {
+      button = document.createElement('button');
+      button.type = 'button';
+      button.innerHTML = `
+        <span class="avatar"></span>
+        <span class="chat-copy"><strong></strong><span></span></span>
+        <span class="chat-meta"><time></time><span class="chat-flags"></span></span>`;
+      fillAvatar(button.querySelector('.avatar'), chat);
+      button.addEventListener('click', () => selectChat(button._chat));
+      nodeMap.set(chat.id, button);
+    }
+    button._chat = chat;
     button.className = `chat-item${state.activeChat?.id === chat.id ? ' active' : ''}`;
-    button.type = 'button';
-    button.innerHTML = `
-      <span class="avatar"></span>
-      <span class="chat-copy"><strong></strong><span></span></span>
-      <span class="chat-meta"><time>${formatTime(chat.timestamp)}</time><span class="chat-flags">${chat.pinned ? '<span class="chat-pin" title="Chat disematkan" aria-label="Chat disematkan"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h10l-2 3v5l3 4v2H6v-2l3-4V6L7 3Zm5 14v4"/></svg></span>' : ''}${chat.unreadCount ? `<b class="unread">${chat.unreadCount}</b>` : ''}</span></span>`;
-    fillAvatar(button.querySelector('.avatar'), chat);
     button.querySelector('strong').textContent = chat.name;
     button.querySelector('.chat-copy span').textContent = chat.preview || 'Belum ada pesan';
-    button.addEventListener('click', () => selectChat(chat));
-    return button;
-  }));
+    button.querySelector('time').textContent = formatTime(chat.timestamp);
+    button.querySelector('.chat-flags').innerHTML = `${chat.pinned ? '<span class="chat-pin" title="Chat disematkan" aria-label="Chat disematkan"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h10l-2 3v5l3 4v2H6v-2l3-4V6L7 3Zm5 14v4"/></svg></span>' : ''}${chat.unreadCount ? `<b class="unread">${chat.unreadCount}</b>` : ''}`;
+    if (prevNode) {
+      if (prevNode.nextSibling !== button) ui.chatList.insertBefore(button, prevNode.nextSibling);
+    } else if (ui.chatList.firstChild !== button) {
+      ui.chatList.insertBefore(button, ui.chatList.firstChild);
+    }
+    prevNode = button;
+  }
+  for (const [id, node] of nodeMap) {
+    if (!usedIds.has(id)) {
+      node.remove();
+      nodeMap.delete(id);
+    }
+  }
 }
 
 function ackLabel(ack) {
@@ -351,18 +429,19 @@ async function downloadCurrentMedia() {
   }
 }
 
-function messageRows(messages) {
-  const rows = [];
-  let previousDay = '';
-  for (const message of messages) {
-    const currentDay = dayKey(message.timestamp);
-    if (currentDay !== previousDay) {
-      const divider = document.createElement('div');
-      divider.className = 'date-divider';
-      divider.textContent = dayLabel(message.timestamp);
-      rows.push(divider);
-      previousDay = currentDay;
-    }
+function updateMessageRow(row, message) {
+  if (message.type === 'call_log') return;
+  if (message.fromMe && row._ackEl) {
+    const delivery = ackLabel(Number(message.ack));
+    row._ackEl.className = `message-ack ${delivery.state}`;
+    row._ackEl.textContent = delivery.text;
+    row._ackEl.title = delivery.label;
+    row._ackEl.setAttribute('aria-label', delivery.label);
+  }
+}
+
+function createMessageRow(message) {
+  {
     const row = document.createElement('div');
     row.className = `message-row${message.fromMe ? ' mine' : ''}`;
     if (message.id) row.dataset.messageId = message.id;
@@ -383,8 +462,7 @@ function messageRows(messages) {
       copy.append(title, details);
       event.append(icon, copy);
       row.append(event);
-      rows.push(row);
-      continue;
+      return row;
     }
     const bubble = document.createElement('div');
     bubble.className = 'bubble';
@@ -418,7 +496,8 @@ function messageRows(messages) {
     }
     const text = document.createElement('p');
     const mediaLabels = { image: '▧ Foto', video: '▷ Video', sticker: '◇ Stiker', audio: '♪ Audio', ptt: '◖ Pesan suara', document: '▤ Dokumen', interactive: 'Pesan interaktif WhatsApp' };
-    text.textContent = messagePreview(message) || mediaLabels[message.type] || 'Pesan tidak didukung';
+    const messageText = messagePreview(message) || mediaLabels[message.type] || 'Pesan tidak didukung';
+    text.innerHTML = renderMarkdown(messageText);
     const time = document.createElement('time');
     time.textContent = formatTime(message.timestamp);
     if (message.fromMe) {
@@ -429,6 +508,7 @@ function messageRows(messages) {
       mark.title = delivery.label;
       mark.setAttribute('aria-label', delivery.label);
       time.append(' ', mark);
+      row._ackEl = mark;
     }
     if (message.type === 'video' && message.id) {
       const videoButton = document.createElement('button');
@@ -492,23 +572,86 @@ function messageRows(messages) {
     });
     row.append(quickReply);
     row.addEventListener('dblclick', () => startReply(message));
-    rows.push(row);
+    return row;
   }
-  return rows;
 }
 
 function renderMessages(messages, hasMore) {
-  const children = [];
-  if (hasMore) {
-    const older = document.createElement('button');
-    older.type = 'button';
-    older.className = 'older-messages';
-    older.textContent = 'Muat pesan sebelumnya';
-    older.addEventListener('click', loadOlderMessages);
-    children.push(older);
+  if (!state.messageNodeMap) state.messageNodeMap = new Map();
+  const nodeMap = state.messageNodeMap;
+  const usedKeys = new Set();
+
+  // First pass: mark which keys will be used so we know what to keep
+  usedKeys.add(hasMore ? 'older' : null);
+  let previousDay = '';
+  messages.forEach((message, index) => {
+    const currentDay = dayKey(message.timestamp);
+    if (currentDay !== previousDay) {
+      usedKeys.add(`divider:${currentDay}`);
+      previousDay = currentDay;
+    }
+    const key = message.id ? `msg:${message.id}` : `msg:idx:${index}:${message.timestamp}:${message.fromMe ? 1 : 0}`;
+    usedKeys.add(key);
+  });
+
+  // Prune stale nodes from DOM BEFORE placement to avoid muddying nextSibling references
+  for (const [key, node] of nodeMap) {
+    if (!usedKeys.has(key)) {
+      node.remove();
+      nodeMap.delete(key);
+    }
   }
-  children.push(...messageRows(messages));
-  ui.messageList.replaceChildren(...children);
+
+  let prevNode = null;
+  const place = (key, node) => {
+    if (prevNode) {
+      if (prevNode.nextSibling !== node) ui.messageList.insertBefore(node, prevNode.nextSibling);
+    } else if (ui.messageList.firstChild !== node) {
+      ui.messageList.insertBefore(node, ui.messageList.firstChild);
+    }
+    prevNode = node;
+  };
+
+  if (hasMore) {
+    let older = nodeMap.get('older');
+    if (!older) {
+      older = document.createElement('button');
+      older.type = 'button';
+      older.className = 'older-messages';
+      older.textContent = 'Muat pesan sebelumnya';
+      older.addEventListener('click', loadOlderMessages);
+      nodeMap.set('older', older);
+    }
+    place('older', older);
+  }
+
+  previousDay = '';
+  messages.forEach((message, index) => {
+    const currentDay = dayKey(message.timestamp);
+    if (currentDay !== previousDay) {
+      const dividerKey = `divider:${currentDay}`;
+      let divider = nodeMap.get(dividerKey);
+      if (!divider) {
+        divider = document.createElement('div');
+        divider.className = 'date-divider message-enter';
+        divider.textContent = dayLabel(message.timestamp);
+        nodeMap.set(dividerKey, divider);
+      }
+      place(dividerKey, divider);
+      previousDay = currentDay;
+    }
+
+    const key = message.id ? `msg:${message.id}` : `msg:idx:${index}:${message.timestamp}:${message.fromMe ? 1 : 0}`;
+    let row = nodeMap.get(key);
+    if (row) {
+      updateMessageRow(row, message);
+    } else {
+      row = createMessageRow(message);
+      row.classList.add('message-enter');
+      nodeMap.set(key, row);
+    }
+    place(key, row);
+  });
 }
 
 async function loadMessages(mode = 'bottom') {
@@ -521,7 +664,10 @@ async function loadMessages(mode = 'bottom') {
     const data = await api(`/v1/chats/${encodeURIComponent(requestedChatId)}/messages?limit=${state.messageLimit}`);
     if (state.activeChat?.id !== requestedChatId) return;
     state.hasMoreMessages = Boolean(data.hasMore) && state.messageLimit < 600;
+    // Skip view transition for message updates to prevent flickering
+    transitionInProgress = true;
     renderMessages(data.messages, state.hasMoreMessages);
+    transitionInProgress = false;
     if (mode === 'bottom') ui.messageList.scrollTop = ui.messageList.scrollHeight;
     if (mode === 'preserve') ui.messageList.scrollTop = previousTop + (ui.messageList.scrollHeight - previousHeight);
     if (mode === 'stay') ui.messageList.scrollTop = previousTop;
@@ -537,6 +683,10 @@ async function loadOlderMessages() {
 }
 
 async function selectChat(chat, resetLimit = true) {
+  if (state.activeChat?.id !== chat.id) {
+    state.messageNodeMap?.clear();
+    ui.messageList.replaceChildren();
+  }
   state.activeChat = chat;
   if (resetLimit) state.messageLimit = 30;
   cancelReply();
@@ -544,10 +694,12 @@ async function selectChat(chat, resetLimit = true) {
   state.pinnedMessages = [];
   ui.pinnedBar.hidden = true;
   sessionStorage.setItem('agnee_active_chat', chat.id);
-  api(`/v1/chats/${encodeURIComponent(chat.id)}/mark-read`, { method: 'POST' }).then(() => {
-    chat.unreadCount = 0;
-    renderChats();
-  }).catch(() => {});
+  state.locallyReadChats.add(chat.id);
+  chat.unreadCount = 0;
+  if (state.activeFilter === 'unread' && state.activeTab === 'inbox') {
+    state.chats = state.chats.filter((item) => item.id !== chat.id);
+  }
+  api(`/v1/chats/${encodeURIComponent(chat.id)}/mark-read`, { method: 'POST' }).catch(() => {});
   renderChats();
   ui.activeName.textContent = chat.name;
   ui.activeMeta.textContent = chat.isGroup ? 'WhatsApp grup' : 'WhatsApp · lead aktif';
@@ -650,7 +802,9 @@ async function loadChats(reset = false) {
   state.loadingChats = true;
   try {
     const offset = reset ? 0 : state.chats.length;
-    const filter = state.activeTab === 'archived' ? 'archived' : state.activeFilter;
+    const filter = state.activeTab === 'archived'
+      ? 'archived'
+      : state.activeFilter === 'all' ? 'inbox' : state.activeFilter;
     const params = new URLSearchParams({
       limit: String(state.chatPageSize),
       offset: String(offset),
@@ -658,13 +812,14 @@ async function loadChats(reset = false) {
       filter,
     });
     const data = await api(`/v1/chats?${params}`);
-    const newChats = reset ? data.chats || [] : [...state.chats, ...(data.chats || [])];
+    const receivedChats = (data.chats || []).map((chat) => state.locallyReadChats.has(chat.id)
+      ? { ...chat, unreadCount: 0 }
+      : chat);
+    const newChats = reset ? receivedChats : [...state.chats, ...receivedChats];
     state.hasMoreChats = Boolean(data.hasMore);
     ui.loadMoreChats.hidden = !state.hasMoreChats;
-    transition(() => {
-      state.chats = newChats;
-      renderChats();
-    });
+    state.chats = newChats;
+    renderChats();
   } catch (error) {
     if (reset) {
       ui.chatList.textContent = `Chat belum dapat dimuat: ${error.message}`;
@@ -718,6 +873,7 @@ function connectEvents() {
   events.addEventListener('message', schedule);
   events.addEventListener('ack', schedule);
   events.addEventListener('lead', schedule);
+  events.addEventListener('chat', schedule);
   events.addEventListener('whatsapp_phase', async (event) => {
     let payload = {};
     try { payload = JSON.parse(event.data || '{}'); } catch { /* ignore */ }
@@ -732,11 +888,11 @@ function connectEvents() {
     }
     if (payload.phase === 'authenticated') {
       if (ui.connectionDialog.open) {
-        ui.dialogTitle.textContent = 'Sesi sedang diatur…';
-        ui.dialogCopy.textContent = 'Tunggu sebentar, kami sedang menyiapkan percakapan Anda.';
-        ui.qrShell.hidden = true;
-        ui.changeNumberBtn.hidden = true;
+        showDialogSyncing();
       }
+    }
+    if (payload.phase === 'syncing' && ui.connectionDialog.open) {
+      showDialogSyncing(payload.percent);
     }
     if (payload.phase === 'ready') {
       if (ui.connectionDialog.open) {
@@ -751,6 +907,12 @@ function connectEvents() {
         ui.connectionDialog.close();
       }, 300);
     }
+  });
+  events.addEventListener('message', (event) => {
+    try {
+      const payload = JSON.parse(event.data || '{}');
+      if (payload.chatId && !payload.fromMe) state.locallyReadChats.delete(payload.chatId);
+    } catch { /* ignore malformed event */ }
   });
 }
 
@@ -818,6 +980,28 @@ function openConversationMenu() {
   if (!state.activeChat) return;
   openUtility('Aksi percakapan', 'CHAT INI');
   ui.utilityContent.append(
+    utilityAction(
+      state.activeChat.archived ? 'Kembalikan ke Inbox' : 'Archive conversation',
+      state.activeChat.archived ? 'Pindahkan percakapan ini kembali ke Inbox' : 'Pindahkan percakapan ini ke Archived',
+      async () => {
+        const chat = state.activeChat;
+        const archived = !chat.archived;
+        await api(`/v1/chats/${encodeURIComponent(chat.id)}/archive`, {
+          method: 'POST',
+          body: JSON.stringify({ archived }),
+        });
+        ui.utilityDialog.close();
+        chat.archived = archived;
+        state.chats = state.chats.filter((item) => item.id !== chat.id);
+        state.activeChat = null;
+        ui.activeName.textContent = 'Pilih percakapan';
+        ui.activeMeta.textContent = 'WhatsApp';
+        ui.messageList.hidden = true;
+        ui.composer.hidden = true;
+        ui.emptyState.hidden = false;
+        await loadChats(true);
+      },
+    ),
     utilityAction('Refresh conversation', 'Ambil pesan terbaru dari WhatsApp', async () => {
       ui.utilityDialog.close();
       await loadMessages('bottom');
@@ -875,15 +1059,30 @@ function renderConnection(whatsapp) {
 
 function showDialogQr() {
   ui.qrShell.hidden = false;
+  ui.syncShell.hidden = true;
   ui.changeNumberBtn.hidden = true;
   ui.dialogTitle.textContent = 'Hubungkan WhatsApp';
   ui.dialogCopy.textContent = 'Buka WhatsApp → Linked Devices, lalu scan kode ini.';
+}
+
+function showDialogSyncing(percent) {
+  ui.qrImage.removeAttribute('src');
+  ui.qrShell.hidden = true;
+  ui.syncShell.hidden = false;
+  ui.changeNumberBtn.hidden = true;
+  ui.dialogTitle.textContent = 'Menyinkronkan WhatsApp';
+  ui.dialogCopy.textContent = 'QR berhasil dipindai. Kami sedang mengambil percakapan Anda.';
+  ui.syncProgress.textContent = Number.isFinite(percent)
+    ? `Menyinkronkan pesan ${Math.round(percent)}%`
+    : 'Mohon biarkan WhatsApp tetap terbuka.';
+  ui.qrNote.textContent = '';
 }
 
 async function openConnection() {
   ui.connectionDialog.showModal();
   ui.qrImage.removeAttribute('src');
   ui.qrShell.hidden = true;
+  ui.syncShell.hidden = true;
   ui.changeNumberBtn.hidden = true;
 
   const phase = state.whatsapp?.phase;
@@ -896,10 +1095,8 @@ async function openConnection() {
     return;
   }
 
-  if (phase === 'starting' || phase === 'authenticated') {
-    ui.dialogTitle.textContent = phase === 'authenticated' ? 'Menghubungkan…' : 'Memulihkan sesi WhatsApp…';
-    ui.dialogCopy.textContent = 'Ditemukan sesi tersimpan, sedang menghubungkan ulang ke WhatsApp.';
-    ui.qrNote.textContent = '';
+  if (phase === 'starting' || phase === 'authenticated' || phase === 'syncing') {
+    showDialogSyncing(state.whatsapp?.syncPercent);
     clearInterval(state.connectionTimer);
     state.connectionTimer = setInterval(checkConnection, 5000);
     return;
@@ -936,6 +1133,10 @@ async function checkConnection() {
         ui.connectionDialog.classList.remove('is-closing');
         ui.connectionDialog.close();
       }, 300);
+      return;
+    }
+    if (whatsapp.phase === 'authenticated' || whatsapp.phase === 'syncing') {
+      showDialogSyncing(whatsapp.syncPercent);
       return;
     }
     if (whatsapp.hasQr && !whatsapp.demoMode && ui.connectionDialog.open) {
@@ -1067,6 +1268,7 @@ for (const button of ui.tabButtons) {
     state.activeTab = button.dataset.tab;
     for (const item of ui.tabButtons) item.classList.toggle('active', item === button);
     ui.filterRow.hidden = state.activeTab === 'archived';
+    document.querySelector('.inbox-head h1').textContent = state.activeTab === 'archived' ? 'Archived' : 'Inbox';
     await loadChats(true);
   });
 }
@@ -1087,8 +1289,12 @@ ui.messageList.addEventListener('scroll', () => {
 });
 ui.connectionButton.addEventListener('click', openConnection);
 ui.inboxButton.addEventListener('click', async () => {
+  state.activeTab = 'inbox';
   state.activeFilter = 'all';
+  for (const item of ui.tabButtons) item.classList.toggle('active', item.dataset.tab === 'inbox');
   for (const item of ui.filterButtons) item.classList.toggle('active', item.dataset.filter === 'all');
+  ui.filterRow.hidden = false;
+  document.querySelector('.inbox-head h1').textContent = 'Inbox';
   ui.searchInput.value = '';
   await loadChats(true);
   if (window.matchMedia('(max-width: 760px)').matches) {
@@ -1098,6 +1304,7 @@ ui.inboxButton.addEventListener('click', async () => {
 });
 ui.contactsButton.addEventListener('click', openContacts);
 ui.funnelButton.addEventListener('click', openFunnel);
+ui.adminButton.addEventListener('click', () => { window.location.href = '/admin.html'; });
 ui.conversationMenuButton.addEventListener('click', openConversationMenu);
 ui.pinnedBar.addEventListener('click', openPinnedMessages);
 ui.newConversationButton.addEventListener('click', () => {

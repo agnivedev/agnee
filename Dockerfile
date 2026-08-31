@@ -16,6 +16,7 @@ RUN npm ci --omit=dev
 COPY --chown=node:node src ./src
 COPY --chown=node:node public ./public
 COPY --chown=node:node assets ./assets
+COPY --chown=node:node knowledge ./knowledge
 
 RUN install -d -o node -g node /data/whatsapp /data/mcp
 

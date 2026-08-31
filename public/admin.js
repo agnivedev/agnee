@@ -2,16 +2,14 @@
 
 const AVAILABLE_MODELS = [
   { value: '', label: '— Tidak dipakai —' },
-  { value: 'meta-llama/llama-3.1-8b-instruct', label: 'Llama 3.1 8B  ·  paling murah' },
-  { value: 'google/gemini-flash-1.5-8b', label: 'Gemini Flash 1.5 8B  ·  murah' },
-  { value: 'google/gemini-flash-1.5', label: 'Gemini Flash 1.5  ·  bagus & murah' },
-  { value: 'openai/gpt-4o-mini', label: 'GPT-4o mini  ·  murah, reliable' },
-  { value: 'anthropic/claude-3-haiku', label: 'Claude 3 Haiku  ·  murah, cepat' },
-  { value: 'anthropic/claude-3-5-haiku', label: 'Claude 3.5 Haiku  ·  mid-range' },
-  { value: 'qwen/qwen-2.5-7b-instruct', label: 'Qwen 2.5 7B  ·  murah' },
-  { value: 'qwen/qwen-2.5-72b-instruct', label: 'Qwen 2.5 72B  ·  default saat ini' },
-  { value: 'openai/gpt-4o', label: 'GPT-4o  ·  premium' },
-  { value: 'anthropic/claude-sonnet-4-5', label: 'Claude Sonnet 4.5  ·  premium' },
+  { value: 'meta-llama/llama-3.1-8b-instruct', label: 'Llama 3.1 8B  ·  $0.02/1M' },
+  { value: 'mistralai/mistral-7b-instruct', label: 'Mistral 7B  ·  $0.14/1M' },
+  { value: 'google/gemini-2.0-flash-exp', label: 'Gemini 2.0 Flash  ·  $0.075/1M' },
+  { value: 'openai/gpt-4o-mini', label: 'GPT-4o mini  ·  $0.15/1M' },
+  { value: 'anthropic/claude-3.5-haiku', label: 'Claude 3.5 Haiku  ·  $0.80/1M' },
+  { value: 'qwen-2.5-72b-instruct', label: 'Qwen 2.5 72B  ·  $0.40/1M (default)' },
+  { value: 'openai/gpt-4-turbo', label: 'GPT-4 Turbo  ·  $10/1M' },
+  { value: 'anthropic/claude-opus-4-1', label: 'Claude Opus 4.1  ·  $15/1M' },
 ];
 
 function renderMarkdown(text) {

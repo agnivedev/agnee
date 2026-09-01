@@ -200,7 +200,7 @@ button, select, textarea { font: inherit; }
 .team-card h2 { margin: 4px 0 0; }
 .team-copy { margin: 8px 0 20px; color: var(--muted); }
 .team-members { display: grid; gap: 8px; margin-bottom: 18px; }
-.team-member { display: grid; grid-template-columns: 42px 1fr auto; gap: 11px; align-items: center; padding: 10px 12px; border-radius: 14px; background: #f3f4ef; }
+.team-member { display: grid; grid-template-columns: 42px 1fr auto auto; gap: 11px; align-items: center; padding: 10px 12px; border-radius: 14px; background: #f3f4ef; }
 .team-member .member-avatar { display: grid; width: 42px; height: 42px; place-items: center; border-radius: 50%; color: #087f4d; background: #ddefdf; font-weight: 800; }
 .team-member strong, .team-member small { display: block; }
 .team-member small { color: var(--muted); }
@@ -209,4 +209,24 @@ button, select, textarea { font: inherit; }
 .team-form label { display: grid; gap: 6px; color: var(--muted); font-size: 12px; font-weight: 700; }
 .team-form input, .team-form select { width: 100%; min-height: 42px; border: 1px solid var(--line); border-radius: 10px; padding: 9px 10px; background: #fff; font: inherit; }
 .team-status { grid-column: 1 / -1; min-height: 18px; margin: 0; color: #087f4d; font-size: 12px; }
+.member-actions { display: flex; gap: 6px; align-items: center; }
+.member-role-select { min-height: 30px; border: 1px solid var(--line); border-radius: 8px; padding: 4px 7px; background: #fff; font: 600 11px "IBM Plex Mono", monospace; color: #285248; cursor: pointer; }
+.deactivate-btn { min-height: 30px; border: 1px solid #f0c0c0; border-radius: 8px; padding: 4px 10px; background: #fff5f5; color: #c00; font: 600 11px "IBM Plex Mono", monospace; cursor: pointer; transition: background .15s; }
+.deactivate-btn:hover { background: #ffe0e0; }
+
+/* Plan management */
+.plan-badge-pill { padding: 5px 12px; border-radius: 999px; font: 700 11px "IBM Plex Mono", monospace; text-transform: uppercase; letter-spacing: .04em; }
+.plan-badge-pill.plan-personal { color: #285248; background: #ddefdf; }
+.plan-badge-pill.plan-company { color: #fff; background: #087f4d; }
+.plan-usage-bar { margin: 16px 0; }
+.usage-label { display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 12px; color: var(--muted); }
+.usage-track { height: 8px; border-radius: 999px; background: #e8ebe5; overflow: hidden; }
+.usage-fill { height: 100%; border-radius: 999px; background: #087f4d; transition: width .4s; }
+.usage-fill.warn { background: #d97706; }
+.usage-fill.danger { background: #c00; }
+.plan-config { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 18px; }
+.plan-config label { display: grid; gap: 6px; color: var(--muted); font-size: 12px; font-weight: 700; }
+.plan-config select, .plan-config input { min-height: 42px; border: 1px solid var(--line); border-radius: 10px; padding: 9px 10px; background: #fff; font: inherit; width: 100%; }
+.card-head { display: flex; justify-content: space-between; align-items: flex-start; }
+@media (max-width: 700px) { .plan-config { grid-template-columns: 1fr; } }
 @media (max-width: 1100px) { .team-form { grid-template-columns: 1fr 1fr; } }

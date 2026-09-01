@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#14241f">
+  <title>Agnee — Pengaturan Akun</title>
+  <link rel="icon" href="/brand/agnee-mark.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/admin.css">
+</head>
+<body>
+  <div class="admin-shell">
+    <aside class="admin-sidebar">
+      <a class="admin-brand" href="/" aria-label="Kembali ke Agnee Inbox">
+        <img src="/brand/agnee-mark.svg" alt="">
+        <span><strong>Agnee</strong><small>Pengaturan</small></span>
+      </a>
+
+      <nav aria-label="Navigasi pengaturan">
+        <a href="#planSection"><span>◈</span><b>Paket &amp; Penggunaan</b></a>
+        <a href="#teamSection"><span>◎</span><b>Tim CS</b></a>
+        <a href="#myAccount"><span>◉</span><b>Akun saya</b></a>
+      </nav>
+
+      <div class="sidebar-foot">
+        <span id="sidebarDot" class="status-dot"></span>
+        <div><strong id="sidebarName">Memuat…</strong><small id="sidebarRole">—</small></div>
+      </div>
+    </aside>
+
+    <main class="admin-main">
+      <header class="admin-header" id="settingsTop">
+        <div>
+          <p class="eyebrow">PENGATURAN</p>
+          <h1>Pengaturan Akun</h1>
+          <p>Kelola paket, tim CS, dan informasi akun Anda.</p>
+        </div>
+        <a class="back-link" href="/#inbox">← Kembali ke inbox</a>
+      </header>
+
+      <section id="planSection" class="team-card" aria-labelledby="planTitle" style="margin-top:32px">
+        <div class="card-head">
+          <div><p class="eyebrow">PAKET &amp; PENGGUNAAN</p><h2 id="planTitle">Paket langganan</h2></div>
+          <span id="planBadge" class="plan-badge-pill"></span>
+        </div>
+        <div id="planUsageBar" class="plan-usage-bar" hidden>
+          <div class="usage-label"><span id="usageText">0 / 500 pesan AI bulan ini</span><span id="usagePct">0%</span></div>
+          <div class="usage-track"><div id="usageFill" class="usage-fill" style="width:0%"></div></div>
+        </div>
+        <div class="plan-config" id="planConfig">
+          <label>Knowledge Base / Playbook
+            <select id="knowledgeClientSelect">
+              <option value="agnee">Agnee (default)</option>
+              <option value="bzone">bZone Alpha</option>
+            </select>
+          </label>
+          <label>Batas pesan AI/bulan <small>(0 = tidak terbatas)</small>
+            <input id="aiLimitInput" type="number" min="0" max="100000" step="100" value="500">
+          </label>
+          <div class="model-chain-actions" style="margin-top:.5rem">
+            <button id="savePlanConfig" class="save-settings-btn" type="button">Simpan konfigurasi</button>
+            <span id="planSaved" class="settings-saved-badge" hidden>Tersimpan ✓</span>
+          </div>
+        </div>
+      </section>
+
+      <section id="teamSection" class="team-card" aria-labelledby="teamTitle">
+        <div class="card-head"><div><p class="eyebrow">TIM LAYANAN PELANGGAN</p><h2 id="teamTitle">Supervisor dan agent</h2></div></div>
+        <p class="team-copy">Supervisor dapat membagi chat ke agent. Setiap agent masuk menggunakan akun masing-masing.</p>
+        <div id="teamMembers" class="team-members"></div>
+        <form id="teamForm" class="team-form" autocomplete="off">
+          <label><span>Nama</span><input name="displayName" required minlength="2" placeholder="Agent 1" autocomplete="off"></label>
+          <label><span>Email</span><input name="email" type="email" required placeholder="agent1@company.com" autocomplete="off"></label>
+          <label><span>Kata sandi</span><input name="password" type="password" minlength="8" required autocomplete="new-password"></label>
+          <label><span>Peran</span><select name="role"><option value="agent">Agent</option><option value="supervisor">Supervisor</option></select></label>
+          <button type="submit" class="save-settings-btn">Tambah anggota</button>
+          <p id="teamStatus" class="team-status" role="status"></p>
+        </form>
+      </section>
+
+      <section id="myAccount" class="team-card" aria-labelledby="myAccountTitle">
+        <div class="card-head"><div><p class="eyebrow">AKUN SAYA</p><h2 id="myAccountTitle">Informasi akun</h2></div></div>
+        <div id="myAccountInfo" class="team-members"></div>
+      </section>
+    </main>
+  </div>
+
+  <script src="/i18n.js" defer></script>
+  <script src="/settings.js" defer></script>
+</body>
+</html>

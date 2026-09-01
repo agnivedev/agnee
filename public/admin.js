@@ -211,18 +211,74 @@ async function loadConfig() {
 
 function renderTeam(members) {
   ui.teamMembers.replaceChildren();
+  const isSupervisor = currentUser && ['owner', 'admin', 'supervisor'].includes(currentUser.role);
   for (const member of members) {
     const row = document.createElement('div');
     row.className = 'team-member';
     const name = member.displayName || member.email;
-    row.innerHTML = '<span class="member-avatar"></span><span><strong></strong><small></small></span><b class="member-role"></b>';
-    row.querySelector('.member-avatar').textContent = name.split(/\s+/).map((part) => part[0]).join('').slice(0, 2).toUpperCase();
-    row.querySelector('strong').textContent = name;
-    row.querySelector('small').textContent = member.email;
-    row.querySelector('.member-role').textContent = ['owner', 'admin', 'supervisor'].includes(member.role) ? tr('team.supervisor') : tr('team.agent');
+    const isOwner = member.role === 'owner';
+    const isSelf = currentUser && member.id === currentUser.id;
+
+    const avatarEl = document.createElement('span');
+    avatarEl.className = 'member-avatar';
+    avatarEl.textContent = name.split(/\s+/).map((p) => p[0]).join('').slice(0, 2).toUpperCase();
+
+    const infoEl = document.createElement('span');
+    infoEl.innerHTML = '<strong></strong><small></small>';
+    infoEl.querySelector('strong').textContent = name + (isSelf ? ' (kamu)' : '');
+    infoEl.querySelector('small').textContent = member.email;
+
+    const roleEl = document.createElement('b');
+    roleEl.className = 'member-role';
+    roleEl.textContent = ['owner', 'admin', 'supervisor'].includes(member.role) ? tr('team.supervisor') : tr('team.agent');
+
+    row.append(avatarEl, infoEl, roleEl);
+
+    if (isSupervisor && !isOwner && !isSelf) {
+      const actionsEl = document.createElement('div');
+      actionsEl.className = 'member-actions';
+
+      const roleSelect = document.createElement('select');
+      roleSelect.className = 'member-role-select';
+      [{ value: 'agent', label: tr('team.agent') }, { value: 'supervisor', label: tr('team.supervisor') }].forEach(({ value, label }) => {
+        const opt = document.createElement('option');
+        opt.value = value;
+        opt.textContent = label;
+        opt.selected = member.role === value;
+        roleSelect.append(opt);
+      });
+      roleSelect.addEventListener('change', async () => {
+        try {
+          await api(`/v1/team/members/${member.id}/role`, { method: 'PATCH', body: JSON.stringify({ role: roleSelect.value }) });
+          await loadTeam();
+        } catch (err) {
+          alert(err.message);
+          roleSelect.value = member.role;
+        }
+      });
+
+      const deactivateBtn = document.createElement('button');
+      deactivateBtn.className = 'deactivate-btn';
+      deactivateBtn.type = 'button';
+      deactivateBtn.textContent = 'Nonaktifkan';
+      deactivateBtn.addEventListener('click', async () => {
+        if (!confirm(`Nonaktifkan ${name}?`)) return;
+        try {
+          await api(`/v1/team/members/${member.id}`, { method: 'DELETE' });
+          await loadTeam();
+        } catch (err) {
+          alert(err.message);
+        }
+      });
+
+      actionsEl.append(roleSelect, deactivateBtn);
+      row.append(actionsEl);
+    }
+
     ui.teamMembers.append(row);
   }
 }
+
 
 async function loadTeam() {
   try {

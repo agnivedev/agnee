@@ -2,7 +2,14 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { buildApp, normalizeChatId, inlineImageFromBody, messagePreviewForUi, normalizeMessageForUi, requestsHumanAgent } = require('../src/server');
+const { buildApp, normalizeChatId, inlineImageFromBody, messagePreviewForUi, normalizeMessageForUi, isConversationMessageForUi, isConversationForUi, requestsHumanAgent, parseConversationInsight } = require('../src/server');
+
+test('parses structured AI summary and qualification safely', () => {
+  const insight = parseConversationInsight('```json\n{"summary":"Pelanggan meminta demo.","stage":"qualified","score":82,"title":"Siap demo","detail":"Permintaan demo sudah konkret.","labels":["Demo","Produk","Demo"]}\n```');
+  assert.equal(insight.qualificationStage, 'qualified');
+  assert.equal(insight.qualificationScore, 82);
+  assert.deepEqual(insight.labels, ['Demo', 'Produk']);
+});
 
 test('normalizes Indonesian phone numbers', () => {
   assert.equal(normalizeChatId('0812-3456-7890', '62'), '6281234567890@c.us');
@@ -18,6 +25,35 @@ test('normalizes interactive image payloads without leaking base64 as text', () 
   assert.match(message.inlineImage, /^data:image\/jpeg;base64,/);
   assert.equal(normalizeMessageForUi({ type: 'image', body: jpeg, caption: 'Promo hari ini' }).body, 'Promo hari ini');
   assert.equal(inlineImageFromBody('normal customer message'), null);
+});
+
+test('keeps group sender identity for bubbles and quoted replies', () => {
+  const message = normalizeMessageForUi({
+    type: 'chat',
+    body: 'Ini maksudnya semua ya?',
+    senderName: 'Ayen LOVE',
+    senderId: '628123456789@c.us',
+    quoted: {
+      type: 'chat',
+      body: 'Ada 6 solusinya aja',
+      fromMe: false,
+      senderName: 'S-V-T',
+      senderId: '628987654321@c.us',
+    },
+  });
+  assert.equal(message.senderName, 'Ayen LOVE');
+  assert.equal(message.senderId, '628123456789@c.us');
+  assert.equal(message.quoted.senderName, 'S-V-T');
+  assert.equal(message.quoted.senderId, '628987654321@c.us');
+});
+
+test('does not expose temporary group participant contacts as inbox chats', () => {
+  assert.equal(isConversationForUi({ id: 'participant@c.us', name: 'Peserta grup' }), false);
+  assert.equal(isConversationForUi({ id: 'participant@c.us', lastMessage: { type: 'protocol' } }), false);
+  assert.equal(isConversationMessageForUi({ type: 'e2e_notification', body: 'internal' }), false);
+  assert.equal(isConversationForUi({ id: 'customer@c.us', lastMessage: { body: 'Halo' } }), true);
+  assert.equal(isConversationForUi({ id: 'customer@c.us', lastMessage: { type: 'image', hasMedia: true } }), true);
+  assert.equal(isConversationForUi({ id: 'group@g.us', isGroup: true }), true);
 });
 
 test('detects explicit requests to hand a conversation from AI to a human', () => {
@@ -149,9 +185,14 @@ test('login, list chats, read and send in demo mode', async (t) => {
 
   const toAi = await app.inject({
     method: 'POST', url: '/v1/chats/demo-nadia/routing', headers: { cookie },
-    payload: { mode: 'ai', note: 'Lanjutkan otomatis' },
+    payload: {
+      mode: 'ai', note: 'Lanjutkan otomatis', sendClosingMessage: true,
+      closingMessage: 'Kendalanya sudah selesai. Percakapan dilanjutkan oleh AI.',
+    },
   });
   assert.equal(toAi.json().routing.mode, 'ai');
+  const afterHandover = await app.inject({ method: 'GET', url: '/v1/chats/demo-nadia/messages', headers: { cookie } });
+  assert.equal(afterHandover.json().messages.at(-1).body, 'Kendalanya sudah selesai. Percakapan dilanjutkan oleh AI.');
   const routingHistory = await app.inject({ method: 'GET', url: '/v1/chats/demo-nadia/routing', headers: { cookie } });
   assert.equal(routingHistory.json().handoffs.length, 2);
 });
@@ -199,6 +240,7 @@ test('agent can only take chats for self and cannot open supervisor settings', a
 test('admin auto-reply playground previews usage without sending WhatsApp', async (t) => {
   const persistedLeads = new Map();
   const persistedRuns = [];
+  let llmCalls = 0;
   const database = {
     enabled: true,
     connected: true,
@@ -227,9 +269,12 @@ test('admin auto-reply playground previews usage without sending WhatsApp', asyn
   const llmService = {
     enabled: true,
     model: 'test/model',
-    async generateReply(message) {
+    async generateReply(message, context = {}) {
+      llmCalls += 1;
       return {
-        text: `Preview: ${message}`,
+        text: context.systemPrompt?.includes('JSON valid')
+          ? JSON.stringify({ summary: 'Pelanggan meminta informasi paket untuk tiga cabang.', stage: 'qualified', score: 81, title: 'Kebutuhan multi-cabang', detail: 'Kebutuhan pelanggan konkret dan dapat ditindaklanjuti.', labels: ['Multi-cabang', 'Paket'] })
+          : `Preview: ${message}`,
         model: this.model,
         usage: { prompt_tokens: 120, completion_tokens: 12, total_tokens: 132, cost: 0.00042 },
       };
@@ -252,6 +297,15 @@ test('admin auto-reply playground previews usage without sending WhatsApp', asyn
   assert.equal(config.json().model, 'test/model');
   assert.equal(config.json().llmEnabled, true);
 
+  const summary = await app.inject({ method: 'GET', url: '/v1/chats/demo-nadia/summary?locale=id', headers });
+  assert.equal(summary.statusCode, 200);
+  assert.equal(summary.json().summary, 'Pelanggan meminta informasi paket untuk tiga cabang.');
+  assert.equal(summary.json().qualificationStage, 'qualified');
+  assert.equal(summary.json().cached, false);
+  const cachedSummary = await app.inject({ method: 'GET', url: '/v1/chats/demo-nadia/summary?locale=id', headers });
+  assert.equal(cachedSummary.json().cached, true);
+  assert.equal(llmCalls, 1);
+
   const preview = await app.inject({
     method: 'POST',
     url: '/v1/admin/playground/auto-reply',
@@ -259,6 +313,7 @@ test('admin auto-reply playground previews usage without sending WhatsApp', asyn
     payload: { clientId: 'bzone', message: 'Bisa lihat demo dulu ga?' },
   });
   assert.equal(preview.statusCode, 200);
+  assert.equal(llmCalls, 2);
   assert.equal(preview.json().reply, 'Preview: Bisa lihat demo dulu ga?');
   assert.deepEqual(preview.json().usage, { inputTokens: 120, outputTokens: 12, totalTokens: 132, costUsd: 0.00042 });
   assert.equal(preview.json().sentToWhatsapp, false);

@@ -51,6 +51,7 @@
         <button id="contactsButton" class="rail-action" data-i18n-aria-label="nav.contacts" data-label="Kontak">◎</button>
         <button id="funnelButton" class="rail-action" data-i18n-aria-label="nav.funnel" data-label="Funnel">↗</button>
         <button id="adminButton" class="rail-action" data-i18n-aria-label="nav.admin" data-label="Admin">⚙</button>
+        <button id="settingsButton" class="rail-action" aria-label="Pengaturan" data-label="Pengaturan">◈</button>
       </nav>
       <button id="logoutButton" class="rail-action logout" data-i18n-aria-label="nav.logout" data-label="Keluar">↪</button>
     </aside>
@@ -120,12 +121,18 @@
       <section class="routing-section">
         <div class="routing-heading"><h3 data-i18n="routing.title">Penanganan chat</h3><span id="routingBadge" class="routing-badge">AI</span></div>
         <div class="mode-switch" id="modeSwitch">
-          <button type="button" data-mode="ai" class="active" data-i18n="routing.ai">AI</button>
-          <button type="button" data-mode="human" data-i18n="routing.human">Manusia</button>
+          <button type="button" data-mode="ai" class="active"><strong data-i18n="routing.ai">AI</strong><span data-i18n="routing.aiCopy">Balas otomatis dengan konteks chat</span></button>
+          <button type="button" data-mode="human"><strong data-i18n="routing.human">Manusia</strong><span data-i18n="routing.humanCopy">Ditangani anggota tim</span></button>
         </div>
+        <p id="routingHelp" class="routing-help"></p>
         <label id="assigneeField" class="assignee-field" hidden><span data-i18n="routing.assignee">Ditangani oleh</span>
           <select id="assigneeSelect"></select>
         </label>
+        <div id="aiReturnOptions" class="ai-return-options" hidden>
+          <label class="closing-toggle"><input id="sendClosingMessage" type="checkbox" checked><span data-i18n="routing.sendClosing">Kirim pesan penutup ke pelanggan</span></label>
+          <textarea id="closingMessage" rows="3" maxlength="500">Baik Kak, kendalanya sudah selesai dibantu ya. Percakapan ini saya alihkan kembali ke asisten AI kami.</textarea>
+          <p data-i18n="routing.contextSaved">Ringkasan terakhir akan disimpan agar AI dapat melanjutkan tanpa kehilangan konteks.</p>
+        </div>
         <textarea id="handoverNote" rows="2" maxlength="500" data-i18n-placeholder="routing.notePlaceholder" placeholder="Catatan handover (opsional)"></textarea>
         <button id="saveRoutingButton" class="routing-save" type="button" data-i18n="routing.save">Simpan penanganan</button>
         <p id="routingStatus" class="routing-status" role="status"></p>
@@ -134,7 +141,7 @@
       <section><h3 data-i18n="lead.summary">Ringkasan</h3><p id="leadSummary" data-i18n="lead.choose">Pilih percakapan untuk melihat informasi lead.</p></section>
       <section class="notes-section"><h3 data-i18n="notes.title">Catatan internal</h3><div id="notesList" class="notes-list"></div><form id="noteForm"><textarea id="noteInput" rows="2" maxlength="2000" data-i18n-placeholder="notes.placeholder" placeholder="Tulis catatan untuk tim…"></textarea><button type="submit" data-i18n="notes.add">Tambah catatan</button></form></section>
       <section class="handoff-history"><h3 data-i18n="routing.history">Riwayat handover</h3><div id="handoffHistory"></div></section>
-      <section><h3 data-i18n="lead.labels">Label</h3><div class="tag-row"><span>WhatsApp</span><span data-i18n="lead.inbound">Masuk</span></div></section>
+      <section><h3 data-i18n="lead.labels">Label</h3><div id="leadLabels" class="tag-row"><span>WhatsApp</span><span data-i18n="lead.inbound">Masuk</span></div></section>
       <button id="handoffButton" class="handoff-button" hidden><span data-i18n="lead.handoff">Teruskan ke tim penjualan</span> <span>→</span></button>
     </aside>
   </main>
@@ -191,6 +198,64 @@
       <iframe id="mediaViewerDocument" title="Preview dokumen" hidden></iframe>
     </div>
     <p id="mediaHelp" class="media-help" data-i18n="media.help">Gulir atau cubit untuk memperbesar · seret untuk menggeser · klik dua kali untuk mengatur ulang</p>
+  </dialog>
+
+  <!-- Onboarding wizard -->
+  <dialog id="onboardingDialog" class="onboarding-dialog">
+    <button id="onboardingClose" class="dialog-close" aria-label="Tutup">×</button>
+    <div class="ob-progress" id="obProgress" aria-hidden="true">
+      <span class="ob-dot active" data-step="0"></span>
+      <span class="ob-dot" data-step="1"></span>
+      <span class="ob-dot" data-step="2"></span>
+      <span class="ob-dot" data-step="3"></span>
+    </div>
+    <div class="ob-steps">
+      <!-- Step 0: Welcome -->
+      <div class="ob-step active" data-step="0">
+        <img src="/brand/agnee-mark.svg" alt="" class="ob-icon">
+        <h2>Selamat datang di Agnee!</h2>
+        <p>Mari setup inbox WhatsApp kamu dalam 3 langkah cepat. Butuh sekitar 2 menit.</p>
+        <div class="ob-actions">
+          <button class="ob-primary ob-next">Mulai setup →</button>
+          <button class="ob-skip" id="onboardingSkip">Lewati, setup nanti</button>
+        </div>
+      </div>
+      <!-- Step 1: Connect WhatsApp -->
+      <div class="ob-step" data-step="1">
+        <div class="ob-step-icon">📱</div>
+        <h2>Hubungkan WhatsApp</h2>
+        <p>Klik tombol koneksi di atas (ikon WhatsApp), lalu pindai QR code dengan HP kamu.</p>
+        <ul class="ob-checklist">
+          <li>Buka WhatsApp di HP</li>
+          <li>Tap Pengaturan → Perangkat Tertaut</li>
+          <li>Pindai QR code yang muncul</li>
+        </ul>
+        <div class="ob-actions">
+          <button class="ob-primary ob-next" id="obOpenQr">Buka koneksi WhatsApp</button>
+          <button class="ob-secondary ob-next">Sudah terhubung, lanjut →</button>
+        </div>
+      </div>
+      <!-- Step 2: Invite / add agent -->
+      <div class="ob-step" data-step="2">
+        <div class="ob-step-icon">👥</div>
+        <h2>Tambahkan anggota tim</h2>
+        <p>Undang agen CS kamu. Mereka akan bisa membalas chat dan handover antar AI ↔ manusia. Kamu bisa lewati ini dan tambah nanti di <strong>Pengaturan</strong>.</p>
+        <div class="ob-actions">
+          <a href="/settings.html" class="ob-primary ob-link">Buka Pengaturan Tim</a>
+          <button class="ob-secondary ob-next">Lewati, nanti saja →</button>
+        </div>
+      </div>
+      <!-- Step 3: Playbook -->
+      <div class="ob-step" data-step="3">
+        <div class="ob-step-icon">📚</div>
+        <h2>Upload playbook / FAQ</h2>
+        <p>Playbook adalah sumber jawaban AI kamu. Buka panel Admin untuk upload FAQ atau training data. Agen CS-mu akan otomatis inherit playbook ini.</p>
+        <div class="ob-actions">
+          <a href="/admin.html" class="ob-primary ob-link">Buka Admin → Uji AI</a>
+          <button class="ob-secondary" id="obDone">Selesai, masuk inbox →</button>
+        </div>
+      </div>
+    </div>
   </dialog>
 
   <script src="/i18n.js" defer></script>

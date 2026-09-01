@@ -136,6 +136,24 @@ class Database {
     return result.rows[0] || null;
   }
 
+  async getConversationSummary(chatId, locale = 'id') {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      SELECT chat_id AS "chatId", locale, summary,
+             qualification_stage AS "qualificationStage",
+             qualification_score AS "qualificationScore",
+             qualification_title AS "qualificationTitle",
+             qualification_detail AS "qualificationDetail", labels,
+             source_message_id AS "sourceMessageId", source_timestamp AS "sourceTimestamp",
+             source_count AS "sourceCount", model,
+             input_tokens AS "inputTokens", output_tokens AS "outputTokens",
+             generated_at AS "generatedAt"
+      FROM conversation_summaries
+      WHERE company_id = $1 AND chat_id = $2 AND locale = $3
+    `, [this.companyId, chatId, locale]);
+    return result.rows[0] || null;
+  }
+
   async authenticateUser(email, password) {
     if (!this.enabled) return null;
     const result = await this.pool.query(`
@@ -314,6 +332,48 @@ class Database {
     return result.rows[0];
   }
 
+  async saveConversationSummary(item) {
+    if (!this.enabled) return item;
+    const result = await this.pool.query(`
+      INSERT INTO conversation_summaries (
+        company_id, chat_id, locale, summary, qualification_stage, qualification_score,
+        qualification_title, qualification_detail, labels, source_message_id, source_timestamp,
+        source_count, model, input_tokens, output_tokens
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11, $12, $13, $14, $15)
+      ON CONFLICT (company_id, chat_id, locale) DO UPDATE SET
+        summary = EXCLUDED.summary,
+        qualification_stage = EXCLUDED.qualification_stage,
+        qualification_score = EXCLUDED.qualification_score,
+        qualification_title = EXCLUDED.qualification_title,
+        qualification_detail = EXCLUDED.qualification_detail,
+        labels = EXCLUDED.labels,
+        source_message_id = EXCLUDED.source_message_id,
+        source_timestamp = EXCLUDED.source_timestamp,
+        source_count = EXCLUDED.source_count,
+        model = EXCLUDED.model,
+        input_tokens = EXCLUDED.input_tokens,
+        output_tokens = EXCLUDED.output_tokens,
+        generated_at = NOW(),
+        updated_at = NOW()
+      RETURNING chat_id AS "chatId", locale, summary,
+                qualification_stage AS "qualificationStage",
+                qualification_score AS "qualificationScore",
+                qualification_title AS "qualificationTitle",
+                qualification_detail AS "qualificationDetail", labels,
+                source_message_id AS "sourceMessageId", source_timestamp AS "sourceTimestamp",
+                source_count AS "sourceCount", model,
+                input_tokens AS "inputTokens", output_tokens AS "outputTokens",
+                generated_at AS "generatedAt"
+    `, [
+      this.companyId, item.chatId, item.locale, item.summary, item.qualificationStage,
+      item.qualificationScore, item.qualificationTitle, item.qualificationDetail,
+      JSON.stringify(item.labels || []), item.sourceMessageId, item.sourceTimestamp,
+      item.sourceCount, item.model, item.inputTokens || 0, item.outputTokens || 0,
+    ]);
+    return result.rows[0];
+  }
+
   async recordPlaygroundRun(run) {
     if (!this.enabled) return null;
     const result = await this.pool.query(`
@@ -367,6 +427,80 @@ class Database {
       LIMIT $1
     `, [limit, this.companyId]);
     return result.rows;
+  }
+
+  async getCompanyConfig() {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      SELECT plan, plan_status AS "planStatus", knowledge_client AS "knowledgeClient",
+             ai_message_limit AS "aiMessageLimit", ai_message_count AS "aiMessageCount",
+             ai_count_reset_at AS "aiCountResetAt", max_users AS "maxUsers",
+             max_playbooks AS "maxPlaybooks", max_whatsapp AS "maxWhatsapp", name, slug
+      FROM companies WHERE id = $1
+    `, [this.companyId]);
+    return result.rows[0] || null;
+  }
+
+  async updateCompanyConfig({ plan, planStatus, knowledgeClient, aiMessageLimit, maxUsers, maxPlaybooks, maxWhatsapp }) {
+    if (!this.enabled) return null;
+    const fields = [];
+    const values = [];
+    let i = 1;
+    if (plan !== undefined) { fields.push(`plan = $${i++}`); values.push(plan); }
+    if (planStatus !== undefined) { fields.push(`plan_status = $${i++}`); values.push(planStatus); }
+    if (knowledgeClient !== undefined) { fields.push(`knowledge_client = $${i++}`); values.push(knowledgeClient); }
+    if (aiMessageLimit !== undefined) { fields.push(`ai_message_limit = $${i++}`); values.push(aiMessageLimit); }
+    if (maxUsers !== undefined) { fields.push(`max_users = $${i++}`); values.push(maxUsers); }
+    if (maxPlaybooks !== undefined) { fields.push(`max_playbooks = $${i++}`); values.push(maxPlaybooks); }
+    if (maxWhatsapp !== undefined) { fields.push(`max_whatsapp = $${i++}`); values.push(maxWhatsapp); }
+    if (!fields.length) return this.getCompanyConfig();
+    fields.push(`updated_at = NOW()`);
+    values.push(this.companyId);
+    await this.pool.query(`UPDATE companies SET ${fields.join(', ')} WHERE id = $${i}`, values);
+    return this.getCompanyConfig();
+  }
+
+  async incrementAiMessageCount() {
+    if (!this.enabled) return { count: 0, limit: 0, exceeded: false };
+    const result = await this.pool.query(`
+      UPDATE companies SET
+        ai_message_count = CASE
+          WHEN ai_count_reset_at <= NOW()
+          THEN 1
+          ELSE ai_message_count + 1
+        END,
+        ai_count_reset_at = CASE
+          WHEN ai_count_reset_at <= NOW()
+          THEN date_trunc('month', NOW()) + interval '1 month'
+          ELSE ai_count_reset_at
+        END
+      WHERE id = $1
+      RETURNING ai_message_count AS count, ai_message_limit AS "limit"
+    `, [this.companyId]);
+    const { count, limit } = result.rows[0] || { count: 0, limit: 0 };
+    return { count, limit, exceeded: limit > 0 && count > limit };
+  }
+
+  async updateTeamMemberRole(userId, role) {
+    if (!this.enabled) return null;
+    await this.pool.query(`
+      UPDATE company_members SET role = $1, updated_at = NOW()
+      WHERE company_id = $2 AND user_id = $3 AND role != 'owner'
+    `, [role, this.companyId, userId]);
+    const result = await this.pool.query(`
+      SELECT u.id, u.email, u.display_name AS "displayName", cm.role, cm.status
+      FROM company_members cm JOIN users u ON u.id = cm.user_id
+      WHERE cm.company_id = $1 AND cm.user_id = $2
+    `, [this.companyId, userId]);
+    return result.rows[0] || null;
+  }
+
+  async deactivateTeamMember(userId) {
+    if (!this.enabled) return;
+    await this.pool.query(`
+      UPDATE company_members SET status = 'inactive', updated_at = NOW()
+      WHERE company_id = $1 AND user_id = $2 AND role != 'owner'
+    `, [this.companyId, userId]);
   }
 
   status() {

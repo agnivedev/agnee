@@ -46,6 +46,7 @@ const ui = {
   inboxButton: document.querySelector('#inboxButton'),
   funnelButton: document.querySelector('#funnelButton'),
   adminButton: document.querySelector('#adminButton'),
+  settingsButton: document.querySelector('#settingsButton'),
   newConversationButton: document.querySelector('#newConversationButton'),
   newConversationDialog: document.querySelector('#newConversationDialog'),
   newConversationForm: document.querySelector('#newConversationForm'),
@@ -86,12 +87,17 @@ const ui = {
   assigneeField: document.querySelector('#assigneeField'),
   assigneeSelect: document.querySelector('#assigneeSelect'),
   handoverNote: document.querySelector('#handoverNote'),
+  routingHelp: document.querySelector('#routingHelp'),
+  aiReturnOptions: document.querySelector('#aiReturnOptions'),
+  sendClosingMessage: document.querySelector('#sendClosingMessage'),
+  closingMessage: document.querySelector('#closingMessage'),
   saveRoutingButton: document.querySelector('#saveRoutingButton'),
   routingStatus: document.querySelector('#routingStatus'),
   notesList: document.querySelector('#notesList'),
   noteForm: document.querySelector('#noteForm'),
   noteInput: document.querySelector('#noteInput'),
   handoffHistory: document.querySelector('#handoffHistory'),
+  leadLabels: document.querySelector('#leadLabels'),
 };
 
 const state = {
@@ -123,6 +129,7 @@ const state = {
   currentUser: null,
   teamMembers: [],
   routing: null,
+  activeLead: null,
 };
 
 async function api(path, options = {}) {
@@ -183,6 +190,7 @@ function renderMarkdown(text) {
 function showApp(sessionData) {
   if (sessionData?.user) state.currentUser = sessionData.user;
   ui.adminButton.hidden = !isCurrentUserSupervisor();
+  ui.settingsButton.hidden = !isCurrentUserSupervisor();
   transition(() => {
     ui.loginView.hidden = true;
     ui.appView.hidden = false;
@@ -191,18 +199,73 @@ function showApp(sessionData) {
   connectEvents();
   clearInterval(state.workspaceTimer);
   state.workspaceTimer = setInterval(refreshEmptyInbox, 5000);
+  maybeShowOnboarding();
 }
 
-function showLogin() {
+function showLogin(fromInit = false) {
   clearInterval(state.workspaceTimer);
   state.workspaceTimer = null;
   state.eventSource?.close();
   state.eventSource = null;
+  if (fromInit) {
+    window.location.href = '/landing.html';
+    return;
+  }
   transition(() => {
     ui.appView.hidden = true;
     ui.loginView.hidden = false;
   });
 }
+
+function maybeShowOnboarding() {
+  if (!isCurrentUserSupervisor()) return;
+  try {
+    if (localStorage.getItem('agnee_onboarded')) return;
+  } catch { return; }
+  const dialog = document.querySelector('#onboardingDialog');
+  if (!dialog) return;
+  dialog.showModal();
+}
+
+(function initOnboarding() {
+  const dialog = document.querySelector('#onboardingDialog');
+  if (!dialog) return;
+  let currentStep = 0;
+  const steps = [...dialog.querySelectorAll('.ob-step')];
+  const dots = [...dialog.querySelectorAll('.ob-dot')];
+
+  function goTo(step) {
+    currentStep = Math.min(step, steps.length - 1);
+    steps.forEach((el, i) => el.classList.toggle('active', i === currentStep));
+    dots.forEach((el, i) => el.classList.toggle('active', i <= currentStep));
+  }
+
+  dialog.querySelectorAll('.ob-next').forEach((btn) => {
+    btn.addEventListener('click', () => goTo(currentStep + 1));
+  });
+
+  const obOpenQr = dialog.querySelector('#obOpenQr');
+  if (obOpenQr) {
+    obOpenQr.addEventListener('click', () => {
+      dialog.close();
+      document.querySelector('#connectionButton')?.click();
+    });
+  }
+
+  const obDone = dialog.querySelector('#obDone');
+  if (obDone) {
+    obDone.addEventListener('click', () => {
+      try { localStorage.setItem('agnee_onboarded', '1'); } catch {}
+      dialog.close();
+    });
+  }
+
+  dialog.querySelector('#onboardingClose')?.addEventListener('click', () => dialog.close());
+  dialog.querySelector('#onboardingSkip')?.addEventListener('click', () => {
+    try { localStorage.setItem('agnee_onboarded', '1'); } catch {}
+    dialog.close();
+  });
+})();
 
 async function refreshEmptyInbox() {
   try {
@@ -223,7 +286,18 @@ function initials(name) {
 }
 
 function fillAvatar(container, chat) {
-  container.replaceChildren(document.createTextNode(initials(chat.name)));
+  if (chat.isGroup) {
+    const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    icon.setAttribute('viewBox', '0 0 24 24');
+    icon.setAttribute('aria-hidden', 'true');
+    icon.classList.add('group-avatar-icon');
+    const people = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    people.setAttribute('d', 'M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-.32 0-.63.05-.91.14A5 5 0 0 1 16 8c0 1.07-.34 2.06-.91 2.86.28.09.59.14.91.14Zm-8 0c1.66 0 3-1.34 3-3S9.66 5 8 5 5 6.34 5 8s1.34 3 3 3Zm8 2c-.29 0-.62.02-.97.05 1.2.87 1.97 2.08 1.97 3.45V19h5v-2.5c0-1.93-3.33-3.5-6-3.5Zm-8 0c-2.67 0-6 1.57-6 3.5V19h12v-2.5C14 14.57 10.67 13 8 13Z');
+    icon.append(people);
+    container.replaceChildren(icon);
+  } else {
+    container.replaceChildren(document.createTextNode(initials(chat.name)));
+  }
   if (!chat.id || state.whatsapp?.demoMode) return;
   const image = document.createElement('img');
   image.alt = '';
@@ -242,6 +316,39 @@ function fillAvatar(container, chat) {
     }, 1500);
   });
   container.append(image);
+}
+
+const GROUP_SENDER_COLORS = ['#d7446c', '#8b57c7', '#c87817', '#087d8c', '#557a16', '#3d67b1', '#a34b22', '#00886f'];
+
+function senderColor(identity) {
+  let hash = 0;
+  for (const character of String(identity || 'participant')) hash = ((hash << 5) - hash + character.charCodeAt(0)) | 0;
+  return GROUP_SENDER_COLORS[Math.abs(hash) % GROUP_SENDER_COLORS.length];
+}
+
+function participantPhone(contactId) {
+  const digits = String(contactId || '').split('@')[0].replace(/\D/g, '');
+  if (!digits || String(contactId).includes('@lid')) return '';
+  const country = digits.startsWith('62') ? `+62 ${digits.slice(2)}` : `+${digits}`;
+  return country.replace(/(\d{3})(?=\d)/g, '$1 ').trim();
+}
+
+function sameGroupSequence(left, right) {
+  if (!state.activeChat?.isGroup || !left || !right || left.type === 'call_log' || right.type === 'call_log') return false;
+  if (dayKey(left.timestamp) !== dayKey(right.timestamp)) return false;
+  const leftSender = left.fromMe ? 'me' : left.senderId || left.senderName;
+  const rightSender = right.fromMe ? 'me' : right.senderId || right.senderName;
+  return Boolean(leftSender && leftSender === rightSender && Math.abs(Number(right.timestamp) - Number(left.timestamp)) <= 300);
+}
+
+function decorateGroupMessage(row, message, previous, next) {
+  row.classList.remove('group-message', 'group-first', 'group-middle', 'group-last', 'group-single');
+  if (!state.activeChat?.isGroup || message.type === 'call_log') return;
+  const joinsPrevious = sameGroupSequence(previous, message);
+  const joinsNext = sameGroupSequence(message, next);
+  const position = joinsPrevious ? (joinsNext ? 'middle' : 'last') : (joinsNext ? 'first' : 'single');
+  row.classList.add('group-message', `group-${position}`);
+  row.style.setProperty('--sender-color', senderColor(message.senderId || message.senderName));
 }
 
 function formatTime(timestamp) {
@@ -551,6 +658,21 @@ function createMessageRow(message) {
       row.append(event);
       return row;
     }
+    if (state.activeChat?.isGroup && !message.fromMe) {
+      const avatar = document.createElement('span');
+      avatar.className = 'sender-avatar-slot';
+      avatar.textContent = initials(message.senderName);
+      if (message.senderId && !state.whatsapp?.demoMode) {
+        const image = document.createElement('img');
+        image.alt = '';
+        image.loading = 'lazy';
+        image.decoding = 'async';
+        image.src = `/v1/contacts/${encodeURIComponent(message.senderId)}/avatar`;
+        image.addEventListener('error', () => image.remove());
+        avatar.append(image);
+      }
+      row.append(avatar);
+    }
     const bubble = document.createElement('div');
     bubble.className = 'bubble';
     if (state.activeChat?.isGroup && !message.fromMe && message.senderName) {
@@ -563,11 +685,16 @@ function createMessageRow(message) {
       const quote = document.createElement('button');
       quote.type = 'button';
       quote.className = 'quoted-message';
+      const quoteHead = document.createElement('span');
+      quoteHead.className = 'quoted-head';
       const quoteLabel = document.createElement('strong');
-      quoteLabel.textContent = message.quoted.fromMe ? 'Anda' : 'Balasan';
+      quoteLabel.textContent = message.quoted.fromMe ? tr('group.you') : message.quoted.senderName || tr('group.reply');
+      const quotePhone = document.createElement('small');
+      quotePhone.textContent = message.quoted.fromMe ? '' : participantPhone(message.quoted.senderId);
+      quoteHead.append(quoteLabel, quotePhone);
       const quoteBody = document.createElement('span');
       quoteBody.textContent = message.quoted.body || ({ image: 'Foto', video: 'Video', document: 'Dokumen' }[message.quoted.type] || 'Pesan');
-      quote.append(quoteLabel, quoteBody);
+      quote.append(quoteHead, quoteBody);
       if (message.quoted.id) {
         quote.setAttribute('aria-label', 'Buka pesan yang dibalas');
         quote.title = 'Buka pesan yang dibalas';
@@ -740,6 +867,7 @@ function renderMessages(messages, hasMore) {
       row.classList.add('message-enter');
       nodeMap.set(key, row);
     }
+    decorateGroupMessage(row, message, messages[index - 1], messages[index + 1]);
     place(key, row);
   });
 }
@@ -778,6 +906,8 @@ async function selectChat(chat, resetLimit = true) {
     ui.messageList.replaceChildren();
   }
   state.activeChat = chat;
+  state.activeLead = null;
+  renderLabels([]);
   if (resetLimit) state.messageLimit = 30;
   cancelReply();
   clearAttachment();
@@ -792,9 +922,9 @@ async function selectChat(chat, resetLimit = true) {
   api(`/v1/chats/${encodeURIComponent(chat.id)}/mark-read`, { method: 'POST' }).catch(() => {});
   renderChats();
   ui.activeName.textContent = chat.name;
-  ui.activeMeta.textContent = chat.isGroup ? 'Memuat anggota grup…' : 'WhatsApp · lead aktif';
+  ui.activeMeta.textContent = chat.isGroup ? tr('group.loading') : 'WhatsApp · lead aktif';
   fillAvatar(ui.activeAvatar, chat);
-  ui.leadSummary.textContent = chat.preview || 'Belum ada ringkasan.';
+  ui.leadSummary.textContent = tr('lead.summarizing');
   if (state.whatsapp?.demoMode) {
     ui.leadScore.textContent = '72';
     ui.leadTitle.textContent = 'Warm lead';
@@ -816,16 +946,17 @@ async function selectChat(chat, resetLimit = true) {
   const groupInfoPromise = chat.isGroup
     ? api(`/v1/chats/${encodeURIComponent(chat.id)}/info`).then((info) => {
       if (state.activeChat?.id !== chat.id) return;
-      const visibleNames = info.participantNames || [];
+      const visibleNames = (info.participantNames || []).map((name) => name === 'Anda' ? tr('group.you') : name);
       const hiddenCount = Math.max(0, Number(info.participantCount || 0) - visibleNames.length);
       ui.activeMeta.textContent = visibleNames.length
         ? `${visibleNames.join(', ')}${hiddenCount ? ` +${hiddenCount}` : ''}`
-        : `${info.participantCount || ''} anggota grup`.trim();
+        : tr('group.members', { count: info.participantCount || '' }).trim();
     }).catch(() => {
-      if (state.activeChat?.id === chat.id) ui.activeMeta.textContent = 'WhatsApp grup';
+      if (state.activeChat?.id === chat.id) ui.activeMeta.textContent = tr('group.whatsapp');
     })
     : Promise.resolve();
-  await Promise.all([loadMessages('bottom'), loadLead(chat.id), loadPinned(chat.id), loadRoutingPanel(chat.id), groupInfoPromise]);
+  const insightPromise = loadLead(chat.id).then(() => loadSummary(chat.id));
+  await Promise.all([loadMessages('bottom'), insightPromise, loadPinned(chat.id), loadRoutingPanel(chat.id), groupInfoPromise]);
 }
 
 async function loadPinned(chatId) {
@@ -882,18 +1013,56 @@ function openPinnedMessages() {
   }
 }
 
+function renderLead(lead) {
+  state.activeLead = lead;
+  ui.leadScore.textContent = lead.score ?? '—';
+  ui.leadTitle.textContent = lead.title || tr('lead.unqualified');
+  ui.leadDetail.textContent = lead.detail || tr('lead.notAnalyzed');
+  ui.leadStage.textContent = lead.stage === 'assigned' ? tr('lead.assigned') : lead.stage === 'qualified' ? tr('lead.qualified') : tr('inbox.tabInbox');
+  ui.handoffButton.disabled = lead.stage === 'assigned';
+  ui.handoffButton.firstChild.textContent = lead.stage === 'assigned' ? `Diteruskan ke: ${lead.assignee} ` : 'Teruskan ke sales ';
+}
+
+function renderLabels(labels = []) {
+  const locale = window.AgneeI18n.getLocale();
+  const values = ['WhatsApp', locale === 'en' ? 'Inbound' : 'Masuk', ...labels];
+  ui.leadLabels.replaceChildren();
+  for (const label of [...new Set(values.filter(Boolean))]) {
+    const tag = document.createElement('span');
+    tag.textContent = label;
+    ui.leadLabels.append(tag);
+  }
+}
+
 async function loadLead(chatId) {
-  if (state.whatsapp?.demoMode) return;
   try {
     const lead = await api(`/v1/chats/${encodeURIComponent(chatId)}/lead`);
     if (state.activeChat?.id !== chatId) return;
-    ui.leadScore.textContent = lead.score ?? '—';
-    ui.leadTitle.textContent = lead.title;
-    ui.leadDetail.textContent = lead.detail;
-    ui.leadStage.textContent = lead.stage === 'assigned' ? tr('lead.assigned') : lead.stage === 'qualified' ? tr('lead.qualified') : tr('inbox.tabInbox');
-    ui.handoffButton.disabled = lead.stage === 'assigned';
-    ui.handoffButton.firstChild.textContent = lead.stage === 'assigned' ? `Diteruskan ke: ${lead.assignee} ` : 'Teruskan ke sales ';
+    renderLead(lead);
   } catch { /* keep the neutral context state */ }
+}
+
+async function loadSummary(chatId) {
+  ui.leadSummary.textContent = tr('lead.summarizing');
+  try {
+    const locale = window.AgneeI18n.getLocale();
+    const data = await api(`/v1/chats/${encodeURIComponent(chatId)}/summary?locale=${encodeURIComponent(locale)}`);
+    if (state.activeChat?.id !== chatId) return;
+    ui.leadSummary.textContent = data.summary || tr('lead.summaryUnavailable');
+    renderLabels(data.labels || []);
+    if (state.activeLead?.stage !== 'assigned' && data.qualificationTitle) {
+      renderLead({
+        chatId,
+        stage: data.qualificationStage,
+        score: data.qualificationScore,
+        title: data.qualificationTitle,
+        detail: data.qualificationDetail,
+        assignee: null,
+      });
+    }
+  } catch {
+    if (state.activeChat?.id === chatId) ui.leadSummary.textContent = tr('lead.summaryUnavailable');
+  }
 }
 
 function isCurrentUserSupervisor() {
@@ -906,7 +1075,7 @@ function renderRoutingPanel(routing, handoffs = []) {
   ui.routingBadge.textContent = isHuman ? tr('routing.human') : tr('routing.ai');
   ui.routingBadge.classList.toggle('human', isHuman);
   for (const button of ui.modeSwitch.querySelectorAll('[data-mode]')) button.classList.toggle('active', button.dataset.mode === routing.mode);
-  ui.assigneeField.hidden = !isHuman;
+  updateRoutingSelection(routing.mode);
   ui.assigneeSelect.replaceChildren();
   for (const member of state.teamMembers.filter((item) => ['owner', 'supervisor', 'admin', 'agent'].includes(item.role) && item.status === 'active')) {
     if (!isCurrentUserSupervisor() && member.id !== state.currentUser?.userId) continue;
@@ -936,6 +1105,21 @@ function renderRoutingPanel(routing, handoffs = []) {
       ui.handoffHistory.append(row);
     }
   }
+}
+
+function updateRoutingSelection(mode) {
+  const currentMode = state.routing?.mode || 'ai';
+  for (const button of ui.modeSwitch.querySelectorAll('[data-mode]')) button.classList.toggle('active', button.dataset.mode === mode);
+  ui.assigneeField.hidden = mode !== 'human';
+  const returningToAi = currentMode === 'human' && mode === 'ai';
+  ui.aiReturnOptions.hidden = !returningToAi;
+  if (returningToAi && document.activeElement !== ui.closingMessage) ui.closingMessage.value = tr('routing.closingDefault');
+  ui.routingHelp.textContent = mode === 'human'
+    ? tr('routing.humanHelp')
+    : returningToAi ? tr('routing.aiReturnHelp') : tr('routing.aiHelp');
+  ui.saveRoutingButton.textContent = mode === 'human'
+    ? tr('routing.assignAction')
+    : returningToAi ? tr('routing.resolveAction') : tr('routing.keepAiAction');
 }
 
 function renderNotes(notes) {
@@ -1087,17 +1271,10 @@ function connectEvents() {
       showDialogError(payload.error);
     }
     if (payload.phase === 'ready') {
-      if (ui.connectionDialog.open) {
-        ui.dialogTitle.textContent = tr('wa.connected');
-        ui.dialogCopy.textContent = tr('wa.loadingChats');
-        ui.qrNote.textContent = payload.account || '';
-      }
-      await loadWorkspace();
-      ui.connectionDialog.classList.add('is-closing');
-      setTimeout(() => {
-        ui.connectionDialog.classList.remove('is-closing');
-        ui.connectionDialog.close();
-      }, 300);
+      // Pairing is complete now. Do not keep the modal hostage to a slow
+      // conversation/history request that runs after WhatsApp becomes ready.
+      finishConnectionDialog(payload.account);
+      void loadWorkspace().catch(() => {});
     }
   });
   events.addEventListener('message', (event) => {
@@ -1288,6 +1465,20 @@ function showDialogError(message) {
   ui.qrNote.textContent = tr('wa.refresh');
 }
 
+function finishConnectionDialog(account) {
+  clearInterval(state.connectionTimer);
+  state.connectionTimer = null;
+  if (!ui.connectionDialog.open) return;
+  ui.dialogTitle.textContent = tr('wa.connected');
+  ui.dialogCopy.textContent = tr('wa.loadingChats');
+  ui.qrNote.textContent = account || '';
+  ui.connectionDialog.classList.add('is-closing');
+  setTimeout(() => {
+    ui.connectionDialog.classList.remove('is-closing');
+    if (ui.connectionDialog.open) ui.connectionDialog.close();
+  }, 300);
+}
+
 async function openConnection() {
   ui.connectionDialog.showModal();
   ui.qrImage.removeAttribute('src');
@@ -1349,17 +1540,8 @@ async function checkConnection() {
     state.whatsapp = whatsapp;
     renderConnection(whatsapp);
     if (whatsapp.phase === 'ready') {
-      clearInterval(state.connectionTimer);
-      state.connectionTimer = null;
-      ui.dialogTitle.textContent = tr('wa.connected');
-      ui.dialogCopy.textContent = tr('wa.loadingChats');
-      ui.qrNote.textContent = whatsapp.account || '';
-      await loadWorkspace();
-      ui.connectionDialog.classList.add('is-closing');
-      setTimeout(() => {
-        ui.connectionDialog.classList.remove('is-closing');
-        ui.connectionDialog.close();
-      }, 300);
+      finishConnectionDialog(whatsapp.account);
+      void loadWorkspace().catch(() => {});
       return;
     }
     if (whatsapp.phase === 'authenticated' || whatsapp.phase === 'syncing') {
@@ -1558,6 +1740,7 @@ ui.inboxButton.addEventListener('click', async () => {
 ui.contactsButton.addEventListener('click', openContacts);
 ui.funnelButton.addEventListener('click', openFunnel);
 ui.adminButton.addEventListener('click', () => { window.location.href = '/admin.html'; });
+ui.settingsButton?.addEventListener('click', () => { window.location.href = '/settings.html'; });
 ui.conversationMenuButton.addEventListener('click', openConversationMenu);
 ui.pinnedBar.addEventListener('click', openPinnedMessages);
 ui.newConversationButton.addEventListener('click', () => {
@@ -1659,9 +1842,12 @@ ui.newConversationForm.addEventListener('submit', async (event) => {
 ui.modeSwitch.addEventListener('click', (event) => {
   const button = event.target.closest('[data-mode]');
   if (!button) return;
-  for (const item of ui.modeSwitch.querySelectorAll('[data-mode]')) item.classList.toggle('active', item === button);
-  ui.assigneeField.hidden = button.dataset.mode !== 'human';
+  updateRoutingSelection(button.dataset.mode);
   if (button.dataset.mode === 'human' && !ui.assigneeSelect.value && state.currentUser?.userId) ui.assigneeSelect.value = state.currentUser.userId;
+});
+
+ui.sendClosingMessage.addEventListener('change', () => {
+  ui.closingMessage.disabled = !ui.sendClosingMessage.checked;
 });
 
 ui.saveRoutingButton.addEventListener('click', async () => {
@@ -1676,10 +1862,13 @@ ui.saveRoutingButton.addEventListener('click', async () => {
         mode,
         assigneeUserId: mode === 'human' ? ui.assigneeSelect.value || null : null,
         note: ui.handoverNote.value.trim(),
+        sendClosingMessage: mode === 'ai' && !ui.aiReturnOptions.hidden && ui.sendClosingMessage.checked,
+        closingMessage: ui.closingMessage.value.trim(),
       }),
     });
     ui.handoverNote.value = '';
     ui.routingStatus.textContent = mode === 'ai' ? tr('routing.savedAi') : tr('routing.savedHuman');
+    if (mode === 'ai') await Promise.all([loadMessages('bottom'), loadSummary(state.activeChat.id)]);
     await loadRoutingPanel(state.activeChat.id);
   } catch (error) {
     ui.routingStatus.textContent = error.message;
@@ -1808,4 +1997,5 @@ window.addEventListener('resize', () => {
   if (!window.matchMedia('(max-width: 1120px)').matches) ui.contextPanel.classList.remove('open');
 });
 
-api('/v1/auth/session').then(showApp).catch(showLogin);
+const _wantsLogin = new URLSearchParams(window.location.search).has('login');
+api('/v1/auth/session').then(showApp).catch(() => _wantsLogin ? showLogin(false) : showLogin(true));

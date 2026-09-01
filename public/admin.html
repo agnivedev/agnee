@@ -4,14 +4,14 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#14241f">
-  <title>Agnee Admin — Auto Reply Playground</title>
+  <title>Agnee — Uji Balasan Otomatis</title>
   <link rel="icon" href="/brand/agnee-mark.svg" type="image/svg+xml">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/admin.css">
 </head>
-<body>
+<body data-i18n-title="admin.title">
   <div class="admin-shell">
     <aside class="admin-sidebar">
       <a class="admin-brand" href="/" aria-label="Kembali ke Agnee Inbox">
@@ -20,39 +20,40 @@
       </a>
 
       <nav aria-label="Admin navigation">
-        <a href="#overview"><span>⌂</span>Overview</a>
-        <a class="active" href="#playground"><span>◫</span>Playground</a>
+        <a href="#overview"><span>⌂</span><b data-i18n="admin.overview">Ringkasan</b></a>
+        <a href="#teamSection"><span>◎</span><b data-i18n="team.nav">Tim CS</b></a>
+        <a class="active" href="#playground"><span>◫</span><b data-i18n="admin.playground">Uji balasan</b></a>
       </nav>
 
       <div class="sidebar-foot">
         <span class="status-dot"></span>
-        <div><strong id="sidebarStatus">Memeriksa OpenRouter</strong><small id="sidebarModel">—</small></div>
+        <div><strong id="sidebarStatus" data-i18n="admin.checkingAi">Memeriksa layanan AI</strong><small id="sidebarModel">—</small></div>
       </div>
     </aside>
 
     <main class="admin-main">
       <header class="admin-header" id="overview">
         <div>
-          <p class="eyebrow">ADMIN WORKSPACE</p>
-          <h1>Auto Reply Playground</h1>
-          <p>Uji knowledge, gaya balasan, token, dan biaya tanpa mengirim pesan ke WhatsApp.</p>
+          <p class="eyebrow" data-i18n="admin.eyebrow">RUANG ADMIN</p>
+          <h1 data-i18n="admin.heading">Uji Balasan Otomatis</h1>
+          <p data-i18n="admin.description">Uji sumber jawaban, gaya balasan, token, dan biaya tanpa mengirim pesan ke WhatsApp.</p>
         </div>
-        <a class="back-link" href="/">← Kembali ke inbox</a>
+        <a class="back-link" href="/" data-i18n="admin.back">← Kembali ke kotak masuk</a>
       </header>
 
       <section class="config-strip" aria-label="Konfigurasi playground">
-        <div><small>MODEL</small><strong id="modelName">Memuat…</strong></div>
-        <div><small>OPENROUTER</small><strong id="llmStatus">Memeriksa…</strong></div>
-        <div><small>DATABASE</small><strong id="databaseStatus">Memeriksa…</strong></div>
-        <div><small>MODE</small><strong>Preview only</strong></div>
+        <div><small data-i18n="admin.model">MODEL</small><strong id="modelName" data-i18n="common.loading">Memuat…</strong></div>
+        <div><small data-i18n="admin.aiService">LAYANAN AI</small><strong id="llmStatus" data-i18n="common.checking">Memeriksa…</strong></div>
+        <div><small data-i18n="admin.storage">PENYIMPANAN</small><strong id="databaseStatus" data-i18n="common.checking">Memeriksa…</strong></div>
+        <div><small data-i18n="admin.mode">MODE</small><strong data-i18n="admin.testOnly">Uji coba</strong></div>
       </section>
 
       <section class="ai-settings-card" aria-labelledby="aiSettingsTitle">
         <div class="ai-settings-head">
           <div>
-            <p class="eyebrow">KONFIGURASI RUNTIME</p>
-            <h2 id="aiSettingsTitle">AI Mode & Model Chain</h2>
-            <p class="ai-settings-desc">Perubahan langsung aktif tanpa restart. Reset saat server di-deploy ulang.</p>
+            <p class="eyebrow" data-i18n="admin.settingsEyebrow">PENGATURAN AI</p>
+            <h2 id="aiSettingsTitle" data-i18n="admin.settingsTitle">AI dan urutan model</h2>
+            <p class="ai-settings-desc" data-i18n="admin.settingsDesc">Perubahan langsung berlaku untuk balasan berikutnya.</p>
           </div>
           <label class="toggle-wrap" aria-label="Aktifkan AI auto-reply">
             <input type="checkbox" id="aiEnabledToggle" role="switch">
@@ -63,65 +64,79 @@
 
         <div class="model-chain-grid">
           <div class="model-chain-info">
-            <p>Urutan fallback: model pertama dicoba dulu, kalau gagal lanjut ke berikutnya.</p>
+            <p data-i18n="admin.chainHelp">Model pertama akan dicoba lebih dulu. Jika gagal, Agnee mencoba model berikutnya.</p>
           </div>
           <div id="modelSlots" class="model-slots"></div>
           <div class="model-chain-actions">
-            <button id="saveAiSettings" class="save-settings-btn" type="button">Simpan perubahan</button>
-            <span id="aiSettingsSaved" class="settings-saved-badge" hidden>Tersimpan ✓</span>
+            <button id="saveAiSettings" class="save-settings-btn" type="button" data-i18n="admin.save">Simpan perubahan</button>
+            <span id="aiSettingsSaved" class="settings-saved-badge" data-i18n="admin.saved" hidden>Tersimpan ✓</span>
           </div>
         </div>
+      </section>
+
+      <section id="teamSection" class="team-card" aria-labelledby="teamTitle">
+        <div class="card-head"><div><p class="eyebrow" data-i18n="team.eyebrow">TIM LAYANAN PELANGGAN</p><h2 id="teamTitle" data-i18n="team.title">Supervisor dan agent</h2></div></div>
+        <p class="team-copy" data-i18n="team.copy">Supervisor dapat membagi chat ke agent. Setiap agent masuk menggunakan akun masing-masing.</p>
+        <div id="teamMembers" class="team-members"></div>
+        <form id="teamForm" class="team-form" autocomplete="off">
+          <label><span data-i18n="team.name">Nama</span><input name="displayName" required minlength="2" placeholder="Agent 1" autocomplete="off"></label>
+          <label><span data-i18n="login.email">Email</span><input name="email" type="email" required placeholder="agent1@company.com" autocomplete="off"></label>
+          <label><span data-i18n="login.password">Kata sandi</span><input name="password" type="password" minlength="8" required autocomplete="new-password"></label>
+          <label><span data-i18n="team.role">Peran</span><select name="role"><option value="agent" data-i18n="team.agent">Agent</option><option value="supervisor" data-i18n="team.supervisor">Supervisor</option></select></label>
+          <button type="submit" class="save-settings-btn" data-i18n="team.add">Tambah anggota</button>
+          <p id="teamStatus" class="team-status" role="status"></p>
+        </form>
       </section>
 
       <section class="playground-grid" id="playground">
         <form id="playgroundForm" class="playground-card prompt-card">
           <div class="card-head">
-            <div><p class="eyebrow">INPUT</p><h2>Pesan customer</h2></div>
-            <span class="safe-badge">Tidak dikirim</span>
+            <div><p class="eyebrow" data-i18n="admin.input">MASUKAN</p><h2 data-i18n="admin.customerMessage">Pesan pelanggan</h2></div>
+            <span class="safe-badge" data-i18n="admin.notSent">Tidak dikirim</span>
           </div>
 
-          <label>Knowledge client
+          <label><span data-i18n="admin.answerSource">Sumber jawaban</span>
             <select id="clientId" name="clientId" required></select>
           </label>
 
-          <label>Pesan
-            <textarea id="message" name="message" rows="8" maxlength="2000" placeholder="Contoh: Bisa lihat demo dulu ga?" required></textarea>
+          <label><span data-i18n="admin.message">Pesan</span>
+            <textarea id="message" name="message" rows="8" maxlength="2000" data-i18n-placeholder="admin.example" placeholder="Contoh: Bisa lihat demo dulu?" required></textarea>
           </label>
 
           <div class="examples" aria-label="Contoh pesan">
             <button type="button" data-message="Bisa lihat demo dulu ga?">Demo</button>
             <button type="button" data-message="Berapa harganya per bulan?">Harga</button>
-            <button type="button" data-message="EA-nya sudah dipasang tapi belum buka posisi, harus cek apa dulu?">Support</button>
-            <button type="button" data-message="Saya mau lanjut bulan ini, bisa bicara sama timnya?">Handoff</button>
+            <button type="button" data-message="EA-nya sudah dipasang tapi belum buka posisi, harus cek apa dulu?" data-i18n="admin.support">Bantuan</button>
+            <button type="button" data-message="Saya mau lanjut bulan ini, bisa bicara sama timnya?" data-i18n="admin.handoff">Teruskan</button>
           </div>
 
           <p id="formError" class="form-error" role="alert"></p>
           <button id="generateButton" class="generate-button" type="submit">
-            <span>Generate preview</span><b>→</b>
+            <span data-i18n="admin.generate">Buat balasan</span><b>→</b>
           </button>
-          <p class="shortcut">⌘/Ctrl + Enter untuk generate</p>
+          <p class="shortcut" data-i18n="admin.shortcut">⌘/Ctrl + Enter untuk membuat balasan</p>
         </form>
 
         <section class="playground-card result-card" aria-live="polite">
           <div class="card-head">
-            <div><p class="eyebrow">OUTPUT</p><h2>Preview balasan</h2></div>
-            <button id="copyReply" class="copy-button" type="button" hidden>Copy</button>
+            <div><p class="eyebrow" data-i18n="admin.output">HASIL</p><h2 data-i18n="admin.replyPreview">Pratinjau balasan</h2></div>
+            <button id="copyReply" class="copy-button" type="button" data-i18n="common.copy" hidden>Salin</button>
           </div>
 
           <div id="emptyResult" class="empty-result">
             <span>↗</span>
-            <strong>Belum ada preview</strong>
-            <p>Masukkan pesan customer lalu generate. Playground hanya membaca knowledge dan memanggil OpenRouter.</p>
+            <strong data-i18n="admin.empty">Belum ada balasan</strong>
+            <p data-i18n="admin.emptyCopy">Masukkan pesan pelanggan, lalu buat balasan. Pesan ini tidak akan dikirim ke WhatsApp.</p>
           </div>
 
           <div id="loadingResult" class="loading-result" hidden>
             <span></span><span></span><span></span>
-            <p>Menyiapkan balasan…</p>
+            <p data-i18n="admin.preparing">Menyiapkan balasan…</p>
           </div>
 
           <div id="resultContent" hidden>
             <div class="match-block">
-              <small>MATCHED KNOWLEDGE</small>
+              <small data-i18n="admin.matched">SUMBER YANG COCOK</small>
               <div id="matchedFaqs" class="faq-chips"></div>
             </div>
 
@@ -143,13 +158,13 @@
 
       <section class="history-card" aria-labelledby="historyTitle">
         <div class="card-head">
-          <div><p class="eyebrow">POSTGRESQL HISTORY</p><h2 id="historyTitle">Run terbaru</h2></div>
-          <button id="refreshHistory" class="copy-button" type="button">Refresh</button>
+          <div><p class="eyebrow" data-i18n="admin.historyEyebrow">RIWAYAT PENGUJIAN</p><h2 id="historyTitle" data-i18n="admin.history">Pengujian terbaru</h2></div>
+          <button id="refreshHistory" class="copy-button" type="button" data-i18n="common.refresh">Muat ulang</button>
         </div>
-        <div id="historyEmpty" class="history-empty">Belum ada run yang tersimpan.</div>
+        <div id="historyEmpty" class="history-empty" data-i18n="admin.noHistory">Belum ada pengujian yang tersimpan.</div>
         <div class="history-table-wrap">
           <table id="historyTable" hidden>
-            <thead><tr><th>Waktu</th><th>Client</th><th>Pesan</th><th>Token</th><th>Cost USD</th><th>Style</th></tr></thead>
+            <thead><tr><th data-i18n="admin.time">Waktu</th><th data-i18n="admin.client">Sumber</th><th data-i18n="admin.message">Pesan</th><th data-i18n="admin.token">Token</th><th data-i18n="admin.costUsd">Biaya USD</th><th data-i18n="admin.style">Gaya</th></tr></thead>
             <tbody id="historyBody"></tbody>
           </table>
         </div>
@@ -157,6 +172,7 @@
     </main>
   </div>
 
+  <script src="/i18n.js" defer></script>
   <script src="/admin.js" defer></script>
 </body>
 </html>

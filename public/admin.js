@@ -1,7 +1,9 @@
 'use strict';
 
+const tr = (key, vars) => window.AgneeI18n.t(key, vars);
+
 const AVAILABLE_MODELS = [
-  { value: '', label: '— Tidak dipakai —' },
+  { value: '', labelKey: 'admin.notUsed' },
   { value: 'meta-llama/llama-3.1-8b-instruct', label: 'Llama 3.1 8B  ·  $0.02/1M' },
   { value: 'mistralai/mistral-7b-instruct', label: 'Mistral 7B  ·  $0.14/1M' },
   { value: 'google/gemini-2.0-flash-exp', label: 'Gemini 2.0 Flash  ·  $0.075/1M' },
@@ -70,7 +72,13 @@ const ui = {
   historyEmpty: document.querySelector('#historyEmpty'),
   historyTable: document.querySelector('#historyTable'),
   historyBody: document.querySelector('#historyBody'),
+  teamSection: document.querySelector('#teamSection'),
+  teamMembers: document.querySelector('#teamMembers'),
+  teamForm: document.querySelector('#teamForm'),
+  teamStatus: document.querySelector('#teamStatus'),
 };
+
+let currentUser = null;
 
 async function api(path, options = {}) {
   const headers = { ...(options.headers || {}) };
@@ -78,7 +86,7 @@ async function api(path, options = {}) {
   const response = await fetch(path, { ...options, headers });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    const error = new Error(data.error || `Request gagal (${response.status})`);
+    const error = new Error(data.error || tr('error.request', { status: response.status }));
     error.status = response.status;
     throw error;
   }
@@ -87,7 +95,7 @@ async function api(path, options = {}) {
 
 function setLoading(loading) {
   ui.generateButton.disabled = loading;
-  ui.generateButton.querySelector('span').textContent = loading ? 'Generating…' : 'Generate preview';
+  ui.generateButton.querySelector('span').textContent = loading ? tr('admin.generating') : tr('admin.generate');
   ui.emptyResult.hidden = true;
   ui.loadingResult.hidden = !loading;
   if (loading) {
@@ -109,7 +117,7 @@ function renderResult(data) {
   if (data.matchedFaqs.length === 0) {
     const empty = document.createElement('span');
     empty.className = 'empty';
-    empty.textContent = 'Tidak ada FAQ yang cocok';
+    empty.textContent = tr('admin.noMatch');
     ui.matchedFaqs.append(empty);
   } else {
     for (const faq of data.matchedFaqs) {
@@ -119,16 +127,17 @@ function renderResult(data) {
       ui.matchedFaqs.append(chip);
     }
   }
-  ui.inputTokens.textContent = data.usage.inputTokens.toLocaleString('id-ID');
-  ui.outputTokens.textContent = data.usage.outputTokens.toLocaleString('id-ID');
-  ui.totalTokens.textContent = data.usage.totalTokens.toLocaleString('id-ID');
+  const numberLocale = window.AgneeI18n.getLocale() === 'en' ? 'en-US' : 'id-ID';
+  ui.inputTokens.textContent = data.usage.inputTokens.toLocaleString(numberLocale);
+  ui.outputTokens.textContent = data.usage.outputTokens.toLocaleString(numberLocale);
+  ui.totalTokens.textContent = data.usage.totalTokens.toLocaleString(numberLocale);
   ui.costUsd.textContent = formatUsd(data.usage.costUsd);
   ui.resultModel.textContent = data.model;
-  ui.elapsedMs.textContent = `${(data.elapsedMs / 1000).toFixed(1)} detik`;
+  ui.elapsedMs.textContent = tr('admin.seconds', { seconds: (data.elapsedMs / 1000).toFixed(1) });
   ui.styleResult.className = `style-result${data.style.passed ? '' : ' warn'}`;
   ui.styleResult.textContent = data.style.passed
-    ? `Style check passed · ringkas dan tidak terdeteksi AI-ish${data.persistence?.saved ? ' · tersimpan di PostgreSQL' : ''}`
-    : `Style warning · ${data.style.warnings.join('; ')}`;
+    ? tr('admin.stylePassed', { saved: data.persistence?.saved ? tr('admin.styleSaved') : '' })
+    : tr('admin.styleWarning', { warnings: data.style.warnings.join('; ') });
 }
 
 async function loadHistory() {
@@ -138,19 +147,19 @@ async function loadHistory() {
     ui.historyEmpty.hidden = data.runs.length > 0;
     ui.historyTable.hidden = data.runs.length === 0;
     if (data.runs.length === 0 && data.database.driver !== 'postgresql') {
-      ui.historyEmpty.textContent = 'PostgreSQL belum dikonfigurasi; run belum disimpan permanen.';
+      ui.historyEmpty.textContent = tr('admin.historyTemporary');
     } else {
-      ui.historyEmpty.textContent = 'Belum ada run yang tersimpan.';
+      ui.historyEmpty.textContent = tr('admin.noHistory');
     }
     for (const run of data.runs) {
       const row = document.createElement('tr');
       const values = [
-        new Date(run.createdAt).toLocaleString('id-ID'),
+        new Date(run.createdAt).toLocaleString(window.AgneeI18n.getLocale() === 'en' ? 'en-US' : 'id-ID'),
         run.clientId,
         run.message,
-        Number(run.totalTokens).toLocaleString('id-ID'),
+        Number(run.totalTokens).toLocaleString(window.AgneeI18n.getLocale() === 'en' ? 'en-US' : 'id-ID'),
         formatUsd(run.costUsd),
-        run.stylePassed ? 'PASS' : 'WARN',
+        run.stylePassed ? tr('admin.pass') : tr('admin.warn'),
       ];
       values.forEach((value, index) => {
         const cell = document.createElement('td');
@@ -170,14 +179,15 @@ async function loadHistory() {
 async function loadConfig() {
   try {
     const config = await api('/v1/admin/config');
+    ui.clientId.replaceChildren();
     ui.modelName.textContent = config.model;
     ui.sidebarModel.textContent = config.model;
-    ui.llmStatus.textContent = config.llmEnabled ? 'Aktif' : 'Belum aktif';
+    ui.llmStatus.textContent = config.llmEnabled ? tr('admin.active') : tr('admin.inactive');
     ui.llmStatus.className = config.llmEnabled ? 'ready' : 'error';
-    ui.sidebarStatus.textContent = config.llmEnabled ? 'OpenRouter aktif' : 'OpenRouter belum aktif';
+    ui.sidebarStatus.textContent = config.llmEnabled ? tr('admin.aiActive') : tr('admin.aiInactive');
     ui.statusDot.className = `status-dot ${config.llmEnabled ? 'ready' : 'error'}`;
     ui.generateButton.disabled = !config.llmEnabled;
-    ui.databaseStatus.textContent = config.database.connected ? 'PostgreSQL aktif' : 'Memory fallback';
+    ui.databaseStatus.textContent = config.database.connected ? tr('admin.storageActive') : tr('admin.storageTemporary');
     ui.databaseStatus.className = config.database.connected ? 'ready' : 'error';
     for (const client of config.knowledgeClients) {
       const option = document.createElement('option');
@@ -199,6 +209,56 @@ async function loadConfig() {
   }
 }
 
+function renderTeam(members) {
+  ui.teamMembers.replaceChildren();
+  for (const member of members) {
+    const row = document.createElement('div');
+    row.className = 'team-member';
+    const name = member.displayName || member.email;
+    row.innerHTML = '<span class="member-avatar"></span><span><strong></strong><small></small></span><b class="member-role"></b>';
+    row.querySelector('.member-avatar').textContent = name.split(/\s+/).map((part) => part[0]).join('').slice(0, 2).toUpperCase();
+    row.querySelector('strong').textContent = name;
+    row.querySelector('small').textContent = member.email;
+    row.querySelector('.member-role').textContent = ['owner', 'admin', 'supervisor'].includes(member.role) ? tr('team.supervisor') : tr('team.agent');
+    ui.teamMembers.append(row);
+  }
+}
+
+async function loadTeam() {
+  try {
+    const [session, data] = await Promise.all([api('/v1/auth/session'), api('/v1/team/members')]);
+    currentUser = session.user;
+    renderTeam(data.members || []);
+    ui.teamForm.hidden = !['owner', 'admin', 'supervisor'].includes(currentUser?.role) && !currentUser?.apiClient;
+  } catch (error) {
+    ui.teamStatus.textContent = error.message;
+  }
+}
+
+ui.teamForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const form = new FormData(ui.teamForm);
+  const button = ui.teamForm.querySelector('button');
+  button.disabled = true;
+  ui.teamStatus.textContent = tr('common.loading');
+  try {
+    await api('/v1/team/members', {
+      method: 'POST',
+      body: JSON.stringify({
+        displayName: form.get('displayName'), email: form.get('email'),
+        password: form.get('password'), role: form.get('role'),
+      }),
+    });
+    ui.teamForm.reset();
+    ui.teamStatus.textContent = tr('team.added');
+    await loadTeam();
+  } catch (error) {
+    ui.teamStatus.textContent = error.message;
+  } finally {
+    button.disabled = false;
+  }
+});
+
 ui.form.addEventListener('submit', async (event) => {
   event.preventDefault();
   ui.formError.textContent = '';
@@ -217,7 +277,7 @@ ui.form.addEventListener('submit', async (event) => {
     if (error.status === 401) window.location.href = '/';
   } finally {
     ui.generateButton.disabled = false;
-    ui.generateButton.querySelector('span').textContent = 'Generate preview';
+    ui.generateButton.querySelector('span').textContent = tr('admin.generate');
   }
 });
 
@@ -237,15 +297,15 @@ ui.message.addEventListener('keydown', (event) => {
 
 ui.copyReply.addEventListener('click', async () => {
   await navigator.clipboard.writeText(ui.replyText.textContent);
-  ui.copyReply.textContent = 'Copied';
-  setTimeout(() => { ui.copyReply.textContent = 'Copy'; }, 1200);
+  ui.copyReply.textContent = tr('common.copied');
+  setTimeout(() => { ui.copyReply.textContent = tr('common.copy'); }, 1200);
 });
 
 ui.refreshHistory.addEventListener('click', loadHistory);
 
 function buildModelSlots(currentChain = []) {
   ui.modelSlots.replaceChildren();
-  const SLOT_LABELS = ['Utama', 'Fallback 1', 'Fallback 2', 'Fallback 3', 'Fallback 4'];
+  const SLOT_LABELS = [tr('admin.primary'), ...Array.from({ length: 4 }, (_, index) => tr('admin.nextModel', { number: index + 1 }))];
   for (let i = 0; i < 5; i++) {
     const wrap = document.createElement('div');
     wrap.className = 'model-slot';
@@ -264,7 +324,7 @@ function buildModelSlots(currentChain = []) {
     for (const m of AVAILABLE_MODELS) {
       const opt = document.createElement('option');
       opt.value = m.value;
-      opt.textContent = m.label;
+      opt.textContent = m.labelKey ? tr(m.labelKey) : m.label;
       // match exact or by suffix after slash (e.g. "qwen-2.5-72b-instruct" vs "qwen/qwen-2.5-72b-instruct")
       const isMatch = m.value === currentVal || (currentVal && m.value.endsWith('/' + currentVal));
       if (isMatch) { opt.selected = true; matched = true; }
@@ -274,7 +334,7 @@ function buildModelSlots(currentChain = []) {
     if (currentVal && !matched) {
       const opt = document.createElement('option');
       opt.value = currentVal;
-      opt.textContent = `${currentVal}  ·  (kustom)`;
+      opt.textContent = `${currentVal}  ·  (${tr('admin.custom')})`;
       opt.selected = true;
       select.insertBefore(opt, select.children[1]);
     }
@@ -288,18 +348,18 @@ async function loadAiSettings() {
   try {
     const data = await api('/v1/admin/ai-settings');
     ui.aiEnabledToggle.checked = data.enabled;
-    ui.toggleLabel.textContent = data.enabled ? 'AI aktif' : 'AI nonaktif';
+    ui.toggleLabel.textContent = data.enabled ? tr('admin.aiOn') : tr('admin.aiOff');
 
     // If chain is empty, pre-fill slot 0 with the default model
     const chain = data.modelChain.length ? data.modelChain : [data.defaultModel];
     buildModelSlots(chain);
   } catch {
-    ui.toggleLabel.textContent = 'Gagal memuat';
+    ui.toggleLabel.textContent = tr('admin.loadFailed');
   }
 }
 
 ui.aiEnabledToggle.addEventListener('change', () => {
-  ui.toggleLabel.textContent = ui.aiEnabledToggle.checked ? 'AI aktif' : 'AI nonaktif';
+  ui.toggleLabel.textContent = ui.aiEnabledToggle.checked ? tr('admin.aiOn') : tr('admin.aiOff');
 });
 
 ui.saveAiSettings.addEventListener('click', async () => {
@@ -317,7 +377,7 @@ ui.saveAiSettings.addEventListener('click', async () => {
     ui.aiSettingsSaved.hidden = false;
     setTimeout(() => { ui.aiSettingsSaved.hidden = true; }, 2500);
   } catch (err) {
-    alert(`Gagal menyimpan: ${err.message}`);
+    alert(tr('admin.saveFailed', { message: err.message }));
   } finally {
     ui.saveAiSettings.disabled = false;
   }
@@ -325,3 +385,10 @@ ui.saveAiSettings.addEventListener('click', async () => {
 
 loadConfig();
 loadAiSettings();
+loadTeam();
+
+window.addEventListener('agnee:localechange', () => {
+  loadConfig();
+  loadAiSettings();
+  loadTeam();
+});

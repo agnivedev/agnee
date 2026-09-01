@@ -16,6 +16,7 @@ One small deployment containing:
 
 - responsive login and WhatsApp inbox UI;
 - Fastify backend with signed-cookie login and API-key access;
+- PostgreSQL persistence for lead state and Auto Reply Playground history;
 - unofficial headless WhatsApp Web adapter;
 - remote Streamable HTTP MCP and local stdio MCP;
 - demo mode for safe local testing without scanning a real WhatsApp account.
@@ -28,7 +29,9 @@ One small deployment containing:
 
 ```bash
 npm install
-WA_STARTUP_ENABLED=false WA_DEMO_MODE=true npm start
+cp .env.example .env
+# Set POSTGRES_PASSWORD and the other required secrets.
+docker compose up --build
 ```
 
 Open <http://127.0.0.1:4100> and use:
@@ -65,6 +68,9 @@ GET  /v1/auth/session
 GET  /v1/whatsapp/status
 GET  /v1/whatsapp/qr
 GET  /v1/events
+GET  /v1/admin/config
+GET  /v1/admin/playground/runs
+POST /v1/admin/playground/auto-reply
 GET  /v1/chats?limit=20&offset=0&q=&filter=all
 GET  /v1/chats/:chatId/messages?limit=30
 GET  /v1/chats/:chatId/avatar

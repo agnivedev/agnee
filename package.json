@@ -9,8 +9,9 @@
     "mcp": "node src/mcp-stdio.mjs",
     "mcp:http": "node src/mcp-http.mjs",
     "test:mcp": "node scripts/mcp-smoke.mjs",
-    "check": "node --check src/server.js && node --check src/mcp-server.mjs && node --check src/mcp-http.mjs",
-    "test": "node --test",
+    "check": "node --check src/server.js && node --check src/database.js && node --check src/reply-style.js && node --check src/mcp-server.mjs && node --check src/mcp-http.mjs && node --check scripts/test-auto-reply.js && node --check public/app.js && node --check public/admin.js",
+    "test": "node --test test/*.test.js",
+    "test:auto-reply": "node --env-file=.env scripts/test-auto-reply.js",
     "test-openrouter": "node scripts/test-openrouter-models.js"
   },
   "engines": {
@@ -21,6 +22,8 @@
     "@modelcontextprotocol/node": "^2.0.0",
     "@modelcontextprotocol/server": "^2.0.0",
     "fastify": "5.12.1",
+    "marked": "^13.0.0",
+    "pg": "^8.23.0",
     "qrcode": "1.5.4",
     "whatsapp-web.js": "1.34.7",
     "zod": "^4.5.2"

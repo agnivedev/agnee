@@ -117,8 +117,14 @@ function safeEqual(left, right) {
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
-function createSession(email, secret) {
-  const payload = Buffer.from(JSON.stringify({ email, exp: Date.now() + 12 * 60 * 60 * 1000 })).toString('base64url');
+function requestsHumanAgent(text) {
+  return /\b(?:mau|ingin|boleh|bisa|tolong|hubungkan|sambungkan|bicara|ngobrol|talk|speak|connect)\b[\s\S]{0,45}\b(?:cs|agent|manusia|admin|sales|supervisor|human|person)\b/i.test(String(text || ''))
+    || /\b(?:cs|agent|manusia|admin|sales|supervisor|human|person)\b[\s\S]{0,45}\b(?:hubungkan|sambungkan|bicara|ngobrol|talk|speak|connect)\b/i.test(String(text || ''));
+}
+
+function createSession(user, secret) {
+  const identity = typeof user === 'string' ? { email: user } : user;
+  const payload = Buffer.from(JSON.stringify({ ...identity, exp: Date.now() + 12 * 60 * 60 * 1000 })).toString('base64url');
   const signature = crypto.createHmac('sha256', secret).update(payload).digest('base64url');
   return `${payload}.${signature}`;
 }
@@ -176,9 +182,14 @@ async function buildApp(overrides = {}) {
   let whatsapp = null;
   let demoQr = null;
   let restoredSessionTimer = null;
+  let qrMirrorTimer = null;
   const eventClients = new Set();
   const sendReceipts = new Map();
   const leadStates = new Map();
+  const conversationRouting = new Map();
+  const conversationNotes = new Map();
+  const conversationHandoffs = new Map();
+  const fallbackTeam = [{ id: 'local-supervisor', email: config.adminEmail, displayName: 'Supervisor', role: 'supervisor', status: 'active', presence: 'online' }];
   const knowledgeBase = new KnowledgeBase({ clientId: config.knowledgeClient });
   const llmService = overrides.llmService || new LlmService({
     apiKey: config.openrouterApiKey,
@@ -196,6 +207,7 @@ async function buildApp(overrides = {}) {
     companySlug: config.defaultCompanySlug,
     companyName: config.defaultCompanyName,
     adminEmail: config.adminEmail,
+    adminPassword: config.adminPassword,
     logger: app.log,
   });
   await database.connect();
@@ -203,6 +215,8 @@ async function buildApp(overrides = {}) {
   const state = {
     phase: config.demoMode ? 'demo' : config.startupEnabled ? 'starting' : 'disabled',
     qrDataUrl: null,
+    qrPayload: null,
+    qrGeneratedAt: null,
     connectedAt: config.demoMode ? new Date().toISOString() : null,
     account: config.demoMode ? 'Agnee Demo Workspace' : null,
     syncPercent: null,
@@ -232,6 +246,54 @@ async function buildApp(overrides = {}) {
     }
   }
 
+  function clearQrMirror() {
+    clearInterval(qrMirrorTimer);
+    qrMirrorTimer = null;
+  }
+
+  async function setCurrentQr(payload, source = 'event') {
+    if (!payload) return false;
+    const officialPairingQr = String(payload).startsWith('https://wa.me/settings/linked_devices#')
+      ? String(payload)
+      : `https://wa.me/settings/linked_devices#${payload}`;
+    if (officialPairingQr === state.qrPayload) return false;
+
+    state.phase = 'waiting_for_qr';
+    state.qrPayload = officialPairingQr;
+    state.qrDataUrl = await QRCode.toDataURL(officialPairingQr, { margin: 1, width: 320 });
+    state.qrGeneratedAt = new Date().toISOString();
+    state.syncPercent = null;
+    state.lastError = null;
+    app.log.info({ source }, 'WhatsApp QR generated');
+    broadcastEvent('whatsapp_phase', {
+      phase: 'waiting_for_qr',
+      qrDataUrl: state.qrDataUrl,
+      qrGeneratedAt: state.qrGeneratedAt,
+    });
+    return true;
+  }
+
+  async function mirrorCurrentQrFromBrowser() {
+    if (state.phase !== 'waiting_for_qr' || !whatsapp?.pupPage || whatsapp.pupPage.isClosed()) return false;
+    try {
+      const currentQr = await whatsapp.pupPage.evaluate(() => (
+        document.querySelector('[data-ref^="https://wa.me/settings/linked_devices#"]')?.getAttribute('data-ref') || null
+      ));
+      return await setCurrentQr(currentQr, 'browser');
+    } catch (error) {
+      app.log.debug({ err: error }, 'Could not mirror current WhatsApp QR');
+      return false;
+    }
+  }
+
+  function startQrMirror() {
+    if (qrMirrorTimer) return;
+    qrMirrorTimer = setInterval(() => {
+      mirrorCurrentQrFromBrowser().catch(() => {});
+    }, 2_000);
+    qrMirrorTimer.unref?.();
+  }
+
   async function deliverInboundWebhook(message) {
     if (!config.webhookUrl) return;
     const headers = { 'content-type': 'application/json' };
@@ -259,6 +321,29 @@ async function buildApp(overrides = {}) {
     if (!config.llmEnabled) return null;
     if (message.from.endsWith('@g.us')) return null;
     if (!message.body || !message.body.trim()) return null;
+    const routing = await getRouting(message.from);
+    if (routing.mode === 'human') return null;
+
+    const asksForHuman = requestsHumanAgent(message.body);
+    if (asksForHuman) {
+      const members = await getTeamMembers();
+      const supervisor = members.find((member) => ['owner', 'supervisor', 'admin'].includes(member.role) && member.status === 'active');
+      if (supervisor) {
+        await saveRouting({
+          chatId: message.from,
+          mode: 'human',
+          assigneeUserId: supervisor.id,
+          actorUserId: null,
+          note: 'Pelanggan meminta bantuan manusia.',
+          priority: 'high',
+        });
+        const looksEnglish = /\b(?:human|person|talk|speak|connect|agent)\b/i.test(message.body)
+          && !/\b(?:mau|ingin|boleh|bisa|tolong|hubungkan|bicara|manusia)\b/i.test(message.body);
+        return looksEnglish
+          ? 'Sure, I’ll hand this conversation to our team. Someone will continue here shortly.'
+          : 'Baik, saya teruskan percakapan ini ke tim kami. Sebentar lagi akan dilanjutkan di sini.';
+      }
+    }
 
     const relevantFaqs = knowledgeBase.findRelevantFaq(message.body);
     const leadState = await getLeadState(message.from);
@@ -270,6 +355,16 @@ async function buildApp(overrides = {}) {
     });
 
     return result?.text || null;
+  }
+
+  function quarantineWhatsappProfile() {
+    const profilePath = path.join(config.sessionPath, `session-${config.clientId}`);
+    if (!fs.existsSync(profilePath)) return null;
+    const suffix = new Date().toISOString().replace(/[:.]/g, '-');
+    const backupName = `session-${config.clientId}-stale-${suffix}`;
+    fs.renameSync(profilePath, path.join(config.sessionPath, backupName));
+    app.log.warn({ backupName }, 'Corrupt WhatsApp session moved aside for fresh pairing');
+    return backupName;
   }
 
   function createWhatsappClient() {
@@ -285,44 +380,49 @@ async function buildApp(overrides = {}) {
       puppeteer: {
         headless: true,
         executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
-        protocolTimeout: 120_000,
+        protocolTimeout: 240_000,
         args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
       },
     });
     whatsapp.on('qr', async (qr) => {
-      state.phase = 'waiting_for_qr';
-      state.qrDataUrl = await QRCode.toDataURL(qr, { margin: 1, width: 320 });
-      state.syncPercent = null;
-      state.lastError = null;
-      app.log.info('WhatsApp QR generated');
-      // WhatsApp rotates the QR roughly every 20s; push it immediately instead
-      // of waiting for the frontend's 30s polling fallback, which otherwise
-      // shows an already-expired code by the time the user scans it.
-      broadcastEvent('whatsapp_phase', { phase: 'waiting_for_qr', qrDataUrl: state.qrDataUrl });
+      // Recent WhatsApp clients require the wa.me deep-link form for the first
+      // Camera scan. The library's event may stop after several rotations while
+      // the page keeps producing fresh codes, so mirror the live DOM as backup.
+      await setCurrentQr(qr, 'event');
+      startQrMirror();
     });
     whatsapp.on('authenticated', () => {
       if (state.phase === 'ready') return; // whatsapp-web.js can re-fire 'authenticated' after 'ready'
+      clearQrMirror();
       state.phase = 'authenticated';
       state.qrDataUrl = null;
+      state.qrPayload = null;
+      state.qrGeneratedAt = null;
       state.lastError = null;
       app.log.info('WhatsApp authenticated');
       broadcastEvent('whatsapp_phase', { phase: 'authenticated' });
     });
     whatsapp.on('loading_screen', (percent) => {
       if (state.phase === 'ready') return;
+      clearQrMirror();
       state.phase = 'syncing';
       state.qrDataUrl = null;
+      state.qrPayload = null;
+      state.qrGeneratedAt = null;
       state.syncPercent = Number(percent);
       state.lastError = null;
       broadcastEvent('whatsapp_phase', { phase: 'syncing', percent: state.syncPercent });
     });
     whatsapp.on('ready', () => {
+      clearQrMirror();
       clearTimeout(restoredSessionTimer);
       restoredSessionTimer = null;
       state.phase = 'ready';
       state.connectedAt = new Date().toISOString();
       state.account = whatsapp.info?.wid?._serialized || null;
       state.qrDataUrl = null;
+      state.qrPayload = null;
+      state.qrGeneratedAt = null;
       state.syncPercent = 100;
       state.lastError = null;
       app.log.info({ account: state.account }, 'WhatsApp ready');
@@ -339,6 +439,7 @@ async function buildApp(overrides = {}) {
       broadcastEvent('whatsapp_phase', { phase: 'auth_failure' });
     });
     whatsapp.on('disconnected', (reason) => {
+      clearQrMirror();
       state.phase = 'disconnected';
       state.connectedAt = null;
       state.account = null;
@@ -406,6 +507,9 @@ async function buildApp(overrides = {}) {
         id: chat.id?._serialized,
         name: chat.name || chat.id?.user || 'Unknown',
         preview: messagePreviewForUi(chat.lastMessage?.type, chat.lastMessage?.body, chat.lastMessage?.hasMedia, chat.lastMessage?._data?.caption || chat.lastMessage?.caption),
+        lastSenderName: chat.isGroup && !chat.lastMessage?.fromMe
+          ? chat.lastMessage?._data?.notifyName || null
+          : null,
         timestamp: chat.timestamp || chat.lastMessage?.timestamp || 0,
         unreadCount: chat.unreadCount || 0,
         isGroup: Boolean(chat.isGroup),
@@ -434,6 +538,12 @@ async function buildApp(overrides = {}) {
               id,
               name: chat.formattedTitle || chat.name || chat.contact?.formattedName || id.split('@')[0],
               preview: meaningful?.body || (last?.type === 'call_log' ? 'Panggilan WhatsApp' : ''),
+              lastSenderName: (() => {
+                if (!chat.groupMetadata || meaningful?.id?.fromMe) return null;
+                const authorId = meaningful?.author?._serialized || meaningful?.author?.toString?.();
+                const author = authorId ? window.require('WAWebCollections').Contact.get?.(authorId) : null;
+                return author?.formattedName || author?.pushname || meaningful?.notifyName || null;
+              })(),
               previewType: meaningful?.type || last?.type || 'chat',
               previewCaption: meaningful?.caption || last?.caption || '',
               timestamp: Number(chat.t || chat.timestamp || last?.t || 0),
@@ -463,8 +573,15 @@ async function buildApp(overrides = {}) {
         && (message.type === 'call_log' || message.body || message.hasMedia));
       const serialized = await Promise.all(visible.slice(-limit).map(async (message) => {
         let quotedMessage = null;
+        let senderName = message._data?.notifyName || null;
         if (message.hasQuotedMsg) {
           try { quotedMessage = await message.getQuotedMessage(); } catch { /* quoted message may have expired */ }
+        }
+        if (chat.isGroup && !message.fromMe && !senderName) {
+          try {
+            const sender = await message.getContact();
+            senderName = sender?.pushname || sender?.name || sender?.shortName || sender?.number || null;
+          } catch { /* sender may no longer be in the group */ }
         }
         return normalizeMessageForUi({
         id: message.id?._serialized,
@@ -475,7 +592,7 @@ async function buildApp(overrides = {}) {
         timestamp: message.timestamp,
         type: message.type,
         ack: Number(message.ack ?? 0),
-        senderName: message._data?.notifyName || null,
+        senderName,
         quoted: quotedMessage ? {
           id: quotedMessage.id?._serialized || null,
           body: quotedMessage.body || quotedMessage._data?.caption || '',
@@ -587,6 +704,40 @@ async function buildApp(overrides = {}) {
     }
   }
 
+  async function getGroupInfoForUi(chatId) {
+    return whatsapp.pupPage.evaluate((requestedChatId) => {
+      const collection = window.require('WAWebCollections').Chat;
+      const chats = collection.getModelsArray?.() || collection.models || [];
+      const chat = collection.get?.(requestedChatId)
+        || chats.find((item) => (item.id?._serialized || item.id?.toString?.()) === requestedChatId);
+      if (!chat?.groupMetadata) return { isGroup: false, participantCount: 0, participantNames: [] };
+
+      const participantsCollection = chat.groupMetadata.participants;
+      const participants = participantsCollection?.getModelsArray?.()
+        || participantsCollection?.models
+        || participantsCollection?._models
+        || [];
+      const me = window.require('WAWebUserPrefsMeUser');
+      const ownIds = new Set([
+        me.getMaybeMePnUser?.()?._serialized,
+        me.getMaybeMeLidUser?.()?._serialized,
+      ].filter(Boolean));
+      const contacts = window.require('WAWebCollections').Contact;
+      const ids = participants
+        .map((participant) => participant.id?._serialized || participant.id?.toString?.())
+        .filter(Boolean);
+      const selected = ids.filter((id) => !ownIds.has(id)).slice(0, 4);
+      const ownId = ids.find((id) => ownIds.has(id));
+      if (ownId) selected.push(ownId);
+      const participantNames = selected.map((id) => {
+        if (ownIds.has(id)) return 'Anda';
+        const contact = contacts.get?.(id);
+        return contact?.formattedName || contact?.pushname || contact?.name || contact?.shortName || id.split('@')[0];
+      });
+      return { isGroup: true, participantCount: ids.length, participantNames };
+    }, chatId);
+  }
+
   async function sendTextForUi(chatId, text, options = {}) {
     return whatsapp.pupPage.evaluate(async (requestedChatId, content, sendOptions) => {
       const chat = await window.WWebJS.getChat(requestedChatId, { getAsModel: false });
@@ -627,6 +778,69 @@ async function buildApp(overrides = {}) {
       detail: 'Belum dianalisis oleh AI.',
       assignee: null,
     };
+  }
+
+  function isSupervisor(session) {
+    return ['owner', 'supervisor', 'admin'].includes(session?.role) || session?.apiClient;
+  }
+
+  async function getTeamMembers() {
+    if (typeof database.listTeamMembers === 'function') {
+      const members = await database.listTeamMembers();
+      if (members.length) return members;
+    }
+    return fallbackTeam;
+  }
+
+  async function getRouting(chatId) {
+    if (conversationRouting.has(chatId)) return conversationRouting.get(chatId);
+    const persisted = typeof database.getConversationRouting === 'function' && database.status().connected
+      ? await database.getConversationRouting(chatId)
+      : null;
+    const routing = persisted || {
+      chatId,
+      mode: 'ai',
+      assigneeUserId: null,
+      assigneeName: null,
+      status: 'open',
+      priority: 'normal',
+    };
+    conversationRouting.set(chatId, routing);
+    return routing;
+  }
+
+  async function saveRouting(change) {
+    const previous = await getRouting(change.chatId);
+    let routing;
+    if (typeof database.saveConversationRouting === 'function' && database.status().connected) {
+      routing = await database.saveConversationRouting(change);
+    } else {
+      const member = fallbackTeam.find((item) => item.id === change.assigneeUserId);
+      routing = {
+        ...previous,
+        chatId: change.chatId,
+        mode: change.mode,
+        assigneeUserId: change.assigneeUserId || null,
+        assigneeName: member?.displayName || null,
+        status: change.status || 'open',
+        priority: change.priority || previous.priority || 'normal',
+        updatedAt: new Date().toISOString(),
+      };
+      const history = conversationHandoffs.get(change.chatId) || [];
+      history.unshift({
+        id: crypto.randomUUID(),
+        fromMode: previous.mode,
+        toMode: routing.mode,
+        fromName: previous.assigneeName,
+        toName: routing.assigneeName,
+        note: change.note || null,
+        createdAt: new Date().toISOString(),
+      });
+      conversationHandoffs.set(change.chatId, history);
+    }
+    conversationRouting.set(change.chatId, routing);
+    broadcastEvent('routing', routing);
+    return routing;
   }
 
   // Rate limiter for login endpoint: max 10 attempts per IP per 15 minutes
@@ -690,17 +904,30 @@ async function buildApp(overrides = {}) {
       reply.header('retry-after', String(retryAfter));
       return reply.code(429).send({ error: 'Terlalu banyak percobaan login. Coba lagi nanti.' });
     }
-    const valid = safeEqual(request.body.email.toLowerCase(), config.adminEmail.toLowerCase())
-      && safeEqual(request.body.password, config.adminPassword);
-    if (!valid) {
+    let user = null;
+    if (typeof database.authenticateUser === 'function' && database.status().connected) {
+      user = await database.authenticateUser(request.body.email, request.body.password);
+    } else if (safeEqual(request.body.email.toLowerCase(), config.adminEmail.toLowerCase())
+      && safeEqual(request.body.password, config.adminPassword)) {
+      user = fallbackTeam[0];
+    }
+    if (!user) {
       entry.count += 1;
       loginAttempts.set(ip, entry);
       return reply.code(401).send({ error: 'Email atau password salah' });
     }
     loginAttempts.delete(ip);
-    const token = createSession(config.adminEmail, config.sessionSecret);
+    const sessionUser = {
+      userId: user.id,
+      companyId: user.companyId || database.companyId || 'local-company',
+      email: user.email,
+      displayName: user.displayName || user.email,
+      role: user.role === 'owner' || user.role === 'admin' ? 'supervisor' : user.role,
+    };
+    const token = createSession(sessionUser, config.sessionSecret);
     reply.header('set-cookie', `agnee_session=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=43200${config.cookieSecure ? '; Secure' : ''}`);
-    return { ok: true, user: { email: config.adminEmail } };
+    if (typeof database.setPresence === 'function') await database.setPresence(user.id, 'online');
+    return { ok: true, user: sessionUser };
   });
 
   app.addHook('onRequest', async (request, reply) => {
@@ -708,16 +935,113 @@ async function buildApp(overrides = {}) {
     const suppliedKey = request.headers['x-api-key'];
     const session = verifySession(getCookie(request.headers.cookie, 'agnee_session'), config.sessionSecret);
     if (suppliedKey === config.apiKey || session) {
-      request.agneeSession = session;
+      request.agneeSession = session || { apiClient: true, role: 'supervisor', displayName: 'Sistem' };
+      if (request.url.startsWith('/v1/admin/') && !isSupervisor(request.agneeSession)) {
+        return reply.code(403).send({ error: 'Halaman ini hanya tersedia untuk supervisor.' });
+      }
       return;
     }
     return reply.code(401).send({ error: 'Unauthorized' });
   });
 
-  app.get('/v1/auth/session', async (request) => ({ authenticated: true, user: { email: request.agneeSession?.email || 'api-client' } }));
-  app.post('/v1/auth/logout', async (_request, reply) => {
+  app.addHook('preHandler', async (request, reply) => {
+    if (isSupervisor(request.agneeSession)) return;
+    const chatId = request.params?.chatId;
+    if (!chatId) return;
+    if (request.method === 'POST' && request.routeOptions?.url === '/v1/chats/:chatId/routing') return;
+    const routing = await getRouting(chatId);
+    if (routing.mode !== 'human' || routing.assigneeUserId !== request.agneeSession?.userId) {
+      return reply.code(403).send({ error: 'Chat ini ditangani oleh agent lain.' });
+    }
+  });
+
+  app.get('/v1/auth/session', async (request) => ({ authenticated: true, user: request.agneeSession }));
+  app.post('/v1/auth/logout', async (request, reply) => {
+    if (typeof database.setPresence === 'function') await database.setPresence(request.agneeSession?.userId, 'offline');
     reply.header('set-cookie', 'agnee_session=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0');
     return { ok: true };
+  });
+
+  app.get('/v1/team/members', async () => ({ members: await getTeamMembers() }));
+
+  app.post('/v1/team/members', {
+    schema: { body: { type: 'object', additionalProperties: false, required: ['email', 'displayName', 'password', 'role'], properties: {
+      email: { type: 'string', minLength: 5, maxLength: 200 },
+      displayName: { type: 'string', minLength: 2, maxLength: 100 },
+      password: { type: 'string', minLength: 8, maxLength: 200 },
+      role: { type: 'string', enum: ['supervisor', 'agent'] },
+    } } },
+  }, async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat menambah anggota.' });
+    if (typeof database.createTeamMember !== 'function' || !database.status().connected) {
+      return reply.code(503).send({ error: 'Penyimpanan anggota belum tersedia.' });
+    }
+    const member = await database.createTeamMember(request.body);
+    broadcastEvent('team', { action: 'created', member });
+    return reply.code(201).send({ member });
+  });
+
+  app.get('/v1/chats/:chatId/routing', async (request) => ({
+    routing: await getRouting(request.params.chatId),
+    handoffs: typeof database.listConversationHandoffs === 'function' && database.status().connected
+      ? await database.listConversationHandoffs(request.params.chatId)
+      : conversationHandoffs.get(request.params.chatId) || [],
+  }));
+
+  app.post('/v1/chats/:chatId/routing', {
+    schema: {
+      params: { type: 'object', required: ['chatId'], properties: { chatId: { type: 'string', minLength: 1, maxLength: 128 } } },
+      body: { type: 'object', additionalProperties: false, required: ['mode'], properties: {
+        mode: { type: 'string', enum: ['ai', 'human'] },
+        assigneeUserId: { type: ['string', 'null'], maxLength: 100 },
+        note: { type: 'string', maxLength: 500 },
+        priority: { type: 'string', enum: ['low', 'normal', 'high', 'urgent'] },
+      } },
+    },
+  }, async (request, reply) => {
+    const session = request.agneeSession;
+    const members = await getTeamMembers();
+    let assigneeUserId = request.body.mode === 'ai' ? null : request.body.assigneeUserId;
+    if (request.body.mode === 'human' && !assigneeUserId) assigneeUserId = session.userId;
+    const assignee = assigneeUserId ? members.find((member) => member.id === assigneeUserId && member.status === 'active') : null;
+    if (request.body.mode === 'human' && !assignee) return reply.code(400).send({ error: 'Pilih agent yang aktif.' });
+    if (!isSupervisor(session) && request.body.mode === 'human' && assigneeUserId !== session.userId) {
+      return reply.code(403).send({ error: 'Agent hanya dapat mengambil chat untuk dirinya sendiri.' });
+    }
+    const routing = await saveRouting({
+      chatId: request.params.chatId,
+      mode: request.body.mode,
+      assigneeUserId,
+      actorUserId: session.userId,
+      note: request.body.note,
+      priority: request.body.priority || 'normal',
+    });
+    return { routing };
+  });
+
+  app.get('/v1/chats/:chatId/notes', async (request) => ({
+    notes: typeof database.listConversationNotes === 'function' && database.status().connected
+      ? await database.listConversationNotes(request.params.chatId)
+      : conversationNotes.get(request.params.chatId) || [],
+  }));
+
+  app.post('/v1/chats/:chatId/notes', {
+    schema: { body: { type: 'object', additionalProperties: false, required: ['body'], properties: {
+      body: { type: 'string', minLength: 1, maxLength: 2000 },
+    } } },
+  }, async (request, reply) => {
+    let note;
+    if (typeof database.addConversationNote === 'function' && database.status().connected) {
+      note = await database.addConversationNote(request.params.chatId, request.agneeSession?.userId, request.body.body.trim());
+      note.authorName = request.agneeSession?.displayName;
+    } else {
+      note = { id: crypto.randomUUID(), body: request.body.body.trim(), authorName: request.agneeSession?.displayName, createdAt: new Date().toISOString() };
+      const notes = conversationNotes.get(request.params.chatId) || [];
+      notes.unshift(note);
+      conversationNotes.set(request.params.chatId, notes);
+    }
+    broadcastEvent('note', { chatId: request.params.chatId, note });
+    return reply.code(201).send({ note });
   });
 
   app.get('/v1/admin/config', async () => ({
@@ -866,8 +1190,9 @@ async function buildApp(overrides = {}) {
       demoQr ||= await QRCode.toDataURL('AGNEE-DEMO-PAIRING', { margin: 1, width: 320, color: { dark: '#173A30', light: '#FFFFFF' } });
       return { qrDataUrl: demoQr, demoMode: true };
     }
+    await mirrorCurrentQrFromBrowser();
     if (!state.qrDataUrl) return reply.code(404).send({ error: 'QR is not available', phase: state.phase });
-    return { qrDataUrl: state.qrDataUrl, demoMode: false };
+    return { qrDataUrl: state.qrDataUrl, qrGeneratedAt: state.qrGeneratedAt, demoMode: false };
   });
 
   app.post('/v1/whatsapp/qr-refresh', async (_request, reply) => {
@@ -879,7 +1204,8 @@ async function buildApp(overrides = {}) {
     if (state.phase === 'error') {
       const stale = whatsapp;
       whatsapp = null;
-      stale?.destroy().catch(() => {});
+      await stale?.destroy().catch(() => {});
+      const backupName = quarantineWhatsappProfile();
       state.phase = 'starting';
       state.qrDataUrl = null;
       state.lastError = null;
@@ -891,10 +1217,11 @@ async function buildApp(overrides = {}) {
         app.log.error({ err: error }, 'WhatsApp re-initialization after manual refresh failed');
         broadcastEvent('whatsapp_phase', { phase: 'error', error: error.message });
       });
-      return { restarting: true, phase: 'starting' };
+      return { restarting: true, phase: 'starting', previousSessionBackedUp: Boolean(backupName) };
     }
+    await mirrorCurrentQrFromBrowser();
     if (!state.qrDataUrl) return reply.code(404).send({ error: 'QR is not available', phase: state.phase });
-    return { qrDataUrl: state.qrDataUrl, demoMode: false };
+    return { qrDataUrl: state.qrDataUrl, qrGeneratedAt: state.qrGeneratedAt, demoMode: false };
   });
 
   app.post('/v1/whatsapp/logout', async (_request, reply) => {
@@ -937,6 +1264,11 @@ async function buildApp(overrides = {}) {
     const query = String(request.query.q || '').trim().toLocaleLowerCase('id-ID');
     const filter = request.query.filter || 'inbox';
     let chats = config.demoMode ? [...demo.chats] : await getChatsForUi();
+    if (!isSupervisor(request.agneeSession)) {
+      const routing = await Promise.all(chats.map((chat) => getRouting(chat.id)));
+      chats = chats.filter((_chat, index) => routing[index].mode === 'human'
+        && routing[index].assigneeUserId === request.agneeSession?.userId);
+    }
     if (filter === 'inbox') chats = chats.filter((chat) => !chat.archived);
     if (filter === 'archived') chats = chats.filter((chat) => chat.archived);
     if (filter === 'unread') chats = chats.filter((chat) => chat.unreadCount > 0 && !chat.archived);
@@ -967,6 +1299,24 @@ async function buildApp(overrides = {}) {
     }
     if (state.phase !== 'ready') return reply.code(503).send({ error: 'WhatsApp is not ready', phase: state.phase });
     return getMessagesForUi(chatId, limit);
+  });
+
+  app.get('/v1/chats/:chatId/info', {
+    schema: { params: { type: 'object', required: ['chatId'], properties: {
+      chatId: { type: 'string', minLength: 1, maxLength: 128 },
+    } } },
+  }, async (request, reply) => {
+    if (config.demoMode) {
+      const chat = demo.chats.find((item) => item.id === request.params.chatId);
+      return { isGroup: Boolean(chat?.isGroup), participantCount: 0, participantNames: [] };
+    }
+    if (state.phase !== 'ready') return reply.code(503).send({ error: 'WhatsApp is not ready', phase: state.phase });
+    try {
+      return await getGroupInfoForUi(request.params.chatId);
+    } catch (error) {
+      app.log.debug({ err: error, chatId: request.params.chatId }, 'Group information is unavailable');
+      return { isGroup: true, participantCount: 0, participantNames: [] };
+    }
   });
 
   app.get('/v1/chats/:chatId/pinned', {
@@ -1144,7 +1494,7 @@ async function buildApp(overrides = {}) {
         const messages = window.require('WAWebCollections').Msg;
         const message = messages.get(messageId)
           || (await messages.getMessagesById([messageId]))?.messages?.[0];
-        if (!message || !['image', 'sticker', 'video', 'audio', 'ptt', 'document'].includes(message.type) || !message.mediaData) return null;
+        if (!message || !['image', 'sticker', 'video', 'audio', 'ptt', 'document', 'interactive'].includes(message.type) || !message.mediaData) return null;
         if (message.mediaData.mediaStage === 'REUPLOADING') return null;
         if (message.mediaData.mediaStage !== 'RESOLVED') {
           await message.downloadMedia({ downloadEvenIfExpensive: true, rmrReason: 1 });
@@ -1157,7 +1507,7 @@ async function buildApp(overrides = {}) {
           filehash: message.filehash,
           mediaKey: message.mediaKey,
           mediaKeyTimestamp: message.mediaKeyTimestamp,
-          type: message.type,
+          type: message.mediaData.type || (message.type === 'interactive' ? 'image' : message.type),
           signal: new AbortController().signal,
           downloadQpl: mockQpl,
         });
@@ -1247,6 +1597,11 @@ async function buildApp(overrides = {}) {
     } catch (error) {
       return reply.code(400).send({ error: error.message });
     }
+    const routing = await getRouting(chatId);
+    if (!isSupervisor(request.agneeSession)
+      && (routing.mode !== 'human' || routing.assigneeUserId !== request.agneeSession?.userId)) {
+      return reply.code(403).send({ error: 'Ambil alih chat ini sebelum membalas.' });
+    }
     if (!request.body.chatId && !(await whatsapp.isRegisteredUser(chatId))) return reply.code(422).send({ error: 'Recipient is not on WhatsApp' });
     const sent = await sendTextForUi(chatId, text, {
       quotedMessageId: request.body.quotedMessageId || null,
@@ -1261,11 +1616,15 @@ async function buildApp(overrides = {}) {
   });
 
   app.addHook('onClose', async () => {
+    clearQrMirror();
     clearTimeout(restoredSessionTimer);
     for (const client of eventClients) client.end();
     eventClients.clear();
     sendReceipts.clear();
     leadStates.clear();
+    conversationRouting.clear();
+    conversationNotes.clear();
+    conversationHandoffs.clear();
     if (whatsapp) await whatsapp.destroy();
     await database.close();
   });
@@ -1377,4 +1736,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { buildApp, loadConfig, normalizeChatId, inlineImageFromBody, messagePreviewForUi, normalizeMessageForUi };
+module.exports = { buildApp, loadConfig, normalizeChatId, inlineImageFromBody, messagePreviewForUi, normalizeMessageForUi, requestsHumanAgent };

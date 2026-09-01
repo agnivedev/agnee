@@ -4,41 +4,41 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#14241f">
-  <title>Agnee — Customer conversations</title>
+  <title>Agnee — Percakapan pelanggan</title>
   <link rel="icon" href="/brand/agnee-mark.svg" type="image/svg+xml">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/styles.css">
 </head>
-<body>
+<body data-i18n-title="login.title">
   <main id="loginView" class="login-view">
-    <section class="login-story" aria-label="Agnee introduction">
+    <section class="login-story" data-i18n-aria-label="login.intro">
       <img src="/brand/agnee-logo-primary.svg" alt="Agnee by beweix" class="login-logo">
       <div class="story-copy">
-        <p class="eyebrow">YOUR CONVERSATION DESK</p>
-        <h1>Lead datang.<br><span>Percakapan bergerak.</span></h1>
-        <p>Satukan WhatsApp, FAQ, dan handoff sales dalam satu ruang kerja yang tenang.</p>
+        <p class="eyebrow" data-i18n="login.eyebrow">RUANG PERCAKAPAN ANDA</p>
+        <h1 data-i18n-html="login.headline">Lead datang.<br><span>Percakapan bergerak.</span></h1>
+        <p data-i18n="login.description">Satukan WhatsApp, sumber jawaban, dan tindak lanjut penjualan dalam satu ruang kerja yang tenang.</p>
       </div>
-      <div class="story-signal"><span></span> WhatsApp adapter ready</div>
+      <div class="story-signal"><span></span> <b data-i18n="login.ready">WhatsApp siap digunakan</b></div>
     </section>
 
     <section class="login-panel">
       <form id="loginForm" class="login-form">
         <div>
-          <p class="eyebrow">WELCOME BACK</p>
-          <h2>Masuk ke Agnee</h2>
-          <p class="subtle">Kelola percakapan pelanggan dan tindak lanjut sales.</p>
+          <p class="eyebrow" data-i18n="login.welcome">SELAMAT DATANG KEMBALI</p>
+          <h2 data-i18n="login.heading">Masuk ke Agnee</h2>
+          <p class="subtle" data-i18n="login.subtitle">Kelola percakapan pelanggan dan tindak lanjut penjualan.</p>
         </div>
-        <label>Email
+        <label><span data-i18n="login.email">Email</span>
           <input id="email" name="email" type="email" autocomplete="username" required>
         </label>
-        <label>Password
+        <label><span data-i18n="login.password">Kata sandi</span>
           <input id="password" name="password" type="password" autocomplete="current-password" minlength="6" required>
         </label>
         <p id="loginError" class="form-error" role="alert"></p>
-        <button class="primary-button" type="submit">Masuk <span aria-hidden="true">→</span></button>
-        <p class="demo-note">Local MVP · credential dapat diganti dari environment.</p>
+        <button class="primary-button" type="submit"><span data-i18n="login.submit">Masuk</span> <span aria-hidden="true">→</span></button>
+        <p class="demo-note" data-i18n="login.note">Akun dikelola oleh administrator perusahaan Anda.</p>
       </form>
     </section>
   </main>
@@ -46,37 +46,37 @@
   <main id="appView" class="app-view" hidden>
     <aside class="rail">
       <img src="/brand/agnee-mark.svg" alt="Agnee" class="rail-logo">
-      <nav aria-label="Main navigation">
-        <button id="inboxButton" class="rail-action active" aria-label="Inbox" data-label="Inbox">⌁</button>
-        <button id="contactsButton" class="rail-action" aria-label="Kontak" data-label="Kontak">◎</button>
-        <button id="funnelButton" class="rail-action" aria-label="Funnel" data-label="Funnel">↗</button>
-        <button id="adminButton" class="rail-action" aria-label="Admin" data-label="Admin">⚙</button>
+      <nav data-i18n-aria-label="nav.main">
+        <button id="inboxButton" class="rail-action active" data-i18n-aria-label="nav.inbox" data-label="Inbox">⌁</button>
+        <button id="contactsButton" class="rail-action" data-i18n-aria-label="nav.contacts" data-label="Kontak">◎</button>
+        <button id="funnelButton" class="rail-action" data-i18n-aria-label="nav.funnel" data-label="Funnel">↗</button>
+        <button id="adminButton" class="rail-action" data-i18n-aria-label="nav.admin" data-label="Admin">⚙</button>
       </nav>
-      <button id="logoutButton" class="rail-action logout" aria-label="Keluar" data-label="Keluar">↪</button>
+      <button id="logoutButton" class="rail-action logout" data-i18n-aria-label="nav.logout" data-label="Keluar">↪</button>
     </aside>
 
     <section id="inboxPanel" class="inbox-panel">
       <header class="inbox-head">
-        <div><p class="eyebrow">MEJA PERCAKAPAN</p><h1>Inbox</h1></div>
-        <button id="newConversationButton" class="icon-button" aria-label="Percakapan baru">＋</button>
+        <div><p class="eyebrow" data-i18n="inbox.eyebrow">MEJA PERCAKAPAN</p><h1 data-i18n="inbox.title">Kotak masuk</h1></div>
+        <button id="newConversationButton" class="icon-button" data-i18n-aria-label="inbox.new">＋</button>
       </header>
-      <label class="search-box"><span aria-hidden="true">⌕</span><input id="searchInput" type="search" placeholder="Cari percakapan"></label>
-      <div class="tab-row" aria-label="Tab percakapan">
-        <button class="tab active" data-tab="inbox" aria-label="Tab Inbox">Inbox</button>
-        <button class="tab" data-tab="archived" aria-label="Tab Archived">Archived</button>
+      <label class="search-box"><span aria-hidden="true">⌕</span><input id="searchInput" type="search" data-i18n-placeholder="inbox.search" placeholder="Cari percakapan"></label>
+      <div class="tab-row" data-i18n-aria-label="inbox.tabs">
+        <button class="tab active" data-tab="inbox" data-i18n="inbox.tabInbox">Kotak masuk</button>
+        <button class="tab" data-tab="archived" data-i18n="inbox.tabArchived">Diarsipkan</button>
       </div>
       <div class="filter-row" aria-label="Filter percakapan" id="filterRow">
-        <button class="filter active" data-filter="all">Semua</button><button class="filter" data-filter="unread">Belum dibaca</button><button class="filter" data-filter="qualified">Qualified</button>
+        <button class="filter active" data-filter="all" data-i18n="inbox.all">Semua</button><button class="filter" data-filter="unread" data-i18n="inbox.unread">Belum dibaca</button><button class="filter" data-filter="qualified" data-i18n="inbox.qualified">Potensial</button>
       </div>
       <div id="chatList" class="chat-list" aria-live="polite"></div>
-      <button id="loadMoreChats" class="load-more" type="button" hidden>Muat percakapan lain</button>
+      <button id="loadMoreChats" class="load-more" type="button" data-i18n="inbox.more" hidden>Muat percakapan lain</button>
     </section>
 
     <section id="conversationPanel" class="conversation-panel">
       <header class="conversation-head">
-        <button id="mobileBack" class="mobile-back" aria-label="Kembali ke inbox">←</button>
+        <button id="mobileBack" class="mobile-back" data-i18n-aria-label="conversation.back">←</button>
         <div id="activeAvatar" class="avatar">N</div>
-        <div class="conversation-title"><h2 id="activeName">Pilih percakapan</h2><p id="activeMeta">WhatsApp</p></div>
+        <div class="conversation-title"><h2 id="activeName" data-i18n="conversation.choose">Pilih percakapan</h2><p id="activeMeta">WhatsApp</p></div>
         <button id="connectionButton" class="connection-pill" aria-label="Koneksi WhatsApp"><span></span><strong id="connectionLabel">Memeriksa</strong></button>
         <button id="contextToggle" class="icon-button context-toggle" aria-label="Buka konteks lead">◫</button>
         <button id="conversationMenuButton" class="icon-button more-button" aria-label="Menu percakapan">•••</button>
@@ -88,29 +88,54 @@
       </button>
       <div id="emptyState" class="empty-state">
         <img src="/brand/agnee-mark.svg" alt="">
-        <h2>Mulai dari percakapan</h2>
-        <p>Pilih kontak di sebelah kiri untuk membaca dan membalas pesan.</p>
+        <h2 data-i18n="conversation.emptyTitle">Mulai dari percakapan</h2>
+        <p data-i18n="conversation.emptyCopy">Pilih kontak di sebelah kiri untuk membaca dan membalas pesan.</p>
       </div>
       <div id="messageList" class="message-list" hidden aria-live="polite"></div>
       <form id="composer" class="composer" hidden>
         <div id="replyBar" class="composer-context" hidden><div><strong id="replyLabel">Membalas</strong><span id="replyText"></span></div><button id="cancelReply" type="button" aria-label="Cancel reply">×</button></div>
-        <div id="attachmentBar" class="composer-context attachment-context" hidden><div><strong>Lampiran</strong><span id="attachmentName"></span></div><button id="cancelAttachment" type="button" aria-label="Remove attachment">×</button></div>
+        <div id="attachmentBar" class="composer-context attachment-context" hidden>
+          <button id="attachmentPreviewButton" class="attachment-preview-trigger" type="button" aria-label="Preview lampiran">
+            <span class="attachment-preview" aria-hidden="true">
+              <img id="attachmentThumbnail" alt="">
+              <span id="attachmentTypeIcon">↗</span>
+            </span>
+            <span class="attachment-copy"><strong id="attachmentLabel">Media siap dikirim</strong><span id="attachmentName"></span></span>
+            <span class="attachment-open" aria-hidden="true" data-i18n="common.preview">Lihat</span>
+          </button>
+          <button id="cancelAttachment" type="button" aria-label="Hapus lampiran">×</button>
+        </div>
         <input id="attachmentInput" type="file" accept="image/*,video/*,audio/*,application/pdf" hidden>
         <button id="attachmentButton" type="button" class="composer-utility" aria-label="Attach file">＋</button>
-        <textarea id="messageInput" rows="1" maxlength="4096" placeholder="Tulis balasan…"></textarea>
+        <textarea id="messageInput" rows="1" maxlength="4096" data-i18n-placeholder="composer.placeholder" placeholder="Tulis balasan…"></textarea>
         <span id="composerStatus" class="composer-status" role="status"></span>
-        <span class="composer-hint">Enter kirim</span>
-        <button class="send-button" type="submit" aria-label="Send message">↗</button>
+        <span class="composer-hint" data-i18n="composer.hint">Enter untuk mengirim</span>
+        <button class="send-button" type="submit" data-i18n="common.send">Kirim</button>
       </form>
     </section>
 
     <aside id="contextPanel" class="context-panel">
-      <div class="context-head"><p class="eyebrow">KONTEKS LEAD</p><button id="contextClose" class="icon-button" aria-label="Tutup konteks">×</button></div>
-      <div class="lead-card"><div class="lead-score"><span id="leadScore">—</span><small>intent</small></div><div><strong id="leadTitle">Belum dikualifikasi</strong><p id="leadDetail">Belum dianalisis oleh AI.</p></div></div>
-      <section><h3>Funnel</h3><div class="stage-line"><i></i><span id="leadStage">Inbox</span><small>Otomatis</small></div></section>
-      <section><h3>Ringkasan</h3><p id="leadSummary">Pilih percakapan untuk melihat konteks lead.</p></section>
-      <section><h3>Label</h3><div class="tag-row"><span>WhatsApp</span><span>Inbound</span></div></section>
-      <button id="handoffButton" class="handoff-button">Teruskan ke sales <span>→</span></button>
+      <div class="context-head"><p class="eyebrow" data-i18n="lead.eyebrow">INFORMASI LEAD</p><button id="contextClose" class="icon-button" data-i18n-aria-label="lead.close">×</button></div>
+      <div class="lead-card"><div class="lead-score"><span id="leadScore">—</span><small data-i18n="lead.intent">minat</small></div><div><strong id="leadTitle" data-i18n="lead.unqualified">Belum dikualifikasi</strong><p id="leadDetail" data-i18n="lead.notAnalyzed">Belum dianalisis.</p></div></div>
+      <section class="routing-section">
+        <div class="routing-heading"><h3 data-i18n="routing.title">Penanganan chat</h3><span id="routingBadge" class="routing-badge">AI</span></div>
+        <div class="mode-switch" id="modeSwitch">
+          <button type="button" data-mode="ai" class="active" data-i18n="routing.ai">AI</button>
+          <button type="button" data-mode="human" data-i18n="routing.human">Manusia</button>
+        </div>
+        <label id="assigneeField" class="assignee-field" hidden><span data-i18n="routing.assignee">Ditangani oleh</span>
+          <select id="assigneeSelect"></select>
+        </label>
+        <textarea id="handoverNote" rows="2" maxlength="500" data-i18n-placeholder="routing.notePlaceholder" placeholder="Catatan handover (opsional)"></textarea>
+        <button id="saveRoutingButton" class="routing-save" type="button" data-i18n="routing.save">Simpan penanganan</button>
+        <p id="routingStatus" class="routing-status" role="status"></p>
+      </section>
+      <section><h3 data-i18n="lead.funnel">Tahapan</h3><div class="stage-line"><i></i><span id="leadStage">Inbox</span><small data-i18n="lead.automatic">Otomatis</small></div></section>
+      <section><h3 data-i18n="lead.summary">Ringkasan</h3><p id="leadSummary" data-i18n="lead.choose">Pilih percakapan untuk melihat informasi lead.</p></section>
+      <section class="notes-section"><h3 data-i18n="notes.title">Catatan internal</h3><div id="notesList" class="notes-list"></div><form id="noteForm"><textarea id="noteInput" rows="2" maxlength="2000" data-i18n-placeholder="notes.placeholder" placeholder="Tulis catatan untuk tim…"></textarea><button type="submit" data-i18n="notes.add">Tambah catatan</button></form></section>
+      <section class="handoff-history"><h3 data-i18n="routing.history">Riwayat handover</h3><div id="handoffHistory"></div></section>
+      <section><h3 data-i18n="lead.labels">Label</h3><div class="tag-row"><span>WhatsApp</span><span data-i18n="lead.inbound">Masuk</span></div></section>
+      <button id="handoffButton" class="handoff-button" hidden><span data-i18n="lead.handoff">Teruskan ke tim penjualan</span> <span>→</span></button>
     </aside>
   </main>
 
@@ -120,26 +145,26 @@
       <button id="closeDialog" class="dialog-close" aria-label="Tutup">×</button>
     </div>
     <img src="/brand/agnee-mark.svg" alt="" class="dialog-mark">
-    <p class="eyebrow">KONEKSI WHATSAPP</p>
-    <h2 id="dialogTitle">Hubungkan WhatsApp</h2>
-    <p id="dialogCopy">Buka WhatsApp → Linked Devices, lalu scan kode ini.</p>
+    <p class="eyebrow" data-i18n="wa.eyebrow">KONEKSI WHATSAPP</p>
+    <h2 id="dialogTitle" data-i18n="wa.connect">Hubungkan WhatsApp</h2>
+    <p id="dialogCopy" data-i18n="wa.scan">Buka WhatsApp → Perangkat Tertaut, lalu pindai kode ini.</p>
     <div class="qr-shell"><img id="qrImage" alt="WhatsApp pairing QR code"></div>
     <div id="syncShell" class="sync-shell" hidden>
       <span class="sync-spinner" aria-hidden="true"></span>
-      <strong>Menyinkronkan pesan…</strong>
-      <span id="syncProgress">Mohon biarkan WhatsApp tetap terbuka.</span>
+      <strong data-i18n="wa.syncing">Menyinkronkan pesan…</strong>
+      <span id="syncProgress" data-i18n="wa.keepOpen">Mohon biarkan WhatsApp tetap terbuka.</span>
     </div>
     <p id="qrNote" class="demo-note"></p>
-    <button id="changeNumberBtn" class="change-number-btn" type="button" hidden>Ganti Nomor WhatsApp</button>
+    <button id="changeNumberBtn" class="change-number-btn" type="button" data-i18n="wa.changeNumber" hidden>Ganti nomor WhatsApp</button>
   </dialog>
 
   <dialog id="newConversationDialog" class="workspace-dialog">
     <form id="newConversationForm">
-      <header><div><p class="eyebrow">PERCAKAPAN BARU</p><h2>Mulai WhatsApp</h2></div><button id="closeNewConversation" type="button" class="dialog-close" aria-label="Tutup">×</button></header>
-      <label>Nomor WhatsApp<input name="to" inputmode="tel" placeholder="0812 3456 7890" required></label>
-      <label>Pesan pertama<textarea name="text" rows="4" maxlength="4096" placeholder="Tulis pesan…" required></textarea></label>
+      <header><div><p class="eyebrow" data-i18n="new.eyebrow">PERCAKAPAN BARU</p><h2 data-i18n="new.title">Mulai percakapan WhatsApp</h2></div><button id="closeNewConversation" type="button" class="dialog-close" data-i18n-aria-label="common.close">×</button></header>
+      <label><span data-i18n="new.number">Nomor WhatsApp</span><input name="to" inputmode="tel" placeholder="0812 3456 7890" required></label>
+      <label><span data-i18n="new.firstMessage">Pesan pertama</span><textarea name="text" rows="4" maxlength="4096" data-i18n-placeholder="new.placeholder" placeholder="Tulis pesan…" required></textarea></label>
       <p id="newConversationError" class="form-error" role="alert"></p>
-      <button class="primary-button" type="submit">Kirim pesan <span>→</span></button>
+      <button class="primary-button" type="submit"><span data-i18n="common.send">Kirim</span> <span>→</span></button>
     </form>
   </dialog>
 
@@ -162,10 +187,13 @@
     <div id="mediaStage" class="media-stage">
       <img id="mediaViewerImage" alt="">
       <video id="mediaViewerVideo" controls playsinline preload="metadata" hidden></video>
+      <audio id="mediaViewerAudio" controls preload="metadata" hidden></audio>
+      <iframe id="mediaViewerDocument" title="Preview dokumen" hidden></iframe>
     </div>
-    <p class="media-help">Scroll atau pinch untuk zoom · drag untuk geser · double-click untuk reset</p>
+    <p id="mediaHelp" class="media-help" data-i18n="media.help">Gulir atau cubit untuk memperbesar · seret untuk menggeser · klik dua kali untuk mengatur ulang</p>
   </dialog>
 
+  <script src="/i18n.js" defer></script>
   <script src="/app.js" defer></script>
 </body>
 </html>

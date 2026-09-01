@@ -107,6 +107,10 @@ Salin `.env.example` menjadi `.env`. Jangan commit `.env`.
 | `SESSION_SECRET` | Penandatangan session UI | Ya |
 | `ADMIN_EMAIL` | Akun admin single-workspace | Internal |
 | `ADMIN_PASSWORD` | Login UI dan consent OAuth | Ya |
+| `POSTGRES_PASSWORD` | Password PostgreSQL untuk Docker Compose | Ya |
+| `DATABASE_URL` | Koneksi PostgreSQL saat menjalankan Node langsung | Ya |
+| `DATABASE_POOL_MAX` | Batas koneksi pool aplikasi | Tidak |
+| `DATABASE_SSL` | Wajibkan TLS PostgreSQL remote | Tidak |
 | `WA_SESSION_PATH` | Lokasi persisted WhatsApp profile | Sensitif |
 | `WA_CLIENT_ID` | Nama profile WhatsApp | Tidak |
 | `WA_DEFAULT_COUNTRY_CODE` | Normalisasi nomor, default `62` | Tidak |
@@ -138,10 +142,24 @@ npm test
 ### 7.2 Demo aman
 
 ```bash
-WA_STARTUP_ENABLED=false WA_DEMO_MODE=true npm start
+cp .env.example .env
+# Isi POSTGRES_PASSWORD, lalu set WA_STARTUP_ENABLED=false dan WA_DEMO_MODE=true.
+docker compose up --build
 ```
 
 Buka `http://127.0.0.1:4100`. Demo tidak mengirim WhatsApp real.
+
+PostgreSQL tersedia hanya di loopback `127.0.0.1:5432`. Migration dijalankan
+otomatis ketika app start. Untuk menjalankan Node tanpa Compose, isi
+`DATABASE_URL`, misalnya `postgresql://agnee:password@127.0.0.1:5432/agnee`.
+
+Jika memakai PostgreSQL Homebrew lokal:
+
+```bash
+createdb agnee
+echo 'DATABASE_URL=postgresql://USER_MAC@127.0.0.1:5432/agnee' >> .env
+node --env-file=.env src/server.js
+```
 
 ### 7.3 WhatsApp real
 
@@ -288,9 +306,10 @@ Port binding:
 
 - `127.0.0.1:4100` → app/API;
 - `127.0.0.1:4200` → MCP.
+- `127.0.0.1:5432` → PostgreSQL lokal.
 
 Compose memiliki health check, restart policy, resource limit, non-root user,
-persisted WhatsApp session, dan persisted OAuth client state.
+persisted WhatsApp session, volume PostgreSQL, dan persisted OAuth client state.
 
 ## 13. Deployment Radmond
 
@@ -468,4 +487,3 @@ Kemudian:
 5. cek status WhatsApp;
 6. lakukan read-only smoke test;
 7. baru lakukan send test ke nomor uji dengan persetujuan eksplisit.
-

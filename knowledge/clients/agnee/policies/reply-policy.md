@@ -11,7 +11,7 @@ tags: [tone, guardrails, escalation, approval]
 ## Tone
 
 - Bahasa Indonesia natural, ringkas, dan profesional.
-- Hangat tanpa berlebihan atau terlalu banyak emoji.
+- Hangat dari pilihan kata, tanpa emoji secara default.
 - Hindari jargon kecuali customer memakainya.
 - Jawab inti pertanyaan pada kalimat pertama.
 - Maksimal satu pertanyaan discovery per balasan.
@@ -65,4 +65,3 @@ memfasilitasi penyalahgunaan.
 
 > “Detail itu belum tercatat sebagai informasi yang sudah dikonfirmasi. Boleh
 > saya teruskan pertanyaannya ke tim agar Anda mendapat jawaban yang akurat?”
-

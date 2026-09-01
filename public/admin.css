@@ -191,3 +191,22 @@ button, select, textarea { font: inherit; }
 #replyText h1 { font-size: 1.3em; }
 #replyText h2 { font-size: 1.15em; }
 #replyText h3 { font-size: 1.05em; }
+
+.language-switch { position: fixed; z-index: 1200; top: 18px; right: 22px; display: flex; gap: 3px; padding: 4px; border: 1px solid rgba(20,36,31,.14); border-radius: 999px; background: rgba(250,249,244,.94); box-shadow: 0 8px 24px rgba(20,36,31,.08); }
+.language-switch button { border: 0; border-radius: 999px; padding: 6px 9px; color: #66736d; background: transparent; font: 600 11px/1 "IBM Plex Mono", monospace; cursor: pointer; }
+.language-switch button.active { color: #fff; background: #14241f; }
+
+.team-card { margin: 24px 0; padding: 28px; border: 1px solid var(--line); border-radius: 24px 24px 8px 24px; background: var(--card); box-shadow: var(--shadow); }
+.team-card h2 { margin: 4px 0 0; }
+.team-copy { margin: 8px 0 20px; color: var(--muted); }
+.team-members { display: grid; gap: 8px; margin-bottom: 18px; }
+.team-member { display: grid; grid-template-columns: 42px 1fr auto; gap: 11px; align-items: center; padding: 10px 12px; border-radius: 14px; background: #f3f4ef; }
+.team-member .member-avatar { display: grid; width: 42px; height: 42px; place-items: center; border-radius: 50%; color: #087f4d; background: #ddefdf; font-weight: 800; }
+.team-member strong, .team-member small { display: block; }
+.team-member small { color: var(--muted); }
+.member-role { padding: 5px 9px; border-radius: 999px; color: #285248; background: #ddefdf; font: 600 11px "IBM Plex Mono", monospace; }
+.team-form { display: grid; grid-template-columns: 1.1fr 1.4fr 1fr .8fr auto; gap: 10px; align-items: end; }
+.team-form label { display: grid; gap: 6px; color: var(--muted); font-size: 12px; font-weight: 700; }
+.team-form input, .team-form select { width: 100%; min-height: 42px; border: 1px solid var(--line); border-radius: 10px; padding: 9px 10px; background: #fff; font: inherit; }
+.team-status { grid-column: 1 / -1; min-height: 18px; margin: 0; color: #087f4d; font-size: 12px; }
+@media (max-width: 1100px) { .team-form { grid-template-columns: 1fr 1fr; } }

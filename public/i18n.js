@@ -1,0 +1,260 @@
+'use strict';
+
+(() => {
+  const messages = {
+    id: {
+      'common.indonesian': 'Indonesia', 'common.english': 'English', 'common.close': 'Tutup',
+      'common.loading': 'Memuat…', 'common.checking': 'Memeriksa…', 'common.back': 'Kembali',
+      'common.copy': 'Salin', 'common.copied': 'Tersalin', 'common.refresh': 'Muat ulang',
+      'common.send': 'Kirim', 'common.preview': 'Lihat', 'common.downloadFailed': 'Unduhan gagal',
+      'login.title': 'Agnee — Percakapan pelanggan', 'login.intro': 'Pengantar Agnee',
+      'login.eyebrow': 'RUANG PERCAKAPAN ANDA', 'login.headline': 'Lead datang.<br><span>Percakapan bergerak.</span>',
+      'login.description': 'Satukan WhatsApp, sumber jawaban, dan tindak lanjut penjualan dalam satu ruang kerja yang tenang.',
+      'login.ready': 'WhatsApp siap digunakan', 'login.welcome': 'SELAMAT DATANG KEMBALI',
+      'login.heading': 'Masuk ke Agnee', 'login.subtitle': 'Kelola percakapan pelanggan dan tindak lanjut penjualan.',
+      'login.email': 'Email', 'login.password': 'Kata sandi', 'login.submit': 'Masuk',
+      'login.note': 'Akun dikelola oleh administrator perusahaan Anda.',
+      'nav.main': 'Navigasi utama', 'nav.inbox': 'Kotak masuk', 'nav.contacts': 'Kontak',
+      'nav.funnel': 'Tahapan lead', 'nav.admin': 'Pengaturan', 'nav.logout': 'Keluar',
+      'inbox.eyebrow': 'MEJA PERCAKAPAN', 'inbox.title': 'Kotak masuk', 'inbox.new': 'Percakapan baru',
+      'inbox.search': 'Cari percakapan', 'inbox.tabs': 'Tab percakapan', 'inbox.tabInbox': 'Kotak masuk',
+      'inbox.tabArchived': 'Diarsipkan', 'inbox.filters': 'Filter percakapan', 'inbox.all': 'Semua',
+      'inbox.unread': 'Belum dibaca', 'inbox.qualified': 'Potensial', 'inbox.more': 'Muat percakapan lain',
+      'conversation.back': 'Kembali ke kotak masuk', 'conversation.choose': 'Pilih percakapan',
+      'conversation.connection': 'Koneksi WhatsApp', 'conversation.context': 'Buka informasi lead',
+      'conversation.menu': 'Menu percakapan', 'conversation.pinned': 'Pesan disematkan',
+      'conversation.emptyTitle': 'Mulai dari percakapan',
+      'conversation.emptyCopy': 'Pilih kontak di sebelah kiri untuk membaca dan membalas pesan.',
+      'composer.replying': 'Membalas', 'composer.cancelReply': 'Batalkan balasan',
+      'composer.attachmentPreview': 'Lihat lampiran', 'composer.attachmentReady': 'Media siap dikirim',
+      'composer.removeAttachment': 'Hapus lampiran', 'composer.attach': 'Lampirkan berkas',
+      'composer.placeholder': 'Tulis balasan…', 'composer.hint': 'Enter untuk mengirim',
+      'lead.eyebrow': 'INFORMASI LEAD', 'lead.close': 'Tutup informasi', 'lead.intent': 'minat',
+      'lead.unqualified': 'Belum dikualifikasi', 'lead.notAnalyzed': 'Belum dianalisis.',
+      'lead.funnel': 'Tahapan', 'lead.automatic': 'Otomatis', 'lead.summary': 'Ringkasan',
+      'lead.choose': 'Pilih percakapan untuk melihat informasi lead.', 'lead.labels': 'Label',
+      'lead.inbound': 'Masuk', 'lead.handoff': 'Teruskan ke tim penjualan',
+      'routing.title': 'Penanganan chat', 'routing.ai': 'AI', 'routing.human': 'Manusia',
+      'routing.assignee': 'Ditangani oleh', 'routing.notePlaceholder': 'Catatan handover (opsional)',
+      'routing.save': 'Simpan penanganan', 'routing.history': 'Riwayat handover',
+      'routing.noHistory': 'Belum ada perpindahan penanganan.', 'routing.system': 'Sistem',
+      'routing.savedAi': 'Chat sudah diserahkan ke AI.', 'routing.savedHuman': 'Chat sudah diserahkan ke agent.',
+      'routing.online': 'online', 'notes.title': 'Catatan internal',
+      'notes.placeholder': 'Tulis catatan untuk tim…', 'notes.add': 'Tambah catatan',
+      'notes.empty': 'Belum ada catatan internal.',
+      'lead.qualified': 'Potensial', 'lead.assigned': 'Diteruskan',
+      'utility.funnelTitle': 'Lead potensial', 'utility.funnelEyebrow': 'TAHAPAN LEAD',
+      'utility.qualifiedAssigned': 'Potensial / diteruskan',
+      'utility.backInbox': 'Kembalikan ke kotak masuk', 'utility.archive': 'Arsipkan percakapan',
+      'utility.backInboxDetail': 'Pindahkan percakapan ini kembali ke kotak masuk',
+      'utility.archiveDetail': 'Pindahkan percakapan ini ke arsip',
+      'wa.eyebrow': 'KONEKSI WHATSAPP', 'wa.connect': 'Hubungkan WhatsApp',
+      'wa.scan': 'Buka WhatsApp → Perangkat Tertaut, lalu pindai kode ini.',
+      'wa.refresh': 'Perbarui kode', 'wa.qrAlt': 'Kode untuk menghubungkan WhatsApp',
+      'wa.syncing': 'Menyinkronkan pesan…', 'wa.keepOpen': 'Mohon biarkan WhatsApp tetap terbuka.',
+      'wa.changeNumber': 'Ganti nomor WhatsApp', 'wa.connected': 'Terhubung', 'wa.connectAction': 'Hubungkan',
+      'wa.preparing': 'Menyiapkan kode…', 'wa.updated': 'Kode diperbarui otomatis.',
+      'wa.waiting': 'Menunggu kode dari WhatsApp…', 'wa.loadingChats': 'Mengambil percakapan terbaru…',
+      'wa.syncTitle': 'Menyinkronkan WhatsApp', 'wa.restoreTitle': 'Memulihkan koneksi WhatsApp',
+      'wa.scanned': 'Kode berhasil dipindai. Kami sedang mengambil percakapan Anda.',
+      'wa.restoring': 'WhatsApp sudah terhubung. Kami sedang memulihkan percakapan Anda.',
+      'wa.syncProgress': 'Menyinkronkan pesan {percent}%', 'wa.usuallyQuick': 'Biasanya selesai dalam beberapa detik.',
+      'wa.connectionSlow': 'Koneksi memerlukan waktu lebih lama',
+      'wa.connectionSlowCopy': 'WhatsApp belum berhasil terhubung. Coba perbarui kode lalu pindai kembali.',
+      'wa.synced': 'WhatsApp terhubung dan percakapan sudah siap di Agnee.',
+      'wa.loggingOut': 'WhatsApp sedang dikeluarkan. Kode baru akan muncul sebentar.',
+      'new.eyebrow': 'PERCAKAPAN BARU', 'new.title': 'Mulai percakapan WhatsApp',
+      'new.number': 'Nomor WhatsApp', 'new.firstMessage': 'Pesan pertama', 'new.placeholder': 'Tulis pesan…',
+      'media.photo': 'Foto', 'media.video': 'Video', 'media.audio': 'Audio', 'media.document': 'Dokumen',
+      'media.sticker': 'Stiker', 'media.voice': 'Pesan suara', 'media.interactive': 'Pesan interaktif',
+      'media.unsupported': 'Pesan tidak didukung', 'media.view': 'Lihat media', 'media.controls': 'Kontrol media',
+      'media.zoomOut': 'Perkecil', 'media.fit': 'Sesuai', 'media.reset': 'Atur ulang ukuran',
+      'media.zoomIn': 'Perbesar', 'media.download': 'Unduh', 'media.documentPreview': 'Lihat dokumen',
+      'media.help': 'Gulir atau cubit untuk memperbesar · seret untuk menggeser · klik dua kali untuk mengatur ulang',
+      'admin.title': 'Agnee — Uji Balasan Otomatis', 'admin.backAria': 'Kembali ke kotak masuk Agnee',
+      'admin.overview': 'Ringkasan', 'admin.playground': 'Uji balasan', 'admin.checkingAi': 'Memeriksa layanan AI',
+      'admin.eyebrow': 'RUANG ADMIN', 'admin.heading': 'Uji Balasan Otomatis',
+      'admin.description': 'Uji sumber jawaban, gaya balasan, token, dan biaya tanpa mengirim pesan ke WhatsApp.',
+      'admin.back': '← Kembali ke kotak masuk', 'admin.model': 'MODEL', 'admin.aiService': 'LAYANAN AI',
+      'admin.storage': 'PENYIMPANAN', 'admin.mode': 'MODE', 'admin.testOnly': 'Uji coba',
+      'admin.settingsEyebrow': 'PENGATURAN AI', 'admin.settingsTitle': 'AI dan urutan model',
+      'admin.settingsDesc': 'Perubahan langsung berlaku untuk balasan berikutnya.',
+      'admin.enableAi': 'Aktifkan balasan AI', 'admin.chainHelp': 'Model pertama akan dicoba lebih dulu. Jika gagal, Agnee mencoba model berikutnya.',
+      'admin.save': 'Simpan perubahan', 'admin.saved': 'Tersimpan ✓', 'admin.input': 'MASUKAN',
+      'admin.customerMessage': 'Pesan pelanggan', 'admin.notSent': 'Tidak dikirim',
+      'admin.answerSource': 'Sumber jawaban', 'admin.message': 'Pesan', 'admin.example': 'Contoh: Bisa lihat demo dulu?',
+      'admin.examples': 'Contoh pesan', 'admin.support': 'Bantuan', 'admin.handoff': 'Teruskan',
+      'admin.generate': 'Buat balasan', 'admin.generating': 'Menyiapkan…',
+      'admin.shortcut': '⌘/Ctrl + Enter untuk membuat balasan', 'admin.output': 'HASIL',
+      'admin.replyPreview': 'Pratinjau balasan', 'admin.empty': 'Belum ada balasan',
+      'admin.emptyCopy': 'Masukkan pesan pelanggan, lalu buat balasan. Pesan ini tidak akan dikirim ke WhatsApp.',
+      'admin.preparing': 'Menyiapkan balasan…', 'admin.matched': 'SUMBER YANG COCOK',
+      'admin.inputTokens': 'MASUKAN', 'admin.outputTokens': 'KELUARAN', 'admin.totalTokens': 'TOTAL',
+      'admin.cost': 'BIAYA', 'admin.tokens': 'token', 'admin.historyEyebrow': 'RIWAYAT PENGUJIAN',
+      'admin.history': 'Pengujian terbaru', 'admin.noHistory': 'Belum ada pengujian yang tersimpan.',
+      'admin.time': 'Waktu', 'admin.client': 'Sumber', 'admin.token': 'Token', 'admin.costUsd': 'Biaya USD',
+      'admin.style': 'Gaya', 'admin.active': 'Aktif', 'admin.inactive': 'Belum aktif',
+      'admin.aiActive': 'Layanan AI aktif', 'admin.aiInactive': 'Layanan AI belum aktif',
+      'admin.storageActive': 'Penyimpanan aktif', 'admin.storageTemporary': 'Penyimpanan sementara',
+      'admin.noMatch': 'Tidak ada sumber jawaban yang cocok', 'admin.seconds': '{seconds} detik',
+      'admin.stylePassed': 'Gaya balasan sesuai · ringkas dan terdengar alami{saved}',
+      'admin.styleSaved': ' · tersimpan', 'admin.styleWarning': 'Perlu ditinjau · {warnings}',
+      'admin.historyTemporary': 'Penyimpanan permanen belum tersedia; hasil hanya tersimpan sementara.',
+      'admin.pass': 'SESUAI', 'admin.warn': 'TINJAU', 'admin.primary': 'Utama',
+      'admin.nextModel': 'Cadangan {number}', 'admin.notUsed': '— Tidak dipakai —',
+      'admin.custom': 'kustom', 'admin.aiOn': 'AI aktif', 'admin.aiOff': 'AI nonaktif',
+      'admin.loadFailed': 'Gagal memuat', 'admin.saveFailed': 'Gagal menyimpan: {message}',
+      'team.nav': 'Tim CS', 'team.eyebrow': 'TIM LAYANAN PELANGGAN', 'team.title': 'Supervisor dan agent',
+      'team.copy': 'Supervisor dapat membagi chat ke agent. Setiap agent masuk menggunakan akun masing-masing.',
+      'team.name': 'Nama', 'team.role': 'Peran', 'team.agent': 'Agent', 'team.supervisor': 'Supervisor',
+      'team.add': 'Tambah anggota', 'team.added': 'Anggota berhasil ditambahkan.',
+      'error.request': 'Permintaan gagal ({status})'
+    },
+    en: {
+      'common.indonesian': 'Indonesian', 'common.english': 'English', 'common.close': 'Close',
+      'common.loading': 'Loading…', 'common.checking': 'Checking…', 'common.back': 'Back',
+      'common.copy': 'Copy', 'common.copied': 'Copied', 'common.refresh': 'Refresh',
+      'common.send': 'Send', 'common.preview': 'View', 'common.downloadFailed': 'Download failed',
+      'login.title': 'Agnee — Customer conversations', 'login.intro': 'Agnee introduction',
+      'login.eyebrow': 'YOUR CONVERSATION DESK', 'login.headline': 'Leads arrive.<br><span>Conversations move.</span>',
+      'login.description': 'Bring WhatsApp, answer sources, and sales follow-ups into one calm workspace.',
+      'login.ready': 'WhatsApp is ready', 'login.welcome': 'WELCOME BACK', 'login.heading': 'Sign in to Agnee',
+      'login.subtitle': 'Manage customer conversations and sales follow-ups.', 'login.email': 'Email',
+      'login.password': 'Password', 'login.submit': 'Sign in', 'login.note': 'Your account is managed by your company administrator.',
+      'nav.main': 'Main navigation', 'nav.inbox': 'Inbox', 'nav.contacts': 'Contacts', 'nav.funnel': 'Lead stages',
+      'nav.admin': 'Settings', 'nav.logout': 'Sign out', 'inbox.eyebrow': 'CONVERSATION DESK',
+      'inbox.title': 'Inbox', 'inbox.new': 'New conversation', 'inbox.search': 'Search conversations',
+      'inbox.tabs': 'Conversation tabs', 'inbox.tabInbox': 'Inbox', 'inbox.tabArchived': 'Archived',
+      'inbox.filters': 'Conversation filters', 'inbox.all': 'All', 'inbox.unread': 'Unread',
+      'inbox.qualified': 'Qualified', 'inbox.more': 'Load more conversations',
+      'conversation.back': 'Back to inbox', 'conversation.choose': 'Choose a conversation',
+      'conversation.connection': 'WhatsApp connection', 'conversation.context': 'Open lead details',
+      'conversation.menu': 'Conversation menu', 'conversation.pinned': 'Pinned message',
+      'conversation.emptyTitle': 'Start with a conversation',
+      'conversation.emptyCopy': 'Choose a contact on the left to read and reply to messages.',
+      'composer.replying': 'Replying', 'composer.cancelReply': 'Cancel reply', 'composer.attachmentPreview': 'View attachment',
+      'composer.attachmentReady': 'Media ready to send', 'composer.removeAttachment': 'Remove attachment',
+      'composer.attach': 'Attach file', 'composer.placeholder': 'Write a reply…', 'composer.hint': 'Enter to send',
+      'lead.eyebrow': 'LEAD DETAILS', 'lead.close': 'Close details', 'lead.intent': 'intent',
+      'lead.unqualified': 'Not qualified yet', 'lead.notAnalyzed': 'Not analyzed yet.', 'lead.funnel': 'Stage',
+      'lead.automatic': 'Automatic', 'lead.summary': 'Summary', 'lead.choose': 'Choose a conversation to view lead details.',
+      'lead.labels': 'Labels', 'lead.inbound': 'Inbound', 'lead.handoff': 'Send to sales team',
+      'routing.title': 'Chat handling', 'routing.ai': 'AI', 'routing.human': 'Human',
+      'routing.assignee': 'Assigned to', 'routing.notePlaceholder': 'Handover note (optional)',
+      'routing.save': 'Save handling', 'routing.history': 'Handover history',
+      'routing.noHistory': 'No handovers yet.', 'routing.system': 'System',
+      'routing.savedAi': 'Chat handed over to AI.', 'routing.savedHuman': 'Chat handed over to an agent.',
+      'routing.online': 'online', 'notes.title': 'Internal notes',
+      'notes.placeholder': 'Write a note for the team…', 'notes.add': 'Add note',
+      'notes.empty': 'No internal notes yet.',
+      'lead.qualified': 'Qualified', 'lead.assigned': 'Assigned',
+      'utility.funnelTitle': 'Qualified leads', 'utility.funnelEyebrow': 'LEAD STAGES',
+      'utility.qualifiedAssigned': 'Qualified / assigned',
+      'utility.backInbox': 'Move back to inbox', 'utility.archive': 'Archive conversation',
+      'utility.backInboxDetail': 'Move this conversation back to the inbox',
+      'utility.archiveDetail': 'Move this conversation to the archive',
+      'wa.eyebrow': 'WHATSAPP CONNECTION', 'wa.connect': 'Connect WhatsApp',
+      'wa.scan': 'Open WhatsApp → Linked Devices, then scan this code.', 'wa.refresh': 'Refresh code',
+      'wa.qrAlt': 'Code to connect WhatsApp', 'wa.syncing': 'Syncing messages…',
+      'wa.keepOpen': 'Please keep WhatsApp open.', 'wa.changeNumber': 'Change WhatsApp number',
+      'wa.connected': 'Connected', 'wa.connectAction': 'Connect', 'wa.preparing': 'Preparing code…',
+      'wa.updated': 'The code refreshes automatically.', 'wa.waiting': 'Waiting for a code from WhatsApp…',
+      'wa.loadingChats': 'Loading recent conversations…', 'wa.syncTitle': 'Syncing WhatsApp',
+      'wa.restoreTitle': 'Restoring WhatsApp connection', 'wa.scanned': 'Code scanned. We are loading your conversations.',
+      'wa.restoring': 'WhatsApp is connected. We are restoring your conversations.',
+      'wa.syncProgress': 'Syncing messages {percent}%', 'wa.usuallyQuick': 'This usually takes a few seconds.',
+      'wa.connectionSlow': 'Connection is taking longer',
+      'wa.connectionSlowCopy': 'WhatsApp has not connected yet. Refresh the code and scan it again.',
+      'wa.synced': 'WhatsApp is connected and your conversations are ready in Agnee.',
+      'wa.loggingOut': 'Signing out of WhatsApp. A new code will appear shortly.',
+      'new.eyebrow': 'NEW CONVERSATION', 'new.title': 'Start a WhatsApp conversation',
+      'new.number': 'WhatsApp number', 'new.firstMessage': 'First message', 'new.placeholder': 'Write a message…',
+      'media.photo': 'Photo', 'media.video': 'Video', 'media.audio': 'Audio', 'media.document': 'Document',
+      'media.sticker': 'Sticker', 'media.voice': 'Voice message', 'media.interactive': 'Interactive message',
+      'media.unsupported': 'Unsupported message', 'media.view': 'View media', 'media.controls': 'Media controls',
+      'media.zoomOut': 'Zoom out', 'media.fit': 'Fit', 'media.reset': 'Reset zoom', 'media.zoomIn': 'Zoom in',
+      'media.download': 'Download', 'media.documentPreview': 'Document preview',
+      'media.help': 'Scroll or pinch to zoom · drag to move · double-click to reset',
+      'admin.title': 'Agnee — Auto Reply Test', 'admin.backAria': 'Back to Agnee inbox',
+      'admin.overview': 'Overview', 'admin.playground': 'Reply test', 'admin.checkingAi': 'Checking AI service',
+      'admin.eyebrow': 'ADMIN WORKSPACE', 'admin.heading': 'Auto Reply Test',
+      'admin.description': 'Test answer sources, reply style, tokens, and cost without sending a WhatsApp message.',
+      'admin.back': '← Back to inbox', 'admin.model': 'MODEL', 'admin.aiService': 'AI SERVICE',
+      'admin.storage': 'STORAGE', 'admin.mode': 'MODE', 'admin.testOnly': 'Test only',
+      'admin.settingsEyebrow': 'AI SETTINGS', 'admin.settingsTitle': 'AI and model order',
+      'admin.settingsDesc': 'Changes apply to the next reply immediately.', 'admin.enableAi': 'Enable AI replies',
+      'admin.chainHelp': 'The first model is tried first. If it fails, Agnee tries the next one.',
+      'admin.save': 'Save changes', 'admin.saved': 'Saved ✓', 'admin.input': 'INPUT',
+      'admin.customerMessage': 'Customer message', 'admin.notSent': 'Not sent', 'admin.answerSource': 'Answer source',
+      'admin.message': 'Message', 'admin.example': 'Example: Can I see a demo first?', 'admin.examples': 'Message examples',
+      'admin.support': 'Support', 'admin.handoff': 'Handoff', 'admin.generate': 'Create reply',
+      'admin.generating': 'Preparing…', 'admin.shortcut': '⌘/Ctrl + Enter to create a reply', 'admin.output': 'OUTPUT',
+      'admin.replyPreview': 'Reply preview', 'admin.empty': 'No reply yet',
+      'admin.emptyCopy': 'Enter a customer message, then create a reply. It will not be sent to WhatsApp.',
+      'admin.preparing': 'Preparing reply…', 'admin.matched': 'MATCHED SOURCES',
+      'admin.inputTokens': 'INPUT', 'admin.outputTokens': 'OUTPUT', 'admin.totalTokens': 'TOTAL',
+      'admin.cost': 'COST', 'admin.tokens': 'tokens', 'admin.historyEyebrow': 'TEST HISTORY',
+      'admin.history': 'Recent tests', 'admin.noHistory': 'No saved tests yet.', 'admin.time': 'Time',
+      'admin.client': 'Source', 'admin.token': 'Token', 'admin.costUsd': 'Cost USD', 'admin.style': 'Style',
+      'admin.active': 'Active', 'admin.inactive': 'Not active', 'admin.aiActive': 'AI service active',
+      'admin.aiInactive': 'AI service not active', 'admin.storageActive': 'Storage active',
+      'admin.storageTemporary': 'Temporary storage', 'admin.noMatch': 'No matching answer source',
+      'admin.seconds': '{seconds} seconds', 'admin.stylePassed': 'Reply style passed · concise and natural{saved}',
+      'admin.styleSaved': ' · saved', 'admin.styleWarning': 'Needs review · {warnings}',
+      'admin.historyTemporary': 'Permanent storage is unavailable; results are kept temporarily.',
+      'admin.pass': 'PASS', 'admin.warn': 'REVIEW', 'admin.primary': 'Primary',
+      'admin.nextModel': 'Backup {number}', 'admin.notUsed': '— Not used —', 'admin.custom': 'custom',
+      'admin.aiOn': 'AI on', 'admin.aiOff': 'AI off', 'admin.loadFailed': 'Failed to load',
+      'admin.saveFailed': 'Failed to save: {message}',
+      'team.nav': 'CS team', 'team.eyebrow': 'CUSTOMER SERVICE TEAM', 'team.title': 'Supervisors and agents',
+      'team.copy': 'Supervisors can assign chats to agents. Each agent signs in with their own account.',
+      'team.name': 'Name', 'team.role': 'Role', 'team.agent': 'Agent', 'team.supervisor': 'Supervisor',
+      'team.add': 'Add member', 'team.added': 'Member added successfully.',
+      'error.request': 'Request failed ({status})'
+    }
+  };
+
+  let locale = localStorage.getItem('agnee_locale') || (navigator.language?.toLowerCase().startsWith('en') ? 'en' : 'id');
+  if (!messages[locale]) locale = 'id';
+
+  function t(key, vars = {}) {
+    let value = messages[locale][key] ?? messages.id[key] ?? key;
+    for (const [name, replacement] of Object.entries(vars)) value = value.replaceAll(`{${name}}`, String(replacement));
+    return value;
+  }
+
+  function apply(root = document) {
+    document.documentElement.lang = locale;
+    root.querySelectorAll('[data-i18n]').forEach((node) => { node.textContent = t(node.dataset.i18n); });
+    root.querySelectorAll('[data-i18n-html]').forEach((node) => { node.innerHTML = t(node.dataset.i18nHtml); });
+    root.querySelectorAll('[data-i18n-placeholder]').forEach((node) => { node.placeholder = t(node.dataset.i18nPlaceholder); });
+    root.querySelectorAll('[data-i18n-aria-label]').forEach((node) => { node.setAttribute('aria-label', t(node.dataset.i18nAriaLabel)); });
+    root.querySelectorAll('[data-i18n-title]').forEach((node) => { node.title = t(node.dataset.i18nTitle); });
+    document.title = t(document.body.dataset.i18nTitle || (location.pathname.includes('admin') ? 'admin.title' : 'login.title'));
+    root.querySelectorAll('[data-locale]').forEach((button) => button.classList.toggle('active', button.dataset.locale === locale));
+  }
+
+  function setLocale(next) {
+    if (!messages[next]) return;
+    locale = next;
+    localStorage.setItem('agnee_locale', locale);
+    apply();
+    window.dispatchEvent(new CustomEvent('agnee:localechange', { detail: { locale } }));
+  }
+
+  function mountSwitcher() {
+    if (document.querySelector('.language-switch')) return;
+    const switcher = document.createElement('div');
+    switcher.className = 'language-switch';
+    switcher.setAttribute('aria-label', 'Language');
+    switcher.innerHTML = '<button type="button" data-locale="id">ID</button><button type="button" data-locale="en">EN</button>';
+    switcher.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-locale]');
+      if (button) setLocale(button.dataset.locale);
+    });
+    document.body.append(switcher);
+  }
+
+  window.AgneeI18n = { t, apply, setLocale, getLocale: () => locale };
+  document.addEventListener('DOMContentLoaded', () => { mountSwitcher(); apply(); });
+})();

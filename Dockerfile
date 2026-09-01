@@ -17,6 +17,7 @@ COPY --chown=node:node src ./src
 COPY --chown=node:node public ./public
 COPY --chown=node:node assets ./assets
 COPY --chown=node:node knowledge ./knowledge
+COPY --chown=node:node db ./db
 
 RUN install -d -o node -g node /data/whatsapp /data/mcp
 

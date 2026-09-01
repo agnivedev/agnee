@@ -1,5 +1,7 @@
 'use strict';
 
+const tr = (key, vars) => window.AgneeI18n.t(key, vars);
+
 const ui = {
   loginView: document.querySelector('#loginView'),
   appView: document.querySelector('#appView'),
@@ -60,7 +62,11 @@ const ui = {
   attachmentButton: document.querySelector('#attachmentButton'),
   attachmentInput: document.querySelector('#attachmentInput'),
   attachmentBar: document.querySelector('#attachmentBar'),
+  attachmentPreviewButton: document.querySelector('#attachmentPreviewButton'),
+  attachmentLabel: document.querySelector('#attachmentLabel'),
   attachmentName: document.querySelector('#attachmentName'),
+  attachmentThumbnail: document.querySelector('#attachmentThumbnail'),
+  attachmentTypeIcon: document.querySelector('#attachmentTypeIcon'),
   pinnedBar: document.querySelector('#pinnedBar'),
   pinnedLabel: document.querySelector('#pinnedLabel'),
   pinnedSummary: document.querySelector('#pinnedSummary'),
@@ -69,9 +75,23 @@ const ui = {
   mediaStage: document.querySelector('#mediaStage'),
   mediaViewerImage: document.querySelector('#mediaViewerImage'),
   mediaViewerVideo: document.querySelector('#mediaViewerVideo'),
+  mediaViewerAudio: document.querySelector('#mediaViewerAudio'),
+  mediaViewerDocument: document.querySelector('#mediaViewerDocument'),
   mediaViewerTitle: document.querySelector('#mediaViewerTitle'),
+  mediaHelp: document.querySelector('#mediaHelp'),
   mediaZoomLabel: document.querySelector('#mediaZoomLabel'),
   mediaDownload: document.querySelector('#mediaDownload'),
+  routingBadge: document.querySelector('#routingBadge'),
+  modeSwitch: document.querySelector('#modeSwitch'),
+  assigneeField: document.querySelector('#assigneeField'),
+  assigneeSelect: document.querySelector('#assigneeSelect'),
+  handoverNote: document.querySelector('#handoverNote'),
+  saveRoutingButton: document.querySelector('#saveRoutingButton'),
+  routingStatus: document.querySelector('#routingStatus'),
+  notesList: document.querySelector('#notesList'),
+  noteForm: document.querySelector('#noteForm'),
+  noteInput: document.querySelector('#noteInput'),
+  handoffHistory: document.querySelector('#handoffHistory'),
 };
 
 const state = {
@@ -100,6 +120,9 @@ const state = {
   searchTimer: null,
   liveRefreshTimer: null,
   locallyReadChats: new Set(),
+  currentUser: null,
+  teamMembers: [],
+  routing: null,
 };
 
 async function api(path, options = {}) {
@@ -111,7 +134,7 @@ async function api(path, options = {}) {
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    const error = new Error(data.error || `Request failed (${response.status})`);
+    const error = new Error(data.error || tr('error.request', { status: response.status }));
     error.status = response.status;
     throw error;
   }
@@ -157,7 +180,9 @@ function renderMarkdown(text) {
   return html;
 }
 
-function showApp() {
+function showApp(sessionData) {
+  if (sessionData?.user) state.currentUser = sessionData.user;
+  ui.adminButton.hidden = !isCurrentUserSupervisor();
   transition(() => {
     ui.loginView.hidden = true;
     ui.appView.hidden = false;
@@ -246,7 +271,7 @@ function callDescription(message) {
 function messagePreview(message) {
   const body = String(message?.body || '').trim();
   if (body && !/^\/9j\/[A-Za-z0-9+/=]{80,}$/.test(body)) return body;
-  return ({ image: 'Foto', video: 'Video', sticker: 'Stiker', audio: 'Audio', ptt: 'Pesan suara', document: 'Dokumen', interactive: 'Pesan interaktif' }[message?.type] || 'Pesan WhatsApp');
+  return ({ image: tr('media.photo'), video: tr('media.video'), sticker: tr('media.sticker'), audio: tr('media.audio'), ptt: tr('media.voice'), document: tr('media.document'), interactive: tr('media.interactive') }[message?.type] || 'WhatsApp');
 }
 
 function dayKey(timestamp) {
@@ -301,7 +326,9 @@ function renderChats() {
     button._chat = chat;
     button.className = `chat-item${state.activeChat?.id === chat.id ? ' active' : ''}`;
     button.querySelector('strong').textContent = chat.name;
-    button.querySelector('.chat-copy span').textContent = chat.preview || 'Belum ada pesan';
+    button.querySelector('.chat-copy span').textContent = chat.isGroup && chat.lastSenderName
+      ? `${chat.lastSenderName} ▸ ${chat.preview || 'Belum ada pesan'}`
+      : chat.preview || 'Belum ada pesan';
     button.querySelector('time').textContent = formatTime(chat.timestamp);
     button.querySelector('.chat-flags').innerHTML = `${chat.pinned ? '<span class="chat-pin" title="Chat disematkan" aria-label="Chat disematkan"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h10l-2 3v5l3 4v2H6v-2l3-4V6L7 3Zm5 14v4"/></svg></span>' : ''}${chat.unreadCount ? `<b class="unread">${chat.unreadCount}</b>` : ''}`;
     if (prevNode) {
@@ -349,6 +376,9 @@ function clearAttachment() {
   state.attachment = null;
   ui.attachmentInput.value = '';
   ui.attachmentBar.hidden = true;
+  ui.attachmentThumbnail.removeAttribute('src');
+  ui.attachmentThumbnail.hidden = true;
+  ui.attachmentTypeIcon.hidden = false;
   state.pendingRequestId = null;
   state.pendingText = null;
 }
@@ -381,13 +411,16 @@ function openMediaViewer({ src, alt, filename }) {
   state.media.src = src;
   state.media.filename = filename;
   state.media.kind = 'image';
-  ui.mediaViewer.classList.remove('video-mode');
+  ui.mediaViewer.classList.remove('video-mode', 'audio-mode', 'document-mode');
   ui.mediaViewerVideo.hidden = true;
+  ui.mediaViewerAudio.hidden = true;
+  ui.mediaViewerDocument.hidden = true;
   ui.mediaViewerImage.hidden = false;
   for (const control of ui.mediaViewer.querySelectorAll('.image-control')) control.hidden = false;
   ui.mediaViewerImage.src = src;
   ui.mediaViewerImage.alt = alt || 'Foto WhatsApp';
   ui.mediaViewerTitle.textContent = alt || 'Foto WhatsApp';
+  ui.mediaHelp.textContent = 'Scroll atau pinch untuk zoom · drag untuk geser · double-click untuk reset';
   resetMediaViewer();
   ui.mediaViewer.showModal();
 }
@@ -396,8 +429,11 @@ function openVideoViewer({ src, title, filename }) {
   state.media.src = src;
   state.media.filename = filename;
   state.media.kind = 'video';
+  ui.mediaViewer.classList.remove('audio-mode', 'document-mode');
   ui.mediaViewer.classList.add('video-mode');
   ui.mediaViewerImage.hidden = true;
+  ui.mediaViewerAudio.hidden = true;
+  ui.mediaViewerDocument.hidden = true;
   ui.mediaViewerVideo.hidden = false;
   ui.mediaViewerVideo.src = src;
   ui.mediaViewerTitle.textContent = title || 'Video WhatsApp';
@@ -405,6 +441,57 @@ function openVideoViewer({ src, title, filename }) {
   for (const control of ui.mediaViewer.querySelectorAll('.image-control')) control.hidden = true;
   ui.mediaViewer.showModal();
   ui.mediaViewerVideo.play().catch(() => { /* browser may require a second explicit tap */ });
+}
+
+function openAudioViewer({ src, title, filename }) {
+  state.media.src = src;
+  state.media.filename = filename;
+  state.media.kind = 'audio';
+  ui.mediaViewer.classList.remove('video-mode', 'document-mode');
+  ui.mediaViewer.classList.add('audio-mode');
+  ui.mediaViewerImage.hidden = true;
+  ui.mediaViewerVideo.hidden = true;
+  ui.mediaViewerDocument.hidden = true;
+  ui.mediaViewerAudio.hidden = false;
+  ui.mediaViewerAudio.src = src;
+  ui.mediaViewerTitle.textContent = title || 'Preview audio';
+  ui.mediaZoomLabel.textContent = 'Audio';
+  ui.mediaHelp.textContent = 'Dengarkan audio sebelum dikirim';
+  for (const control of ui.mediaViewer.querySelectorAll('.image-control')) control.hidden = true;
+  ui.mediaViewer.showModal();
+}
+
+function openDocumentViewer({ src, title, filename }) {
+  state.media.src = src;
+  state.media.filename = filename;
+  state.media.kind = 'document';
+  ui.mediaViewer.classList.remove('video-mode', 'audio-mode');
+  ui.mediaViewer.classList.add('document-mode');
+  ui.mediaViewerImage.hidden = true;
+  ui.mediaViewerVideo.hidden = true;
+  ui.mediaViewerAudio.hidden = true;
+  ui.mediaViewerDocument.hidden = false;
+  ui.mediaViewerDocument.src = src;
+  ui.mediaViewerTitle.textContent = title || 'Preview dokumen';
+  ui.mediaZoomLabel.textContent = 'PDF';
+  ui.mediaHelp.textContent = 'Periksa isi dokumen sebelum dikirim';
+  for (const control of ui.mediaViewer.querySelectorAll('.image-control')) control.hidden = true;
+  ui.mediaViewer.showModal();
+}
+
+function previewAttachment() {
+  if (!state.attachment) return;
+  const src = `data:${state.attachment.mimetype};base64,${state.attachment.data}`;
+  const filename = state.attachment.filename || 'Lampiran';
+  if (state.attachment.mimetype.startsWith('image/')) {
+    openMediaViewer({ src, alt: filename, filename });
+  } else if (state.attachment.mimetype.startsWith('video/')) {
+    openVideoViewer({ src, title: filename, filename });
+  } else if (state.attachment.mimetype.startsWith('audio/')) {
+    openAudioViewer({ src, title: filename, filename });
+  } else if (state.attachment.mimetype === 'application/pdf') {
+    openDocumentViewer({ src, title: filename, filename });
+  }
 }
 
 async function downloadCurrentMedia() {
@@ -546,7 +633,10 @@ function createMessageRow(message) {
       media.setAttribute('role', 'button');
       media.setAttribute('aria-label', `Buka ${media.alt}`);
       const openImage = () => openMediaViewer({
-        src: media.src,
+        // The inline base64 carried by WhatsApp is only a tiny preview. Always
+        // request the decrypted original for the full-screen viewer when the
+        // message id is available.
+        src: message.id ? `/v1/messages/${encodeURIComponent(message.id)}/media` : media.src,
         alt: media.alt,
         filename: `${message.type}-${String(message.id).replace(/[^a-z0-9_-]/gi, '_')}.${message.inlineImageExtension || (message.type === 'sticker' ? 'webp' : 'jpg')}`,
       });
@@ -702,14 +792,14 @@ async function selectChat(chat, resetLimit = true) {
   api(`/v1/chats/${encodeURIComponent(chat.id)}/mark-read`, { method: 'POST' }).catch(() => {});
   renderChats();
   ui.activeName.textContent = chat.name;
-  ui.activeMeta.textContent = chat.isGroup ? 'WhatsApp grup' : 'WhatsApp · lead aktif';
+  ui.activeMeta.textContent = chat.isGroup ? 'Memuat anggota grup…' : 'WhatsApp · lead aktif';
   fillAvatar(ui.activeAvatar, chat);
   ui.leadSummary.textContent = chat.preview || 'Belum ada ringkasan.';
   if (state.whatsapp?.demoMode) {
     ui.leadScore.textContent = '72';
     ui.leadTitle.textContent = 'Warm lead';
     ui.leadDetail.textContent = 'Menanyakan paket multi-cabang.';
-    ui.leadStage.textContent = 'Qualified';
+    ui.leadStage.textContent = tr('lead.qualified');
   } else {
     ui.leadScore.textContent = '—';
     ui.leadTitle.textContent = 'Belum dikualifikasi';
@@ -723,7 +813,19 @@ async function selectChat(chat, resetLimit = true) {
     ui.inboxPanel.classList.add('mobile-hidden');
     ui.conversationPanel.classList.remove('mobile-hidden');
   }
-  await Promise.all([loadMessages('bottom'), loadLead(chat.id), loadPinned(chat.id)]);
+  const groupInfoPromise = chat.isGroup
+    ? api(`/v1/chats/${encodeURIComponent(chat.id)}/info`).then((info) => {
+      if (state.activeChat?.id !== chat.id) return;
+      const visibleNames = info.participantNames || [];
+      const hiddenCount = Math.max(0, Number(info.participantCount || 0) - visibleNames.length);
+      ui.activeMeta.textContent = visibleNames.length
+        ? `${visibleNames.join(', ')}${hiddenCount ? ` +${hiddenCount}` : ''}`
+        : `${info.participantCount || ''} anggota grup`.trim();
+    }).catch(() => {
+      if (state.activeChat?.id === chat.id) ui.activeMeta.textContent = 'WhatsApp grup';
+    })
+    : Promise.resolve();
+  await Promise.all([loadMessages('bottom'), loadLead(chat.id), loadPinned(chat.id), loadRoutingPanel(chat.id), groupInfoPromise]);
 }
 
 async function loadPinned(chatId) {
@@ -788,10 +890,90 @@ async function loadLead(chatId) {
     ui.leadScore.textContent = lead.score ?? '—';
     ui.leadTitle.textContent = lead.title;
     ui.leadDetail.textContent = lead.detail;
-    ui.leadStage.textContent = lead.stage === 'assigned' ? 'Diteruskan' : lead.stage === 'qualified' ? 'Qualified' : 'Inbox';
+    ui.leadStage.textContent = lead.stage === 'assigned' ? tr('lead.assigned') : lead.stage === 'qualified' ? tr('lead.qualified') : tr('inbox.tabInbox');
     ui.handoffButton.disabled = lead.stage === 'assigned';
     ui.handoffButton.firstChild.textContent = lead.stage === 'assigned' ? `Diteruskan ke: ${lead.assignee} ` : 'Teruskan ke sales ';
   } catch { /* keep the neutral context state */ }
+}
+
+function isCurrentUserSupervisor() {
+  return ['owner', 'supervisor', 'admin'].includes(state.currentUser?.role) || state.currentUser?.apiClient;
+}
+
+function renderRoutingPanel(routing, handoffs = []) {
+  state.routing = routing;
+  const isHuman = routing.mode === 'human';
+  ui.routingBadge.textContent = isHuman ? tr('routing.human') : tr('routing.ai');
+  ui.routingBadge.classList.toggle('human', isHuman);
+  for (const button of ui.modeSwitch.querySelectorAll('[data-mode]')) button.classList.toggle('active', button.dataset.mode === routing.mode);
+  ui.assigneeField.hidden = !isHuman;
+  ui.assigneeSelect.replaceChildren();
+  for (const member of state.teamMembers.filter((item) => ['owner', 'supervisor', 'admin', 'agent'].includes(item.role) && item.status === 'active')) {
+    if (!isCurrentUserSupervisor() && member.id !== state.currentUser?.userId) continue;
+    const option = document.createElement('option');
+    option.value = member.id;
+    option.textContent = `${member.displayName || member.email}${member.presence === 'online' ? ` · ${tr('routing.online')}` : ''}`;
+    option.selected = member.id === routing.assigneeUserId;
+    ui.assigneeSelect.append(option);
+  }
+  if (isHuman && !routing.assigneeUserId && state.currentUser?.userId) ui.assigneeSelect.value = state.currentUser.userId;
+  ui.handoffHistory.replaceChildren();
+  if (!handoffs.length) {
+    const empty = document.createElement('p');
+    empty.className = 'routing-status';
+    empty.textContent = tr('routing.noHistory');
+    ui.handoffHistory.append(empty);
+  } else {
+    for (const item of handoffs.slice(0, 10)) {
+      const row = document.createElement('div');
+      row.className = 'handoff-item';
+      const target = item.toMode === 'ai' ? tr('routing.ai') : item.toName || tr('routing.human');
+      const actor = item.createdByName || item.fromName || tr('routing.system');
+      row.innerHTML = `<strong></strong><span></span><time></time>`;
+      row.querySelector('strong').textContent = `${actor} → ${target}`;
+      row.querySelector('span').textContent = item.note || '';
+      row.querySelector('time').textContent = new Date(item.createdAt).toLocaleString(window.AgneeI18n.getLocale() === 'en' ? 'en-US' : 'id-ID');
+      ui.handoffHistory.append(row);
+    }
+  }
+}
+
+function renderNotes(notes) {
+  ui.notesList.replaceChildren();
+  if (!notes.length) {
+    const empty = document.createElement('p');
+    empty.className = 'routing-status';
+    empty.textContent = tr('notes.empty');
+    ui.notesList.append(empty);
+    return;
+  }
+  for (const note of notes) {
+    const row = document.createElement('div');
+    row.className = 'note-item';
+    row.innerHTML = '<strong></strong><span></span><time></time>';
+    row.querySelector('strong').textContent = note.authorName || tr('routing.system');
+    row.querySelector('span').textContent = note.body;
+    row.querySelector('time').textContent = new Date(note.createdAt).toLocaleString(window.AgneeI18n.getLocale() === 'en' ? 'en-US' : 'id-ID');
+    ui.notesList.append(row);
+  }
+}
+
+async function loadRoutingPanel(chatId) {
+  try {
+    if (!state.teamMembers.length) {
+      const team = await api('/v1/team/members');
+      state.teamMembers = team.members || [];
+    }
+    const [routingData, noteData] = await Promise.all([
+      api(`/v1/chats/${encodeURIComponent(chatId)}/routing`),
+      api(`/v1/chats/${encodeURIComponent(chatId)}/notes`),
+    ]);
+    if (state.activeChat?.id !== chatId) return;
+    renderRoutingPanel(routingData.routing, routingData.handoffs || []);
+    renderNotes(noteData.notes || []);
+  } catch (error) {
+    ui.routingStatus.textContent = error.message;
+  }
 }
 
 async function loadChats(reset = false) {
@@ -874,6 +1056,13 @@ function connectEvents() {
   events.addEventListener('ack', schedule);
   events.addEventListener('lead', schedule);
   events.addEventListener('chat', schedule);
+  events.addEventListener('routing', () => {
+    if (state.activeChat) loadRoutingPanel(state.activeChat.id);
+  });
+  events.addEventListener('note', () => {
+    if (state.activeChat) loadRoutingPanel(state.activeChat.id);
+  });
+  events.addEventListener('team', () => { state.teamMembers = []; });
   events.addEventListener('whatsapp_phase', async (event) => {
     let payload = {};
     try { payload = JSON.parse(event.data || '{}'); } catch { /* ignore */ }
@@ -882,7 +1071,7 @@ function connectEvents() {
     if (payload.phase === 'waiting_for_qr' && payload.qrDataUrl) {
       if (ui.connectionDialog.open && ui.qrShell.hidden) {
         showDialogQr();
-        ui.qrNote.textContent = 'QR diperbarui otomatis oleh adapter.';
+        ui.qrNote.textContent = tr('wa.updated');
       }
       ui.qrImage.src = payload.qrDataUrl;
     }
@@ -894,10 +1083,13 @@ function connectEvents() {
     if (payload.phase === 'syncing' && ui.connectionDialog.open) {
       showDialogSyncing(payload.percent);
     }
+    if (payload.phase === 'error' && ui.connectionDialog.open) {
+      showDialogError(payload.error);
+    }
     if (payload.phase === 'ready') {
       if (ui.connectionDialog.open) {
-        ui.dialogTitle.textContent = 'WhatsApp terhubung';
-        ui.dialogCopy.textContent = 'Mengambil percakapan terbaru…';
+        ui.dialogTitle.textContent = tr('wa.connected');
+        ui.dialogCopy.textContent = tr('wa.loadingChats');
         ui.qrNote.textContent = payload.account || '';
       }
       await loadWorkspace();
@@ -953,7 +1145,7 @@ function openContacts() {
 }
 
 async function openFunnel() {
-  openUtility('Qualified leads', 'FUNNEL');
+  openUtility(tr('utility.funnelTitle'), tr('utility.funnelEyebrow'));
   ui.utilityContent.textContent = 'Memuat lead…';
   try {
     const data = await api('/v1/chats?limit=50&offset=0&filter=qualified');
@@ -966,7 +1158,7 @@ async function openFunnel() {
       return;
     }
     for (const chat of data.chats) {
-      ui.utilityContent.append(utilityAction(chat.name, 'Qualified / assigned', async () => {
+      ui.utilityContent.append(utilityAction(chat.name, tr('utility.qualifiedAssigned'), async () => {
         ui.utilityDialog.close();
         await selectChat(chat);
       }));
@@ -981,8 +1173,8 @@ function openConversationMenu() {
   openUtility('Aksi percakapan', 'CHAT INI');
   ui.utilityContent.append(
     utilityAction(
-      state.activeChat.archived ? 'Kembalikan ke Inbox' : 'Archive conversation',
-      state.activeChat.archived ? 'Pindahkan percakapan ini kembali ke Inbox' : 'Pindahkan percakapan ini ke Archived',
+      state.activeChat.archived ? tr('utility.backInbox') : tr('utility.archive'),
+      state.activeChat.archived ? tr('utility.backInboxDetail') : tr('utility.archiveDetail'),
       async () => {
         const chat = state.activeChat;
         const archived = !chat.archived;
@@ -1054,28 +1246,46 @@ function fileToAttachment(file) {
 function renderConnection(whatsapp) {
   const ready = whatsapp.phase === 'ready' || whatsapp.phase === 'demo';
   ui.connectionButton.className = `connection-pill ${ready ? whatsapp.phase : ''}`;
-  ui.connectionLabel.textContent = whatsapp.phase === 'demo' ? 'Demo' : ready ? 'Terhubung' : 'Hubungkan';
+  ui.connectionLabel.textContent = ready ? tr('wa.connected') : tr('wa.connectAction');
 }
 
 function showDialogQr() {
   ui.qrShell.hidden = false;
   ui.syncShell.hidden = true;
   ui.changeNumberBtn.hidden = true;
-  ui.dialogTitle.textContent = 'Hubungkan WhatsApp';
-  ui.dialogCopy.textContent = 'Buka WhatsApp → Linked Devices, lalu scan kode ini.';
+  ui.dialogTitle.textContent = tr('wa.connect');
+  ui.dialogCopy.textContent = tr('wa.scan');
 }
 
-function showDialogSyncing(percent) {
+function showDialogSyncing(percent, restoring = false) {
   ui.qrImage.removeAttribute('src');
   ui.qrShell.hidden = true;
   ui.syncShell.hidden = false;
+  ui.syncShell.classList.remove('is-error');
+  ui.syncShell.querySelector('.sync-spinner').textContent = '';
+  ui.syncShell.querySelector('strong').textContent = tr('wa.syncing');
   ui.changeNumberBtn.hidden = true;
-  ui.dialogTitle.textContent = 'Menyinkronkan WhatsApp';
-  ui.dialogCopy.textContent = 'QR berhasil dipindai. Kami sedang mengambil percakapan Anda.';
+  ui.dialogTitle.textContent = restoring ? tr('wa.restoreTitle') : tr('wa.syncTitle');
+  ui.dialogCopy.textContent = restoring
+    ? tr('wa.restoring')
+    : tr('wa.scanned');
   ui.syncProgress.textContent = Number.isFinite(percent)
-    ? `Menyinkronkan pesan ${Math.round(percent)}%`
-    : 'Mohon biarkan WhatsApp tetap terbuka.';
+    ? tr('wa.syncProgress', { percent: Math.round(percent) })
+    : restoring ? tr('wa.usuallyQuick') : tr('wa.keepOpen');
   ui.qrNote.textContent = '';
+}
+
+function showDialogError(message) {
+  ui.qrImage.removeAttribute('src');
+  ui.qrShell.hidden = true;
+  ui.syncShell.hidden = false;
+  ui.syncShell.classList.add('is-error');
+  ui.syncShell.querySelector('.sync-spinner').textContent = '!';
+  ui.dialogTitle.textContent = tr('wa.connectionSlow');
+  ui.dialogCopy.textContent = tr('wa.connectionSlowCopy');
+  ui.syncShell.querySelector('strong').textContent = tr('wa.connectionSlow');
+  ui.syncProgress.textContent = tr('wa.connectionSlowCopy');
+  ui.qrNote.textContent = tr('wa.refresh');
 }
 
 async function openConnection() {
@@ -1088,15 +1298,29 @@ async function openConnection() {
   const phase = state.whatsapp?.phase;
 
   if (phase === 'ready' || phase === 'demo') {
-    ui.dialogTitle.textContent = 'WhatsApp terhubung';
-    ui.dialogCopy.textContent = 'Sesi aktif dan percakapan tersinkron dengan Customer Desk.';
-    ui.qrNote.textContent = state.whatsapp.account || 'Terhubung';
+    ui.dialogTitle.textContent = tr('wa.connected');
+    ui.dialogCopy.textContent = tr('wa.synced');
+    ui.qrNote.textContent = state.whatsapp.account || tr('wa.connected');
     ui.changeNumberBtn.hidden = false;
     return;
   }
 
-  if (phase === 'starting' || phase === 'authenticated' || phase === 'syncing') {
+  if (phase === 'starting') {
+    showDialogSyncing(undefined, true);
+    clearInterval(state.connectionTimer);
+    state.connectionTimer = setInterval(checkConnection, 5000);
+    return;
+  }
+
+  if (phase === 'authenticated' || phase === 'syncing') {
     showDialogSyncing(state.whatsapp?.syncPercent);
+    clearInterval(state.connectionTimer);
+    state.connectionTimer = setInterval(checkConnection, 5000);
+    return;
+  }
+
+  if (phase === 'error') {
+    showDialogError(state.whatsapp?.lastError);
     clearInterval(state.connectionTimer);
     state.connectionTimer = setInterval(checkConnection, 5000);
     return;
@@ -1105,15 +1329,15 @@ async function openConnection() {
   // waiting_for_qr / disconnected / auth_failure / error — genuinely needs scan
   showDialogQr();
   ui.qrShell.hidden = true;
-  ui.qrNote.textContent = 'Menyiapkan QR…';
+  ui.qrNote.textContent = tr('wa.preparing');
   try {
     const data = await api('/v1/whatsapp/qr');
     ui.qrImage.src = data.qrDataUrl;
     ui.qrShell.hidden = false;
-    ui.qrNote.textContent = data.demoMode ? 'Demo QR untuk menguji alur UI. Nonaktifkan WA_DEMO_MODE untuk pairing nyata.' : 'QR diperbarui otomatis oleh adapter.';
+    ui.qrNote.textContent = tr('wa.updated');
   } catch {
     ui.qrShell.hidden = true;
-    ui.qrNote.textContent = 'Menunggu QR dari WhatsApp…';
+    ui.qrNote.textContent = tr('wa.waiting');
   }
   clearInterval(state.connectionTimer);
   state.connectionTimer = setInterval(checkConnection, 15000);
@@ -1127,8 +1351,8 @@ async function checkConnection() {
     if (whatsapp.phase === 'ready') {
       clearInterval(state.connectionTimer);
       state.connectionTimer = null;
-      ui.dialogTitle.textContent = 'WhatsApp terhubung';
-      ui.dialogCopy.textContent = 'Mengambil percakapan terbaru…';
+      ui.dialogTitle.textContent = tr('wa.connected');
+      ui.dialogCopy.textContent = tr('wa.loadingChats');
       ui.qrNote.textContent = whatsapp.account || '';
       await loadWorkspace();
       ui.connectionDialog.classList.add('is-closing');
@@ -1142,10 +1366,18 @@ async function checkConnection() {
       showDialogSyncing(whatsapp.syncPercent);
       return;
     }
+    if (whatsapp.phase === 'starting') {
+      showDialogSyncing(undefined, true);
+      return;
+    }
+    if (whatsapp.phase === 'error') {
+      showDialogError(whatsapp.lastError);
+      return;
+    }
     if (whatsapp.hasQr && !whatsapp.demoMode && ui.connectionDialog.open) {
       if (ui.qrShell.hidden) {
         showDialogQr();
-        ui.qrNote.textContent = 'QR diperbarui otomatis oleh adapter.';
+        ui.qrNote.textContent = tr('wa.updated');
       }
       const data = await api('/v1/whatsapp/qr');
       if (ui.qrImage.src !== data.qrDataUrl) ui.qrImage.src = data.qrDataUrl;
@@ -1160,8 +1392,8 @@ ui.loginForm.addEventListener('submit', async (event) => {
   ui.loginError.textContent = '';
   const form = new FormData(ui.loginForm);
   try {
-    await api('/v1/auth/login', { method: 'POST', body: JSON.stringify({ email: form.get('email'), password: form.get('password') }) });
-    showApp();
+    const sessionData = await api('/v1/auth/login', { method: 'POST', body: JSON.stringify({ email: form.get('email'), password: form.get('password') }) });
+    showApp(sessionData);
   } catch (error) {
     ui.loginError.textContent = error.message;
   }
@@ -1245,6 +1477,7 @@ ui.messageInput.addEventListener('input', () => {
 });
 document.querySelector('#cancelReply').addEventListener('click', cancelReply);
 document.querySelector('#cancelAttachment').addEventListener('click', clearAttachment);
+ui.attachmentPreviewButton.addEventListener('click', previewAttachment);
 ui.attachmentButton.addEventListener('click', () => ui.attachmentInput.click());
 ui.attachmentInput.addEventListener('change', async () => {
   const file = ui.attachmentInput.files?.[0];
@@ -1253,7 +1486,24 @@ ui.attachmentInput.addEventListener('change', async () => {
     state.attachment = await fileToAttachment(file);
     state.pendingRequestId = null;
     state.pendingText = null;
-    ui.attachmentName.textContent = `${file.name} · ${(file.size / 1024 / 1024).toFixed(1)} MB`;
+    const mediaType = file.type.split('/')[0];
+    const labels = { image: 'Foto siap dikirim', video: 'Video siap dikirim', audio: 'Audio siap dikirim' };
+    const icons = { video: '▶', audio: '♫', application: 'PDF' };
+    const size = file.size < 1024 * 1024
+      ? `${Math.max(1, Math.round(file.size / 1024))} KB`
+      : `${(file.size / 1024 / 1024).toFixed(1)} MB`;
+    ui.attachmentLabel.textContent = labels[mediaType] || 'Dokumen siap dikirim';
+    ui.attachmentName.textContent = `${file.name} · ${size}`;
+    if (mediaType === 'image') {
+      ui.attachmentThumbnail.src = `data:${state.attachment.mimetype};base64,${state.attachment.data}`;
+      ui.attachmentThumbnail.hidden = false;
+      ui.attachmentTypeIcon.hidden = true;
+    } else {
+      ui.attachmentThumbnail.removeAttribute('src');
+      ui.attachmentThumbnail.hidden = true;
+      ui.attachmentTypeIcon.textContent = icons[mediaType] || 'FILE';
+      ui.attachmentTypeIcon.hidden = false;
+    }
     ui.attachmentBar.hidden = false;
     ui.composerStatus.textContent = '';
   } catch (error) {
@@ -1271,7 +1521,7 @@ for (const button of ui.tabButtons) {
     state.activeTab = button.dataset.tab;
     for (const item of ui.tabButtons) item.classList.toggle('active', item === button);
     ui.filterRow.hidden = state.activeTab === 'archived';
-    document.querySelector('.inbox-head h1').textContent = state.activeTab === 'archived' ? 'Archived' : 'Inbox';
+    document.querySelector('.inbox-head h1').textContent = state.activeTab === 'archived' ? tr('inbox.tabArchived') : tr('inbox.tabInbox');
     await loadChats(true);
   });
 }
@@ -1297,7 +1547,7 @@ ui.inboxButton.addEventListener('click', async () => {
   for (const item of ui.tabButtons) item.classList.toggle('active', item.dataset.tab === 'inbox');
   for (const item of ui.filterButtons) item.classList.toggle('active', item.dataset.filter === 'all');
   ui.filterRow.hidden = false;
-  document.querySelector('.inbox-head h1').textContent = 'Inbox';
+  document.querySelector('.inbox-head h1').textContent = tr('inbox.tabInbox');
   ui.searchInput.value = '';
   await loadChats(true);
   if (window.matchMedia('(max-width: 760px)').matches) {
@@ -1322,7 +1572,7 @@ document.querySelector('#mediaZoomIn').addEventListener('click', () => setMediaZ
 document.querySelector('#mediaZoomOut').addEventListener('click', () => setMediaZoom(state.media.scale - 0.25));
 document.querySelector('#mediaReset').addEventListener('click', resetMediaViewer);
 ui.mediaDownload.addEventListener('click', () => downloadCurrentMedia().catch(() => {
-  ui.mediaZoomLabel.textContent = 'Download gagal';
+  ui.mediaZoomLabel.textContent = tr('common.downloadFailed');
 }));
 ui.mediaViewer.addEventListener('click', (event) => {
   if (event.target === ui.mediaViewer) ui.mediaViewer.close();
@@ -1372,7 +1622,11 @@ ui.mediaViewer.addEventListener('close', () => {
   ui.mediaViewerVideo.pause();
   ui.mediaViewerVideo.removeAttribute('src');
   ui.mediaViewerVideo.load();
-  ui.mediaViewer.classList.remove('video-mode');
+  ui.mediaViewerAudio.pause();
+  ui.mediaViewerAudio.removeAttribute('src');
+  ui.mediaViewerAudio.load();
+  ui.mediaViewerDocument.removeAttribute('src');
+  ui.mediaViewer.classList.remove('video-mode', 'audio-mode', 'document-mode');
   resetMediaViewer();
 });
 document.addEventListener('keydown', (event) => {
@@ -1401,11 +1655,65 @@ ui.newConversationForm.addEventListener('submit', async (event) => {
     submit.disabled = false;
   }
 });
+
+ui.modeSwitch.addEventListener('click', (event) => {
+  const button = event.target.closest('[data-mode]');
+  if (!button) return;
+  for (const item of ui.modeSwitch.querySelectorAll('[data-mode]')) item.classList.toggle('active', item === button);
+  ui.assigneeField.hidden = button.dataset.mode !== 'human';
+  if (button.dataset.mode === 'human' && !ui.assigneeSelect.value && state.currentUser?.userId) ui.assigneeSelect.value = state.currentUser.userId;
+});
+
+ui.saveRoutingButton.addEventListener('click', async () => {
+  if (!state.activeChat) return;
+  const mode = ui.modeSwitch.querySelector('[data-mode].active')?.dataset.mode || 'ai';
+  ui.saveRoutingButton.disabled = true;
+  ui.routingStatus.textContent = tr('common.loading');
+  try {
+    const data = await api(`/v1/chats/${encodeURIComponent(state.activeChat.id)}/routing`, {
+      method: 'POST',
+      body: JSON.stringify({
+        mode,
+        assigneeUserId: mode === 'human' ? ui.assigneeSelect.value || null : null,
+        note: ui.handoverNote.value.trim(),
+      }),
+    });
+    ui.handoverNote.value = '';
+    ui.routingStatus.textContent = mode === 'ai' ? tr('routing.savedAi') : tr('routing.savedHuman');
+    await loadRoutingPanel(state.activeChat.id);
+  } catch (error) {
+    ui.routingStatus.textContent = error.message;
+  } finally {
+    ui.saveRoutingButton.disabled = false;
+  }
+});
+
+ui.noteForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  if (!state.activeChat || !ui.noteInput.value.trim()) return;
+  const body = ui.noteInput.value.trim();
+  const button = ui.noteForm.querySelector('button');
+  button.disabled = true;
+  try {
+    await api(`/v1/chats/${encodeURIComponent(state.activeChat.id)}/notes`, {
+      method: 'POST',
+      body: JSON.stringify({ body }),
+    });
+    ui.noteInput.value = '';
+    await loadRoutingPanel(state.activeChat.id);
+  } catch (error) {
+    ui.routingStatus.textContent = error.message;
+  } finally {
+    button.disabled = false;
+  }
+});
+
 ui.handoffButton.addEventListener('click', async () => {
   if (!state.activeChat || ui.handoffButton.disabled) return;
   ui.handoffButton.disabled = true;
-  const original = ui.handoffButton.firstChild.textContent;
-  ui.handoffButton.firstChild.textContent = 'Assigning… ';
+  const handoffLabel = ui.handoffButton.querySelector('[data-i18n]');
+  const original = handoffLabel.textContent;
+  handoffLabel.textContent = tr('common.loading');
   try {
     await api(`/v1/chats/${encodeURIComponent(state.activeChat.id)}/assign`, {
       method: 'POST',
@@ -1414,7 +1722,7 @@ ui.handoffButton.addEventListener('click', async () => {
     await loadLead(state.activeChat.id);
   } catch {
     ui.handoffButton.disabled = false;
-    ui.handoffButton.firstChild.textContent = original;
+    handoffLabel.textContent = original;
   }
 });
 ui.contextToggle.addEventListener('click', () => {
@@ -1468,13 +1776,13 @@ ui.changeNumberBtn.addEventListener('click', async () => {
     await api('/v1/whatsapp/logout', { method: 'POST' });
     state.whatsapp = { phase: 'starting' };
     ui.dialogTitle.textContent = 'Memutus sesi…';
-    ui.dialogCopy.textContent = 'WhatsApp sedang logout, QR baru akan muncul sebentar.';
+    ui.dialogCopy.textContent = tr('wa.loggingOut');
     ui.qrShell.hidden = true;
     ui.changeNumberBtn.hidden = true;
     clearInterval(state.connectionTimer);
     state.connectionTimer = setInterval(checkConnection, 5000);
   } catch (error) {
-    ui.changeNumberBtn.textContent = 'Ganti Nomor WhatsApp';
+    ui.changeNumberBtn.textContent = tr('wa.changeNumber');
     ui.changeNumberBtn.disabled = false;
     ui.qrNote.textContent = error.message;
   }
@@ -1486,6 +1794,14 @@ document.querySelector('#mobileBack').addEventListener('click', () => {
 document.querySelector('#logoutButton').addEventListener('click', async () => {
   await api('/v1/auth/logout', { method: 'POST' });
   showLogin();
+});
+
+window.addEventListener('agnee:localechange', () => {
+  renderChats();
+  if (state.whatsapp) renderConnection(state.whatsapp);
+  document.querySelector('.inbox-head h1').textContent = state.activeTab === 'archived'
+    ? tr('inbox.tabArchived')
+    : tr('inbox.tabInbox');
 });
 
 window.addEventListener('resize', () => {

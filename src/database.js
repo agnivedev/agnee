@@ -163,6 +163,20 @@ class Database {
     return result.rows[0] || null;
   }
 
+  async getActiveSessionUser(userId, companyId) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      SELECT u.id, u.email, u.display_name AS "displayName",
+             cm.company_id AS "companyId", cm.role, c.name AS "companyName", c.slug AS "companySlug",
+             u.onboarded_at AS "onboardedAt"
+      FROM users u
+      JOIN company_members cm ON cm.user_id = u.id AND cm.company_id = $2
+      JOIN companies c ON c.id = cm.company_id
+      WHERE u.id = $1 AND u.status = 'active' AND cm.status = 'active'
+    `, [userId, companyId]);
+    return result.rows[0] || null;
+  }
+
   async authenticateUser(email, password) {
     if (!this.enabled) return null;
     const result = await this.pool.query(`

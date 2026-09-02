@@ -1063,18 +1063,39 @@ async function buildApp(overrides = {}) {
     return reply.code(201).send({ ok: true, user: sessionUser, trialEndsAt: signup.trialEndsAt });
   });
 
+  // Cache DB session checks: userId:companyId → expiry timestamp (60s TTL)
+  const sessionCheckCache = new Map();
+
   app.addHook('onRequest', async (request, reply) => {
     if (!request.url.startsWith('/v1/') || request.url.startsWith('/v1/auth/login') || request.url.startsWith('/v1/auth/signup')) return;
     const suppliedKey = request.headers['x-api-key'];
     const session = verifySession(getCookie(request.headers.cookie, 'agnee_session'), config.sessionSecret);
-    if (suppliedKey === config.apiKey || session) {
-      request.agneeSession = session || { apiClient: true, role: 'supervisor', displayName: 'Sistem' };
-      if (request.url.startsWith('/v1/admin/') && !isSupervisor(request.agneeSession)) {
-        return reply.code(403).send({ error: 'Halaman ini hanya tersedia untuk supervisor.' });
-      }
+    if (suppliedKey === config.apiKey) {
+      request.agneeSession = { apiClient: true, role: 'supervisor', displayName: 'Sistem' };
       return;
     }
-    return reply.code(401).send({ error: 'Unauthorized' });
+    if (!session) return reply.code(401).send({ error: 'Unauthorized' });
+
+    // Revalidate session against DB at most once per 60s per user+company
+    if (session.userId && session.companyId && database.status().connected) {
+      const cacheKey = `${session.userId}:${session.companyId}`;
+      const cachedUntil = sessionCheckCache.get(cacheKey);
+      if (!cachedUntil || Date.now() > cachedUntil) {
+        const live = await database.getActiveSessionUser(session.userId, session.companyId);
+        if (!live) {
+          sessionCheckCache.delete(cacheKey);
+          return reply.code(401).send({ error: 'Sesi tidak valid. Silakan login kembali.' });
+        }
+        // Refresh role from DB in case it changed
+        session.role = live.role;
+        sessionCheckCache.set(cacheKey, Date.now() + 60_000);
+      }
+    }
+
+    request.agneeSession = session;
+    if (request.url.startsWith('/v1/admin/') && !isSupervisor(request.agneeSession)) {
+      return reply.code(403).send({ error: 'Halaman ini hanya tersedia untuk supervisor.' });
+    }
   });
 
   app.addHook('preHandler', async (request, reply) => {
@@ -1356,16 +1377,33 @@ async function buildApp(overrides = {}) {
     return reply.code(201).send({ note });
   });
 
-  app.get('/v1/admin/config', async () => ({
-    llmEnabled: Boolean(llmService.enabled),
-    model: llmService.model || config.openrouterModel,
-    defaultKnowledgeClient: config.knowledgeClient,
-    database: database.status(),
-    knowledgeClients: [
-      { id: 'bzone', name: 'bZone Alpha / Bengkel EA Gold' },
-      { id: 'agnee', name: 'Agnee by Agnive' },
-    ],
-  }));
+  const KNOWLEDGE_CLIENT_NAMES = {
+    bzone: 'bZone Alpha / Bengkel EA Gold',
+    tradersmastermind: "Trader's Mastermind",
+    agnee: 'Agnee by Agnive (internal)',
+  };
+
+  app.get('/v1/admin/config', async (request) => {
+    const companyId = request.agneeSession?.companyId;
+    const companyConfig = companyId && database.status().connected
+      ? await database.getCompanyConfig(companyId).catch(() => null)
+      : null;
+    const activeClient = companyConfig?.knowledgeClient || config.knowledgeClient;
+
+    // Available clients: all known except 'agnee' for external companies
+    const isInternal = activeClient === 'agnee' || !companyId;
+    const knowledgeClients = Object.entries(KNOWLEDGE_CLIENT_NAMES)
+      .filter(([id]) => isInternal || id !== 'agnee')
+      .map(([id, name]) => ({ id, name }));
+
+    return {
+      llmEnabled: Boolean(llmService.enabled),
+      model: llmService.model || config.openrouterModel,
+      defaultKnowledgeClient: activeClient,
+      database: database.status(),
+      knowledgeClients,
+    };
+  });
 
   app.get('/v1/admin/ai-settings', async () => ({
     enabled: aiSettings.enabled,

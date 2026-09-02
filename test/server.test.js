@@ -205,6 +205,7 @@ test('agent can only take chats for self and cannot open supervisor settings', a
     connected: true, companyId: 'company-1',
     async connect() {}, async close() {}, status() { return { driver: 'postgresql', connected: true }; },
     async authenticateUser(email, password) { return email === agent.email && password === 'agent-pass-123' ? agent : null; },
+    async getActiveSessionUser(userId) { return userId === agent.id ? agent : (userId === supervisor.id ? supervisor : null); },
     async setPresence() {}, async listTeamMembers() { return [supervisor, { ...agent, status: 'active' }]; },
     async getConversationRouting(chatId) { return routes.get(chatId) || null; },
     async saveConversationRouting(change) {

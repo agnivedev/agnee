@@ -70,6 +70,10 @@ export function createMcpOAuth({ publicUrl, legacyBearerToken, signingSecret, ad
     try {
       const state = JSON.parse(fs.readFileSync(statePath, 'utf8'));
       for (const client of state.clients || []) clients.set(client.client_id, client);
+      const now = Date.now();
+      for (const [token, record] of Object.entries(state.refreshTokens || {})) {
+        if (record.expiresAt > now) refreshTokens.set(token, record);
+      }
     } catch (error) {
       console.error(`Could not load MCP OAuth state: ${error.message}`);
     }
@@ -78,8 +82,10 @@ export function createMcpOAuth({ publicUrl, legacyBearerToken, signingSecret, ad
   function saveState() {
     if (!statePath) return;
     fs.mkdirSync(path.dirname(statePath), { recursive: true, mode: 0o700 });
+    const now = Date.now();
+    const liveRefreshTokens = Object.fromEntries([...refreshTokens.entries()].filter(([, r]) => r.expiresAt > now));
     const temporary = `${statePath}.tmp`;
-    fs.writeFileSync(temporary, JSON.stringify({ clients: [...clients.values()] }, null, 2), { mode: 0o600 });
+    fs.writeFileSync(temporary, JSON.stringify({ clients: [...clients.values()], refreshTokens: liveRefreshTokens }, null, 2), { mode: 0o600 });
     fs.renameSync(temporary, statePath);
   }
 
@@ -245,6 +251,7 @@ export function createMcpOAuth({ publicUrl, legacyBearerToken, signingSecret, ad
         }
         const refreshToken = randomToken(40);
         refreshTokens.set(refreshToken, { ...record, expiresAt: Date.now() + 30 * 24 * 60 * 60_000 });
+        saveState();
         json(response, 200, {
           access_token: signAccessToken(record),
           token_type: 'Bearer',
@@ -264,6 +271,7 @@ export function createMcpOAuth({ publicUrl, legacyBearerToken, signingSecret, ad
         }
         const refreshToken = randomToken(40);
         refreshTokens.set(refreshToken, { ...record, expiresAt: Date.now() + 30 * 24 * 60 * 60_000 });
+        saveState();
         json(response, 200, {
           access_token: signAccessToken(record), token_type: 'Bearer', expires_in: 3600,
           refresh_token: refreshToken, scope: record.scopes.join(' '),

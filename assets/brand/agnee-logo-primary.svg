@@ -21,7 +21,7 @@
 
   <text x="185" y="126" fill="url(#agnee-green)" font-family="Nunito Sans, Avenir Next, Arial Rounded MT Bold, sans-serif" font-size="108" font-weight="700" letter-spacing="-6">agnee</text>
   <g transform="translate(505 151)">
-    <text x="0" y="0" fill="#315047" font-family="Inter, Avenir Next, Arial, sans-serif" font-size="24" font-weight="400" letter-spacing=".4">by</text>
-    <text x="34" y="0" fill="#173A30" font-family="Inter, Avenir Next, Arial, sans-serif" font-size="24" font-weight="700" letter-spacing=".2">beweix</text>
+    <text x="0" y="0" fill="#f4f9f0" fill-opacity="0.35" font-family="Inter, Avenir Next, Arial, sans-serif" font-size="24" font-weight="400" letter-spacing=".4">by</text>
+    <text x="34" y="0" fill="#f4f9f0" fill-opacity="0.55" font-family="Inter, Avenir Next, Arial, sans-serif" font-size="24" font-weight="700" letter-spacing=".2">beweix</text>
   </g>
 </svg>

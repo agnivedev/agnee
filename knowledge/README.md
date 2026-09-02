@@ -19,6 +19,7 @@ antarklien tidak tercampur.
 | --- | --- | --- | --- |
 | `bzone` | bZone Alpha / Bengkel EA Gold | EA MT5 custom dan bZone Chainsaw | aktif |
 | `agnee` | Agnee by Agnive | Chatbot WhatsApp, customer desk, dan MCP | draft/internal |
+| `tradersmastermind` | Trader's Mastermind | Campaign webinar trading (keyword CHART) | aktif |
 
 Untuk client baru, salin struktur `clients/bzone`, ganti `tenant.json`, lalu isi
 FAQ/funnel/policy dari sumber client yang sudah disetujui. Dokumentasi produk

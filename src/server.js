@@ -1115,6 +1115,10 @@ async function buildApp(overrides = {}) {
       return reply.code(503).send({ error: 'Penyimpanan anggota belum tersedia.' });
     }
     const teamCompanyId = request.agneeSession?.companyId || database.companyId;
+    const usage = await database.getCompanyUsage(teamCompanyId);
+    if (usage && usage.maxUsers > 0 && usage.currentUsers >= usage.maxUsers) {
+      return reply.code(403).send({ error: `Batas anggota tim tercapai (${usage.maxUsers} pengguna). Upgrade plan untuk menambah lebih banyak.` });
+    }
     const member = await database.createTeamMember(request.body, teamCompanyId);
     broadcastEvent(teamCompanyId, 'team', { action: 'created', member });
     return reply.code(201).send({ member });
@@ -1202,6 +1206,10 @@ async function buildApp(overrides = {}) {
   app.post('/v1/admin/playbook/assets', async (request, reply) => {
     if (!database.status().connected) return reply.code(503).send({ error: 'Tidak tersedia.' });
     const companyId = request.agneeSession?.companyId || database.companyId;
+    const usage = await database.getCompanyUsage(companyId);
+    if (usage && usage.maxPlaybooks > 0 && usage.currentPlaybooks >= usage.maxPlaybooks) {
+      return reply.code(403).send({ error: `Batas dokumen playbook tercapai (${usage.maxPlaybooks} file). Hapus file lama atau upgrade plan.` });
+    }
     const file = await request.file().catch(() => null);
     if (!file) return reply.code(400).send({ error: 'Tidak ada file yang diunggah.' });
     if (!isAllowedPlaybookMime(file.mimetype)) {
@@ -1509,6 +1517,12 @@ async function buildApp(overrides = {}) {
 
   app.post('/v1/whatsapp/qr-refresh', async (request, reply) => {
     const companyId = request.agneeSession?.companyId || database.companyId;
+    if (database.status().connected) {
+      const usage = await database.getCompanyUsage(companyId);
+      if (usage && usage.maxWhatsapp > 0 && usage.currentWhatsapp >= usage.maxWhatsapp) {
+        return reply.code(403).send({ error: `Batas koneksi WhatsApp tercapai (${usage.maxWhatsapp}). Upgrade plan untuk menambah lebih banyak.` });
+      }
+    }
     if (config.demoMode) {
       demoQr ||= await QRCode.toDataURL('AGNEE-DEMO-PAIRING', { margin: 1, width: 320, color: { dark: '#173A30', light: '#FFFFFF' } });
       return { qrDataUrl: demoQr, demoMode: true };

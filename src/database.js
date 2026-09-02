@@ -531,6 +531,21 @@ class Database {
     }
   }
 
+  async getCompanyUsage(companyId = this.companyId) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      SELECT
+        c.max_users      AS "maxUsers",
+        c.max_playbooks  AS "maxPlaybooks",
+        c.max_whatsapp   AS "maxWhatsapp",
+        (SELECT COUNT(*) FROM company_members WHERE company_id = c.id AND status = 'active')::int  AS "currentUsers",
+        (SELECT COUNT(*) FROM playbook_assets  WHERE company_id = c.id)::int                       AS "currentPlaybooks",
+        (SELECT COUNT(*) FROM whatsapp_connections WHERE company_id = c.id)::int                   AS "currentWhatsapp"
+      FROM companies c WHERE c.id = $1
+    `, [companyId]);
+    return result.rows[0] || null;
+  }
+
   async updateCompanyConfig({ plan, planStatus, knowledgeClient, aiMessageLimit, maxUsers, maxPlaybooks, maxWhatsapp }, companyId = this.companyId) {
     if (!this.enabled) return null;
     const fields = [];

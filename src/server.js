@@ -18,6 +18,15 @@ process.on('uncaughtException', (error) => {
   console.error('Uncaught exception (WhatsApp adapter kept alive):', error);
 });
 
+function parseTrustProxy(value) {
+  if (value === undefined || value === '') return false;
+  const raw = String(value).trim();
+  if (raw === 'true') return true;
+  if (raw === 'false') return false;
+  if (/^\d+$/.test(raw)) return Number(raw);
+  return raw; // comma-separated IP/CIDR allowlist
+}
+
 function loadConfig(overrides = {}) {
   const startupEnabled = process.env.WA_STARTUP_ENABLED !== 'false';
   const config = {
@@ -45,6 +54,9 @@ function loadConfig(overrides = {}) {
     databaseUrl: process.env.DATABASE_URL || '',
     defaultCompanySlug: process.env.DEFAULT_COMPANY_SLUG || 'default',
     defaultCompanyName: process.env.DEFAULT_COMPANY_NAME || 'Default Company',
+    // Only trust X-Forwarded-For when an explicit proxy allowlist/hop count is set.
+    // Without this, any client can spoof the header and bypass IP rate limiting.
+    trustProxy: parseTrustProxy(process.env.TRUST_PROXY),
     ...overrides,
   };
   if (process.env.NODE_ENV === 'production') {
@@ -221,7 +233,7 @@ function demoDataset() {
 
 async function buildApp(overrides = {}) {
   const config = loadConfig(overrides);
-  const app = Fastify({ logger: overrides.logger ?? true, bodyLimit: 10 * 1024 * 1024 });
+  const app = Fastify({ logger: overrides.logger ?? true, bodyLimit: 10 * 1024 * 1024, trustProxy: config.trustProxy });
   const demo = demoDataset();
   const manager = new WhatsappManager();
   let demoQr = null;
@@ -917,7 +929,7 @@ async function buildApp(overrides = {}) {
       },
     },
   }, async (request, reply) => {
-    const ip = request.headers['x-forwarded-for']?.split(',')[0].trim() || request.socket.remoteAddress || 'unknown';
+    const ip = request.ip || request.socket.remoteAddress || 'unknown';
     const now = Date.now();
     const entry = loginAttempts.get(ip) || { count: 0, resetAt: now + LOGIN_WINDOW_MS };
     if (now > entry.resetAt) { entry.count = 0; entry.resetAt = now + LOGIN_WINDOW_MS; }

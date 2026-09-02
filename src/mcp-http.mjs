@@ -30,8 +30,14 @@ function applySecurityHeaders(response) {
   response.setHeader('permissions-policy', 'camera=(), microphone=(), geolocation=()');
 }
 
+// Only honour X-Forwarded-For when TRUST_PROXY is enabled; otherwise a client can
+// spoof the header and get a fresh rate-limit bucket on every request.
+const trustProxy = ['1', 'true', 'yes'].includes(String(process.env.TRUST_PROXY || '').toLowerCase());
+
 function rateLimited(request) {
-  const forwarded = String(request.headers['x-forwarded-for'] || '').split(',')[0].trim();
+  const forwarded = trustProxy
+    ? String(request.headers['x-forwarded-for'] || '').split(',')[0].trim()
+    : '';
   const key = forwarded || request.socket.remoteAddress || 'unknown';
   const window = Math.floor(Date.now() / 60_000);
   const record = requestCounts.get(key);

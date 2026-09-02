@@ -118,7 +118,41 @@
       'team.copy': 'Supervisor dapat membagi chat ke agent. Setiap agent masuk menggunakan akun masing-masing.',
       'team.name': 'Nama', 'team.role': 'Peran', 'team.agent': 'Agent', 'team.supervisor': 'Supervisor',
       'team.add': 'Tambah anggota', 'team.added': 'Anggota berhasil ditambahkan.',
-      'error.request': 'Permintaan gagal ({status})'
+      'error.request': 'Permintaan gagal ({status})',
+      'login.signupPrompt': 'Belum punya akun?', 'login.signup': 'Daftar gratis, coba 7 hari',
+      'signup.eyebrow': 'MULAI GRATIS', 'signup.heading': 'Buat akun Agnee',
+      'signup.subtitle': 'Trial 7 hari, tanpa kartu kredit. Bisa upgrade kapan saja.',
+      'signup.choosePlan': 'Pilih paket', 'signup.companyName': 'Nama perusahaan / bisnis',
+      'signup.companyPlaceholder': 'Toko Kopi Nusantara', 'signup.yourName': 'Nama Anda',
+      'signup.submit': 'Buat akun & mulai trial', 'signup.loginPrompt': 'Sudah punya akun?', 'signup.login': 'Masuk di sini',
+      'upgrade.eyebrow': 'PAKET TRIAL BERAKHIR', 'upgrade.title': 'Aktifkan paket untuk<br>melanjutkan',
+      'upgrade.subtitle': 'Percakapan dan data kamu aman. Pilih paket di bawah dan hubungi kami — akun aktif dalam hitungan menit.',
+      'upgrade.promoBadge': 'Beta Promo', 'upgrade.perMonth': '/bulan',
+      'upgrade.activateBtn': 'Aktifkan via WhatsApp', 'upgrade.mostPopular': 'Most Popular',
+      'upgrade.logout': 'Keluar dari akun ini',
+      'pg.eyebrow': 'SIMULASI & TRAINING', 'pg.title': 'Uji respons AI',
+      'pg.messageLabel': 'Pesan pelanggan', 'pg.placeholder': 'Ketik pesan seperti yang dikirim pelanggan…',
+      'pg.msgGreeting': 'Sapa pembuka', 'pg.msgPrice': 'Harga', 'pg.msgTrial': 'Trial', 'pg.msgSignup': 'Cara daftar',
+      'pg.submit': 'Uji respons AI', 'pg.historyEyebrow': 'RIWAYAT UJI',
+      'pg.emptyState': 'Respons AI akan muncul di sini setelah kamu klik <strong>Uji respons AI</strong>.',
+      'pg.processing': 'AI sedang memproses…', 'pg.outputEyebrow': 'RESPONS AI',
+      'nav.playground': 'Simulasi & Training', 'nav.settings': 'Pengaturan',
+      'nav.labelInbox': 'Inbox', 'nav.labelContacts': 'Kontak', 'nav.labelFunnel': 'Funnel',
+      'nav.labelTraining': 'Training', 'nav.labelAdmin': 'Admin', 'nav.labelSettings': 'Setting', 'nav.labelLogout': 'Keluar',
+      'ob.closeAria': 'Tutup', 'ob.welcome': 'Selamat datang di Agnee!',
+      'ob.welcomeCopy': 'Mari setup inbox WhatsApp kamu dalam 3 langkah cepat. Butuh sekitar 2 menit.',
+      'ob.start': 'Mulai setup →', 'ob.skip': 'Lewati, setup nanti',
+      'ob.step1Title': 'Hubungkan WhatsApp',
+      'ob.step1Copy': 'Klik tombol koneksi di atas (ikon WhatsApp), lalu pindai QR code dengan HP kamu.',
+      'ob.step1Li1': 'Buka WhatsApp di HP', 'ob.step1Li2': 'Tap Pengaturan → Perangkat Tertaut',
+      'ob.step1Li3': 'Pindai QR code yang muncul', 'ob.step1Btn': 'Buka koneksi WhatsApp',
+      'ob.step1Next': 'Sudah terhubung, lanjut →',
+      'ob.step2Title': 'Tambahkan anggota tim',
+      'ob.step2Copy': 'Undang agen CS kamu. Mereka akan bisa membalas chat dan handover antar AI ↔ manusia. Kamu bisa lewati ini dan tambah nanti di <strong>Pengaturan</strong>.',
+      'ob.step2Open': 'Buka Pengaturan Tim', 'ob.step2Skip': 'Lewati, nanti saja →',
+      'ob.step3Title': 'Upload playbook / FAQ',
+      'ob.step3Copy': 'Playbook adalah sumber jawaban AI kamu. Buka panel Admin untuk upload FAQ atau training data. Agen CS-mu akan otomatis inherit playbook ini.',
+      'ob.step3Open': 'Buka Admin → Uji AI', 'ob.step3Done': 'Selesai, masuk inbox →'
     },
     en: {
       'common.indonesian': 'Indonesian', 'common.english': 'English', 'common.close': 'Close',
@@ -230,7 +264,41 @@
       'team.copy': 'Supervisors can assign chats to agents. Each agent signs in with their own account.',
       'team.name': 'Name', 'team.role': 'Role', 'team.agent': 'Agent', 'team.supervisor': 'Supervisor',
       'team.add': 'Add member', 'team.added': 'Member added successfully.',
-      'error.request': 'Request failed ({status})'
+      'error.request': 'Request failed ({status})',
+      'login.signupPrompt': "Don't have an account?", 'login.signup': 'Sign up free, 7-day trial',
+      'signup.eyebrow': 'START FOR FREE', 'signup.heading': 'Create your Agnee account',
+      'signup.subtitle': '7-day trial, no credit card needed. Upgrade anytime.',
+      'signup.choosePlan': 'Choose a plan', 'signup.companyName': 'Company / business name',
+      'signup.companyPlaceholder': 'Acme Corp', 'signup.yourName': 'Your name',
+      'signup.submit': 'Create free account', 'signup.loginPrompt': 'Already have an account?', 'signup.login': 'Sign in',
+      'upgrade.eyebrow': 'TRIAL PERIOD ENDED', 'upgrade.title': 'Activate a plan to<br>continue',
+      'upgrade.subtitle': 'Your conversations and data are safe. Choose a plan below and contact us — your account activates within minutes.',
+      'upgrade.promoBadge': 'Beta Promo', 'upgrade.perMonth': '/month',
+      'upgrade.activateBtn': 'Activate via WhatsApp', 'upgrade.mostPopular': 'Most Popular',
+      'upgrade.logout': 'Sign out of this account',
+      'pg.eyebrow': 'SIMULATION & TRAINING', 'pg.title': 'Test AI response',
+      'pg.messageLabel': 'Customer message', 'pg.placeholder': 'Type a message as the customer would send it…',
+      'pg.msgGreeting': 'Opening greeting', 'pg.msgPrice': 'Pricing', 'pg.msgTrial': 'Trial', 'pg.msgSignup': 'How to sign up',
+      'pg.submit': 'Test AI response', 'pg.historyEyebrow': 'TEST HISTORY',
+      'pg.emptyState': 'The AI response will appear here after you click <strong>Test AI response</strong>.',
+      'pg.processing': 'AI is processing…', 'pg.outputEyebrow': 'AI RESPONSE',
+      'nav.playground': 'Simulation & Training', 'nav.settings': 'Settings',
+      'nav.labelInbox': 'Inbox', 'nav.labelContacts': 'Contacts', 'nav.labelFunnel': 'Funnel',
+      'nav.labelTraining': 'Training', 'nav.labelAdmin': 'Admin', 'nav.labelSettings': 'Setting', 'nav.labelLogout': 'Logout',
+      'ob.closeAria': 'Close', 'ob.welcome': 'Welcome to Agnee!',
+      'ob.welcomeCopy': 'Let\'s set up your WhatsApp inbox in 3 quick steps. Takes about 2 minutes.',
+      'ob.start': 'Start setup →', 'ob.skip': 'Skip, set up later',
+      'ob.step1Title': 'Connect WhatsApp',
+      'ob.step1Copy': 'Click the connection button above (WhatsApp icon), then scan the QR code with your phone.',
+      'ob.step1Li1': 'Open WhatsApp on your phone', 'ob.step1Li2': 'Tap Settings → Linked Devices',
+      'ob.step1Li3': 'Scan the QR code that appears', 'ob.step1Btn': 'Open WhatsApp connection',
+      'ob.step1Next': 'Already connected, continue →',
+      'ob.step2Title': 'Add team members',
+      'ob.step2Copy': 'Invite your CS agents. They\'ll be able to reply to chats and hand over between AI ↔ human. You can skip this and add them later in <strong>Settings</strong>.',
+      'ob.step2Open': 'Open Team Settings', 'ob.step2Skip': 'Skip for now →',
+      'ob.step3Title': 'Upload playbook / FAQ',
+      'ob.step3Copy': 'The playbook is your AI\'s answer source. Open the Admin panel to upload FAQ or training data. Your CS agents will automatically inherit this playbook.',
+      'ob.step3Open': 'Open Admin → Test AI', 'ob.step3Done': 'Done, go to inbox →'
     }
   };
 
@@ -250,6 +318,7 @@
     root.querySelectorAll('[data-i18n-placeholder]').forEach((node) => { node.placeholder = t(node.dataset.i18nPlaceholder); });
     root.querySelectorAll('[data-i18n-aria-label]').forEach((node) => { node.setAttribute('aria-label', t(node.dataset.i18nAriaLabel)); });
     root.querySelectorAll('[data-i18n-title]').forEach((node) => { node.title = t(node.dataset.i18nTitle); });
+    root.querySelectorAll('[data-i18n-label]').forEach((node) => { node.dataset.label = t(node.dataset.i18nLabel); });
     document.title = t(document.body.dataset.i18nTitle || (location.pathname.includes('admin') ? 'admin.title' : 'login.title'));
     root.querySelectorAll('[data-locale]').forEach((button) => button.classList.toggle('active', button.dataset.locale === locale));
   }

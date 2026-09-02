@@ -38,16 +38,16 @@
         </label>
         <p id="loginError" class="form-error" role="alert"></p>
         <button class="primary-button" type="submit"><span data-i18n="login.submit">Masuk</span> <span aria-hidden="true">→</span></button>
-        <p class="demo-note">Belum punya akun? <button type="button" id="showSignup" class="link-button">Daftar gratis, coba 7 hari</button></p>
+        <p class="demo-note"><span data-i18n="login.signupPrompt">Belum punya akun?</span> <button type="button" id="showSignup" class="link-button" data-i18n="login.signup">Daftar gratis, coba 7 hari</button></p>
       </form>
 
       <form id="signupForm" class="login-form" hidden>
         <div>
-          <p class="eyebrow">MULAI GRATIS</p>
-          <h2>Buat akun Agnee</h2>
-          <p class="subtle">Trial 7 hari, tanpa kartu kredit. Bisa upgrade kapan saja.</p>
+          <p class="eyebrow" data-i18n="signup.eyebrow">MULAI GRATIS</p>
+          <h2 data-i18n="signup.heading">Buat akun Agnee</h2>
+          <p class="subtle" data-i18n="signup.subtitle">Trial 7 hari, tanpa kartu kredit. Bisa upgrade kapan saja.</p>
         </div>
-        <div class="plan-toggle" role="radiogroup" aria-label="Pilih paket">
+        <div class="plan-toggle" role="radiogroup" data-i18n-aria-label="signup.choosePlan" aria-label="Pilih paket">
           <label class="plan-toggle-option">
             <input type="radio" name="plan" value="personal" checked>
             <span>Personal</span>
@@ -57,10 +57,10 @@
             <span>Company</span>
           </label>
         </div>
-        <label><span>Nama perusahaan / bisnis</span>
-          <input id="signupCompanyName" name="companyName" type="text" minlength="2" maxlength="150" required placeholder="Toko Kopi Nusantara">
+        <label><span data-i18n="signup.companyName">Nama perusahaan / bisnis</span>
+          <input id="signupCompanyName" name="companyName" type="text" minlength="2" maxlength="150" required data-i18n-placeholder="signup.companyPlaceholder" placeholder="Toko Kopi Nusantara">
         </label>
-        <label><span>Nama Anda</span>
+        <label><span data-i18n="signup.yourName">Nama Anda</span>
           <input id="signupDisplayName" name="displayName" type="text" minlength="2" maxlength="100" required autocomplete="name">
         </label>
         <label><span data-i18n="login.email">Email</span>
@@ -70,8 +70,8 @@
           <input id="signupPassword" name="password" type="password" autocomplete="new-password" minlength="8" required>
         </label>
         <p id="signupError" class="form-error" role="alert"></p>
-        <button class="primary-button" type="submit"><span>Buat akun &amp; mulai trial</span> <span aria-hidden="true">→</span></button>
-        <p class="demo-note">Sudah punya akun? <button type="button" id="showLoginForm" class="link-button">Masuk di sini</button></p>
+        <button class="primary-button" type="submit"><span data-i18n="signup.submit">Buat akun &amp; mulai trial</span> <span aria-hidden="true">→</span></button>
+        <p class="demo-note"><span data-i18n="signup.loginPrompt">Sudah punya akun?</span> <button type="button" id="showLoginForm" class="link-button" data-i18n="signup.login">Masuk di sini</button></p>
       </form>
     </section>
   </main>
@@ -79,16 +79,16 @@
   <div id="upgradeWall" class="upgrade-wall" hidden>
     <div class="upgrade-wall-inner">
       <img src="/brand/agnee-mark.svg" alt="Agnee" class="upgrade-wall-logo">
-      <p class="eyebrow">PAKET TRIAL BERAKHIR</p>
-      <h2 class="upgrade-wall-title">Aktifkan paket untuk<br>melanjutkan</h2>
-      <p class="upgrade-wall-sub">Percakapan dan data kamu aman. Pilih paket di bawah dan hubungi kami — akun aktif dalam hitungan menit.</p>
+      <p class="eyebrow" data-i18n="upgrade.eyebrow">PAKET TRIAL BERAKHIR</p>
+      <h2 class="upgrade-wall-title" data-i18n-html="upgrade.title">Aktifkan paket untuk<br>melanjutkan</h2>
+      <p class="upgrade-wall-sub" data-i18n="upgrade.subtitle">Percakapan dan data kamu aman. Pilih paket di bawah dan hubungi kami — akun aktif dalam hitungan menit.</p>
       <div class="upgrade-cards">
         <div class="upgrade-card">
-          <p class="upgrade-card-badge">Beta Promo</p>
+          <p class="upgrade-card-badge" data-i18n="upgrade.promoBadge">Beta Promo</p>
           <h3>Personal</h3>
           <div class="upgrade-price">
             <s class="upgrade-price-old">Rp 299.000</s>
-            <span class="upgrade-price-now">Rp 99.000<span class="upgrade-price-period">/bulan</span></span>
+            <span class="upgrade-price-now">Rp 99.000<span class="upgrade-price-period" data-i18n="upgrade.perMonth">/bulan</span></span>
           </div>
           <ul class="upgrade-features">
             <li>1 user</li>
@@ -96,14 +96,14 @@
             <li>1 Playbook AI</li>
             <li>500 pesan AI/bulan</li>
           </ul>
-          <a href="https://wa.me/6281218700276?text=Halo%2C%20saya%20mau%20langganan%20Agnee%20Personal%20Beta" class="upgrade-btn" target="_blank" rel="noopener noreferrer">Aktifkan via WhatsApp</a>
+          <a href="https://wa.me/6281218700276?text=Halo%2C%20saya%20mau%20langganan%20Agnee%20Personal%20Beta" class="upgrade-btn" target="_blank" rel="noopener noreferrer" data-i18n="upgrade.activateBtn">Aktifkan via WhatsApp</a>
         </div>
         <div class="upgrade-card upgrade-card-featured">
-          <p class="upgrade-card-badge upgrade-card-badge-popular">Most Popular</p>
+          <p class="upgrade-card-badge upgrade-card-badge-popular" data-i18n="upgrade.mostPopular">Most Popular</p>
           <h3>Company</h3>
           <div class="upgrade-price">
             <s class="upgrade-price-old">Rp 1.299.000</s>
-            <span class="upgrade-price-now">Rp 999.000<span class="upgrade-price-period">/bulan</span></span>
+            <span class="upgrade-price-now">Rp 999.000<span class="upgrade-price-period" data-i18n="upgrade.perMonth">/bulan</span></span>
           </div>
           <ul class="upgrade-features">
             <li>5 users (agen CS)</li>
@@ -111,10 +111,10 @@
             <li>Unlimited Playbook AI</li>
             <li>Unlimited pesan AI</li>
           </ul>
-          <a href="https://wa.me/6281218700276?text=Halo%2C%20saya%20mau%20langganan%20Agnee%20Company%20Beta" class="upgrade-btn upgrade-btn-primary" target="_blank" rel="noopener noreferrer">Aktifkan via WhatsApp</a>
+          <a href="https://wa.me/6281218700276?text=Halo%2C%20saya%20mau%20langganan%20Agnee%20Company%20Beta" class="upgrade-btn upgrade-btn-primary" target="_blank" rel="noopener noreferrer" data-i18n="upgrade.activateBtn">Aktifkan via WhatsApp</a>
         </div>
       </div>
-      <button id="upgradeWallLogout" class="upgrade-wall-logout">Keluar dari akun ini</button>
+      <button id="upgradeWallLogout" class="upgrade-wall-logout" data-i18n="upgrade.logout">Keluar dari akun ini</button>
     </div>
   </div>
 
@@ -122,14 +122,14 @@
     <aside class="rail">
       <img src="/brand/agnee-mark.svg" alt="Agnee" class="rail-logo">
       <nav data-i18n-aria-label="nav.main">
-        <button id="inboxButton" class="rail-action active" data-i18n-aria-label="nav.inbox" data-label="Inbox">⌁</button>
-        <button id="contactsButton" class="rail-action" data-i18n-aria-label="nav.contacts" data-label="Kontak">◎</button>
-        <button id="funnelButton" class="rail-action" data-i18n-aria-label="nav.funnel" data-label="Funnel">↗</button>
-        <button id="playgroundButton" class="rail-action" aria-label="Simulasi & Training" data-label="Training" hidden>▷</button>
-        <button id="adminButton" class="rail-action" data-i18n-aria-label="nav.admin" data-label="Admin">⚙</button>
-        <button id="settingsButton" class="rail-action" aria-label="Pengaturan" data-label="Setting">◈</button>
+        <button id="inboxButton" class="rail-action active" data-i18n-aria-label="nav.inbox" data-i18n-label="nav.labelInbox" data-label="Inbox">⌁</button>
+        <button id="contactsButton" class="rail-action" data-i18n-aria-label="nav.contacts" data-i18n-label="nav.labelContacts" data-label="Kontak">◎</button>
+        <button id="funnelButton" class="rail-action" data-i18n-aria-label="nav.funnel" data-i18n-label="nav.labelFunnel" data-label="Funnel">↗</button>
+        <button id="playgroundButton" class="rail-action" data-i18n-aria-label="nav.playground" data-i18n-label="nav.labelTraining" data-label="Training" hidden>▷</button>
+        <button id="adminButton" class="rail-action" data-i18n-aria-label="nav.admin" data-i18n-label="nav.labelAdmin" data-label="Admin">⚙</button>
+        <button id="settingsButton" class="rail-action" data-i18n-aria-label="nav.settings" data-i18n-label="nav.labelSettings" data-label="Setting">◈</button>
       </nav>
-      <button id="logoutButton" class="rail-action logout" data-i18n-aria-label="nav.logout" data-label="Keluar">↪</button>
+      <button id="logoutButton" class="rail-action logout" data-i18n-aria-label="nav.logout" data-i18n-label="nav.labelLogout" data-label="Keluar">↪</button>
     </aside>
 
     <section id="inboxPanel" class="inbox-panel">
@@ -228,12 +228,12 @@
     <section id="playgroundPanel" class="playground-panel" hidden>
       <header class="pg-header">
         <div>
-          <p class="eyebrow">SIMULASI & TRAINING</p>
-          <h1 class="pg-title">Uji respons AI</h1>
+          <p class="eyebrow" data-i18n="pg.eyebrow">SIMULASI & TRAINING</p>
+          <h1 class="pg-title" data-i18n="pg.title">Uji respons AI</h1>
         </div>
         <div class="pg-meta">
           <span class="pg-status-dot" id="pgStatusDot"></span>
-          <span id="pgStatusLabel">Memuat…</span>
+          <span id="pgStatusLabel" data-i18n="common.loading">Memuat…</span>
           <select id="pgClientId" class="pg-client-select"></select>
         </div>
       </header>
@@ -241,20 +241,20 @@
       <div class="pg-body">
         <div class="pg-left">
           <form id="pgForm" class="pg-form">
-            <label class="pg-label">Pesan pelanggan</label>
-            <textarea id="pgMessage" class="pg-textarea" rows="5" maxlength="2000" placeholder="Ketik pesan seperti yang dikirim pelanggan…"></textarea>
+            <label class="pg-label" data-i18n="pg.messageLabel">Pesan pelanggan</label>
+            <textarea id="pgMessage" class="pg-textarea" rows="5" maxlength="2000" data-i18n-placeholder="pg.placeholder" placeholder="Ketik pesan seperti yang dikirim pelanggan…"></textarea>
             <div class="pg-quick-buttons">
-              <button type="button" data-pg-message="Halo, saya mau tanya tentang produk">Sapa pembuka</button>
-              <button type="button" data-pg-message="Berapa harganya per bulan?">Harga</button>
-              <button type="button" data-pg-message="Apakah ada trial gratis?">Trial</button>
-              <button type="button" data-pg-message="Bagaimana cara daftarnya?">Cara daftar</button>
+              <button type="button" data-pg-message="Halo, saya mau tanya tentang produk" data-i18n="pg.msgGreeting">Sapa pembuka</button>
+              <button type="button" data-pg-message="Berapa harganya per bulan?" data-i18n="pg.msgPrice">Harga</button>
+              <button type="button" data-pg-message="Apakah ada trial gratis?" data-i18n="pg.msgTrial">Trial</button>
+              <button type="button" data-pg-message="Bagaimana cara daftarnya?" data-i18n="pg.msgSignup">Cara daftar</button>
             </div>
-            <button id="pgSubmit" type="submit" class="pg-submit" disabled>Uji respons AI</button>
+            <button id="pgSubmit" type="submit" class="pg-submit" disabled data-i18n="pg.submit">Uji respons AI</button>
             <p id="pgError" class="pg-error" hidden></p>
           </form>
 
           <div class="pg-history" id="pgHistory" hidden>
-            <p class="eyebrow" style="margin-bottom:12px">RIWAYAT UJI</p>
+            <p class="eyebrow" style="margin-bottom:12px" data-i18n="pg.historyEyebrow">RIWAYAT UJI</p>
             <div id="pgHistoryList"></div>
           </div>
         </div>
@@ -262,14 +262,14 @@
         <div class="pg-right">
           <div id="pgResult" class="pg-result">
             <div id="pgEmpty" class="pg-empty">
-              <p>Respons AI akan muncul di sini setelah kamu klik <strong>Uji respons AI</strong>.</p>
+              <p data-i18n-html="pg.emptyState">Respons AI akan muncul di sini setelah kamu klik <strong>Uji respons AI</strong>.</p>
             </div>
             <div id="pgLoading" class="pg-loading" hidden>
               <span class="sync-spinner" aria-hidden="true"></span>
-              <span>AI sedang memproses…</span>
+              <span data-i18n="pg.processing">AI sedang memproses…</span>
             </div>
             <div id="pgOutput" class="pg-output" hidden>
-              <p class="eyebrow" style="margin-bottom:8px">RESPONS AI</p>
+              <p class="eyebrow" style="margin-bottom:8px" data-i18n="pg.outputEyebrow">RESPONS AI</p>
               <div id="pgOutputText" class="pg-output-text"></div>
               <div id="pgOutputMeta" class="pg-output-meta"></div>
             </div>
@@ -335,7 +335,7 @@
 
   <!-- Onboarding wizard -->
   <dialog id="onboardingDialog" class="onboarding-dialog">
-    <button id="onboardingClose" class="dialog-close" aria-label="Tutup">×</button>
+    <button id="onboardingClose" class="dialog-close" data-i18n-aria-label="ob.closeAria" aria-label="Tutup">×</button>
     <div class="ob-progress" id="obProgress" aria-hidden="true">
       <span class="ob-dot active" data-step="0"></span>
       <span class="ob-dot" data-step="1"></span>
@@ -346,46 +346,46 @@
       <!-- Step 0: Welcome -->
       <div class="ob-step active" data-step="0">
         <img src="/brand/agnee-mark.svg" alt="" class="ob-icon">
-        <h2>Selamat datang di Agnee!</h2>
-        <p>Mari setup inbox WhatsApp kamu dalam 3 langkah cepat. Butuh sekitar 2 menit.</p>
+        <h2 data-i18n="ob.welcome">Selamat datang di Agnee!</h2>
+        <p data-i18n="ob.welcomeCopy">Mari setup inbox WhatsApp kamu dalam 3 langkah cepat. Butuh sekitar 2 menit.</p>
         <div class="ob-actions">
-          <button class="ob-primary ob-next">Mulai setup →</button>
-          <button class="ob-skip" id="onboardingSkip">Lewati, setup nanti</button>
+          <button class="ob-primary ob-next" data-i18n="ob.start">Mulai setup →</button>
+          <button class="ob-skip" id="onboardingSkip" data-i18n="ob.skip">Lewati, setup nanti</button>
         </div>
       </div>
       <!-- Step 1: Connect WhatsApp -->
       <div class="ob-step" data-step="1">
         <div class="ob-step-icon">📱</div>
-        <h2>Hubungkan WhatsApp</h2>
-        <p>Klik tombol koneksi di atas (ikon WhatsApp), lalu pindai QR code dengan HP kamu.</p>
+        <h2 data-i18n="ob.step1Title">Hubungkan WhatsApp</h2>
+        <p data-i18n="ob.step1Copy">Klik tombol koneksi di atas (ikon WhatsApp), lalu pindai QR code dengan HP kamu.</p>
         <ul class="ob-checklist">
-          <li>Buka WhatsApp di HP</li>
-          <li>Tap Pengaturan → Perangkat Tertaut</li>
-          <li>Pindai QR code yang muncul</li>
+          <li data-i18n="ob.step1Li1">Buka WhatsApp di HP</li>
+          <li data-i18n="ob.step1Li2">Tap Pengaturan → Perangkat Tertaut</li>
+          <li data-i18n="ob.step1Li3">Pindai QR code yang muncul</li>
         </ul>
         <div class="ob-actions">
-          <button class="ob-primary ob-next" id="obOpenQr">Buka koneksi WhatsApp</button>
-          <button class="ob-secondary ob-next">Sudah terhubung, lanjut →</button>
+          <button class="ob-primary ob-next" id="obOpenQr" data-i18n="ob.step1Btn">Buka koneksi WhatsApp</button>
+          <button class="ob-secondary ob-next" data-i18n="ob.step1Next">Sudah terhubung, lanjut →</button>
         </div>
       </div>
       <!-- Step 2: Invite / add agent -->
       <div class="ob-step" data-step="2">
         <div class="ob-step-icon">👥</div>
-        <h2>Tambahkan anggota tim</h2>
-        <p>Undang agen CS kamu. Mereka akan bisa membalas chat dan handover antar AI ↔ manusia. Kamu bisa lewati ini dan tambah nanti di <strong>Pengaturan</strong>.</p>
+        <h2 data-i18n="ob.step2Title">Tambahkan anggota tim</h2>
+        <p data-i18n-html="ob.step2Copy">Undang agen CS kamu. Mereka akan bisa membalas chat dan handover antar AI ↔ manusia. Kamu bisa lewati ini dan tambah nanti di <strong>Pengaturan</strong>.</p>
         <div class="ob-actions">
-          <a href="/settings" class="ob-primary ob-link">Buka Pengaturan Tim</a>
-          <button class="ob-secondary ob-next">Lewati, nanti saja →</button>
+          <a href="/settings" class="ob-primary ob-link" data-i18n="ob.step2Open">Buka Pengaturan Tim</a>
+          <button class="ob-secondary ob-next" data-i18n="ob.step2Skip">Lewati, nanti saja →</button>
         </div>
       </div>
       <!-- Step 3: Playbook -->
       <div class="ob-step" data-step="3">
         <div class="ob-step-icon">📚</div>
-        <h2>Upload playbook / FAQ</h2>
-        <p>Playbook adalah sumber jawaban AI kamu. Buka panel Admin untuk upload FAQ atau training data. Agen CS-mu akan otomatis inherit playbook ini.</p>
+        <h2 data-i18n="ob.step3Title">Upload playbook / FAQ</h2>
+        <p data-i18n="ob.step3Copy">Playbook adalah sumber jawaban AI kamu. Buka panel Admin untuk upload FAQ atau training data. Agen CS-mu akan otomatis inherit playbook ini.</p>
         <div class="ob-actions">
-          <a href="/admin" class="ob-primary ob-link">Buka Admin → Uji AI</a>
-          <button class="ob-secondary" id="obDone">Selesai, masuk inbox →</button>
+          <a href="/admin" class="ob-primary ob-link" data-i18n="ob.step3Open">Buka Admin → Uji AI</a>
+          <button class="ob-secondary" id="obDone" data-i18n="ob.step3Done">Selesai, masuk inbox →</button>
         </div>
       </div>
     </div>

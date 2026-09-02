@@ -132,6 +132,7 @@ const state = {
   activeFilter: 'all',
   connectionTimer: null,
   workspaceTimer: null,
+  planTimer: null,
   eventSource: null,
   searchTimer: null,
   liveRefreshTimer: null,
@@ -153,6 +154,7 @@ async function api(path, options = {}) {
   if (!response.ok) {
     const error = new Error(data.error || tr('error.request', { status: response.status }));
     error.status = response.status;
+    if (response.status === 401 && !path.startsWith('/v1/auth/')) showLogin();
     throw error;
   }
   return data;
@@ -247,12 +249,16 @@ function showApp(sessionData) {
   connectEvents();
   clearInterval(state.workspaceTimer);
   state.workspaceTimer = setInterval(refreshEmptyInbox, 5000);
+  clearInterval(state.planTimer);
+  state.planTimer = setInterval(checkUsageWarning, 5 * 60 * 1000);
   checkUsageWarning();
 }
 
 function showLogin(fromInit = false) {
   clearInterval(state.workspaceTimer);
   state.workspaceTimer = null;
+  clearInterval(state.planTimer);
+  state.planTimer = null;
   state.eventSource?.close();
   state.eventSource = null;
   transition(() => {
@@ -1301,7 +1307,7 @@ function connectEvents() {
   events.addEventListener('whatsapp_phase', async (event) => {
     let payload = {};
     try { payload = JSON.parse(event.data || '{}'); } catch { /* ignore */ }
-    state.whatsapp = { phase: payload.phase, account: payload.account };
+    state.whatsapp = { ...state.whatsapp, phase: payload.phase, account: payload.account };
     renderConnection(state.whatsapp);
     if (payload.phase === 'waiting_for_qr' && payload.qrDataUrl) {
       if (ui.connectionDialog.open && ui.qrShell.hidden) {

@@ -829,7 +829,7 @@ async function buildApp(overrides = {}) {
   }
 
   function isSupervisor(session) {
-    return ['owner', 'supervisor', 'admin'].includes(session?.role) || session?.apiClient;
+    return session?.role === 'supervisor' || session?.apiClient;
   }
 
   async function getTeamMembers(companyId) {

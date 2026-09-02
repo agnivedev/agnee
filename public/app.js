@@ -2162,7 +2162,7 @@ if (refreshQrBtn) {
       } else if (data?.restarting) {
         // Server is restarting WhatsApp client — show waiting state, SSE will push the new QR
         ui.qrShell.hidden = true;
-        ui.qrNote.textContent = 'Memulai ulang koneksi WhatsApp…';
+        ui.qrNote.textContent = tr('wa.restarting');
         // Re-enable button after delay so user can retry if needed
         setTimeout(() => { refreshQrBtn.classList.remove('loading'); refreshQrBtn.disabled = false; }, 5000);
       } else {

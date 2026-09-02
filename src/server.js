@@ -1566,16 +1566,23 @@ async function buildApp(overrides = {}) {
       return { qrDataUrl: demoQr, demoMode: true };
     }
     const waState = manager.getState(companyId);
-    if (waState.phase === 'error') {
+    if (waState.phase === 'error' || !manager.getClient(companyId)) {
       const connConfig = await getConnConfig(companyId);
-      const backupName = manager.quarantineProfile(companyId, connConfig.sessionPath, connConfig.clientId, app.log);
-      await manager.stopClient(companyId);
+      if (waState.phase === 'error') {
+        const backupName = manager.quarantineProfile(companyId, connConfig.sessionPath, connConfig.clientId, app.log);
+        await manager.stopClient(companyId);
+        waState.lastError = null;
+        app.log.info({ companyId, previousSessionBackedUp: Boolean(backupName) }, 'Restarting WhatsApp client after error');
+      } else {
+        app.log.info({ companyId }, 'Starting WhatsApp client for first time');
+      }
       waState.phase = 'starting';
       waState.qrDataUrl = null;
-      waState.lastError = null;
       manager.broadcast(companyId, 'whatsapp_phase', { phase: 'starting' });
-      await manager.startFor(companyId, connConfig, makeWaCallbacks());
-      return { restarting: true, phase: 'starting', previousSessionBackedUp: Boolean(backupName) };
+      manager.startFor(companyId, connConfig, makeWaCallbacks()).catch((error) => {
+        app.log.warn({ err: error, companyId }, 'Could not start WhatsApp client');
+      });
+      return { restarting: true, phase: 'starting' };
     }
     await manager.mirrorCurrentQrFromBrowser(companyId, app.log);
     if (!waState.qrDataUrl) return reply.code(404).send({ error: 'QR is not available', phase: waState.phase });

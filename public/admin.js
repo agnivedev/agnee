@@ -439,9 +439,136 @@ ui.saveAiSettings.addEventListener('click', async () => {
   }
 });
 
+const playbookUi = {
+  brief: document.querySelector('#playbookBrief'),
+  saveBrief: document.querySelector('#savePlaybookBrief'),
+  briefSaved: document.querySelector('#playbookBriefSaved'),
+  dropzone: document.querySelector('#playbookDropzone'),
+  fileInput: document.querySelector('#playbookFileInput'),
+  uploadStatus: document.querySelector('#playbookUploadStatus'),
+  assets: document.querySelector('#playbookAssets'),
+};
+
+const PLAYBOOK_KIND_ICON = { document: '📄', image: '🖼', video: '🎬', audio: '🎵', other: '📎' };
+const PLAYBOOK_STATUS_LABEL = { ready: 'Terbaca AI', unsupported: 'Belum diproses', failed: 'Gagal dibaca' };
+
+function formatFileSize(bytes) {
+  if (!bytes) return '0 KB';
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function renderPlaybookAssets(assets) {
+  playbookUi.assets.replaceChildren();
+  if (!assets.length) {
+    const empty = document.createElement('p');
+    empty.className = 'playbook-assets-empty';
+    empty.textContent = 'Belum ada dokumen yang diunggah.';
+    playbookUi.assets.append(empty);
+    return;
+  }
+  for (const asset of assets) {
+    const row = document.createElement('div');
+    row.className = 'playbook-asset';
+    const icon = document.createElement('div');
+    icon.className = 'playbook-asset-icon';
+    icon.textContent = PLAYBOOK_KIND_ICON[asset.kind] || '📎';
+    const info = document.createElement('div');
+    const name = document.createElement('strong');
+    name.textContent = asset.filename;
+    const meta = document.createElement('small');
+    meta.textContent = formatFileSize(asset.sizeBytes);
+    info.append(name, meta);
+    const status = document.createElement('span');
+    status.className = `playbook-asset-status ${asset.extractionStatus}`;
+    status.textContent = PLAYBOOK_STATUS_LABEL[asset.extractionStatus] || asset.extractionStatus;
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'playbook-asset-delete';
+    del.textContent = 'Hapus';
+    del.addEventListener('click', async () => {
+      del.disabled = true;
+      try {
+        await api(`/v1/admin/playbook/assets/${asset.id}`, { method: 'DELETE' });
+        row.remove();
+        if (!playbookUi.assets.children.length) renderPlaybookAssets([]);
+      } catch (error) {
+        alert(`Gagal menghapus file: ${error.message}`);
+        del.disabled = false;
+      }
+    });
+    row.append(icon, info, status, del);
+    playbookUi.assets.append(row);
+  }
+}
+
+async function loadPlaybook() {
+  try {
+    const data = await api('/v1/admin/playbook');
+    playbookUi.brief.value = data.brief || '';
+    renderPlaybookAssets(data.assets || []);
+  } catch (error) {
+    playbookUi.uploadStatus.textContent = `Gagal memuat playbook: ${error.message}`;
+    playbookUi.uploadStatus.classList.add('error');
+  }
+}
+
+playbookUi.saveBrief.addEventListener('click', async () => {
+  playbookUi.saveBrief.disabled = true;
+  try {
+    await api('/v1/admin/playbook', { method: 'PUT', body: JSON.stringify({ brief: playbookUi.brief.value }) });
+    playbookUi.briefSaved.hidden = false;
+    setTimeout(() => { playbookUi.briefSaved.hidden = true; }, 2500);
+  } catch (error) {
+    alert(`Gagal menyimpan brief: ${error.message}`);
+  } finally {
+    playbookUi.saveBrief.disabled = false;
+  }
+});
+
+async function uploadPlaybookFile(file) {
+  playbookUi.uploadStatus.classList.remove('error');
+  playbookUi.uploadStatus.textContent = `Mengunggah ${file.name}…`;
+  const formData = new FormData();
+  formData.append('file', file);
+  try {
+    const response = await fetch('/v1/admin/playbook/assets', { method: 'POST', body: formData });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+    playbookUi.uploadStatus.textContent = `${file.name} berhasil diunggah.`;
+    await loadPlaybook();
+  } catch (error) {
+    playbookUi.uploadStatus.textContent = `Gagal mengunggah ${file.name}: ${error.message}`;
+    playbookUi.uploadStatus.classList.add('error');
+  }
+}
+
+playbookUi.fileInput.addEventListener('change', () => {
+  if (playbookUi.fileInput.files[0]) uploadPlaybookFile(playbookUi.fileInput.files[0]);
+  playbookUi.fileInput.value = '';
+});
+
+['dragover', 'dragenter'].forEach((evt) => {
+  playbookUi.dropzone.addEventListener(evt, (event) => {
+    event.preventDefault();
+    playbookUi.dropzone.classList.add('dragover');
+  });
+});
+['dragleave', 'dragend', 'drop'].forEach((evt) => {
+  playbookUi.dropzone.addEventListener(evt, (event) => {
+    event.preventDefault();
+    playbookUi.dropzone.classList.remove('dragover');
+  });
+});
+playbookUi.dropzone.addEventListener('drop', (event) => {
+  const file = event.dataTransfer?.files?.[0];
+  if (file) uploadPlaybookFile(file);
+});
+
 loadConfig();
 loadAiSettings();
 loadTeam();
+loadPlaybook();
 
 window.addEventListener('agnee:localechange', () => {
   loadConfig();

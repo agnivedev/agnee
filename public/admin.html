@@ -22,6 +22,7 @@
       <nav aria-label="Admin navigation">
         <a href="#overview"><span>⌂</span><b data-i18n="admin.overview">Ringkasan</b></a>
         <a href="/settings"><span>◈</span><b>Pengaturan</b></a>
+        <a href="#playbookSection"><span>📚</span><b>Playbook</b></a>
         <a class="active" href="#playground"><span>◫</span><b data-i18n="admin.playground">Uji balasan</b></a>
       </nav>
 
@@ -86,6 +87,32 @@
           <button type="submit" class="save-settings-btn" data-i18n="team.add">Tambah anggota</button>
           <p id="teamStatus" class="team-status" role="status"></p>
         </form>
+      </section>
+
+      <section id="playbookSection" class="playbook-card" aria-labelledby="playbookTitle">
+        <div class="card-head"><div><p class="eyebrow">SUMBER JAWABAN AI</p><h2 id="playbookTitle">Playbook perusahaan</h2></div></div>
+        <p class="team-copy">Tulis brief instruksi untuk AI, atau unggah dokumen referensi (PDF, Word, Markdown, teks). Playbook ini otomatis dipakai AI untuk membalas semua chat perusahaan — berlaku untuk seluruh agent.</p>
+
+        <label class="playbook-brief-label" for="playbookBrief">Brief / instruksi AI</label>
+        <textarea id="playbookBrief" class="playbook-brief" rows="6" placeholder="Contoh: Kami jual paket internet rumahan. Harga mulai Rp150rb/bulan. Kalau pelanggan tanya harga di luar paket A/B/C, arahkan ke sales. Jangan janji jadwal pemasangan, itu wewenang tim lapangan."></textarea>
+        <div class="playbook-brief-actions">
+          <button id="savePlaybookBrief" class="save-settings-btn" type="button">Simpan brief</button>
+          <span id="playbookBriefSaved" class="settings-saved-badge" hidden>Tersimpan ✓</span>
+        </div>
+
+        <div class="playbook-divider"></div>
+
+        <p class="playbook-assets-label">Dokumen &amp; media referensi</p>
+        <p class="playbook-assets-hint">PDF, Word (.docx), Markdown, dan teks akan dibaca otomatis oleh AI. Gambar, video, dan audio disimpan untuk referensi tim — belum diproses otomatis oleh AI. Maks 25MB per file.</p>
+
+        <label id="playbookDropzone" class="playbook-dropzone" for="playbookFileInput">
+          <span class="playbook-dropzone-icon">⇪</span>
+          <span>Klik untuk pilih file, atau drag &amp; drop ke sini</span>
+          <input type="file" id="playbookFileInput" accept=".pdf,.doc,.docx,.md,.markdown,.txt,image/*,video/*,audio/*" hidden>
+        </label>
+        <p id="playbookUploadStatus" class="playbook-upload-status" role="status"></p>
+
+        <div id="playbookAssets" class="playbook-assets"></div>
       </section>
 
       <section class="playground-grid" id="playground">

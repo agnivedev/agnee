@@ -462,6 +462,95 @@ class Database {
     return this.getCompanyConfig(companyId);
   }
 
+  async getPlaybook(companyId = this.companyId) {
+    if (!this.enabled) return { brief: '', updatedAt: null };
+    const result = await this.pool.query(`
+      SELECT brief, updated_at AS "updatedAt"
+      FROM playbooks WHERE company_id = $1
+    `, [companyId]);
+    return result.rows[0] || { brief: '', updatedAt: null };
+  }
+
+  async savePlaybookBrief(brief, updatedBy, companyId = this.companyId) {
+    if (!this.enabled) return { brief, updatedAt: new Date().toISOString() };
+    const result = await this.pool.query(`
+      INSERT INTO playbooks (company_id, brief, updated_by, updated_at)
+      VALUES ($1, $2, $3, NOW())
+      ON CONFLICT (company_id) DO UPDATE SET
+        brief = EXCLUDED.brief, updated_by = EXCLUDED.updated_by, updated_at = NOW()
+      RETURNING brief, updated_at AS "updatedAt"
+    `, [companyId, brief, updatedBy || null]);
+    return result.rows[0];
+  }
+
+  async listPlaybookAssets(companyId = this.companyId) {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(`
+      SELECT id, filename, mime_type AS "mimeType", kind, size_bytes AS "sizeBytes",
+             extraction_status AS "extractionStatus", created_at AS "createdAt"
+      FROM playbook_assets
+      WHERE company_id = $1
+      ORDER BY created_at DESC
+    `, [companyId]);
+    return result.rows;
+  }
+
+  async createPlaybookAsset(asset, companyId = this.companyId) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      INSERT INTO playbook_assets
+        (company_id, filename, mime_type, kind, size_bytes, storage_path, extracted_text, extraction_status, uploaded_by)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      RETURNING id, filename, mime_type AS "mimeType", kind, size_bytes AS "sizeBytes",
+                extraction_status AS "extractionStatus", created_at AS "createdAt"
+    `, [
+      companyId, asset.filename, asset.mimeType, asset.kind, asset.sizeBytes,
+      asset.storagePath, asset.extractedText || null, asset.extractionStatus,
+      asset.uploadedBy || null,
+    ]);
+    return result.rows[0];
+  }
+
+  async getPlaybookAsset(assetId, companyId = this.companyId) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      SELECT id, filename, mime_type AS "mimeType", kind, size_bytes AS "sizeBytes",
+             storage_path AS "storagePath", extracted_text AS "extractedText",
+             extraction_status AS "extractionStatus"
+      FROM playbook_assets WHERE id = $1 AND company_id = $2
+    `, [assetId, companyId]);
+    return result.rows[0] || null;
+  }
+
+  async deletePlaybookAsset(assetId, companyId = this.companyId) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      DELETE FROM playbook_assets WHERE id = $1 AND company_id = $2
+      RETURNING storage_path AS "storagePath"
+    `, [assetId, companyId]);
+    return result.rows[0] || null;
+  }
+
+  /** Combined text context for the AI: typed brief + extracted text from ready documents. */
+  async getPlaybookContext(companyId = this.companyId) {
+    if (!this.enabled) return '';
+    const [playbook, assets] = await Promise.all([
+      this.getPlaybook(companyId),
+      this.pool.query(`
+        SELECT filename, extracted_text AS "extractedText"
+        FROM playbook_assets
+        WHERE company_id = $1 AND extraction_status = 'ready' AND extracted_text IS NOT NULL
+        ORDER BY created_at DESC
+      `, [companyId]),
+    ]);
+    const parts = [];
+    if (playbook.brief?.trim()) parts.push(playbook.brief.trim());
+    for (const row of assets.rows) {
+      parts.push(`--- Dokumen: ${row.filename} ---\n${row.extractedText}`);
+    }
+    return parts.join('\n\n');
+  }
+
   async incrementAiMessageCount(companyId = this.companyId) {
     if (!this.enabled) return { count: 0, limit: 0, exceeded: false };
     const result = await this.pool.query(`

@@ -1,15 +1,18 @@
 'use strict';
 
 const crypto = require('node:crypto');
+const fs = require('node:fs/promises');
 const path = require('node:path');
 const Fastify = require('fastify');
 const fastifyStatic = require('@fastify/static');
+const fastifyMultipart = require('@fastify/multipart');
 const QRCode = require('qrcode');
 const { WhatsappManager } = require('./whatsapp-manager.js');
 const KnowledgeBase = require('./knowledge-loader.js');
 const LlmService = require('./llm-service.js');
 const { normalizeUsage, styleWarnings } = require('./reply-style.js');
 const Database = require('./database.js');
+const { extractPlaybookText } = require('./playbook-extractor.js');
 
 process.on('unhandledRejection', (reason) => {
   console.error('Unhandled promise rejection (WhatsApp adapter kept alive):', reason);
@@ -392,9 +395,14 @@ async function buildApp(overrides = {}) {
     const latestSummary = typeof database.getConversationSummary === 'function' && database.status().connected
       ? await database.getConversationSummary(message.from, 'id', companyId)
       : conversationSummaries.get(`${companyId}:${message.from}:id`);
+    const playbookContext = typeof database.getPlaybookContext === 'function' && database.status().connected
+      ? await database.getPlaybookContext(companyId).catch(() => '')
+      : '';
 
     const result = await llmService.generateReply(message.body, {
-      systemPrompt: kb.getSystemPrompt(),
+      systemPrompt: playbookContext
+        ? `${kb.getSystemPrompt()}\n\n## PLAYBOOK PERUSAHAAN INI (SUMBER UTAMA — prioritaskan di atas knowledge umum di atas)\n${playbookContext}`
+        : kb.getSystemPrompt(),
       relevantFaqs,
       leadState: latestSummary?.summary ? { ...leadState, conversationSummary: latestSummary.summary } : leadState,
     });
@@ -905,6 +913,10 @@ async function buildApp(overrides = {}) {
     reply.header('content-security-policy', csp);
   });
 
+  await app.register(fastifyMultipart, {
+    limits: { fileSize: 25 * 1024 * 1024, files: 1 },
+  });
+
   await app.register(fastifyStatic, { root: path.join(__dirname, '..', 'public'), prefix: '/' });
   await app.register(fastifyStatic, {
     root: path.join(__dirname, '..', 'assets', 'brand'),
@@ -1069,6 +1081,91 @@ async function buildApp(overrides = {}) {
   }, async (request, reply) => {
     if (!database.status().connected) return reply.code(503).send({ error: 'Tidak tersedia.' });
     return await database.updateCompanyConfig(request.body, request.agneeSession?.companyId);
+  });
+
+  // ── Playbook: per-company AI brief + reference documents/media ─────────────
+  const playbookStorageDir = process.env.PLAYBOOK_STORAGE_PATH || path.join(__dirname, '..', 'data', 'playbooks');
+  const ALLOWED_PLAYBOOK_MIME_PREFIXES = ['text/', 'image/', 'video/', 'audio/'];
+  const ALLOWED_PLAYBOOK_MIME_TYPES = new Set([
+    'application/pdf',
+    'application/msword',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  ]);
+
+  function isAllowedPlaybookMime(mimeType) {
+    return ALLOWED_PLAYBOOK_MIME_TYPES.has(mimeType) || ALLOWED_PLAYBOOK_MIME_PREFIXES.some((prefix) => mimeType.startsWith(prefix));
+  }
+
+  app.get('/v1/admin/playbook', async (request, reply) => {
+    if (!database.status().connected) return reply.code(503).send({ error: 'Tidak tersedia.' });
+    const companyId = request.agneeSession?.companyId || database.companyId;
+    const [playbook, assets] = await Promise.all([
+      database.getPlaybook(companyId),
+      database.listPlaybookAssets(companyId),
+    ]);
+    return { ...playbook, assets };
+  });
+
+  app.put('/v1/admin/playbook', {
+    schema: { body: { type: 'object', additionalProperties: false, required: ['brief'], properties: {
+      brief: { type: 'string', maxLength: 20000 },
+    } } },
+  }, async (request, reply) => {
+    if (!database.status().connected) return reply.code(503).send({ error: 'Tidak tersedia.' });
+    const companyId = request.agneeSession?.companyId || database.companyId;
+    const saved = await database.savePlaybookBrief(request.body.brief, request.agneeSession?.userId, companyId);
+    return saved;
+  });
+
+  app.post('/v1/admin/playbook/assets', async (request, reply) => {
+    if (!database.status().connected) return reply.code(503).send({ error: 'Tidak tersedia.' });
+    const companyId = request.agneeSession?.companyId || database.companyId;
+    const file = await request.file().catch(() => null);
+    if (!file) return reply.code(400).send({ error: 'Tidak ada file yang diunggah.' });
+    if (!isAllowedPlaybookMime(file.mimetype)) {
+      file.file.resume();
+      return reply.code(415).send({ error: `Tipe file tidak didukung: ${file.mimetype}` });
+    }
+    const buffer = await file.toBuffer().catch(() => null);
+    if (!buffer) return reply.code(400).send({ error: 'Gagal membaca file.' });
+    if (file.file.truncated) return reply.code(413).send({ error: 'File maksimal 25MB.' });
+
+    const extraction = await extractPlaybookText(buffer, file.mimetype, file.filename);
+    const assetId = crypto.randomUUID();
+    const safeName = file.filename.replace(/[^a-zA-Z0-9._-]/g, '_').slice(-150);
+    const companyDir = path.join(playbookStorageDir, companyId);
+    await fs.mkdir(companyDir, { recursive: true, mode: 0o700 });
+    const storagePath = path.join(companyDir, `${assetId}-${safeName}`);
+    await fs.writeFile(storagePath, buffer);
+
+    const saved = await database.createPlaybookAsset({
+      filename: file.filename,
+      mimeType: file.mimetype,
+      kind: extraction.kind,
+      sizeBytes: buffer.length,
+      storagePath,
+      extractedText: extraction.text,
+      extractionStatus: extraction.status,
+      uploadedBy: request.agneeSession?.userId,
+    }, companyId);
+    if (!saved) {
+      await fs.unlink(storagePath).catch(() => {});
+      return reply.code(503).send({ error: 'Gagal menyimpan file.' });
+    }
+    return reply.code(201).send({ asset: saved });
+  });
+
+  app.delete('/v1/admin/playbook/assets/:assetId', {
+    schema: { params: { type: 'object', required: ['assetId'], properties: {
+      assetId: { type: 'string', minLength: 1, maxLength: 100 },
+    } } },
+  }, async (request, reply) => {
+    if (!database.status().connected) return reply.code(503).send({ error: 'Tidak tersedia.' });
+    const companyId = request.agneeSession?.companyId || database.companyId;
+    const deleted = await database.deletePlaybookAsset(request.params.assetId, companyId);
+    if (!deleted) return reply.code(404).send({ error: 'File tidak ditemukan.' });
+    if (deleted.storagePath) await fs.unlink(deleted.storagePath).catch(() => {});
+    return reply.code(204).send();
   });
 
   app.get('/v1/chats/:chatId/routing', async (request) => {

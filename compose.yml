@@ -36,6 +36,7 @@ services:
       - "127.0.0.1:4100:4100"
     volumes:
       - whatsapp-session:/data/whatsapp
+      - playbook-uploads:/data/playbooks
     shm_size: 512mb
     mem_limit: 768m
     cpus: 0.75
@@ -79,5 +80,6 @@ services:
 
 volumes:
   whatsapp-session:
+  playbook-uploads:
   mcp-state:
   postgres-data:

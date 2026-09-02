@@ -206,25 +206,14 @@ ul {
 
 .nav-logo {
   display: flex;
-  flex-direction: column;
-  gap: 0;
+  align-items: center;
   text-decoration: none;
 }
 
-.nav-logo-name {
-  font-size: 1.125rem;
-  font-weight: 700;
-  color: var(--brand-off);
-  letter-spacing: -0.01em;
-  line-height: 1.1;
-}
-
-.nav-logo-by {
-  font-size: 0.625rem;
-  font-weight: 500;
-  color: rgba(244, 249, 240, 0.35);
-  letter-spacing: 0.04em;
-  line-height: 1;
+.nav-logo-img {
+  height: 26px;
+  width: auto;
+  display: block;
 }
 
 .nav-login {
@@ -986,10 +975,8 @@ ul {
 }
 
 .footer-logo {
-  font-size: 1.25rem;
-  font-weight: 700;
-  color: var(--brand-off);
-  letter-spacing: -0.01em;
+  height: 30px;
+  width: auto;
   display: block;
   margin-bottom: 0.75rem;
 }

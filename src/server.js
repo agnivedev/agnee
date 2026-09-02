@@ -246,14 +246,15 @@ async function buildApp(overrides = {}) {
   const conversationSummaries = new Map();
   const summaryJobs = new Map();
   const fallbackTeam = [{ id: 'local-supervisor', email: config.adminEmail, displayName: 'Supervisor', role: 'supervisor', status: 'active', presence: 'online' }];
-  // Knowledge base: use company's knowledge_client from DB if available, fallback to config
-  let companyKnowledgeClient = config.knowledgeClient;
-  async function getKnowledgeBase() {
+  // Knowledge base: resolved per-company from DB on every call (no shared mutable —
+  // each tenant may have a different knowledge_client and must never see another's).
+  async function getKnowledgeBase(companyId) {
+    let clientId = config.knowledgeClient;
     if (database.enabled && database.connected) {
-      const co = await database.getCompanyConfig().catch(() => null);
-      if (co?.knowledgeClient) companyKnowledgeClient = co.knowledgeClient;
+      const co = await database.getCompanyConfig(companyId).catch(() => null);
+      if (co?.knowledgeClient) clientId = co.knowledgeClient;
     }
-    return new KnowledgeBase({ clientId: companyKnowledgeClient });
+    return new KnowledgeBase({ clientId });
   }
   const knowledgeBase = new KnowledgeBase({ clientId: config.knowledgeClient });
   const llmService = overrides.llmService || new LlmService({
@@ -346,16 +347,16 @@ async function buildApp(overrides = {}) {
     if (!response.ok) throw new Error(`Inbound webhook returned HTTP ${response.status}`);
   }
 
-  async function generateAutoReply(message, companyId) {
+  async function generateAutoReply(message, companyId = database.companyId) {
     if (!config.llmEnabled) return null;
     if (message.from.endsWith('@g.us')) return null;
     if (!message.body || !message.body.trim()) return null;
-    const routing = await getRouting(message.from);
+    const routing = await getRouting(message.from, companyId);
     if (routing.mode === 'human') return null;
 
     const asksForHuman = requestsHumanAgent(message.body);
     if (asksForHuman) {
-      const members = await getTeamMembers();
+      const members = await getTeamMembers(companyId);
       const supervisor = members.find((member) => ['owner', 'supervisor', 'admin'].includes(member.role) && member.status === 'active');
       if (supervisor) {
         await saveRouting({
@@ -365,7 +366,7 @@ async function buildApp(overrides = {}) {
           actorUserId: null,
           note: 'Pelanggan meminta bantuan manusia.',
           priority: 'high',
-        });
+        }, companyId);
         const looksEnglish = /\b(?:human|person|talk|speak|connect|agent)\b/i.test(message.body)
           && !/\b(?:mau|ingin|boleh|bisa|tolong|hubungkan|bicara|manusia)\b/i.test(message.body);
         return looksEnglish
@@ -376,21 +377,21 @@ async function buildApp(overrides = {}) {
 
     // Check AI usage limit (personal tier cap)
     if (database.enabled && database.connected) {
-      const usage = await database.incrementAiMessageCount().catch(() => ({ exceeded: false }));
+      const usage = await database.incrementAiMessageCount(companyId).catch(() => ({ exceeded: false }));
       if (usage.exceeded) {
-        app.log.warn({ count: usage.count, limit: usage.limit }, 'AI message quota exceeded for this company');
+        app.log.warn({ companyId, count: usage.count, limit: usage.limit }, 'AI message quota exceeded for this company');
         return null;
       }
     }
 
-    // Use company's knowledge client from DB if available
-    const kb = await getKnowledgeBase();
+    // Use this company's own knowledge client from DB — never another tenant's
+    const kb = await getKnowledgeBase(companyId);
     if (!kb.loaded) await kb.load().catch(() => {});
     const relevantFaqs = kb.findRelevantFaq(message.body);
-    const leadState = await getLeadState(message.from);
+    const leadState = await getLeadState(message.from, companyId);
     const latestSummary = typeof database.getConversationSummary === 'function' && database.status().connected
-      ? await database.getConversationSummary(message.from, 'id')
-      : conversationSummaries.get(`${message.from}:id`);
+      ? await database.getConversationSummary(message.from, 'id', companyId)
+      : conversationSummaries.get(`${companyId}:${message.from}:id`);
 
     const result = await llmService.generateReply(message.body, {
       systemPrompt: kb.getSystemPrompt(),
@@ -626,9 +627,9 @@ async function buildApp(overrides = {}) {
       sourceTimestamp: Number(last?.timestamp || 0),
       sourceCount: messages.length,
     };
-    const cacheKey = `${chatId}:${normalizedLocale}`;
+    const cacheKey = `${cid}:${chatId}:${normalizedLocale}`;
     const persisted = typeof database.getConversationSummary === 'function' && database.status().connected
-      ? await database.getConversationSummary(chatId, normalizedLocale)
+      ? await database.getConversationSummary(chatId, normalizedLocale, cid)
       : conversationSummaries.get(cacheKey) || null;
     if (persisted
       && persisted.qualificationTitle
@@ -680,10 +681,10 @@ async function buildApp(overrides = {}) {
         cached: false,
       };
       const saved = typeof database.saveConversationSummary === 'function' && database.status().connected
-        ? await database.saveConversationSummary(item)
+        ? await database.saveConversationSummary(item, cid)
         : item;
       conversationSummaries.set(cacheKey, saved);
-      const currentLead = await getLeadState(chatId);
+      const currentLead = await getLeadState(chatId, cid);
       if (currentLead.stage !== 'assigned') {
         const lead = {
           chatId,
@@ -693,8 +694,8 @@ async function buildApp(overrides = {}) {
           detail: saved.qualificationDetail,
           assignee: null,
         };
-        leadStates.set(chatId, lead);
-        if (typeof database.saveLeadState === 'function') await database.saveLeadState(lead);
+        leadStates.set(`${cid}:${chatId}`, lead);
+        if (typeof database.saveLeadState === 'function') await database.saveLeadState(lead, cid);
         broadcastEvent(cid, 'lead', lead);
       }
       return { ...saved, cached: false };
@@ -790,11 +791,12 @@ async function buildApp(overrides = {}) {
     }, chatId, text, options);
   }
 
-  async function getLeadState(chatId) {
-    if (leadStates.has(chatId)) return leadStates.get(chatId);
-    const persisted = await database.getLeadState(chatId);
+  async function getLeadState(chatId, companyId = database.companyId) {
+    const cacheKey = `${companyId}:${chatId}`;
+    if (leadStates.has(cacheKey)) return leadStates.get(cacheKey);
+    const persisted = await database.getLeadState(chatId, companyId);
     if (persisted) {
-      leadStates.set(chatId, persisted);
+      leadStates.set(cacheKey, persisted);
       return persisted;
     }
     return {
@@ -819,10 +821,11 @@ async function buildApp(overrides = {}) {
     return fallbackTeam;
   }
 
-  async function getRouting(chatId) {
-    if (conversationRouting.has(chatId)) return conversationRouting.get(chatId);
+  async function getRouting(chatId, companyId = database.companyId) {
+    const cacheKey = `${companyId}:${chatId}`;
+    if (conversationRouting.has(cacheKey)) return conversationRouting.get(cacheKey);
     const persisted = typeof database.getConversationRouting === 'function' && database.status().connected
-      ? await database.getConversationRouting(chatId)
+      ? await database.getConversationRouting(chatId, companyId)
       : null;
     const routing = persisted || {
       chatId,
@@ -832,16 +835,17 @@ async function buildApp(overrides = {}) {
       status: 'open',
       priority: 'normal',
     };
-    conversationRouting.set(chatId, routing);
+    conversationRouting.set(cacheKey, routing);
     return routing;
   }
 
   async function saveRouting(change, companyId) {
     const cid = companyId || database.companyId;
-    const previous = await getRouting(change.chatId);
+    const cacheKey = `${cid}:${change.chatId}`;
+    const previous = await getRouting(change.chatId, cid);
     let routing;
     if (typeof database.saveConversationRouting === 'function' && database.status().connected) {
-      routing = await database.saveConversationRouting(change);
+      routing = await database.saveConversationRouting(change, cid);
     } else {
       const member = fallbackTeam.find((item) => item.id === change.assigneeUserId);
       routing = {
@@ -854,7 +858,7 @@ async function buildApp(overrides = {}) {
         priority: change.priority || previous.priority || 'normal',
         updatedAt: new Date().toISOString(),
       };
-      const history = conversationHandoffs.get(change.chatId) || [];
+      const history = conversationHandoffs.get(cacheKey) || [];
       history.unshift({
         id: crypto.randomUUID(),
         fromMode: previous.mode,
@@ -864,9 +868,9 @@ async function buildApp(overrides = {}) {
         note: change.note || null,
         createdAt: new Date().toISOString(),
       });
-      conversationHandoffs.set(change.chatId, history);
+      conversationHandoffs.set(cacheKey, history);
     }
-    conversationRouting.set(change.chatId, routing);
+    conversationRouting.set(cacheKey, routing);
     broadcastEvent(cid, 'routing', routing);
     return routing;
   }
@@ -961,7 +965,7 @@ async function buildApp(overrides = {}) {
     };
     const token = createSession(sessionUser, config.sessionSecret);
     reply.header('set-cookie', `agnee_session=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=43200${config.cookieSecure ? '; Secure' : ''}`);
-    if (typeof database.setPresence === 'function') await database.setPresence(user.id, 'online');
+    if (typeof database.setPresence === 'function') await database.setPresence(user.id, 'online', sessionUser.companyId);
     return { ok: true, user: sessionUser };
   });
 
@@ -984,7 +988,7 @@ async function buildApp(overrides = {}) {
     const chatId = request.params?.chatId;
     if (!chatId) return;
     if (request.method === 'POST' && request.routeOptions?.url === '/v1/chats/:chatId/routing') return;
-    const routing = await getRouting(chatId);
+    const routing = await getRouting(chatId, request.agneeSession?.companyId);
     if (routing.mode !== 'human' || routing.assigneeUserId !== request.agneeSession?.userId) {
       return reply.code(403).send({ error: 'Chat ini ditangani oleh agent lain.' });
     }
@@ -997,7 +1001,7 @@ async function buildApp(overrides = {}) {
     return { ok: true };
   });
   app.post('/v1/auth/logout', async (request, reply) => {
-    if (typeof database.setPresence === 'function') await database.setPresence(request.agneeSession?.userId, 'offline');
+    if (typeof database.setPresence === 'function') await database.setPresence(request.agneeSession?.userId, 'offline', request.agneeSession?.companyId);
     reply.header('set-cookie', 'agnee_session=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0');
     return { ok: true };
   });
@@ -1016,8 +1020,9 @@ async function buildApp(overrides = {}) {
     if (typeof database.createTeamMember !== 'function' || !database.status().connected) {
       return reply.code(503).send({ error: 'Penyimpanan anggota belum tersedia.' });
     }
-    const member = await database.createTeamMember(request.body);
-    broadcastEvent(request.agneeSession?.companyId || database.companyId, 'team', { action: 'created', member });
+    const teamCompanyId = request.agneeSession?.companyId || database.companyId;
+    const member = await database.createTeamMember(request.body, teamCompanyId);
+    broadcastEvent(teamCompanyId, 'team', { action: 'created', member });
     return reply.code(201).send({ member });
   });
 
@@ -1063,19 +1068,18 @@ async function buildApp(overrides = {}) {
     } } },
   }, async (request, reply) => {
     if (!database.status().connected) return reply.code(503).send({ error: 'Tidak tersedia.' });
-    const updated = await database.updateCompanyConfig(request.body, request.agneeSession?.companyId);
-    if (request.body.knowledgeClient) {
-      companyKnowledgeClient = request.body.knowledgeClient;
-    }
-    return updated;
+    return await database.updateCompanyConfig(request.body, request.agneeSession?.companyId);
   });
 
-  app.get('/v1/chats/:chatId/routing', async (request) => ({
-    routing: await getRouting(request.params.chatId),
-    handoffs: typeof database.listConversationHandoffs === 'function' && database.status().connected
-      ? await database.listConversationHandoffs(request.params.chatId)
-      : conversationHandoffs.get(request.params.chatId) || [],
-  }));
+  app.get('/v1/chats/:chatId/routing', async (request) => {
+    const companyId = request.agneeSession?.companyId || database.companyId;
+    return {
+      routing: await getRouting(request.params.chatId, companyId),
+      handoffs: typeof database.listConversationHandoffs === 'function' && database.status().connected
+        ? await database.listConversationHandoffs(request.params.chatId, 20, companyId)
+        : conversationHandoffs.get(`${companyId}:${request.params.chatId}`) || [],
+    };
+  });
 
   app.post('/v1/chats/:chatId/routing', {
     schema: {
@@ -1102,7 +1106,7 @@ async function buildApp(overrides = {}) {
     if (!isSupervisor(session) && request.body.mode === 'human' && assigneeUserId !== session.userId) {
       return reply.code(403).send({ error: 'Agent hanya dapat mengambil chat untuk dirinya sendiri.' });
     }
-    const previous = await getRouting(request.params.chatId);
+    const previous = await getRouting(request.params.chatId, companyId);
     if (previous.mode === 'human' && request.body.mode === 'ai' && request.body.sendClosingMessage) {
       const closingMessage = String(request.body.closingMessage || '').trim();
       if (!closingMessage) return reply.code(400).send({ error: 'Isi pesan penutup terlebih dahulu.' });
@@ -1135,28 +1139,33 @@ async function buildApp(overrides = {}) {
     return { routing };
   });
 
-  app.get('/v1/chats/:chatId/notes', async (request) => ({
-    notes: typeof database.listConversationNotes === 'function' && database.status().connected
-      ? await database.listConversationNotes(request.params.chatId)
-      : conversationNotes.get(request.params.chatId) || [],
-  }));
+  app.get('/v1/chats/:chatId/notes', async (request) => {
+    const companyId = request.agneeSession?.companyId || database.companyId;
+    return {
+      notes: typeof database.listConversationNotes === 'function' && database.status().connected
+        ? await database.listConversationNotes(request.params.chatId, 30, companyId)
+        : conversationNotes.get(`${companyId}:${request.params.chatId}`) || [],
+    };
+  });
 
   app.post('/v1/chats/:chatId/notes', {
     schema: { body: { type: 'object', additionalProperties: false, required: ['body'], properties: {
       body: { type: 'string', minLength: 1, maxLength: 2000 },
     } } },
   }, async (request, reply) => {
+    const noteCompanyId = request.agneeSession?.companyId || database.companyId;
     let note;
     if (typeof database.addConversationNote === 'function' && database.status().connected) {
-      note = await database.addConversationNote(request.params.chatId, request.agneeSession?.userId, request.body.body.trim());
+      note = await database.addConversationNote(request.params.chatId, request.agneeSession?.userId, request.body.body.trim(), noteCompanyId);
       note.authorName = request.agneeSession?.displayName;
     } else {
       note = { id: crypto.randomUUID(), body: request.body.body.trim(), authorName: request.agneeSession?.displayName, createdAt: new Date().toISOString() };
-      const notes = conversationNotes.get(request.params.chatId) || [];
+      const notesKey = `${noteCompanyId}:${request.params.chatId}`;
+      const notes = conversationNotes.get(notesKey) || [];
       notes.unshift(note);
-      conversationNotes.set(request.params.chatId, notes);
+      conversationNotes.set(notesKey, notes);
     }
-    broadcastEvent(request.agneeSession?.companyId || database.companyId, 'note', { chatId: request.params.chatId, note });
+    broadcastEvent(noteCompanyId, 'note', { chatId: request.params.chatId, note });
     return reply.code(201).send({ note });
   });
 
@@ -1260,7 +1269,7 @@ async function buildApp(overrides = {}) {
         usage: response.usage,
         style: response.style,
         elapsedMs: response.elapsedMs,
-      });
+      }, request.agneeSession?.companyId || database.companyId);
       response.persistence = { driver: database.status().driver, saved: Boolean(saved), id: saved?.id || null };
     } catch (error) {
       app.log.error({ err: error }, 'Could not persist playground run');
@@ -1275,7 +1284,7 @@ async function buildApp(overrides = {}) {
     } } },
   }, async (request) => ({
     database: database.status(),
-    runs: await database.listPlaygroundRuns(request.query.limit || 20),
+    runs: await database.listPlaygroundRuns(request.query.limit || 20, request.agneeSession?.companyId || database.companyId),
   }));
 
   app.get('/v1/whatsapp/status', async (request) => {
@@ -1383,7 +1392,7 @@ async function buildApp(overrides = {}) {
     const filter = request.query.filter || 'inbox';
     let chats = config.demoMode ? [...demo.chats] : await getChatsForUi(wa);
     if (!isSupervisor(request.agneeSession)) {
-      const routing = await Promise.all(chats.map((chat) => getRouting(chat.id)));
+      const routing = await Promise.all(chats.map((chat) => getRouting(chat.id, companyId)));
       chats = chats.filter((_chat, index) => routing[index].mode === 'human'
         && routing[index].assigneeUserId === request.agneeSession?.userId);
     }
@@ -1391,7 +1400,7 @@ async function buildApp(overrides = {}) {
     if (filter === 'archived') chats = chats.filter((chat) => chat.archived);
     if (filter === 'unread') chats = chats.filter((chat) => chat.unreadCount > 0 && !chat.archived);
     if (filter === 'qualified') {
-      const states = await Promise.all(chats.map((chat) => getLeadState(chat.id)));
+      const states = await Promise.all(chats.map((chat) => getLeadState(chat.id, companyId)));
       chats = chats.filter((chat, index) => !chat.archived && ['qualified', 'assigned'].includes(states[index].stage));
     }
     if (filter === 'all') chats = chats;
@@ -1505,7 +1514,7 @@ async function buildApp(overrides = {}) {
     schema: { params: { type: 'object', required: ['chatId'], properties: {
       chatId: { type: 'string', minLength: 1, maxLength: 128 },
     } } },
-  }, async (request) => getLeadState(request.params.chatId));
+  }, async (request) => getLeadState(request.params.chatId, request.agneeSession?.companyId || database.companyId));
 
   app.get('/v1/chats/:chatId/summary', {
     schema: {
@@ -1538,7 +1547,7 @@ async function buildApp(overrides = {}) {
     },
   }, async (request) => {
     const companyId = request.agneeSession?.companyId || database.companyId;
-    const currentLead = await getLeadState(request.params.chatId);
+    const currentLead = await getLeadState(request.params.chatId, companyId);
     const lead = {
       ...currentLead,
       stage: 'assigned',
@@ -1547,8 +1556,8 @@ async function buildApp(overrides = {}) {
       detail: `Ditugaskan ke ${request.body?.assignee || 'Sales team'}.`,
       assignee: request.body?.assignee || 'Sales team',
     };
-    leadStates.set(request.params.chatId, lead);
-    await database.saveLeadState(lead);
+    leadStates.set(`${companyId}:${request.params.chatId}`, lead);
+    await database.saveLeadState(lead, companyId);
     broadcastEvent(companyId, 'lead', lead);
     return lead;
   });
@@ -1787,7 +1796,7 @@ async function buildApp(overrides = {}) {
     } catch (error) {
       return reply.code(400).send({ error: error.message });
     }
-    const routing = await getRouting(chatId);
+    const routing = await getRouting(chatId, companyId);
     if (!isSupervisor(request.agneeSession)
       && (routing.mode !== 'human' || routing.assigneeUserId !== request.agneeSession?.userId)) {
       return reply.code(403).send({ error: 'Ambil alih chat ini sebelum membalas.' });

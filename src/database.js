@@ -126,17 +126,17 @@ class Database {
     }
   }
 
-  async getLeadState(chatId) {
+  async getLeadState(chatId, companyId = this.companyId) {
     if (!this.enabled) return null;
     const result = await this.pool.query(`
       SELECT chat_id AS "chatId", stage, score, title, detail, assignee
       FROM lead_states
       WHERE company_id = $1 AND chat_id = $2
-    `, [this.companyId, chatId]);
+    `, [companyId, chatId]);
     return result.rows[0] || null;
   }
 
-  async getConversationSummary(chatId, locale = 'id') {
+  async getConversationSummary(chatId, locale = 'id', companyId = this.companyId) {
     if (!this.enabled) return null;
     const result = await this.pool.query(`
       SELECT chat_id AS "chatId", locale, summary,
@@ -150,7 +150,7 @@ class Database {
              generated_at AS "generatedAt"
       FROM conversation_summaries
       WHERE company_id = $1 AND chat_id = $2 AND locale = $3
-    `, [this.companyId, chatId, locale]);
+    `, [companyId, chatId, locale]);
     return result.rows[0] || null;
   }
 
@@ -189,7 +189,7 @@ class Database {
     return result.rows;
   }
 
-  async createTeamMember({ email, displayName, password, role = 'agent' }) {
+  async createTeamMember({ email, displayName, password, role = 'agent' }, companyId = this.companyId) {
     if (!this.enabled) return null;
     const client = await this.pool.connect();
     try {
@@ -208,7 +208,7 @@ class Database {
         INSERT INTO company_members (company_id, user_id, role, status, joined_at)
         VALUES ($1, $2, $3, 'active', NOW())
         ON CONFLICT (company_id, user_id) DO UPDATE SET role = EXCLUDED.role, status = 'active', updated_at = NOW()
-      `, [this.companyId, user.id, role]);
+      `, [companyId, user.id, role]);
       await client.query('COMMIT');
       return { ...user, role, status: 'active', presence: 'offline' };
     } catch (error) {
@@ -219,17 +219,17 @@ class Database {
     }
   }
 
-  async setPresence(userId, status) {
+  async setPresence(userId, status, companyId = this.companyId) {
     if (!this.enabled || !userId) return;
     await this.pool.query(`
       INSERT INTO agent_presence (company_id, user_id, status, last_seen_at)
       VALUES ($1, $2, $3, NOW())
       ON CONFLICT (company_id, user_id) DO UPDATE SET
         status = EXCLUDED.status, last_seen_at = NOW(), updated_at = NOW()
-    `, [this.companyId, userId, status]);
+    `, [companyId, userId, status]);
   }
 
-  async getConversationRouting(chatId) {
+  async getConversationRouting(chatId, companyId = this.companyId) {
     if (!this.enabled) return null;
     const result = await this.pool.query(`
       SELECT cr.chat_id AS "chatId", cr.handling_mode AS "mode", cr.assignee_user_id AS "assigneeUserId",
@@ -238,11 +238,11 @@ class Database {
       FROM conversation_routing cr
       LEFT JOIN users u ON u.id = cr.assignee_user_id
       WHERE cr.company_id = $1 AND cr.chat_id = $2
-    `, [this.companyId, chatId]);
+    `, [companyId, chatId]);
     return result.rows[0] || null;
   }
 
-  async saveConversationRouting({ chatId, mode, assigneeUserId, status = 'open', priority = 'normal', actorUserId, note }) {
+  async saveConversationRouting({ chatId, mode, assigneeUserId, status = 'open', priority = 'normal', actorUserId, note }, companyId = this.companyId) {
     if (!this.enabled) return null;
     const client = await this.pool.connect();
     try {
@@ -250,7 +250,7 @@ class Database {
       const previous = await client.query(`
         SELECT handling_mode AS mode, assignee_user_id AS "assigneeUserId"
         FROM conversation_routing WHERE company_id = $1 AND chat_id = $2
-      `, [this.companyId, chatId]);
+      `, [companyId, chatId]);
       const result = await client.query(`
         INSERT INTO conversation_routing (company_id, chat_id, handling_mode, assignee_user_id, status, priority, assigned_at)
         VALUES ($1, $2, $3, $4, $5, $6, CASE WHEN $3 = 'human' THEN NOW() ELSE NULL END)
@@ -263,15 +263,15 @@ class Database {
           updated_at = NOW()
         RETURNING chat_id AS "chatId", handling_mode AS mode, assignee_user_id AS "assigneeUserId",
                   status, priority, assigned_at AS "assignedAt", updated_at AS "updatedAt"
-      `, [this.companyId, chatId, mode, assigneeUserId || null, status, priority]);
+      `, [companyId, chatId, mode, assigneeUserId || null, status, priority]);
       const before = previous.rows[0] || { mode: null, assigneeUserId: null };
       await client.query(`
         INSERT INTO conversation_handoffs
           (company_id, chat_id, from_mode, to_mode, from_user_id, to_user_id, note, created_by)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-      `, [this.companyId, chatId, before.mode, mode, before.assigneeUserId, assigneeUserId || null, note || null, actorUserId || null]);
+      `, [companyId, chatId, before.mode, mode, before.assigneeUserId, assigneeUserId || null, note || null, actorUserId || null]);
       await client.query('COMMIT');
-      return this.getConversationRouting(chatId);
+      return this.getConversationRouting(chatId, companyId);
     } catch (error) {
       await client.query('ROLLBACK');
       throw error;
@@ -280,7 +280,7 @@ class Database {
     }
   }
 
-  async listConversationHandoffs(chatId, limit = 20) {
+  async listConversationHandoffs(chatId, limit = 20, companyId = this.companyId) {
     if (!this.enabled) return [];
     const result = await this.pool.query(`
       SELECT h.id, h.from_mode AS "fromMode", h.to_mode AS "toMode", h.note,
@@ -292,32 +292,32 @@ class Database {
       LEFT JOIN users cu ON cu.id = h.created_by
       WHERE h.company_id = $1 AND h.chat_id = $2
       ORDER BY h.created_at DESC LIMIT $3
-    `, [this.companyId, chatId, limit]);
+    `, [companyId, chatId, limit]);
     return result.rows;
   }
 
-  async addConversationNote(chatId, authorUserId, body) {
+  async addConversationNote(chatId, authorUserId, body, companyId = this.companyId) {
     if (!this.enabled) return null;
     const result = await this.pool.query(`
       INSERT INTO conversation_notes (company_id, chat_id, author_user_id, body)
       VALUES ($1, $2, $3, $4)
       RETURNING id, body, created_at AS "createdAt"
-    `, [this.companyId, chatId, authorUserId || null, body]);
+    `, [companyId, chatId, authorUserId || null, body]);
     return result.rows[0];
   }
 
-  async listConversationNotes(chatId, limit = 30) {
+  async listConversationNotes(chatId, limit = 30, companyId = this.companyId) {
     if (!this.enabled) return [];
     const result = await this.pool.query(`
       SELECT n.id, n.body, n.created_at AS "createdAt", u.display_name AS "authorName"
       FROM conversation_notes n LEFT JOIN users u ON u.id = n.author_user_id
       WHERE n.company_id = $1 AND n.chat_id = $2
       ORDER BY n.created_at DESC LIMIT $3
-    `, [this.companyId, chatId, limit]);
+    `, [companyId, chatId, limit]);
     return result.rows;
   }
 
-  async saveLeadState(lead) {
+  async saveLeadState(lead, companyId = this.companyId) {
     if (!this.enabled) return lead;
     const result = await this.pool.query(`
       INSERT INTO lead_states (company_id, chat_id, stage, score, title, detail, assignee)
@@ -330,11 +330,11 @@ class Database {
         assignee = EXCLUDED.assignee,
         updated_at = NOW()
       RETURNING chat_id AS "chatId", stage, score, title, detail, assignee
-    `, [this.companyId, lead.chatId, lead.stage, lead.score, lead.title, lead.detail, lead.assignee]);
+    `, [companyId, lead.chatId, lead.stage, lead.score, lead.title, lead.detail, lead.assignee]);
     return result.rows[0];
   }
 
-  async saveConversationSummary(item) {
+  async saveConversationSummary(item, companyId = this.companyId) {
     if (!this.enabled) return item;
     const result = await this.pool.query(`
       INSERT INTO conversation_summaries (
@@ -368,7 +368,7 @@ class Database {
                 input_tokens AS "inputTokens", output_tokens AS "outputTokens",
                 generated_at AS "generatedAt"
     `, [
-      this.companyId, item.chatId, item.locale, item.summary, item.qualificationStage,
+      companyId, item.chatId, item.locale, item.summary, item.qualificationStage,
       item.qualificationScore, item.qualificationTitle, item.qualificationDetail,
       JSON.stringify(item.labels || []), item.sourceMessageId, item.sourceTimestamp,
       item.sourceCount, item.model, item.inputTokens || 0, item.outputTokens || 0,
@@ -376,7 +376,7 @@ class Database {
     return result.rows[0];
   }
 
-  async recordPlaygroundRun(run) {
+  async recordPlaygroundRun(run, companyId = this.companyId) {
     if (!this.enabled) return null;
     const result = await this.pool.query(`
       INSERT INTO playground_runs (
@@ -387,7 +387,7 @@ class Database {
       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12, $13::jsonb, $14)
       RETURNING id, created_at AS "createdAt"
     `, [
-      this.companyId,
+      companyId,
       run.userId || this.adminUserId,
       run.clientId,
       run.message,
@@ -405,7 +405,7 @@ class Database {
     return result.rows[0];
   }
 
-  async listPlaygroundRuns(limit = 20) {
+  async listPlaygroundRuns(limit = 20, companyId = this.companyId) {
     if (!this.enabled) return [];
     const result = await this.pool.query(`
       SELECT
@@ -427,7 +427,7 @@ class Database {
       WHERE company_id = $2
       ORDER BY created_at DESC
       LIMIT $1
-    `, [limit, this.companyId]);
+    `, [limit, companyId]);
     return result.rows;
   }
 
@@ -462,7 +462,7 @@ class Database {
     return this.getCompanyConfig(companyId);
   }
 
-  async incrementAiMessageCount() {
+  async incrementAiMessageCount(companyId = this.companyId) {
     if (!this.enabled) return { count: 0, limit: 0, exceeded: false };
     const result = await this.pool.query(`
       UPDATE companies SET
@@ -478,7 +478,7 @@ class Database {
         END
       WHERE id = $1
       RETURNING ai_message_count AS count, ai_message_limit AS "limit"
-    `, [this.companyId]);
+    `, [companyId]);
     const { count, limit } = result.rows[0] || { count: 0, limit: 0 };
     return { count, limit, exceeded: limit > 0 && count > limit };
   }

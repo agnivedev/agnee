@@ -57,6 +57,10 @@
     </aside>
 
     <section id="inboxPanel" class="inbox-panel">
+      <div id="usageWarningBanner" class="usage-warning-banner" hidden>
+        <span id="usageWarningText"></span>
+        <a href="/settings" class="usage-warning-link">Lihat paket →</a>
+      </div>
       <header class="inbox-head">
         <div><p class="eyebrow" data-i18n="inbox.eyebrow">MEJA PERCAKAPAN</p><h1 data-i18n="inbox.title">Kotak masuk</h1></div>
         <button id="newConversationButton" class="icon-button" data-i18n-aria-label="inbox.new">＋</button>
@@ -241,7 +245,7 @@
         <h2>Tambahkan anggota tim</h2>
         <p>Undang agen CS kamu. Mereka akan bisa membalas chat dan handover antar AI ↔ manusia. Kamu bisa lewati ini dan tambah nanti di <strong>Pengaturan</strong>.</p>
         <div class="ob-actions">
-          <a href="/settings.html" class="ob-primary ob-link">Buka Pengaturan Tim</a>
+          <a href="/settings" class="ob-primary ob-link">Buka Pengaturan Tim</a>
           <button class="ob-secondary ob-next">Lewati, nanti saja →</button>
         </div>
       </div>
@@ -251,7 +255,7 @@
         <h2>Upload playbook / FAQ</h2>
         <p>Playbook adalah sumber jawaban AI kamu. Buka panel Admin untuk upload FAQ atau training data. Agen CS-mu akan otomatis inherit playbook ini.</p>
         <div class="ob-actions">
-          <a href="/admin.html" class="ob-primary ob-link">Buka Admin → Uji AI</a>
+          <a href="/admin" class="ob-primary ob-link">Buka Admin → Uji AI</a>
           <button class="ob-secondary" id="obDone">Selesai, masuk inbox →</button>
         </div>
       </div>

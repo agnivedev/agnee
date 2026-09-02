@@ -82,6 +82,8 @@ const ui = {
   mediaHelp: document.querySelector('#mediaHelp'),
   mediaZoomLabel: document.querySelector('#mediaZoomLabel'),
   mediaDownload: document.querySelector('#mediaDownload'),
+  usageWarningBanner: document.querySelector('#usageWarningBanner'),
+  usageWarningText: document.querySelector('#usageWarningText'),
   routingBadge: document.querySelector('#routingBadge'),
   modeSwitch: document.querySelector('#modeSwitch'),
   assigneeField: document.querySelector('#assigneeField'),
@@ -187,6 +189,23 @@ function renderMarkdown(text) {
   return html;
 }
 
+async function checkUsageWarning() {
+  try {
+    const data = await api('/v1/admin/company');
+    const limit = data.aiMessageLimit ?? 0;
+    const count = data.aiMessageCount ?? 0;
+    if (limit <= 0) return;
+    const pct = Math.round((count / limit) * 100);
+    if (pct >= 80) {
+      ui.usageWarningText.textContent = `Pesan AI bulan ini: ${count.toLocaleString()} / ${limit.toLocaleString()} (${pct}%)`;
+      ui.usageWarningBanner.hidden = false;
+      ui.usageWarningBanner.classList.toggle('danger', pct >= 90);
+    } else {
+      ui.usageWarningBanner.hidden = true;
+    }
+  } catch { /* non-critical */ }
+}
+
 function showApp(sessionData) {
   if (sessionData?.user) state.currentUser = sessionData.user;
   ui.adminButton.hidden = !isCurrentUserSupervisor();
@@ -195,11 +214,11 @@ function showApp(sessionData) {
     ui.loginView.hidden = true;
     ui.appView.hidden = false;
   });
-  loadWorkspace();
+  loadWorkspace().then(() => maybeShowOnboarding());
   connectEvents();
   clearInterval(state.workspaceTimer);
   state.workspaceTimer = setInterval(refreshEmptyInbox, 5000);
-  maybeShowOnboarding();
+  checkUsageWarning();
 }
 
 function showLogin(fromInit = false) {
@@ -207,10 +226,6 @@ function showLogin(fromInit = false) {
   state.workspaceTimer = null;
   state.eventSource?.close();
   state.eventSource = null;
-  if (fromInit) {
-    window.location.href = '/landing.html';
-    return;
-  }
   transition(() => {
     ui.appView.hidden = true;
     ui.loginView.hidden = false;
@@ -219,9 +234,11 @@ function showLogin(fromInit = false) {
 
 function maybeShowOnboarding() {
   if (!isCurrentUserSupervisor()) return;
-  try {
-    if (localStorage.getItem('agnee_onboarded')) return;
-  } catch { return; }
+  if (state.currentUser?.onboarded) return;
+  if (state.whatsapp?.phase === 'ready') {
+    api('/v1/auth/onboarded', { method: 'POST' }).catch(() => {});
+    return;
+  }
   const dialog = document.querySelector('#onboardingDialog');
   if (!dialog) return;
   dialog.showModal();
@@ -252,18 +269,19 @@ function maybeShowOnboarding() {
     });
   }
 
+  function markOnboarded() {
+    api('/v1/auth/onboarded', { method: 'POST' }).catch(() => {});
+    if (state.currentUser) state.currentUser.onboarded = true;
+  }
+
   const obDone = dialog.querySelector('#obDone');
   if (obDone) {
-    obDone.addEventListener('click', () => {
-      try { localStorage.setItem('agnee_onboarded', '1'); } catch {}
-      dialog.close();
-    });
+    obDone.addEventListener('click', () => { markOnboarded(); dialog.close(); });
   }
 
   dialog.querySelector('#onboardingClose')?.addEventListener('click', () => dialog.close());
   dialog.querySelector('#onboardingSkip')?.addEventListener('click', () => {
-    try { localStorage.setItem('agnee_onboarded', '1'); } catch {}
-    dialog.close();
+    markOnboarded(); dialog.close();
   });
 })();
 
@@ -1739,8 +1757,8 @@ ui.inboxButton.addEventListener('click', async () => {
 });
 ui.contactsButton.addEventListener('click', openContacts);
 ui.funnelButton.addEventListener('click', openFunnel);
-ui.adminButton.addEventListener('click', () => { window.location.href = '/admin.html'; });
-ui.settingsButton?.addEventListener('click', () => { window.location.href = '/settings.html'; });
+ui.adminButton.addEventListener('click', () => { window.location.href = '/admin'; });
+ui.settingsButton?.addEventListener('click', () => { window.location.href = '/settings'; });
 ui.conversationMenuButton.addEventListener('click', openConversationMenu);
 ui.pinnedBar.addEventListener('click', openPinnedMessages);
 ui.newConversationButton.addEventListener('click', () => {
@@ -1997,5 +2015,4 @@ window.addEventListener('resize', () => {
   if (!window.matchMedia('(max-width: 1120px)').matches) ui.contextPanel.classList.remove('open');
 });
 
-const _wantsLogin = new URLSearchParams(window.location.search).has('login');
-api('/v1/auth/session').then(showApp).catch(() => _wantsLogin ? showLogin(false) : showLogin(true));
+api('/v1/auth/session').then(showApp).catch(() => showLogin());

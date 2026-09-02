@@ -158,13 +158,15 @@ class Database {
     if (!this.enabled) return null;
     const result = await this.pool.query(`
       SELECT u.id, u.email, u.display_name AS "displayName", u.password_hash AS "passwordHash",
-             cm.company_id AS "companyId", cm.role
+             cm.company_id AS "companyId", cm.role, c.name AS "companyName", c.slug AS "companySlug",
+             u.onboarded_at AS "onboardedAt"
       FROM users u
       JOIN company_members cm ON cm.user_id = u.id
+      JOIN companies c ON c.id = cm.company_id
       WHERE LOWER(u.email) = LOWER($1) AND u.status = 'active' AND cm.status = 'active'
-        AND cm.company_id = $2
+      ORDER BY cm.joined_at ASC
       LIMIT 1
-    `, [email, this.companyId]);
+    `, [email]);
     const user = result.rows[0];
     if (!user || !verifyPassword(password, user.passwordHash)) return null;
     await this.pool.query('UPDATE users SET last_login_at = NOW() WHERE id = $1', [user.id]);
@@ -172,7 +174,7 @@ class Database {
     return user;
   }
 
-  async listTeamMembers() {
+  async listTeamMembers(companyId = this.companyId) {
     if (!this.enabled) return [];
     const result = await this.pool.query(`
       SELECT u.id, u.email, u.display_name AS "displayName", cm.role, cm.status,
@@ -183,7 +185,7 @@ class Database {
       WHERE cm.company_id = $1
       ORDER BY CASE WHEN cm.role IN ('owner', 'supervisor', 'admin') THEN 0 ELSE 1 END,
                COALESCE(u.display_name, u.email)
-    `, [this.companyId]);
+    `, [companyId]);
     return result.rows;
   }
 
@@ -429,7 +431,7 @@ class Database {
     return result.rows;
   }
 
-  async getCompanyConfig() {
+  async getCompanyConfig(companyId = this.companyId) {
     if (!this.enabled) return null;
     const result = await this.pool.query(`
       SELECT plan, plan_status AS "planStatus", knowledge_client AS "knowledgeClient",
@@ -437,11 +439,11 @@ class Database {
              ai_count_reset_at AS "aiCountResetAt", max_users AS "maxUsers",
              max_playbooks AS "maxPlaybooks", max_whatsapp AS "maxWhatsapp", name, slug
       FROM companies WHERE id = $1
-    `, [this.companyId]);
+    `, [companyId]);
     return result.rows[0] || null;
   }
 
-  async updateCompanyConfig({ plan, planStatus, knowledgeClient, aiMessageLimit, maxUsers, maxPlaybooks, maxWhatsapp }) {
+  async updateCompanyConfig({ plan, planStatus, knowledgeClient, aiMessageLimit, maxUsers, maxPlaybooks, maxWhatsapp }, companyId = this.companyId) {
     if (!this.enabled) return null;
     const fields = [];
     const values = [];
@@ -453,11 +455,11 @@ class Database {
     if (maxUsers !== undefined) { fields.push(`max_users = $${i++}`); values.push(maxUsers); }
     if (maxPlaybooks !== undefined) { fields.push(`max_playbooks = $${i++}`); values.push(maxPlaybooks); }
     if (maxWhatsapp !== undefined) { fields.push(`max_whatsapp = $${i++}`); values.push(maxWhatsapp); }
-    if (!fields.length) return this.getCompanyConfig();
+    if (!fields.length) return this.getCompanyConfig(companyId);
     fields.push(`updated_at = NOW()`);
-    values.push(this.companyId);
+    values.push(companyId);
     await this.pool.query(`UPDATE companies SET ${fields.join(', ')} WHERE id = $${i}`, values);
-    return this.getCompanyConfig();
+    return this.getCompanyConfig(companyId);
   }
 
   async incrementAiMessageCount() {
@@ -481,27 +483,121 @@ class Database {
     return { count, limit, exceeded: limit > 0 && count > limit };
   }
 
-  async updateTeamMemberRole(userId, role) {
+  async updateTeamMemberRole(userId, role, companyId = this.companyId) {
     if (!this.enabled) return null;
     await this.pool.query(`
       UPDATE company_members SET role = $1, updated_at = NOW()
       WHERE company_id = $2 AND user_id = $3 AND role != 'owner'
-    `, [role, this.companyId, userId]);
+    `, [role, companyId, userId]);
     const result = await this.pool.query(`
       SELECT u.id, u.email, u.display_name AS "displayName", cm.role, cm.status
       FROM company_members cm JOIN users u ON u.id = cm.user_id
       WHERE cm.company_id = $1 AND cm.user_id = $2
-    `, [this.companyId, userId]);
+    `, [companyId, userId]);
     return result.rows[0] || null;
   }
 
-  async deactivateTeamMember(userId) {
+  async deactivateTeamMember(userId, companyId = this.companyId) {
     if (!this.enabled) return;
     await this.pool.query(`
       UPDATE company_members SET status = 'inactive', updated_at = NOW()
       WHERE company_id = $1 AND user_id = $2 AND role != 'owner'
-    `, [this.companyId, userId]);
+    `, [companyId, userId]);
   }
+
+  async markOnboarded(userId) {
+    if (!this.enabled) return;
+    await this.pool.query(
+      'UPDATE users SET onboarded_at = NOW() WHERE id = $1 AND onboarded_at IS NULL',
+      [userId],
+    );
+  }
+
+  // ── WhatsApp connection helpers ──────────────────────────────────────────
+
+  async getWhatsappConnection(companyId) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      SELECT id, company_id AS "companyId", connection_key AS "connectionKey",
+             label, client_id AS "clientId", phone_number AS "phoneNumber",
+             status, session_path AS "sessionPath", connected_at AS "connectedAt"
+      FROM whatsapp_connections
+      WHERE company_id = $1 AND connection_key = 'whatsapp-main'
+      LIMIT 1
+    `, [companyId]);
+    return result.rows[0] || null;
+  }
+
+  async upsertWhatsappConnection(companyId, { clientId, sessionPath, status = 'disconnected', phoneNumber = null }) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      INSERT INTO whatsapp_connections (company_id, connection_key, client_id, session_path, status, phone_number)
+      VALUES ($1, 'whatsapp-main', $2, $3, $4, $5)
+      ON CONFLICT (company_id, connection_key) DO UPDATE SET
+        client_id = EXCLUDED.client_id,
+        session_path = EXCLUDED.session_path,
+        status = EXCLUDED.status,
+        phone_number = COALESCE(EXCLUDED.phone_number, whatsapp_connections.phone_number),
+        connected_at = CASE WHEN EXCLUDED.status = 'ready' THEN NOW() ELSE whatsapp_connections.connected_at END,
+        updated_at = NOW()
+      RETURNING id, client_id AS "clientId", session_path AS "sessionPath", status, phone_number AS "phoneNumber"
+    `, [companyId, clientId, sessionPath, status, phoneNumber]);
+    return result.rows[0] || null;
+  }
+
+  async updateWhatsappStatus(companyId, status, phoneNumber = null) {
+    if (!this.enabled) return;
+    await this.pool.query(`
+      UPDATE whatsapp_connections SET
+        status = $2,
+        phone_number = COALESCE($3, phone_number),
+        connected_at = CASE WHEN $2 = 'ready' THEN NOW() ELSE connected_at END,
+        updated_at = NOW()
+      WHERE company_id = $1 AND connection_key = 'whatsapp-main'
+    `, [companyId, status, phoneNumber]);
+  }
+
+  async resolveCompanyByWhatsappNumber(jid) {
+    if (!this.enabled) return null;
+    const number = String(jid || '').split('@')[0];
+    if (!number) return null;
+    const result = await this.pool.query(`
+      SELECT company_id AS "companyId"
+      FROM whatsapp_connections
+      WHERE phone_number = $1 AND status = 'ready'
+      LIMIT 1
+    `, [number]);
+    return result.rows[0]?.companyId || null;
+  }
+
+  async getWhatsappConnections(companyId) {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(`
+      SELECT id, connection_key AS "connectionKey", label, client_id AS "clientId",
+             phone_number AS "phoneNumber", status, session_path AS "sessionPath",
+             connected_at AS "connectedAt"
+      FROM whatsapp_connections
+      WHERE company_id = $1
+      ORDER BY created_at ASC
+    `, [companyId]);
+    return result.rows;
+  }
+
+  async listAllWhatsappConnections() {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(`
+      SELECT wc.company_id AS "companyId", wc.connection_key AS "connectionKey",
+             wc.client_id AS "clientId", wc.session_path AS "sessionPath",
+             wc.status, wc.phone_number AS "phoneNumber", c.slug AS "companySlug"
+      FROM whatsapp_connections wc
+      JOIN companies c ON c.id = wc.company_id
+      WHERE wc.status IN ('ready', 'authenticated')
+      ORDER BY wc.created_at ASC
+    `);
+    return result.rows;
+  }
+
+  // ── Status ────────────────────────────────────────────────────────────────
 
   status() {
     return {

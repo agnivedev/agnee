@@ -42,8 +42,8 @@ async function loadCompanyConfig() {
     ui.planBadge.textContent = `${planLabel} · ${data.planStatus || 'beta'}`;
     ui.planBadge.className = `plan-badge-pill plan-${plan}`;
 
-    const limit = data.limits?.aiMessages ?? 500;
-    const count = data.counts?.aiMessages ?? 0;
+    const limit = data.aiMessageLimit ?? data.limits?.aiMessages ?? 500;
+    const count = data.aiMessageCount ?? data.counts?.aiMessages ?? 0;
     if (limit > 0) {
       const pct = Math.min(100, Math.round((count / limit) * 100));
       ui.usageText.textContent = `${count.toLocaleString()} / ${limit.toLocaleString()} pesan AI bulan ini`;
@@ -74,6 +74,7 @@ async function savePlanConfig() {
     });
     ui.planSaved.hidden = false;
     setTimeout(() => { ui.planSaved.hidden = true; }, 2500);
+    await loadCompanyConfig();
   } catch (err) {
     alert(err.message);
   } finally {

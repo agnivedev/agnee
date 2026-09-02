@@ -86,6 +86,8 @@ const ui = {
   mediaHelp: document.querySelector('#mediaHelp'),
   mediaZoomLabel: document.querySelector('#mediaZoomLabel'),
   mediaDownload: document.querySelector('#mediaDownload'),
+  upgradeWall: document.querySelector('#upgradeWall'),
+  upgradeWallLogout: document.querySelector('#upgradeWallLogout'),
   usageWarningBanner: document.querySelector('#usageWarningBanner'),
   usageWarningText: document.querySelector('#usageWarningText'),
   routingBadge: document.querySelector('#routingBadge'),
@@ -198,9 +200,7 @@ async function checkUsageWarning() {
     const data = await api('/v1/admin/company');
 
     if (data.planStatus === 'suspended') {
-      ui.usageWarningText.textContent = 'Trial sudah berakhir. Balasan otomatis AI dinonaktifkan sampai kamu upgrade paket.';
-      ui.usageWarningBanner.hidden = false;
-      ui.usageWarningBanner.classList.add('danger');
+      ui.upgradeWall.hidden = false;
       return;
     }
 
@@ -2061,6 +2061,12 @@ document.querySelector('#mobileBack').addEventListener('click', () => {
 });
 document.querySelector('#logoutButton').addEventListener('click', async () => {
   await api('/v1/auth/logout', { method: 'POST' });
+  showLogin();
+});
+
+ui.upgradeWallLogout.addEventListener('click', async () => {
+  await api('/v1/auth/logout', { method: 'POST' });
+  ui.upgradeWall.hidden = true;
   showLogin();
 });
 

@@ -438,3 +438,27 @@ button:disabled { cursor: not-allowed; opacity: .42; transform: none !important;
 
 /* Settings rail button */
 .rail-action[id="settingsButton"] { margin-top: auto; }
+
+/* Upgrade wall */
+.upgrade-wall { position: fixed; inset: 0; z-index: 9999; background: var(--paper); display: flex; align-items: center; justify-content: center; overflow-y: auto; padding: 32px 16px; }
+.upgrade-wall[hidden] { display: none !important; }
+.upgrade-wall-inner { width: 100%; max-width: 720px; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 0; }
+.upgrade-wall-logo { width: 40px; height: 40px; margin-bottom: 20px; }
+.upgrade-wall-title { margin: 8px 0 12px; font-size: clamp(22px, 4vw, 32px); font-weight: 700; line-height: 1.2; }
+.upgrade-wall-sub { margin: 0 0 32px; color: var(--muted); max-width: 480px; line-height: 1.6; }
+.upgrade-cards { display: flex; gap: 16px; width: 100%; flex-wrap: wrap; justify-content: center; margin-bottom: 28px; }
+.upgrade-card { flex: 1 1 240px; max-width: 320px; background: white; border: 1.5px solid var(--line); border-radius: 16px; padding: 24px; display: flex; flex-direction: column; gap: 12px; text-align: left; }
+.upgrade-card-featured { border-color: var(--green); box-shadow: 0 0 0 3px rgba(25,198,102,.15); }
+.upgrade-card h3 { margin: 0; font-size: 20px; font-weight: 700; }
+.upgrade-card-badge { margin: 0; font: 500 10px/1 "IBM Plex Mono", monospace; letter-spacing: .1em; color: var(--green-dark); background: rgba(25,198,102,.1); border-radius: 6px; padding: 4px 8px; display: inline-block; }
+.upgrade-card-badge-popular { color: white; background: var(--green-dark); }
+.upgrade-price { display: flex; flex-direction: column; gap: 2px; }
+.upgrade-price-old { color: var(--muted); font-size: 13px; }
+.upgrade-price-now { font-size: 24px; font-weight: 700; }
+.upgrade-price-period { font-size: 14px; font-weight: 400; color: var(--muted); }
+.upgrade-features { margin: 4px 0 0; padding: 0 0 0 18px; color: var(--muted); font-size: 14px; display: flex; flex-direction: column; gap: 6px; flex: 1; }
+.upgrade-btn { display: block; margin-top: auto; padding: 12px 20px; border-radius: 10px; border: 1.5px solid var(--green-dark); color: var(--green-dark); background: transparent; font-weight: 600; font-size: 14px; text-decoration: none; text-align: center; transition: background .15s, color .15s; }
+.upgrade-btn:hover { background: rgba(25,198,102,.08); }
+.upgrade-btn-primary { background: var(--green); border-color: var(--green); color: #071d13; }
+.upgrade-btn-primary:hover { background: #12b35a; }
+.upgrade-wall-logout { margin-top: 4px; border: none; background: none; color: var(--muted); font-size: 13px; cursor: pointer; padding: 8px; text-decoration: underline; }

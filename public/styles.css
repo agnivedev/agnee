@@ -56,15 +56,15 @@ button:disabled { cursor: not-allowed; opacity: .42; transform: none !important;
 .plan-toggle-option:has(input:checked) { border-color: var(--green); background: rgba(25,198,102,.08); }
 .plan-toggle-option input { margin: 0; accent-color: var(--green); }
 
-.app-view { width: 100%; height: 100vh; height: 100dvh; min-height: 0; display: grid; grid-template-columns: 72px minmax(280px, 340px) minmax(440px, 1fr) 290px; background: var(--paper); overflow: hidden; }
-.rail { min-height: 0; overflow: hidden; padding: 22px 12px; display: flex; flex-direction: column; align-items: center; gap: 30px; background: var(--ink); color: white; }
-.rail-logo { width: 42px; height: 42px; }
-.rail nav { display: grid; gap: 12px; }
+.app-view { width: 100%; height: 100vh; height: 100dvh; min-height: 0; display: grid; grid-template-columns: 88px minmax(280px, 340px) minmax(440px, 1fr) 290px; background: var(--paper); overflow: hidden; }
+.rail { min-height: 0; overflow: hidden; padding: 22px 8px; display: flex; flex-direction: column; align-items: center; gap: 24px; background: var(--ink); color: white; }
+.rail-logo { width: 38px; height: 38px; }
+.rail nav { display: grid; gap: 4px; }
 .rail-action, .icon-button, .mobile-back { position: relative; border: 0; background: transparent; cursor: pointer; }
-.rail-action { width: 44px; height: 44px; border-radius: 14px; color: rgba(255,255,255,.65); font-size: 21px; transition: .2s ease; }
-.rail-action:hover, .rail-action.active { color: var(--lime); background: rgba(255,255,255,.09); transform: translateY(-2px); }
-.rail-action::after { content: attr(data-label); position: absolute; left: 54px; top: 12px; padding: 5px 8px; border-radius: 7px; background: var(--ink); color: white; font-size: 11px; opacity: 0; transform: translateX(-5px); pointer-events: none; transition: .2s ease; z-index: 5; }
-.rail-action:hover::after { opacity: 1; transform: none; }
+.rail-action { width: 72px; min-height: 52px; border-radius: 14px; color: rgba(255,255,255,.55); font-size: 20px; transition: .2s ease; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 8px 4px 6px; }
+.rail-action::before { content: attr(data-label); font: 500 9px/1 "IBM Plex Mono", monospace; letter-spacing: .05em; color: inherit; text-transform: uppercase; }
+.rail-action:hover, .rail-action.active { color: var(--lime); background: rgba(255,255,255,.09); }
+.rail-action::after { display: none; }
 .rail .logout { margin-top: auto; }
 
 .inbox-panel, .conversation-panel, .context-panel { height: 100%; min-height: 0; }

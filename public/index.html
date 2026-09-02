@@ -38,7 +38,40 @@
         </label>
         <p id="loginError" class="form-error" role="alert"></p>
         <button class="primary-button" type="submit"><span data-i18n="login.submit">Masuk</span> <span aria-hidden="true">→</span></button>
-        <p class="demo-note" data-i18n="login.note">Akun dikelola oleh administrator perusahaan Anda.</p>
+        <p class="demo-note">Belum punya akun? <button type="button" id="showSignup" class="link-button">Daftar gratis, coba 7 hari</button></p>
+      </form>
+
+      <form id="signupForm" class="login-form" hidden>
+        <div>
+          <p class="eyebrow">MULAI GRATIS</p>
+          <h2>Buat akun Agnee</h2>
+          <p class="subtle">Trial 7 hari, tanpa kartu kredit. Bisa upgrade kapan saja.</p>
+        </div>
+        <div class="plan-toggle" role="radiogroup" aria-label="Pilih paket">
+          <label class="plan-toggle-option">
+            <input type="radio" name="plan" value="personal" checked>
+            <span>Personal</span>
+          </label>
+          <label class="plan-toggle-option">
+            <input type="radio" name="plan" value="company">
+            <span>Company</span>
+          </label>
+        </div>
+        <label><span>Nama perusahaan / bisnis</span>
+          <input id="signupCompanyName" name="companyName" type="text" minlength="2" maxlength="150" required placeholder="Toko Kopi Nusantara">
+        </label>
+        <label><span>Nama Anda</span>
+          <input id="signupDisplayName" name="displayName" type="text" minlength="2" maxlength="100" required autocomplete="name">
+        </label>
+        <label><span data-i18n="login.email">Email</span>
+          <input id="signupEmail" name="email" type="email" autocomplete="username" required>
+        </label>
+        <label><span data-i18n="login.password">Kata sandi</span>
+          <input id="signupPassword" name="password" type="password" autocomplete="new-password" minlength="8" required>
+        </label>
+        <p id="signupError" class="form-error" role="alert"></p>
+        <button class="primary-button" type="submit"><span>Buat akun &amp; mulai trial</span> <span aria-hidden="true">→</span></button>
+        <p class="demo-note">Sudah punya akun? <button type="button" id="showLoginForm" class="link-button">Masuk di sini</button></p>
       </form>
     </section>
   </main>

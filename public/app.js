@@ -7,6 +7,10 @@ const ui = {
   appView: document.querySelector('#appView'),
   loginForm: document.querySelector('#loginForm'),
   loginError: document.querySelector('#loginError'),
+  signupForm: document.querySelector('#signupForm'),
+  signupError: document.querySelector('#signupError'),
+  showSignup: document.querySelector('#showSignup'),
+  showLoginForm: document.querySelector('#showLoginForm'),
   chatList: document.querySelector('#chatList'),
   loadMoreChats: document.querySelector('#loadMoreChats'),
   messageList: document.querySelector('#messageList'),
@@ -192,9 +196,29 @@ function renderMarkdown(text) {
 async function checkUsageWarning() {
   try {
     const data = await api('/v1/admin/company');
+
+    if (data.planStatus === 'suspended') {
+      ui.usageWarningText.textContent = 'Trial sudah berakhir. Balasan otomatis AI dinonaktifkan sampai kamu upgrade paket.';
+      ui.usageWarningBanner.hidden = false;
+      ui.usageWarningBanner.classList.add('danger');
+      return;
+    }
+
+    if (data.planStatus === 'trial' && data.trialEndsAt) {
+      const daysLeft = Math.ceil((new Date(data.trialEndsAt).getTime() - Date.now()) / (24 * 60 * 60 * 1000));
+      if (daysLeft <= 3) {
+        ui.usageWarningText.textContent = daysLeft <= 0
+          ? 'Trial berakhir hari ini. Upgrade sekarang supaya AI tetap membalas.'
+          : `Trial berakhir ${daysLeft} hari lagi. Upgrade kapan saja tanpa kehilangan data.`;
+        ui.usageWarningBanner.hidden = false;
+        ui.usageWarningBanner.classList.toggle('danger', daysLeft <= 1);
+        return;
+      }
+    }
+
     const limit = data.aiMessageLimit ?? 0;
     const count = data.aiMessageCount ?? 0;
-    if (limit <= 0) return;
+    if (limit <= 0) { ui.usageWarningBanner.hidden = true; return; }
     const pct = Math.round((count / limit) * 100);
     if (pct >= 80) {
       ui.usageWarningText.textContent = `Pesan AI bulan ini: ${count.toLocaleString()} / ${limit.toLocaleString()} (${pct}%)`;
@@ -230,6 +254,10 @@ function showLogin(fromInit = false) {
     ui.appView.hidden = true;
     ui.loginView.hidden = false;
   });
+  if (fromInit && new URLSearchParams(window.location.search).get('signup') === '1') {
+    ui.loginForm.hidden = true;
+    ui.signupForm.hidden = false;
+  }
 }
 
 function maybeShowOnboarding() {
@@ -1599,6 +1627,39 @@ ui.loginForm.addEventListener('submit', async (event) => {
   }
 });
 
+ui.showSignup.addEventListener('click', () => {
+  ui.loginForm.hidden = true;
+  ui.signupForm.hidden = false;
+  ui.signupError.textContent = '';
+});
+
+ui.showLoginForm.addEventListener('click', () => {
+  ui.signupForm.hidden = true;
+  ui.loginForm.hidden = false;
+  ui.loginError.textContent = '';
+});
+
+ui.signupForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  ui.signupError.textContent = '';
+  const form = new FormData(ui.signupForm);
+  try {
+    const sessionData = await api('/v1/auth/signup', {
+      method: 'POST',
+      body: JSON.stringify({
+        companyName: form.get('companyName'),
+        displayName: form.get('displayName'),
+        email: form.get('email'),
+        password: form.get('password'),
+        plan: form.get('plan') || 'personal',
+      }),
+    });
+    showApp(sessionData);
+  } catch (error) {
+    ui.signupError.textContent = error.message;
+  }
+});
+
 ui.composer.addEventListener('submit', async (event) => {
   event.preventDefault();
   const text = ui.messageInput.value.trim();
@@ -2015,4 +2076,4 @@ window.addEventListener('resize', () => {
   if (!window.matchMedia('(max-width: 1120px)').matches) ui.contextPanel.classList.remove('open');
 });
 
-api('/v1/auth/session').then(showApp).catch(() => showLogin());
+api('/v1/auth/session').then(showApp).catch(() => showLogin(true));

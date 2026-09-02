@@ -378,6 +378,17 @@ async function buildApp(overrides = {}) {
       }
     }
 
+    // Trial/plan gate: a suspended company (trial expired without upgrade, or
+    // manually suspended) gets no AI-generated replies. Human agents can still
+    // reply manually — only this auto-reply path is gated.
+    if (database.enabled && database.connected) {
+      const companyConfig = await database.getCompanyConfig(companyId).catch(() => null);
+      if (companyConfig?.planStatus === 'suspended') {
+        app.log.warn({ companyId }, 'AI auto-reply blocked — company plan is suspended');
+        return null;
+      }
+    }
+
     // Check AI usage limit (personal tier cap)
     if (database.enabled && database.connected) {
       const usage = await database.incrementAiMessageCount(companyId).catch(() => ({ exceeded: false }));
@@ -894,6 +905,19 @@ async function buildApp(overrides = {}) {
     }
   }, 60_000).unref?.();
 
+  // Rate limiter for signup endpoint: max 5 new companies per IP per hour —
+  // stricter than login since each signup creates real, costly resources
+  // (a company row, a WhatsApp client slot, a 7-day trial).
+  const signupAttempts = new Map();
+  const SIGNUP_WINDOW_MS = 60 * 60 * 1000;
+  const SIGNUP_MAX_ATTEMPTS = 5;
+  setInterval(() => {
+    const cutoff = Date.now() - SIGNUP_WINDOW_MS;
+    for (const [key, entry] of signupAttempts) {
+      if (entry.resetAt < cutoff) signupAttempts.delete(key);
+    }
+  }, 60_000).unref?.();
+
   // Security headers on every response
   app.addHook('onSend', async (_request, reply) => {
     reply.header('x-content-type-options', 'nosniff');
@@ -981,8 +1005,66 @@ async function buildApp(overrides = {}) {
     return { ok: true, user: sessionUser };
   });
 
+  app.post('/v1/auth/signup', {
+    schema: {
+      body: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['companyName', 'displayName', 'email', 'password'],
+        properties: {
+          companyName: { type: 'string', minLength: 2, maxLength: 150 },
+          displayName: { type: 'string', minLength: 2, maxLength: 100 },
+          email: { type: 'string', minLength: 5, maxLength: 200 },
+          password: { type: 'string', minLength: 8, maxLength: 200 },
+          plan: { type: 'string', enum: ['personal', 'company'], default: 'personal' },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    if (!database.status().connected) return reply.code(503).send({ error: 'Pendaftaran belum tersedia.' });
+    const ip = request.ip || request.socket.remoteAddress || 'unknown';
+    const now = Date.now();
+    const entry = signupAttempts.get(ip) || { count: 0, resetAt: now + SIGNUP_WINDOW_MS };
+    if (now > entry.resetAt) { entry.count = 0; entry.resetAt = now + SIGNUP_WINDOW_MS; }
+    if (entry.count >= SIGNUP_MAX_ATTEMPTS) {
+      const retryAfter = Math.ceil((entry.resetAt - now) / 1000);
+      reply.header('retry-after', String(retryAfter));
+      return reply.code(429).send({ error: 'Terlalu banyak percobaan daftar. Coba lagi nanti.' });
+    }
+    entry.count += 1;
+    signupAttempts.set(ip, entry);
+
+    let signup;
+    try {
+      signup = await database.createCompanySignup({
+        companyName: request.body.companyName.trim(),
+        plan: request.body.plan || 'personal',
+        displayName: request.body.displayName.trim(),
+        email: request.body.email.trim(),
+        password: request.body.password,
+      });
+    } catch (error) {
+      if (error.code === 'EMAIL_TAKEN') return reply.code(409).send({ error: error.message });
+      app.log.error({ err: error }, 'Signup failed');
+      return reply.code(500).send({ error: 'Gagal membuat akun. Coba lagi.' });
+    }
+
+    const sessionUser = {
+      userId: signup.userId,
+      companyId: signup.companyId,
+      email: signup.email,
+      displayName: signup.displayName,
+      role: 'supervisor',
+      onboarded: false,
+    };
+    const token = createSession(sessionUser, config.sessionSecret);
+    reply.header('set-cookie', `agnee_session=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=43200${config.cookieSecure ? '; Secure' : ''}`);
+    if (typeof database.setPresence === 'function') await database.setPresence(signup.userId, 'online', signup.companyId);
+    return reply.code(201).send({ ok: true, user: sessionUser, trialEndsAt: signup.trialEndsAt });
+  });
+
   app.addHook('onRequest', async (request, reply) => {
-    if (!request.url.startsWith('/v1/') || request.url.startsWith('/v1/auth/login')) return;
+    if (!request.url.startsWith('/v1/') || request.url.startsWith('/v1/auth/login') || request.url.startsWith('/v1/auth/signup')) return;
     const suppliedKey = request.headers['x-api-key'];
     const session = verifySession(getCookie(request.headers.cookie, 'agnee_session'), config.sessionSecret);
     if (suppliedKey === config.apiKey || session) {

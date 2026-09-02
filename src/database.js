@@ -5,6 +5,15 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { Pool } = require('pg');
 
+function slugify(value) {
+  return String(value || '')
+    .toLowerCase()
+    .normalize('NFKD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60) || 'company';
+}
+
 function hashPassword(password) {
   const salt = crypto.randomBytes(16).toString('hex');
   const hash = crypto.scryptSync(String(password), salt, 64).toString('hex');
@@ -433,14 +442,93 @@ class Database {
 
   async getCompanyConfig(companyId = this.companyId) {
     if (!this.enabled) return null;
+    // Lazily flip an expired trial to 'suspended' — no cron needed, this runs
+    // on every read and is a no-op once already flipped.
+    await this.pool.query(`
+      UPDATE companies SET plan_status = 'suspended'
+      WHERE id = $1 AND plan_status = 'trial' AND trial_ends_at < NOW()
+    `, [companyId]);
     const result = await this.pool.query(`
       SELECT plan, plan_status AS "planStatus", knowledge_client AS "knowledgeClient",
              ai_message_limit AS "aiMessageLimit", ai_message_count AS "aiMessageCount",
              ai_count_reset_at AS "aiCountResetAt", max_users AS "maxUsers",
-             max_playbooks AS "maxPlaybooks", max_whatsapp AS "maxWhatsapp", name, slug
+             max_playbooks AS "maxPlaybooks", max_whatsapp AS "maxWhatsapp", name, slug,
+             trial_ends_at AS "trialEndsAt"
       FROM companies WHERE id = $1
     `, [companyId]);
     return result.rows[0] || null;
+  }
+
+  /** Self-serve signup: creates company + owner user + WA connection slot in one transaction. */
+  async createCompanySignup({ companyName, plan, displayName, email, password }) {
+    if (!this.enabled) return null;
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      const existingUser = await client.query('SELECT 1 FROM users WHERE LOWER(email) = LOWER($1)', [email]);
+      if (existingUser.rowCount > 0) {
+        const err = new Error('Email sudah terdaftar. Silakan masuk.');
+        err.code = 'EMAIL_TAKEN';
+        throw err;
+      }
+
+      const baseSlug = slugify(companyName);
+      let slug = baseSlug;
+      for (let suffix = 2; ; suffix += 1) {
+        const exists = await client.query('SELECT 1 FROM companies WHERE LOWER(slug) = LOWER($1)', [slug]);
+        if (exists.rowCount === 0) break;
+        slug = `${baseSlug}-${suffix}`;
+      }
+
+      const limits = plan === 'company'
+        ? { maxUsers: 5, maxPlaybooks: 0, maxWhatsapp: 0, aiMessageLimit: 0 }
+        : { maxUsers: 1, maxPlaybooks: 1, maxWhatsapp: 1, aiMessageLimit: 500 };
+
+      const companyResult = await client.query(`
+        INSERT INTO companies (slug, name, plan, plan_status, knowledge_client, ai_message_limit, max_users, max_playbooks, max_whatsapp, trial_ends_at)
+        VALUES ($1, $2, $3, 'trial', 'agnee', $4, $5, $6, $7, NOW() + INTERVAL '7 days')
+        RETURNING id, slug, name, trial_ends_at AS "trialEndsAt"
+      `, [slug, companyName, plan, limits.aiMessageLimit, limits.maxUsers, limits.maxPlaybooks, limits.maxWhatsapp]);
+      const company = companyResult.rows[0];
+
+      const userResult = await client.query(`
+        INSERT INTO users (email, display_name, password_hash, status)
+        VALUES (LOWER($1), $2, $3, 'active')
+        RETURNING id, email, display_name AS "displayName"
+      `, [email, displayName, hashPassword(password)]);
+      const user = userResult.rows[0];
+
+      await client.query(`
+        INSERT INTO company_members (company_id, user_id, role, status, joined_at)
+        VALUES ($1, $2, 'owner', 'active', NOW())
+      `, [company.id, user.id]);
+
+      // Each tenant needs its own WhatsApp client identity — without this row,
+      // getConnConfig() falls back to the shared default clientId/sessionPath
+      // and this company's messages would collide with another tenant's session.
+      await client.query(`
+        INSERT INTO whatsapp_connections (company_id, connection_key, client_id, session_path)
+        VALUES ($1, 'whatsapp-main', $2, $3)
+      `, [company.id, `agnee-${company.id}`, process.env.WA_SESSION_PATH || './data/whatsapp']);
+
+      await client.query('COMMIT');
+      return {
+        userId: user.id,
+        companyId: company.id,
+        email: user.email,
+        displayName: user.displayName,
+        companyName: company.name,
+        companySlug: company.slug,
+        trialEndsAt: company.trialEndsAt,
+        role: 'owner',
+      };
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   async updateCompanyConfig({ plan, planStatus, knowledgeClient, aiMessageLimit, maxUsers, maxPlaybooks, maxWhatsapp }, companyId = this.companyId) {

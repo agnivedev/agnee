@@ -125,6 +125,7 @@
         <button id="inboxButton" class="rail-action active" data-i18n-aria-label="nav.inbox" data-label="Inbox">⌁</button>
         <button id="contactsButton" class="rail-action" data-i18n-aria-label="nav.contacts" data-label="Kontak">◎</button>
         <button id="funnelButton" class="rail-action" data-i18n-aria-label="nav.funnel" data-label="Funnel">↗</button>
+        <button id="playgroundButton" class="rail-action" aria-label="Simulasi & Training" data-label="Training" hidden>▷</button>
         <button id="adminButton" class="rail-action" data-i18n-aria-label="nav.admin" data-label="Admin">⚙</button>
         <button id="settingsButton" class="rail-action" aria-label="Pengaturan" data-label="Pengaturan">◈</button>
       </nav>
@@ -223,6 +224,59 @@
       <section><h3 data-i18n="lead.labels">Label</h3><div id="leadLabels" class="tag-row"><span>WhatsApp</span><span data-i18n="lead.inbound">Masuk</span></div></section>
       <button id="handoffButton" class="handoff-button" hidden><span data-i18n="lead.handoff">Teruskan ke tim penjualan</span> <span>→</span></button>
     </aside>
+
+    <section id="playgroundPanel" class="playground-panel" hidden>
+      <header class="pg-header">
+        <div>
+          <p class="eyebrow">SIMULASI & TRAINING</p>
+          <h1 class="pg-title">Uji respons AI</h1>
+        </div>
+        <div class="pg-meta">
+          <span class="pg-status-dot" id="pgStatusDot"></span>
+          <span id="pgStatusLabel">Memuat…</span>
+          <select id="pgClientId" class="pg-client-select"></select>
+        </div>
+      </header>
+
+      <div class="pg-body">
+        <div class="pg-left">
+          <form id="pgForm" class="pg-form">
+            <label class="pg-label">Pesan pelanggan</label>
+            <textarea id="pgMessage" class="pg-textarea" rows="5" maxlength="2000" placeholder="Ketik pesan seperti yang dikirim pelanggan…"></textarea>
+            <div class="pg-quick-buttons">
+              <button type="button" data-pg-message="Halo, saya mau tanya tentang produk">Sapa pembuka</button>
+              <button type="button" data-pg-message="Berapa harganya per bulan?">Harga</button>
+              <button type="button" data-pg-message="Apakah ada trial gratis?">Trial</button>
+              <button type="button" data-pg-message="Bagaimana cara daftarnya?">Cara daftar</button>
+            </div>
+            <button id="pgSubmit" type="submit" class="pg-submit" disabled>Uji respons AI</button>
+            <p id="pgError" class="pg-error" hidden></p>
+          </form>
+
+          <div class="pg-history" id="pgHistory" hidden>
+            <p class="eyebrow" style="margin-bottom:12px">RIWAYAT UJI</p>
+            <div id="pgHistoryList"></div>
+          </div>
+        </div>
+
+        <div class="pg-right">
+          <div id="pgResult" class="pg-result">
+            <div id="pgEmpty" class="pg-empty">
+              <p>Respons AI akan muncul di sini setelah kamu klik <strong>Uji respons AI</strong>.</p>
+            </div>
+            <div id="pgLoading" class="pg-loading" hidden>
+              <span class="sync-spinner" aria-hidden="true"></span>
+              <span>AI sedang memproses…</span>
+            </div>
+            <div id="pgOutput" class="pg-output" hidden>
+              <p class="eyebrow" style="margin-bottom:8px">RESPONS AI</p>
+              <div id="pgOutputText" class="pg-output-text"></div>
+              <div id="pgOutputMeta" class="pg-output-meta"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
   </main>
 
   <dialog id="connectionDialog" class="connection-dialog">

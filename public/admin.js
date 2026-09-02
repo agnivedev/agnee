@@ -198,7 +198,7 @@ async function loadConfig() {
     }
     await loadHistory();
   } catch (error) {
-    if (error.status === 401) {
+    if (error.status === 401 || error.status === 403) {
       window.location.href = '/';
       return;
     }
@@ -565,10 +565,24 @@ playbookUi.dropzone.addEventListener('drop', (event) => {
   if (file) uploadPlaybookFile(file);
 });
 
-loadConfig();
-loadAiSettings();
-loadTeam();
-loadPlaybook();
+async function init() {
+  try {
+    const session = await api('/v1/auth/session');
+    if (!session.user || !['owner', 'admin', 'supervisor'].includes(session.user.role)) {
+      window.location.href = '/';
+      return;
+    }
+  } catch {
+    window.location.href = '/';
+    return;
+  }
+  loadConfig();
+  loadAiSettings();
+  loadTeam();
+  loadPlaybook();
+}
+
+init();
 
 window.addEventListener('agnee:localechange', () => {
   loadConfig();

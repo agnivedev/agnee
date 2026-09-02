@@ -49,6 +49,8 @@ const ui = {
   contactsButton: document.querySelector('#contactsButton'),
   inboxButton: document.querySelector('#inboxButton'),
   funnelButton: document.querySelector('#funnelButton'),
+  playgroundButton: document.querySelector('#playgroundButton'),
+  playgroundPanel: document.querySelector('#playgroundPanel'),
   adminButton: document.querySelector('#adminButton'),
   settingsButton: document.querySelector('#settingsButton'),
   newConversationButton: document.querySelector('#newConversationButton'),
@@ -234,6 +236,7 @@ function showApp(sessionData) {
   if (sessionData?.user) state.currentUser = sessionData.user;
   ui.adminButton.hidden = !isCurrentUserSupervisor();
   ui.settingsButton.hidden = !isCurrentUserSupervisor();
+  ui.playgroundButton.hidden = !isCurrentUserSupervisor();
   transition(() => {
     ui.loginView.hidden = true;
     ui.appView.hidden = false;
@@ -1391,6 +1394,129 @@ async function openFunnel() {
   }
 }
 
+// ── Playground ──────────────────────────────────────────────────────────────
+
+let pgState = { loaded: false };
+
+function closePlayground() {
+  ui.playgroundPanel.hidden = true;
+  ui.inboxPanel.hidden = false;
+  ui.conversationPanel.hidden = false;
+  document.querySelector('#contextPanel')?.classList.remove('pg-hidden');
+  ui.playgroundButton.classList.remove('active');
+  ui.inboxButton.classList.add('active');
+}
+
+async function openPlayground() {
+  ui.inboxPanel.hidden = true;
+  ui.conversationPanel.hidden = true;
+  document.querySelector('#contextPanel')?.classList.add('pg-hidden');
+  ui.playgroundPanel.hidden = false;
+  ui.inboxButton.classList.remove('active');
+  ui.playgroundButton.classList.add('active');
+
+  if (pgState.loaded) return;
+  pgState.loaded = true;
+
+  const statusDot = document.querySelector('#pgStatusDot');
+  const statusLabel = document.querySelector('#pgStatusLabel');
+  const clientSelect = document.querySelector('#pgClientId');
+  const submit = document.querySelector('#pgSubmit');
+
+  try {
+    const config = await api('/v1/admin/config');
+    statusDot.className = `pg-status-dot ${config.llmEnabled ? 'ready' : 'error'}`;
+    statusLabel.textContent = config.llmEnabled ? 'AI aktif' : 'AI tidak aktif';
+    submit.disabled = !config.llmEnabled;
+    clientSelect.replaceChildren();
+    for (const client of config.knowledgeClients) {
+      const opt = document.createElement('option');
+      opt.value = client.id;
+      opt.textContent = client.name;
+      opt.selected = client.id === config.defaultKnowledgeClient;
+      clientSelect.append(opt);
+    }
+    await pgLoadHistory();
+  } catch (error) {
+    statusLabel.textContent = error.message;
+  }
+}
+
+async function pgLoadHistory() {
+  try {
+    const data = await api('/v1/admin/playground/history');
+    const list = document.querySelector('#pgHistoryList');
+    const section = document.querySelector('#pgHistory');
+    if (!data.history?.length) return;
+    list.replaceChildren();
+    section.hidden = false;
+    for (const item of data.history.slice(0, 8)) {
+      const el = document.createElement('div');
+      el.className = 'pg-history-item';
+      el.innerHTML = `<p class="pg-history-q">${item.message?.slice(0, 80) ?? ''}</p><p class="pg-history-a">${item.reply?.slice(0, 100) ?? '—'}</p>`;
+      el.addEventListener('click', () => {
+        document.querySelector('#pgMessage').value = item.message || '';
+      });
+      list.append(el);
+    }
+  } catch { /* non-critical */ }
+}
+
+document.querySelector('#pgForm').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const message = document.querySelector('#pgMessage').value.trim();
+  if (!message) return;
+  const clientId = document.querySelector('#pgClientId').value;
+  const submit = document.querySelector('#pgSubmit');
+  const empty = document.querySelector('#pgEmpty');
+  const loading = document.querySelector('#pgLoading');
+  const output = document.querySelector('#pgOutput');
+  const outputText = document.querySelector('#pgOutputText');
+  const outputMeta = document.querySelector('#pgOutputMeta');
+  const error = document.querySelector('#pgError');
+
+  submit.disabled = true;
+  submit.textContent = 'Memproses…';
+  empty.hidden = true;
+  loading.hidden = false;
+  output.hidden = true;
+  error.hidden = true;
+
+  try {
+    const data = await api('/v1/admin/playground/auto-reply', {
+      method: 'POST',
+      body: JSON.stringify({ message, clientId }),
+    });
+    loading.hidden = true;
+    output.hidden = false;
+    outputText.textContent = data.reply ?? '(tidak ada respons)';
+    const parts = [];
+    if (data.model) parts.push(data.model);
+    if (data.tokensIn) parts.push(`${data.tokensIn} in / ${data.tokensOut ?? 0} out token`);
+    if (data.cost) parts.push(`$${data.cost}`);
+    outputMeta.textContent = parts.join(' · ');
+    pgState.loaded = false;
+    await pgLoadHistory();
+    pgState.loaded = true;
+  } catch (err) {
+    loading.hidden = true;
+    empty.hidden = false;
+    error.hidden = false;
+    error.textContent = err.message;
+  } finally {
+    submit.disabled = false;
+    submit.textContent = 'Uji respons AI';
+  }
+});
+
+document.querySelectorAll('[data-pg-message]').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    document.querySelector('#pgMessage').value = btn.dataset.pgMessage;
+  });
+});
+
+// ── End Playground ───────────────────────────────────────────────────────────
+
 function openConversationMenu() {
   if (!state.activeChat) return;
   openUtility('Aksi percakapan', 'CHAT INI');
@@ -1803,6 +1929,7 @@ ui.messageList.addEventListener('scroll', () => {
 });
 ui.connectionButton.addEventListener('click', openConnection);
 ui.inboxButton.addEventListener('click', async () => {
+  if (!ui.playgroundPanel.hidden) closePlayground();
   state.activeTab = 'inbox';
   state.activeFilter = 'all';
   for (const item of ui.tabButtons) item.classList.toggle('active', item.dataset.tab === 'inbox');
@@ -1818,6 +1945,7 @@ ui.inboxButton.addEventListener('click', async () => {
 });
 ui.contactsButton.addEventListener('click', openContacts);
 ui.funnelButton.addEventListener('click', openFunnel);
+ui.playgroundButton.addEventListener('click', openPlayground);
 ui.adminButton.addEventListener('click', () => { window.location.href = '/admin'; });
 ui.settingsButton?.addEventListener('click', () => { window.location.href = '/settings'; });
 ui.conversationMenuButton.addEventListener('click', openConversationMenu);

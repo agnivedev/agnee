@@ -234,9 +234,11 @@ async function checkUsageWarning() {
 
 function showApp(sessionData) {
   if (sessionData?.user) state.currentUser = sessionData.user;
-  ui.adminButton.hidden = !isCurrentUserSupervisor();
-  ui.settingsButton.hidden = !isCurrentUserSupervisor();
-  ui.playgroundButton.hidden = !isCurrentUserSupervisor();
+  const isSupervisor = isCurrentUserSupervisor();
+  ui.adminButton.hidden = !isSupervisor;
+  ui.settingsButton.hidden = !isSupervisor;
+  ui.playgroundButton.hidden = !isSupervisor;
+  ui.connectionButton.hidden = !isSupervisor;
   transition(() => {
     ui.loginView.hidden = true;
     ui.appView.hidden = false;
@@ -1652,6 +1654,7 @@ function finishConnectionDialog(account) {
 }
 
 async function openConnection() {
+  if (!isCurrentUserSupervisor()) return;
   ui.connectionDialog.showModal();
   ui.qrImage.removeAttribute('src');
   ui.qrShell.hidden = true;

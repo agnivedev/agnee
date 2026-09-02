@@ -949,9 +949,16 @@ async function buildApp(overrides = {}) {
   });
 
   // Clean URL routing — serve HTML pages without .html extension
-  const pages = ['settings', 'admin', 'landing', 'landing-b', 'landing-c', 'landing-d'];
-  for (const page of pages) {
+  const publicPages = ['landing', 'landing-b', 'landing-c', 'landing-d'];
+  for (const page of publicPages) {
     app.get(`/${page}`, (_req, reply) => reply.sendFile(`${page}.html`));
+  }
+  for (const page of ['settings', 'admin']) {
+    app.get(`/${page}`, (request, reply) => {
+      const session = verifySession(getCookie(request.headers.cookie, 'agnee_session'), config.sessionSecret);
+      if (!session) return reply.redirect('/');
+      return reply.sendFile(`${page}.html`);
+    });
   }
 
   app.get('/health', async () => ({ ok: true, service: 'agnee-app', database: database.status(), whatsapp: manager.publicState(database.companyId, config.demoMode) }));
@@ -1102,7 +1109,6 @@ async function buildApp(overrides = {}) {
     if (isSupervisor(request.agneeSession)) return;
     const chatId = request.params?.chatId;
     if (!chatId) return;
-    if (request.method === 'POST' && request.routeOptions?.url === '/v1/chats/:chatId/routing') return;
     const routing = await getRouting(chatId, request.agneeSession?.companyId);
     if (routing.mode !== 'human' || routing.assigneeUserId !== request.agneeSession?.userId) {
       return reply.code(403).send({ error: 'Chat ini ditangani oleh agent lain.' });
@@ -1121,7 +1127,13 @@ async function buildApp(overrides = {}) {
     return { ok: true };
   });
 
-  app.get('/v1/team/members', async (request) => ({ members: await getTeamMembers(request.agneeSession?.companyId) }));
+  app.get('/v1/team/members', async (request) => {
+    const members = await getTeamMembers(request.agneeSession?.companyId);
+    if (!isSupervisor(request.agneeSession)) {
+      return { members: members.map(({ email: _e, ...m }) => m) };
+    }
+    return { members };
+  });
 
   app.post('/v1/team/members', {
     schema: { body: { type: 'object', additionalProperties: false, required: ['email', 'displayName', 'password', 'role'], properties: {
@@ -1783,7 +1795,8 @@ async function buildApp(overrides = {}) {
         assignee: { type: 'string', minLength: 1, maxLength: 100, default: 'Sales team' },
       } },
     },
-  }, async (request) => {
+  }, async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat menandai lead.' });
     const companyId = request.agneeSession?.companyId || database.companyId;
     const currentLead = await getLeadState(request.params.chatId, companyId);
     const lead = {

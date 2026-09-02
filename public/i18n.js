@@ -152,7 +152,9 @@
       'ob.step2Open': 'Buka Pengaturan Tim', 'ob.step2Skip': 'Lewati, nanti saja →',
       'ob.step3Title': 'Upload playbook / FAQ',
       'ob.step3Copy': 'Playbook adalah sumber jawaban AI kamu. Buka panel Admin untuk upload FAQ atau training data. Agen CS-mu akan otomatis inherit playbook ini.',
-      'ob.step3Open': 'Buka Admin → Uji AI', 'ob.step3Done': 'Selesai, masuk inbox →'
+      'ob.step3Open': 'Buka Admin → Uji AI', 'ob.step3Done': 'Selesai, masuk inbox →',
+      'agent.notSetupTitle': 'WhatsApp belum terhubung',
+      'agent.notSetupCopy': 'Perusahaan kamu belum menghubungkan WhatsApp. Minta supervisor untuk login dan selesaikan setup koneksi WhatsApp terlebih dahulu.'
     },
     en: {
       'common.indonesian': 'Indonesian', 'common.english': 'English', 'common.close': 'Close',
@@ -298,7 +300,9 @@
       'ob.step2Open': 'Open Team Settings', 'ob.step2Skip': 'Skip for now →',
       'ob.step3Title': 'Upload playbook / FAQ',
       'ob.step3Copy': 'The playbook is your AI\'s answer source. Open the Admin panel to upload FAQ or training data. Your CS agents will automatically inherit this playbook.',
-      'ob.step3Open': 'Open Admin → Test AI', 'ob.step3Done': 'Done, go to inbox →'
+      'ob.step3Open': 'Open Admin → Test AI', 'ob.step3Done': 'Done, go to inbox →',
+      'agent.notSetupTitle': 'WhatsApp not connected yet',
+      'agent.notSetupCopy': 'Your company has not connected WhatsApp yet. Please ask your supervisor to log in and complete the WhatsApp connection setup.'
     }
   };
 

@@ -1598,6 +1598,15 @@ function renderConnection(whatsapp) {
   const ready = whatsapp.phase === 'ready' || whatsapp.phase === 'demo';
   ui.connectionButton.className = `connection-pill ${ready ? whatsapp.phase : ''}`;
   ui.connectionLabel.textContent = ready ? tr('wa.connected') : tr('wa.connectAction');
+  if (!isCurrentUserSupervisor() && !ready) {
+    ui.emptyState.querySelector('h2').textContent = tr('agent.notSetupTitle');
+    ui.emptyState.querySelector('p').textContent = tr('agent.notSetupCopy');
+  } else {
+    ui.emptyState.querySelector('h2').setAttribute('data-i18n', 'conversation.emptyTitle');
+    ui.emptyState.querySelector('p').setAttribute('data-i18n', 'conversation.emptyCopy');
+    ui.emptyState.querySelector('h2').textContent = tr('conversation.emptyTitle');
+    ui.emptyState.querySelector('p').textContent = tr('conversation.emptyCopy');
+  }
 }
 
 function showDialogQr() {

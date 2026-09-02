@@ -44,13 +44,10 @@ Yang bakal kamu pelajari:
 EA MT5 Coding for Non-IT
 (senilai Rp4.500.000 — GRATIS untuk peserta)
 
-Daftar sekarang, link akses dikirim sebelum acara:
-[LINK_AKSES]
+Daftar sekarang — link masuk akan di-share 10 menit sebelum webinar dimulai langsung ke WA kamu 🎯
 
 Ada pertanyaan? Balas sini ya 😊
 ```
-
-> Ganti `[LINK_AKSES]` dengan URL registrasi yang diberikan tim Ferawaty.
 
 ---
 

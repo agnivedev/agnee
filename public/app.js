@@ -459,15 +459,18 @@ function renderChats() {
     nodeMap.clear();
     const empty = document.createElement('div');
     empty.className = 'inbox-empty';
-    empty.textContent = ui.searchInput.value.trim()
-      ? 'Percakapan tidak ditemukan.'
-      : state.activeTab === 'archived'
-        ? 'Belum ada percakapan yang diarsipkan.'
-        : state.activeFilter === 'qualified'
-          ? 'Belum ada lead qualified.'
-          : state.activeFilter === 'unread'
-            ? 'Semua percakapan sudah dibaca.'
-            : 'Belum ada percakapan.';
+    const waNotReady = state.chatsWaPhase && state.chatsWaPhase !== 'ready';
+    empty.textContent = waNotReady
+      ? 'WhatsApp sedang tersambung, percakapan akan muncul begitu siap.'
+      : ui.searchInput.value.trim()
+        ? 'Percakapan tidak ditemukan.'
+        : state.activeTab === 'archived'
+          ? 'Belum ada percakapan yang diarsipkan.'
+          : state.activeFilter === 'qualified'
+            ? 'Belum ada lead qualified.'
+            : state.activeFilter === 'unread'
+              ? 'Semua percakapan sudah dibaca.'
+              : 'Belum ada percakapan.';
     ui.chatList.replaceChildren(empty);
     return;
   }
@@ -1242,6 +1245,10 @@ async function loadChats(reset = false) {
     state.hasMoreChats = Boolean(data.hasMore);
     ui.loadMoreChats.hidden = !state.hasMoreChats;
     state.chats = newChats;
+    // The server returns `phase` (instead of an error) when WhatsApp isn't
+    // ready yet, so an empty result here can mean "still connecting" rather
+    // than "genuinely no conversations" — renderChats needs to tell them apart.
+    state.chatsWaPhase = data.phase || null;
     renderChats();
   } catch (error) {
     if (reset) {

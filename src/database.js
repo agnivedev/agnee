@@ -601,17 +601,6 @@ class Database {
     return result.rows[0];
   }
 
-  async getPlaybookAsset(assetId, companyId) {
-    if (!this.enabled) return null;
-    const result = await this.pool.query(`
-      SELECT id, filename, mime_type AS "mimeType", kind, size_bytes AS "sizeBytes",
-             storage_path AS "storagePath", extracted_text AS "extractedText",
-             extraction_status AS "extractionStatus"
-      FROM playbook_assets WHERE id = $1 AND company_id = $2
-    `, [assetId, companyId]);
-    return result.rows[0] || null;
-  }
-
   async deletePlaybookAsset(assetId, companyId) {
     if (!this.enabled) return null;
     const result = await this.pool.query(`
@@ -734,32 +723,6 @@ class Database {
         updated_at = NOW()
       WHERE company_id = $1 AND connection_key = 'whatsapp-main'
     `, [companyId, status, phoneNumber]);
-  }
-
-  async resolveCompanyByWhatsappNumber(jid) {
-    if (!this.enabled) return null;
-    const number = String(jid || '').split('@')[0];
-    if (!number) return null;
-    const result = await this.pool.query(`
-      SELECT company_id AS "companyId"
-      FROM whatsapp_connections
-      WHERE phone_number = $1 AND status = 'ready'
-      LIMIT 1
-    `, [number]);
-    return result.rows[0]?.companyId || null;
-  }
-
-  async getWhatsappConnections(companyId) {
-    if (!this.enabled) return [];
-    const result = await this.pool.query(`
-      SELECT id, connection_key AS "connectionKey", label, client_id AS "clientId",
-             phone_number AS "phoneNumber", status, session_path AS "sessionPath",
-             connected_at AS "connectedAt"
-      FROM whatsapp_connections
-      WHERE company_id = $1
-      ORDER BY created_at ASC
-    `, [companyId]);
-    return result.rows;
   }
 
   async listAllWhatsappConnections() {

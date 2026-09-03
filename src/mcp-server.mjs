@@ -4,13 +4,20 @@ import * as z from 'zod/v4';
 
 const apiBaseUrl = (process.env.MCP_API_BASE_URL || 'http://127.0.0.1:4100').replace(/\/$/, '');
 const apiKey = process.env.API_KEY || 'dev-api-key';
+// There is no default tenant: an API-key caller must name the company it acts
+// for (id or slug), or every request is rejected with HTTP 400.
+const companyRef = process.env.AGNEE_COMPANY || '';
 
 async function agneeApi(path, options = {}) {
+  if (!companyRef) {
+    throw new Error('AGNEE_COMPANY is not set — set it to the company id or slug this MCP server acts for.');
+  }
   const response = await fetch(`${apiBaseUrl}${path}`, {
     ...options,
     headers: {
       'content-type': 'application/json',
       'x-api-key': apiKey,
+      'x-agnee-company': companyRef,
       ...(options.headers || {}),
     },
     signal: AbortSignal.timeout(15_000),

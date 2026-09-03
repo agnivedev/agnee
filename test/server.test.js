@@ -248,6 +248,8 @@ test('admin auto-reply playground previews usage without sending WhatsApp', asyn
     async connect() {},
     async close() {},
     status() { return { driver: 'postgresql', connected: true }; },
+    async resolveCompanyId(idOrSlug) { return idOrSlug === 'acme' ? 'company-acme' : null; },
+    async getCompanyConfig() { return { knowledgeClient: 'bzone', planStatus: 'beta' }; },
     async getLeadState(chatId) { return persistedLeads.get(chatId) || null; },
     async saveLeadState(lead) { persistedLeads.set(lead.chatId, lead); return lead; },
     async recordPlaygroundRun(run) {
@@ -292,7 +294,7 @@ test('admin auto-reply playground previews usage without sending WhatsApp', asyn
   });
   t.after(() => app.close());
 
-  const headers = { 'x-api-key': 'test-key' };
+  const headers = { 'x-api-key': 'test-key', 'x-agnee-company': 'acme' };
   const config = await app.inject({ method: 'GET', url: '/v1/admin/config', headers });
   assert.equal(config.statusCode, 200);
   assert.equal(config.json().model, 'test/model');
@@ -342,4 +344,48 @@ test('admin auto-reply playground previews usage without sending WhatsApp', asyn
     payload: { clientId: 'unknown', message: 'Test' },
   });
   assert.equal(invalidTenant.statusCode, 400);
+});
+
+test('agent can claim an unheld chat but cannot take over another agent chat', async (t) => {
+  const routes = new Map();
+  const agentOne = { id: 'agent-1', userId: 'agent-1', companyId: 'company-1', email: 'agent1@example.com', displayName: 'Agent 1', role: 'agent', status: 'active' };
+  const agentTwo = { id: 'agent-2', userId: 'agent-2', companyId: 'company-1', email: 'agent2@example.com', displayName: 'Agent 2', role: 'agent', status: 'active' };
+  const database = {
+    connected: true, companyId: 'company-1',
+    async connect() {}, async close() {}, status() { return { driver: 'postgresql', connected: true }; },
+    async authenticateUser(email, password) {
+      if (password !== 'agent-pass-123') return null;
+      return email === agentOne.email ? agentOne : email === agentTwo.email ? agentTwo : null;
+    },
+    async getActiveSessionUser(userId) { return userId === agentOne.id ? agentOne : userId === agentTwo.id ? agentTwo : null; },
+    async setPresence() {}, async listTeamMembers() { return [agentOne, agentTwo]; },
+    async getConversationRouting(chatId) { return routes.get(chatId) || null; },
+    async saveConversationRouting(change) {
+      const member = change.assigneeUserId === agentOne.id ? agentOne : agentTwo;
+      const value = { chatId: change.chatId, mode: change.mode, assigneeUserId: change.assigneeUserId || null, assigneeName: change.assigneeUserId ? member.displayName : null, status: 'open', priority: 'normal' };
+      routes.set(change.chatId, value);
+      return value;
+    },
+    async listConversationHandoffs() { return []; }, async listConversationNotes() { return []; },
+    async getLeadState() { return null; }, async saveLeadState(lead) { return lead; },
+  };
+  const app = await buildApp({ logger: false, startupEnabled: false, demoMode: true, database, sessionSecret: 'agent-claim-secret' });
+  t.after(() => app.close());
+  const signIn = async (user) => {
+    const login = await app.inject({ method: 'POST', url: '/v1/auth/login', payload: { email: user.email, password: 'agent-pass-123' } });
+    assert.equal(login.statusCode, 200);
+    return login.headers['set-cookie'].split(';')[0];
+  };
+  const cookieOne = await signIn(agentOne);
+  const cookieTwo = await signIn(agentTwo);
+
+  const claim = await app.inject({ method: 'POST', url: '/v1/chats/demo-nadia/routing', headers: { cookie: cookieOne }, payload: { mode: 'human', assigneeUserId: agentOne.id } });
+  assert.equal(claim.statusCode, 200);
+
+  const steal = await app.inject({ method: 'POST', url: '/v1/chats/demo-nadia/routing', headers: { cookie: cookieTwo }, payload: { mode: 'human', assigneeUserId: agentTwo.id } });
+  assert.equal(steal.statusCode, 403);
+  const peek = await app.inject({ method: 'GET', url: '/v1/chats/demo-nadia/messages', headers: { cookie: cookieTwo } });
+  assert.equal(peek.statusCode, 403);
+  const release = await app.inject({ method: 'POST', url: '/v1/chats/demo-nadia/routing', headers: { cookie: cookieTwo }, payload: { mode: 'ai' } });
+  assert.equal(release.statusCode, 403);
 });

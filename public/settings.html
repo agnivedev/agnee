@@ -21,6 +21,7 @@
 
       <nav aria-label="Navigasi pengaturan">
         <a href="#planSection"><span>◈</span><b>Paket &amp; Penggunaan</b></a>
+        <a href="#paymentSection"><span>◆</span><b>Pembayaran</b></a>
         <a href="#teamSection"><span>◎</span><b>Tim CS</b></a>
         <a href="#myAccount"><span>◉</span><b>Akun saya</b></a>
       </nav>
@@ -51,18 +52,51 @@
           <div class="usage-track"><div id="usageFill" class="usage-fill" style="width:0%"></div></div>
         </div>
         <div class="plan-config" id="planConfig">
-          <label>Knowledge Base / Playbook
-            <select id="knowledgeClientSelect">
-              <option value="agnee">Agnee (default)</option>
-              <option value="bzone">bZone Alpha</option>
+          <label>Sumber jawaban AI <small>(ditetapkan oleh tim Agnee)</small>
+            <input id="knowledgeClientLabel" type="text" value="—" disabled readonly>
+          </label>
+          <label>Batas pesan AI/bulan <small>(ditetapkan oleh tim Agnee)</small>
+            <input id="aiLimitInput" type="number" value="500" disabled readonly>
+          </label>
+          <p class="team-copy" style="margin-top:.5rem">Untuk mengubah paket atau menaikkan batas, hubungi tim Agnee.</p>
+        </div>
+      </section>
+
+      <section id="paymentSection" class="team-card" aria-labelledby="paymentTitle">
+        <div class="card-head"><div><p class="eyebrow">PEMBAYARAN &amp; CLOSING</p><h2 id="paymentTitle">Cara customer membayar</h2></div></div>
+        <p class="team-copy">AI akan menyampaikan instruksi pembayaran ini kepada customer saat mereka siap closing.</p>
+        <div class="plan-config" id="paymentConfig">
+          <label>Metode pembayaran
+            <select id="paymentMethodSelect">
+              <option value="none">Belum dikonfigurasi</option>
+              <option value="link">Link pembayaran (Midtrans, Xendit, Mayar, dll)</option>
+              <option value="bank_transfer">Transfer bank manual</option>
             </select>
           </label>
-          <label>Batas pesan AI/bulan <small>(0 = tidak terbatas)</small>
-            <input id="aiLimitInput" type="number" min="0" max="100000" step="100" value="500">
-          </label>
+          <div id="paymentLinkFields" hidden>
+            <label>URL link pembayaran
+              <input id="paymentLinkInput" type="url" placeholder="https://app.mayar.id/pl/..." maxlength="500">
+            </label>
+          </div>
+          <div id="bankTransferFields" hidden>
+            <label>Nama bank
+              <input id="bankNameInput" type="text" placeholder="BCA / BRI / Mandiri / dll" maxlength="100">
+            </label>
+            <label>Nomor rekening
+              <input id="bankAccountInput" type="text" placeholder="1234567890" maxlength="50">
+            </label>
+            <label>Atas nama
+              <input id="bankHolderInput" type="text" placeholder="PT Nama Perusahaan" maxlength="100">
+            </label>
+          </div>
+          <div id="paymentNotesField">
+            <label>Catatan tambahan <small>(opsional — instruksi khusus untuk AI saat closing)</small>
+              <input id="paymentNotesInput" type="text" placeholder="Konfirmasi bukti transfer ke nomor WA…" maxlength="500">
+            </label>
+          </div>
           <div class="model-chain-actions" style="margin-top:.5rem">
-            <button id="savePlanConfig" class="save-settings-btn" type="button">Simpan konfigurasi</button>
-            <span id="planSaved" class="settings-saved-badge" hidden>Tersimpan ✓</span>
+            <button id="savePaymentConfig" class="save-settings-btn" type="button">Simpan pembayaran</button>
+            <span id="paymentSaved" class="settings-saved-badge" hidden>Tersimpan ✓</span>
           </div>
         </div>
       </section>

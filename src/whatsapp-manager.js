@@ -113,6 +113,13 @@ class WhatsappManager {
     return n;
   }
 
+  /** Number of companies with a live WA client — used by tenant-agnostic health. */
+  activeCompanyCount() {
+    let n = 0;
+    for (const e of this._entries.values()) if (e.client) n += 1;
+    return n;
+  }
+
   // ── QR mirror helpers ──────────────────────────────────────────────────────
 
   _clearQrMirror(companyId) {

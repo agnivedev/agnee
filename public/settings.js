@@ -9,10 +9,18 @@ const ui = {
   usageText: document.querySelector('#usageText'),
   usagePct: document.querySelector('#usagePct'),
   usageFill: document.querySelector('#usageFill'),
-  knowledgeClientSelect: document.querySelector('#knowledgeClientSelect'),
+  knowledgeClientLabel: document.querySelector('#knowledgeClientLabel'),
   aiLimitInput: document.querySelector('#aiLimitInput'),
-  savePlanConfig: document.querySelector('#savePlanConfig'),
-  planSaved: document.querySelector('#planSaved'),
+  paymentMethodSelect: document.querySelector('#paymentMethodSelect'),
+  paymentLinkFields: document.querySelector('#paymentLinkFields'),
+  bankTransferFields: document.querySelector('#bankTransferFields'),
+  paymentLinkInput: document.querySelector('#paymentLinkInput'),
+  bankNameInput: document.querySelector('#bankNameInput'),
+  bankAccountInput: document.querySelector('#bankAccountInput'),
+  bankHolderInput: document.querySelector('#bankHolderInput'),
+  paymentNotesInput: document.querySelector('#paymentNotesInput'),
+  savePaymentConfig: document.querySelector('#savePaymentConfig'),
+  paymentSaved: document.querySelector('#paymentSaved'),
   teamMembers: document.querySelector('#teamMembers'),
   teamForm: document.querySelector('#teamForm'),
   teamStatus: document.querySelector('#teamStatus'),
@@ -53,8 +61,18 @@ async function loadCompanyConfig() {
       ui.planUsageBar.hidden = false;
     }
 
-    ui.knowledgeClientSelect.value = data.knowledgeClient || 'agnee';
+    ui.knowledgeClientLabel.value = data.knowledgeClient || '—';
     ui.aiLimitInput.value = limit;
+
+    // Payment settings
+    const method = data.paymentMethod || 'none';
+    ui.paymentMethodSelect.value = method;
+    updatePaymentFields(method);
+    ui.paymentLinkInput.value = data.paymentLink || '';
+    ui.bankNameInput.value = data.bankName || '';
+    ui.bankAccountInput.value = data.bankAccount || '';
+    ui.bankHolderInput.value = data.bankHolder || '';
+    ui.paymentNotesInput.value = data.paymentNotes || '';
   } catch (error) {
     if (error.status === 401) {
       window.location.href = '/';
@@ -62,25 +80,35 @@ async function loadCompanyConfig() {
   }
 }
 
-async function savePlanConfig() {
-  ui.savePlanConfig.disabled = true;
+function updatePaymentFields(method) {
+  ui.paymentLinkFields.hidden = method !== 'link';
+  ui.bankTransferFields.hidden = method !== 'bank_transfer';
+}
+
+async function savePaymentConfig() {
+  ui.savePaymentConfig.disabled = true;
   try {
+    const method = ui.paymentMethodSelect.value;
     await api('/v1/admin/company', {
       method: 'PATCH',
       body: JSON.stringify({
-        knowledgeClient: ui.knowledgeClientSelect.value,
-        aiMessageLimit: parseInt(ui.aiLimitInput.value, 10) || 0,
+        paymentMethod: method,
+        paymentLink: method === 'link' ? ui.paymentLinkInput.value.trim() : '',
+        bankName: method === 'bank_transfer' ? ui.bankNameInput.value.trim() : '',
+        bankAccount: method === 'bank_transfer' ? ui.bankAccountInput.value.trim() : '',
+        bankHolder: method === 'bank_transfer' ? ui.bankHolderInput.value.trim() : '',
+        paymentNotes: ui.paymentNotesInput.value.trim(),
       }),
     });
-    ui.planSaved.hidden = false;
-    setTimeout(() => { ui.planSaved.hidden = true; }, 2500);
-    await loadCompanyConfig();
+    ui.paymentSaved.hidden = false;
+    setTimeout(() => { ui.paymentSaved.hidden = true; }, 2500);
   } catch (err) {
     alert(err.message);
   } finally {
-    ui.savePlanConfig.disabled = false;
+    ui.savePaymentConfig.disabled = false;
   }
 }
+
 
 function renderTeam(members, user) {
   ui.teamMembers.replaceChildren();
@@ -232,7 +260,8 @@ async function init() {
   }
 }
 
-ui.savePlanConfig.addEventListener('click', savePlanConfig);
+ui.paymentMethodSelect.addEventListener('change', () => updatePaymentFields(ui.paymentMethodSelect.value));
+ui.savePaymentConfig.addEventListener('click', savePaymentConfig);
 ui.teamForm.addEventListener('submit', addMember);
 
 init();

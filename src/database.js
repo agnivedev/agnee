@@ -32,12 +32,6 @@ class Database {
   constructor(options = {}) {
     this.logger = options.logger || console;
     this.connectionString = options.connectionString || process.env.DATABASE_URL || '';
-    this.companySlug = options.companySlug || process.env.DEFAULT_COMPANY_SLUG || 'default';
-    this.companyName = options.companyName || process.env.DEFAULT_COMPANY_NAME || 'Default Company';
-    this.adminEmail = String(options.adminEmail || process.env.ADMIN_EMAIL || 'admin@agnee.local').toLowerCase();
-    this.adminPassword = String(options.adminPassword || process.env.ADMIN_PASSWORD || 'agnee-demo');
-    this.companyId = null;
-    this.adminUserId = null;
     this.enabled = Boolean(options.pool || this.connectionString || process.env.PGHOST);
     this.connected = false;
     this.pool = options.pool || null;
@@ -57,53 +51,23 @@ class Database {
     if (!this.enabled) return;
     await this.pool.query('SELECT 1');
     await this.migrate();
-    await this.ensureBootstrapTenant();
     this.connected = true;
     this.logger.info?.('PostgreSQL connected and migrations applied');
   }
 
-  async ensureBootstrapTenant() {
-    const client = await this.pool.connect();
-    try {
-      await client.query('BEGIN');
-      const company = await client.query(`
-        INSERT INTO companies (slug, name)
-        VALUES ($1, $2)
-        ON CONFLICT (LOWER(slug)) DO UPDATE SET name = EXCLUDED.name, updated_at = NOW()
-        RETURNING id
-      `, [this.companySlug, this.companyName]);
-      this.companyId = company.rows[0].id;
-
-      const user = await client.query(`
-        INSERT INTO users (email, display_name, password_hash, status)
-        VALUES ($1, 'Supervisor', $2, 'active')
-        ON CONFLICT (LOWER(email)) DO UPDATE SET
-          password_hash = COALESCE(users.password_hash, EXCLUDED.password_hash),
-          status = 'active', updated_at = NOW()
-        RETURNING id
-      `, [this.adminEmail, hashPassword(this.adminPassword)]);
-      this.adminUserId = user.rows[0].id;
-
-      await client.query(`
-        INSERT INTO company_members (company_id, user_id, role, status, joined_at)
-        VALUES ($1, $2, 'owner', 'active', NOW())
-        ON CONFLICT (company_id, user_id) DO UPDATE SET
-          role = 'owner', status = 'active', joined_at = COALESCE(company_members.joined_at, NOW()), updated_at = NOW()
-      `, [this.companyId, this.adminUserId]);
-
-      await client.query(`
-        INSERT INTO whatsapp_connections (company_id, connection_key, client_id, session_path)
-        VALUES ($1, 'whatsapp-main', $2, $3)
-        ON CONFLICT (company_id, connection_key) DO UPDATE SET
-          client_id = EXCLUDED.client_id, session_path = EXCLUDED.session_path, updated_at = NOW()
-      `, [this.companyId, process.env.WA_CLIENT_ID || 'agnee-main', process.env.WA_SESSION_PATH || './data/whatsapp']);
-      await client.query('COMMIT');
-    } catch (error) {
-      await client.query('ROLLBACK');
-      throw error;
-    } finally {
-      client.release();
-    }
+  /**
+   * Resolve a company by id or slug. Used by API-key callers, which must name
+   * the company they act for — there is no implicit default tenant.
+   */
+  async resolveCompanyId(idOrSlug) {
+    if (!this.enabled || !idOrSlug) return null;
+    const value = String(idOrSlug);
+    const result = await this.pool.query(`
+      SELECT id FROM companies
+      WHERE id::text = $1 OR LOWER(slug) = LOWER($1)
+      LIMIT 1
+    `, [value]);
+    return result.rows[0]?.id || null;
   }
 
   async migrate() {
@@ -135,7 +99,7 @@ class Database {
     }
   }
 
-  async getLeadState(chatId, companyId = this.companyId) {
+  async getLeadState(chatId, companyId) {
     if (!this.enabled) return null;
     const result = await this.pool.query(`
       SELECT chat_id AS "chatId", stage, score, title, detail, assignee
@@ -145,7 +109,7 @@ class Database {
     return result.rows[0] || null;
   }
 
-  async getConversationSummary(chatId, locale = 'id', companyId = this.companyId) {
+  async getConversationSummary(chatId, locale = 'id', companyId) {
     if (!this.enabled) return null;
     const result = await this.pool.query(`
       SELECT chat_id AS "chatId", locale, summary,
@@ -197,7 +161,7 @@ class Database {
     return user;
   }
 
-  async listTeamMembers(companyId = this.companyId) {
+  async listTeamMembers(companyId) {
     if (!this.enabled) return [];
     const result = await this.pool.query(`
       SELECT u.id, u.email, u.display_name AS "displayName", cm.role, cm.status,
@@ -212,7 +176,7 @@ class Database {
     return result.rows;
   }
 
-  async createTeamMember({ email, displayName, password, role = 'agent' }, companyId = this.companyId) {
+  async createTeamMember({ email, displayName, password, role = 'agent' }, companyId) {
     if (!this.enabled) return null;
     const client = await this.pool.connect();
     try {
@@ -242,7 +206,7 @@ class Database {
     }
   }
 
-  async setPresence(userId, status, companyId = this.companyId) {
+  async setPresence(userId, status, companyId) {
     if (!this.enabled || !userId) return;
     await this.pool.query(`
       INSERT INTO agent_presence (company_id, user_id, status, last_seen_at)
@@ -252,7 +216,7 @@ class Database {
     `, [companyId, userId, status]);
   }
 
-  async getConversationRouting(chatId, companyId = this.companyId) {
+  async getConversationRouting(chatId, companyId) {
     if (!this.enabled) return null;
     const result = await this.pool.query(`
       SELECT cr.chat_id AS "chatId", cr.handling_mode AS "mode", cr.assignee_user_id AS "assigneeUserId",
@@ -265,7 +229,7 @@ class Database {
     return result.rows[0] || null;
   }
 
-  async saveConversationRouting({ chatId, mode, assigneeUserId, status = 'open', priority = 'normal', actorUserId, note }, companyId = this.companyId) {
+  async saveConversationRouting({ chatId, mode, assigneeUserId, status = 'open', priority = 'normal', actorUserId, note }, companyId) {
     if (!this.enabled) return null;
     const client = await this.pool.connect();
     try {
@@ -303,7 +267,7 @@ class Database {
     }
   }
 
-  async listConversationHandoffs(chatId, limit = 20, companyId = this.companyId) {
+  async listConversationHandoffs(chatId, limit = 20, companyId) {
     if (!this.enabled) return [];
     const result = await this.pool.query(`
       SELECT h.id, h.from_mode AS "fromMode", h.to_mode AS "toMode", h.note,
@@ -319,7 +283,7 @@ class Database {
     return result.rows;
   }
 
-  async addConversationNote(chatId, authorUserId, body, companyId = this.companyId) {
+  async addConversationNote(chatId, authorUserId, body, companyId) {
     if (!this.enabled) return null;
     const result = await this.pool.query(`
       INSERT INTO conversation_notes (company_id, chat_id, author_user_id, body)
@@ -329,7 +293,7 @@ class Database {
     return result.rows[0];
   }
 
-  async listConversationNotes(chatId, limit = 30, companyId = this.companyId) {
+  async listConversationNotes(chatId, limit = 30, companyId) {
     if (!this.enabled) return [];
     const result = await this.pool.query(`
       SELECT n.id, n.body, n.created_at AS "createdAt", u.display_name AS "authorName"
@@ -340,7 +304,7 @@ class Database {
     return result.rows;
   }
 
-  async saveLeadState(lead, companyId = this.companyId) {
+  async saveLeadState(lead, companyId) {
     if (!this.enabled) return lead;
     const result = await this.pool.query(`
       INSERT INTO lead_states (company_id, chat_id, stage, score, title, detail, assignee)
@@ -357,7 +321,7 @@ class Database {
     return result.rows[0];
   }
 
-  async saveConversationSummary(item, companyId = this.companyId) {
+  async saveConversationSummary(item, companyId) {
     if (!this.enabled) return item;
     const result = await this.pool.query(`
       INSERT INTO conversation_summaries (
@@ -399,7 +363,7 @@ class Database {
     return result.rows[0];
   }
 
-  async recordPlaygroundRun(run, companyId = this.companyId) {
+  async recordPlaygroundRun(run, companyId) {
     if (!this.enabled) return null;
     const result = await this.pool.query(`
       INSERT INTO playground_runs (
@@ -411,7 +375,7 @@ class Database {
       RETURNING id, created_at AS "createdAt"
     `, [
       companyId,
-      run.userId || this.adminUserId,
+      run.userId || null,
       run.clientId,
       run.message,
       run.reply,
@@ -428,7 +392,7 @@ class Database {
     return result.rows[0];
   }
 
-  async listPlaygroundRuns(limit = 20, companyId = this.companyId) {
+  async listPlaygroundRuns(limit = 20, companyId) {
     if (!this.enabled) return [];
     const result = await this.pool.query(`
       SELECT
@@ -454,7 +418,7 @@ class Database {
     return result.rows;
   }
 
-  async getCompanyConfig(companyId = this.companyId) {
+  async getCompanyConfig(companyId) {
     if (!this.enabled) return null;
     // Lazily flip an expired trial to 'suspended' — no cron needed, this runs
     // on every read and is a no-op once already flipped.
@@ -467,7 +431,10 @@ class Database {
              ai_message_limit AS "aiMessageLimit", ai_message_count AS "aiMessageCount",
              ai_count_reset_at AS "aiCountResetAt", max_users AS "maxUsers",
              max_playbooks AS "maxPlaybooks", max_whatsapp AS "maxWhatsapp", name, slug,
-             trial_ends_at AS "trialEndsAt"
+             trial_ends_at AS "trialEndsAt",
+             payment_method AS "paymentMethod", payment_link AS "paymentLink",
+             bank_name AS "bankName", bank_account AS "bankAccount",
+             bank_holder AS "bankHolder", payment_notes AS "paymentNotes"
       FROM companies WHERE id = $1
     `, [companyId]);
     return result.rows[0] || null;
@@ -545,7 +512,7 @@ class Database {
     }
   }
 
-  async getCompanyUsage(companyId = this.companyId) {
+  async getCompanyUsage(companyId) {
     if (!this.enabled) return null;
     const result = await this.pool.query(`
       SELECT
@@ -560,7 +527,7 @@ class Database {
     return result.rows[0] || null;
   }
 
-  async updateCompanyConfig({ plan, planStatus, knowledgeClient, aiMessageLimit, maxUsers, maxPlaybooks, maxWhatsapp }, companyId = this.companyId) {
+  async updateCompanyConfig({ plan, planStatus, knowledgeClient, aiMessageLimit, maxUsers, maxPlaybooks, maxWhatsapp, paymentMethod, paymentLink, bankName, bankAccount, bankHolder, paymentNotes }, companyId) {
     if (!this.enabled) return null;
     const fields = [];
     const values = [];
@@ -572,6 +539,12 @@ class Database {
     if (maxUsers !== undefined) { fields.push(`max_users = $${i++}`); values.push(maxUsers); }
     if (maxPlaybooks !== undefined) { fields.push(`max_playbooks = $${i++}`); values.push(maxPlaybooks); }
     if (maxWhatsapp !== undefined) { fields.push(`max_whatsapp = $${i++}`); values.push(maxWhatsapp); }
+    if (paymentMethod !== undefined) { fields.push(`payment_method = $${i++}`); values.push(paymentMethod); }
+    if (paymentLink !== undefined) { fields.push(`payment_link = $${i++}`); values.push(paymentLink || null); }
+    if (bankName !== undefined) { fields.push(`bank_name = $${i++}`); values.push(bankName || null); }
+    if (bankAccount !== undefined) { fields.push(`bank_account = $${i++}`); values.push(bankAccount || null); }
+    if (bankHolder !== undefined) { fields.push(`bank_holder = $${i++}`); values.push(bankHolder || null); }
+    if (paymentNotes !== undefined) { fields.push(`payment_notes = $${i++}`); values.push(paymentNotes || null); }
     if (!fields.length) return this.getCompanyConfig(companyId);
     fields.push(`updated_at = NOW()`);
     values.push(companyId);
@@ -579,7 +552,7 @@ class Database {
     return this.getCompanyConfig(companyId);
   }
 
-  async getPlaybook(companyId = this.companyId) {
+  async getPlaybook(companyId) {
     if (!this.enabled) return { brief: '', updatedAt: null };
     const result = await this.pool.query(`
       SELECT brief, updated_at AS "updatedAt"
@@ -588,7 +561,7 @@ class Database {
     return result.rows[0] || { brief: '', updatedAt: null };
   }
 
-  async savePlaybookBrief(brief, updatedBy, companyId = this.companyId) {
+  async savePlaybookBrief(brief, updatedBy, companyId) {
     if (!this.enabled) return { brief, updatedAt: new Date().toISOString() };
     const result = await this.pool.query(`
       INSERT INTO playbooks (company_id, brief, updated_by, updated_at)
@@ -600,7 +573,7 @@ class Database {
     return result.rows[0];
   }
 
-  async listPlaybookAssets(companyId = this.companyId) {
+  async listPlaybookAssets(companyId) {
     if (!this.enabled) return [];
     const result = await this.pool.query(`
       SELECT id, filename, mime_type AS "mimeType", kind, size_bytes AS "sizeBytes",
@@ -612,7 +585,7 @@ class Database {
     return result.rows;
   }
 
-  async createPlaybookAsset(asset, companyId = this.companyId) {
+  async createPlaybookAsset(asset, companyId) {
     if (!this.enabled) return null;
     const result = await this.pool.query(`
       INSERT INTO playbook_assets
@@ -628,7 +601,7 @@ class Database {
     return result.rows[0];
   }
 
-  async getPlaybookAsset(assetId, companyId = this.companyId) {
+  async getPlaybookAsset(assetId, companyId) {
     if (!this.enabled) return null;
     const result = await this.pool.query(`
       SELECT id, filename, mime_type AS "mimeType", kind, size_bytes AS "sizeBytes",
@@ -639,7 +612,7 @@ class Database {
     return result.rows[0] || null;
   }
 
-  async deletePlaybookAsset(assetId, companyId = this.companyId) {
+  async deletePlaybookAsset(assetId, companyId) {
     if (!this.enabled) return null;
     const result = await this.pool.query(`
       DELETE FROM playbook_assets WHERE id = $1 AND company_id = $2
@@ -649,7 +622,7 @@ class Database {
   }
 
   /** Combined text context for the AI: typed brief + extracted text from ready documents. */
-  async getPlaybookContext(companyId = this.companyId) {
+  async getPlaybookContext(companyId) {
     if (!this.enabled) return '';
     const [playbook, assets] = await Promise.all([
       this.getPlaybook(companyId),
@@ -668,7 +641,7 @@ class Database {
     return parts.join('\n\n');
   }
 
-  async incrementAiMessageCount(companyId = this.companyId) {
+  async incrementAiMessageCount(companyId) {
     if (!this.enabled) return { count: 0, limit: 0, exceeded: false };
     const result = await this.pool.query(`
       UPDATE companies SET
@@ -689,7 +662,7 @@ class Database {
     return { count, limit, exceeded: limit > 0 && count > limit };
   }
 
-  async updateTeamMemberRole(userId, role, companyId = this.companyId) {
+  async updateTeamMemberRole(userId, role, companyId) {
     if (!this.enabled) return null;
     await this.pool.query(`
       UPDATE company_members SET role = $1, updated_at = NOW()
@@ -703,7 +676,7 @@ class Database {
     return result.rows[0] || null;
   }
 
-  async deactivateTeamMember(userId, companyId = this.companyId) {
+  async deactivateTeamMember(userId, companyId) {
     if (!this.enabled) return;
     await this.pool.query(`
       UPDATE company_members SET status = 'inactive', updated_at = NOW()
@@ -809,7 +782,6 @@ class Database {
     return {
       driver: this.enabled ? 'postgresql' : 'memory',
       connected: this.connected,
-      companySlug: this.enabled ? this.companySlug : null,
     };
   }
 

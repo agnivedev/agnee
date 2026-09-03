@@ -55,8 +55,6 @@ function loadConfig(overrides = {}) {
     llmMaxTokens: Number(process.env.LLM_MAX_TOKENS || 512),
     knowledgeClient: process.env.KNOWLEDGE_CLIENT || 'bzone',
     databaseUrl: process.env.DATABASE_URL || '',
-    defaultCompanySlug: process.env.DEFAULT_COMPANY_SLUG || 'default',
-    defaultCompanyName: process.env.DEFAULT_COMPANY_NAME || 'Default Company',
     // Only trust X-Forwarded-For when an explicit proxy allowlist/hop count is set.
     // Without this, any client can spoof the header and bypass IP rate limiting.
     trustProxy: parseTrustProxy(process.env.TRUST_PROXY),
@@ -181,6 +179,15 @@ function requestsHumanAgent(text) {
     || /\b(?:cs|agent|manusia|admin|sales|supervisor|human|person)\b[\s\S]{0,45}\b(?:hubungkan|sambungkan|bicara|ngobrol|talk|speak|connect)\b/i.test(String(text || ''));
 }
 
+// The database only ever stores 'owner' or 'agent' (and historically 'admin').
+// Everything privileged is collapsed to 'supervisor' so exactly one spelling
+// reaches authorization checks — login and the session-revalidation hook must
+// both use this, or a refreshed role silently stops matching isSupervisor().
+const PRIVILEGED_DB_ROLES = ['owner', 'admin', 'supervisor'];
+function normalizeRole(role) {
+  return PRIVILEGED_DB_ROLES.includes(role) ? 'supervisor' : 'agent';
+}
+
 function createSession(user, secret) {
   const identity = typeof user === 'string' ? { email: user } : user;
   const payload = Buffer.from(JSON.stringify({ ...identity, exp: Date.now() + 12 * 60 * 60 * 1000 })).toString('base64url');
@@ -248,7 +255,11 @@ async function buildApp(overrides = {}) {
   const conversationHandoffs = new Map();
   const conversationSummaries = new Map();
   const summaryJobs = new Map();
-  const fallbackTeam = [{ id: 'local-supervisor', email: config.adminEmail, displayName: 'Supervisor', role: 'supervisor', status: 'active', presence: 'online' }];
+  // Standalone company id used only when there is no database (demo / local
+  // fallback login). It is a real, explicit tenant id — not a default that
+  // database-backed requests can fall back into.
+  const STANDALONE_COMPANY_ID = 'standalone-company';
+  const fallbackTeam = [{ id: 'local-supervisor', companyId: STANDALONE_COMPANY_ID, email: config.adminEmail, displayName: 'Supervisor', role: 'supervisor', status: 'active', presence: 'online' }];
   // Knowledge base: resolved per-company from DB on every call (no shared mutable —
   // each tenant may have a different knowledge_client and must never see another's).
   async function getKnowledgeBase(companyId) {
@@ -273,17 +284,13 @@ async function buildApp(overrides = {}) {
   };
   const database = overrides.database || new Database({
     connectionString: config.databaseUrl,
-    companySlug: config.defaultCompanySlug,
-    companyName: config.defaultCompanyName,
-    adminEmail: config.adminEmail,
-    adminPassword: config.adminPassword,
     logger: app.log,
   });
   await database.connect();
   if (config.llmEnabled) await knowledgeBase.load();
   // Initialise demo company state if in demo mode
   if (config.demoMode) {
-    const demoState = manager.getState(database.companyId || 'demo');
+    const demoState = manager.getState(STANDALONE_COMPANY_ID);
     demoState.phase = 'demo';
     demoState.connectedAt = new Date().toISOString();
     demoState.account = 'Agnee Demo Workspace';
@@ -294,14 +301,33 @@ async function buildApp(overrides = {}) {
     manager.broadcast(companyId, event, payload);
   }
 
-  /** Resolve the WA connection config for a company from DB or env fallback. */
+  /**
+   * Resolve the WA connection config for a company.
+   *
+   * A company must never reuse another tenant's clientId: LocalAuth derives the
+   * Chromium profile from it (<sessionPath>/session-<clientId>), so two
+   * companies on one clientId means two browsers on one profile — they delete
+   * each other's SingletonLock and neither ever emits a QR. Every company
+   * therefore gets its own identity, derived from its id.
+   */
   async function getConnConfig(companyId) {
+    if (!companyId) throw new Error('getConnConfig requires a companyId');
     let conn = null;
     if (database.enabled && database.connected) {
       conn = await database.getWhatsappConnection(companyId).catch(() => null);
+      if (!conn) {
+        // Company with no identity of its own — mint one and persist it so the
+        // profile stays stable across restarts.
+        conn = await database.upsertWhatsappConnection(companyId, {
+          clientId: `agnee-${companyId}`,
+          sessionPath: config.sessionPath,
+        }).catch(() => null);
+        app.log.warn({ companyId }, 'Backfilled missing WhatsApp identity for company');
+      }
     }
     return {
-      clientId: conn?.clientId || config.clientId,
+      // Derive per-company even if the DB write failed — never share a clientId.
+      clientId: conn?.clientId || `agnee-${companyId}`,
       sessionPath: conn?.sessionPath || config.sessionPath,
     };
   }
@@ -311,7 +337,7 @@ async function buildApp(overrides = {}) {
     return {
       log: app.log,
       onMessage: async (companyId, message) => {
-        await deliverInboundWebhook(message);
+        await deliverInboundWebhook(message, companyId);
         const autoReply = await generateAutoReply(message, companyId);
         if (autoReply) {
           await message.reply(autoReply);
@@ -327,7 +353,10 @@ async function buildApp(overrides = {}) {
     };
   }
 
-  async function deliverInboundWebhook(message) {
+  // One webhook URL receives every tenant's inbound messages, so the payload
+  // must say which company a message belongs to — otherwise the receiver has no
+  // way to tell them apart.
+  async function deliverInboundWebhook(message, companyId) {
     if (!config.webhookUrl) return;
     const headers = { 'content-type': 'application/json' };
     if (config.webhookSecret) headers.authorization = `Bearer ${config.webhookSecret}`;
@@ -336,6 +365,7 @@ async function buildApp(overrides = {}) {
       headers,
       body: JSON.stringify({
         event: 'whatsapp.message.received',
+        companyId,
         message: {
           id: message.id?._serialized || null,
           from: message.from,
@@ -350,7 +380,7 @@ async function buildApp(overrides = {}) {
     if (!response.ok) throw new Error(`Inbound webhook returned HTTP ${response.status}`);
   }
 
-  async function generateAutoReply(message, companyId = database.companyId) {
+  async function generateAutoReply(message, companyId) {
     if (!config.llmEnabled) return null;
     if (message.from.endsWith('@g.us')) return null;
     if (!message.body || !message.body.trim()) return null;
@@ -410,9 +440,31 @@ async function buildApp(overrides = {}) {
       ? await database.getPlaybookContext(companyId).catch(() => '')
       : '';
 
+    // Build payment/closing context from company config
+    let paymentContext = '';
+    if (database.enabled && database.connected) {
+      const companyConfig = await database.getCompanyConfig(companyId).catch(() => null);
+      if (companyConfig?.paymentMethod === 'link' && companyConfig.paymentLink) {
+        paymentContext = `## PANDUAN PEMBAYARAN & CLOSING\nMetode: Link pembayaran\nLink: ${companyConfig.paymentLink}${companyConfig.paymentNotes ? `\nCatatan: ${companyConfig.paymentNotes}` : ''}\nKirim link ini kepada customer saat mereka siap membayar. Jangan mengarang link atau metode lain.`;
+      } else if (companyConfig?.paymentMethod === 'bank_transfer') {
+        const parts = ['## PANDUAN PEMBAYARAN & CLOSING\nMetode: Transfer bank'];
+        if (companyConfig.bankName) parts.push(`Bank: ${companyConfig.bankName}`);
+        if (companyConfig.bankAccount) parts.push(`No. Rekening: ${companyConfig.bankAccount}`);
+        if (companyConfig.bankHolder) parts.push(`Atas nama: ${companyConfig.bankHolder}`);
+        if (companyConfig.paymentNotes) parts.push(`Catatan: ${companyConfig.paymentNotes}`);
+        parts.push('Sampaikan detail rekening ini kepada customer saat mereka siap membayar. Minta customer kirim bukti transfer, lalu handoff ke supervisor untuk verifikasi.');
+        paymentContext = parts.join('\n');
+      }
+    }
+
+    const contextSections = [
+      playbookContext ? `## PLAYBOOK PERUSAHAAN INI (SUMBER UTAMA — prioritaskan di atas knowledge umum di atas)\n${playbookContext}` : '',
+      paymentContext,
+    ].filter(Boolean).join('\n\n');
+
     const result = await llmService.generateReply(message.body, {
-      systemPrompt: playbookContext
-        ? `${kb.getSystemPrompt()}\n\n## PLAYBOOK PERUSAHAAN INI (SUMBER UTAMA — prioritaskan di atas knowledge umum di atas)\n${playbookContext}`
+      systemPrompt: contextSections
+        ? `${kb.getSystemPrompt()}\n\n${contextSections}`
         : kb.getSystemPrompt(),
       relevantFaqs,
       leadState: latestSummary?.summary ? { ...leadState, conversationSummary: latestSummary.summary } : leadState,
@@ -632,7 +684,7 @@ async function buildApp(overrides = {}) {
   }
 
   async function summarizeConversation(chatId, locale = 'id', companyId, wa) {
-    const cid = companyId || database.companyId;
+    const cid = companyId;
     const normalizedLocale = locale === 'en' ? 'en' : 'id';
     const source = config.demoMode
       ? { messages: (demo.messages[chatId] || []).slice(-40) }
@@ -810,7 +862,7 @@ async function buildApp(overrides = {}) {
     }, chatId, text, options);
   }
 
-  async function getLeadState(chatId, companyId = database.companyId) {
+  async function getLeadState(chatId, companyId) {
     const cacheKey = `${companyId}:${chatId}`;
     if (leadStates.has(cacheKey)) return leadStates.get(cacheKey);
     const persisted = await database.getLeadState(chatId, companyId);
@@ -829,7 +881,9 @@ async function buildApp(overrides = {}) {
   }
 
   function isSupervisor(session) {
-    return session?.role === 'supervisor' || session?.apiClient;
+    // Accept the raw privileged DB spellings too, so a token or code path that
+    // skips normalizeRole() cannot silently downgrade a supervisor to an agent.
+    return PRIVILEGED_DB_ROLES.includes(session?.role) || Boolean(session?.apiClient);
   }
 
   async function getTeamMembers(companyId) {
@@ -840,7 +894,7 @@ async function buildApp(overrides = {}) {
     return fallbackTeam;
   }
 
-  async function getRouting(chatId, companyId = database.companyId) {
+  async function getRouting(chatId, companyId) {
     const cacheKey = `${companyId}:${chatId}`;
     if (conversationRouting.has(cacheKey)) return conversationRouting.get(cacheKey);
     const persisted = typeof database.getConversationRouting === 'function' && database.status().connected
@@ -859,7 +913,7 @@ async function buildApp(overrides = {}) {
   }
 
   async function saveRouting(change, companyId) {
-    const cid = companyId || database.companyId;
+    const cid = companyId;
     const cacheKey = `${cid}:${change.chatId}`;
     const previous = await getRouting(change.chatId, cid);
     let routing;
@@ -961,7 +1015,15 @@ async function buildApp(overrides = {}) {
     });
   }
 
-  app.get('/health', async () => ({ ok: true, service: 'agnee-app', database: database.status(), whatsapp: manager.publicState(database.companyId, config.demoMode) }));
+  // Health is tenant-agnostic: there is no default company whose WhatsApp state
+  // could stand in for the deployment. Per-company state lives at
+  // GET /v1/whatsapp/status, which is scoped to the caller's session.
+  app.get('/health', async () => ({
+    ok: true,
+    service: 'agnee-app',
+    database: database.status(),
+    whatsapp: { demoMode: config.demoMode, activeCompanies: manager.activeCompanyCount() },
+  }));
 
   app.post('/v1/auth/login', {
     schema: {
@@ -998,12 +1060,18 @@ async function buildApp(overrides = {}) {
       return reply.code(401).send({ error: 'Email atau password salah' });
     }
     loginAttempts.delete(ip);
+    if (!user.companyId) {
+      // Every session must be bound to a company; there is no default tenant to
+      // drop the user into.
+      app.log.error({ userId: user.id }, 'Login blocked — user has no company membership');
+      return reply.code(403).send({ error: 'Akun ini belum terhubung ke perusahaan mana pun. Hubungi admin Anda.' });
+    }
     const sessionUser = {
       userId: user.id,
-      companyId: user.companyId || database.companyId || 'local-company',
+      companyId: user.companyId,
       email: user.email,
       displayName: user.displayName || user.email,
-      role: user.role === 'owner' || user.role === 'admin' ? 'supervisor' : user.role,
+      role: normalizeRole(user.role),
       onboarded: !!user.onboardedAt,
     };
     const token = createSession(sessionUser, config.sessionSecret);
@@ -1078,10 +1146,27 @@ async function buildApp(overrides = {}) {
     const suppliedKey = request.headers['x-api-key'];
     const session = verifySession(getCookie(request.headers.cookie, 'agnee_session'), config.sessionSecret);
     if (suppliedKey === config.apiKey) {
-      request.agneeSession = { apiClient: true, role: 'supervisor', displayName: 'Sistem' };
+      // API-key callers must name the company they act for — there is no
+      // implicit default tenant to fall back to.
+      const requested = request.headers['x-agnee-company'];
+      if (!requested) {
+        return reply.code(400).send({ error: 'Header x-agnee-company wajib diisi (id atau slug perusahaan).' });
+      }
+      const companyId = database.status().connected
+        ? await database.resolveCompanyId(requested)
+        : null;
+      if (!companyId) {
+        return reply.code(404).send({ error: 'Perusahaan tidak ditemukan.' });
+      }
+      request.agneeSession = { apiClient: true, role: 'supervisor', displayName: 'Sistem', companyId };
       return;
     }
     if (!session) return reply.code(401).send({ error: 'Unauthorized' });
+    // Every session is scoped to exactly one company. A session without one
+    // used to silently fall through to the default tenant — reject it instead.
+    if (!session.companyId) {
+      return reply.code(401).send({ error: 'Sesi tidak terikat ke perusahaan. Silakan login kembali.' });
+    }
 
     // Revalidate session against DB at most once per 60s per user+company
     if (session.userId && session.companyId && database.status().connected) {
@@ -1093,8 +1178,9 @@ async function buildApp(overrides = {}) {
           sessionCheckCache.delete(cacheKey);
           return reply.code(401).send({ error: 'Sesi tidak valid. Silakan login kembali.' });
         }
-        // Refresh role from DB in case it changed
-        session.role = live.role;
+        // Refresh role from DB in case it changed — normalized, because the DB
+        // stores 'owner' while authorization compares against 'supervisor'.
+        session.role = normalizeRole(live.role);
         sessionCheckCache.set(cacheKey, Date.now() + 60_000);
       }
     }
@@ -1110,9 +1196,22 @@ async function buildApp(overrides = {}) {
     const chatId = request.params?.chatId;
     if (!chatId) return;
     const routing = await getRouting(chatId, request.agneeSession?.companyId);
-    if (routing.mode !== 'human' || routing.assigneeUserId !== request.agneeSession?.userId) {
-      return reply.code(403).send({ error: 'Chat ini ditangani oleh agent lain.' });
-    }
+    const userId = request.agneeSession?.userId;
+    if (routing.mode === 'human' && routing.assigneeUserId === userId) return; // own chat
+
+    // An agent must still be able to CLAIM a chat nobody else holds — that is
+    // the normal "take this conversation" flow, and blocking it here left
+    // agents unable to pick up any chat at all. The routing route enforces
+    // that they may only assign it to themselves; a chat already held by a
+    // different agent stays off-limits so claims cannot be stolen.
+    const heldByOtherAgent = routing.mode === 'human'
+      && routing.assigneeUserId
+      && routing.assigneeUserId !== userId;
+    if (!heldByOtherAgent
+      && request.method === 'POST'
+      && request.routeOptions?.url === '/v1/chats/:chatId/routing') return;
+
+    return reply.code(403).send({ error: 'Chat ini ditangani oleh agent lain.' });
   });
 
   app.get('/v1/auth/session', async (request) => ({ authenticated: true, user: request.agneeSession }));
@@ -1147,7 +1246,7 @@ async function buildApp(overrides = {}) {
     if (typeof database.createTeamMember !== 'function' || !database.status().connected) {
       return reply.code(503).send({ error: 'Penyimpanan anggota belum tersedia.' });
     }
-    const teamCompanyId = request.agneeSession?.companyId || database.companyId;
+    const teamCompanyId = request.agneeSession.companyId;
     const usage = await database.getCompanyUsage(teamCompanyId);
     if (usage && usage.maxUsers > 0 && usage.currentUsers >= usage.maxUsers) {
       return reply.code(403).send({ error: `Batas anggota tim tercapai (${usage.maxUsers} pengguna). Upgrade plan untuk menambah lebih banyak.` });
@@ -1167,7 +1266,7 @@ async function buildApp(overrides = {}) {
     if (!database.status().connected) return reply.code(503).send({ error: 'Penyimpanan belum tersedia.' });
     const member = await database.updateTeamMemberRole(request.params.userId, request.body.role, request.agneeSession?.companyId);
     if (!member) return reply.code(404).send({ error: 'Anggota tidak ditemukan atau tidak dapat diubah.' });
-    broadcastEvent(request.agneeSession?.companyId || database.companyId, 'team', { action: 'updated', member });
+    broadcastEvent(request.agneeSession.companyId, 'team', { action: 'updated', member });
     return { member };
   });
 
@@ -1175,7 +1274,7 @@ async function buildApp(overrides = {}) {
     if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat menonaktifkan anggota.' });
     if (!database.status().connected) return reply.code(503).send({ error: 'Penyimpanan belum tersedia.' });
     await database.deactivateTeamMember(request.params.userId, request.agneeSession?.companyId);
-    broadcastEvent(request.agneeSession?.companyId || database.companyId, 'team', { action: 'removed', userId: request.params.userId });
+    broadcastEvent(request.agneeSession.companyId, 'team', { action: 'removed', userId: request.params.userId });
     return { ok: true };
   });
 
@@ -1187,6 +1286,17 @@ async function buildApp(overrides = {}) {
     return config_ || reply.code(503).send({ error: 'Tidak tersedia.' });
   });
 
+  // What a company is ENTITLED to (plan, status, quotas) versus how it CHOOSES
+  // to operate (knowledge source, payment details). A company supervisor may
+  // change the second group for their own tenant, but must never grant
+  // themselves the first — otherwise any trial user could set
+  // planStatus:'active' and aiMessageLimit:0 and walk straight through the
+  // trial gate and every plan cap. Entitlements are platform-owner only.
+  // knowledgeClient is in here because the packs are proprietary, per-customer
+  // content ('bzone', 'tradersmastermind'). Left self-service, any supervisor
+  // could point their AI at another tenant's FAQ, pricing and funnel.
+  const ENTITLEMENT_FIELDS = ['plan', 'planStatus', 'knowledgeClient', 'aiMessageLimit', 'maxUsers', 'maxPlaybooks', 'maxWhatsapp'];
+
   app.patch('/v1/admin/company', {
     schema: { body: { type: 'object', additionalProperties: false, properties: {
       plan: { type: 'string', enum: ['personal', 'company'] },
@@ -1196,10 +1306,24 @@ async function buildApp(overrides = {}) {
       maxUsers: { type: 'integer', minimum: 1 },
       maxPlaybooks: { type: 'integer', minimum: 0 },
       maxWhatsapp: { type: 'integer', minimum: 0 },
+      paymentMethod: { type: 'string', enum: ['none', 'link', 'bank_transfer'] },
+      paymentLink: { type: 'string', maxLength: 500, pattern: '^$|^https?://' },
+      bankName: { type: 'string', maxLength: 100 },
+      bankAccount: { type: 'string', maxLength: 50 },
+      bankHolder: { type: 'string', maxLength: 100 },
+      paymentNotes: { type: 'string', maxLength: 500 },
     } } },
   }, async (request, reply) => {
     if (!database.status().connected) return reply.code(503).send({ error: 'Tidak tersedia.' });
-    return await database.updateCompanyConfig(request.body, request.agneeSession?.companyId);
+    if (!request.agneeSession?.apiClient) {
+      const attempted = ENTITLEMENT_FIELDS.filter((field) => request.body[field] !== undefined);
+      if (attempted.length) {
+        app.log.warn({ companyId: request.agneeSession.companyId, userId: request.agneeSession.userId, attempted },
+          'Blocked self-service entitlement change');
+        return reply.code(403).send({ error: 'Paket dan batas langganan hanya dapat diubah oleh tim Agnee.' });
+      }
+    }
+    return await database.updateCompanyConfig(request.body, request.agneeSession.companyId);
   });
 
   // ── Playbook: per-company AI brief + reference documents/media ─────────────
@@ -1217,7 +1341,7 @@ async function buildApp(overrides = {}) {
 
   app.get('/v1/admin/playbook', async (request, reply) => {
     if (!database.status().connected) return reply.code(503).send({ error: 'Tidak tersedia.' });
-    const companyId = request.agneeSession?.companyId || database.companyId;
+    const companyId = request.agneeSession.companyId;
     const [playbook, assets] = await Promise.all([
       database.getPlaybook(companyId),
       database.listPlaybookAssets(companyId),
@@ -1231,14 +1355,14 @@ async function buildApp(overrides = {}) {
     } } },
   }, async (request, reply) => {
     if (!database.status().connected) return reply.code(503).send({ error: 'Tidak tersedia.' });
-    const companyId = request.agneeSession?.companyId || database.companyId;
+    const companyId = request.agneeSession.companyId;
     const saved = await database.savePlaybookBrief(request.body.brief, request.agneeSession?.userId, companyId);
     return saved;
   });
 
   app.post('/v1/admin/playbook/assets', async (request, reply) => {
     if (!database.status().connected) return reply.code(503).send({ error: 'Tidak tersedia.' });
-    const companyId = request.agneeSession?.companyId || database.companyId;
+    const companyId = request.agneeSession.companyId;
     const usage = await database.getCompanyUsage(companyId);
     if (usage && usage.maxPlaybooks > 0 && usage.currentPlaybooks >= usage.maxPlaybooks) {
       return reply.code(403).send({ error: `Batas dokumen playbook tercapai (${usage.maxPlaybooks} file). Hapus file lama atau upgrade plan.` });
@@ -1284,7 +1408,7 @@ async function buildApp(overrides = {}) {
     } } },
   }, async (request, reply) => {
     if (!database.status().connected) return reply.code(503).send({ error: 'Tidak tersedia.' });
-    const companyId = request.agneeSession?.companyId || database.companyId;
+    const companyId = request.agneeSession.companyId;
     const deleted = await database.deletePlaybookAsset(request.params.assetId, companyId);
     if (!deleted) return reply.code(404).send({ error: 'File tidak ditemukan.' });
     if (deleted.storagePath) await fs.unlink(deleted.storagePath).catch(() => {});
@@ -1292,7 +1416,7 @@ async function buildApp(overrides = {}) {
   });
 
   app.get('/v1/chats/:chatId/routing', async (request) => {
-    const companyId = request.agneeSession?.companyId || database.companyId;
+    const companyId = request.agneeSession.companyId;
     return {
       routing: await getRouting(request.params.chatId, companyId),
       handoffs: typeof database.listConversationHandoffs === 'function' && database.status().connected
@@ -1315,7 +1439,7 @@ async function buildApp(overrides = {}) {
     },
   }, async (request, reply) => {
     const session = request.agneeSession;
-    const companyId = session?.companyId || database.companyId;
+    const companyId = session.companyId;
     const wa = manager.getClient(companyId);
     const waState = manager.getState(companyId);
     const members = await getTeamMembers(companyId);
@@ -1360,7 +1484,7 @@ async function buildApp(overrides = {}) {
   });
 
   app.get('/v1/chats/:chatId/notes', async (request) => {
-    const companyId = request.agneeSession?.companyId || database.companyId;
+    const companyId = request.agneeSession.companyId;
     return {
       notes: typeof database.listConversationNotes === 'function' && database.status().connected
         ? await database.listConversationNotes(request.params.chatId, 30, companyId)
@@ -1373,7 +1497,7 @@ async function buildApp(overrides = {}) {
       body: { type: 'string', minLength: 1, maxLength: 2000 },
     } } },
   }, async (request, reply) => {
-    const noteCompanyId = request.agneeSession?.companyId || database.companyId;
+    const noteCompanyId = request.agneeSession.companyId;
     let note;
     if (typeof database.addConversationNote === 'function' && database.status().connected) {
       note = await database.addConversationNote(request.params.chatId, request.agneeSession?.userId, request.body.body.trim(), noteCompanyId);
@@ -1506,7 +1630,7 @@ async function buildApp(overrides = {}) {
         usage: response.usage,
         style: response.style,
         elapsedMs: response.elapsedMs,
-      }, request.agneeSession?.companyId || database.companyId);
+      }, request.agneeSession.companyId);
       response.persistence = { driver: database.status().driver, saved: Boolean(saved), id: saved?.id || null };
     } catch (error) {
       app.log.error({ err: error }, 'Could not persist playground run');
@@ -1521,16 +1645,16 @@ async function buildApp(overrides = {}) {
     } } },
   }, async (request) => ({
     database: database.status(),
-    runs: await database.listPlaygroundRuns(request.query.limit || 20, request.agneeSession?.companyId || database.companyId),
+    runs: await database.listPlaygroundRuns(request.query.limit || 20, request.agneeSession.companyId),
   }));
 
   app.get('/v1/whatsapp/status', async (request) => {
-    const companyId = request.agneeSession?.companyId || database.companyId;
+    const companyId = request.agneeSession.companyId;
     return manager.publicState(companyId, config.demoMode);
   });
 
   app.get('/v1/events', async (request, reply) => {
-    const companyId = request.agneeSession?.companyId || database.companyId;
+    const companyId = request.agneeSession.companyId;
     if (manager.totalSseClients() >= SSE_MAX_CLIENTS) {
       return reply.code(503).send({ error: 'Too many event stream connections' });
     }
@@ -1554,7 +1678,7 @@ async function buildApp(overrides = {}) {
   });
 
   app.get('/v1/whatsapp/qr', async (request, reply) => {
-    const companyId = request.agneeSession?.companyId || database.companyId;
+    const companyId = request.agneeSession.companyId;
     if (config.demoMode) {
       demoQr ||= await QRCode.toDataURL('AGNEE-DEMO-PAIRING', { margin: 1, width: 320, color: { dark: '#173A30', light: '#FFFFFF' } });
       return { qrDataUrl: demoQr, demoMode: true };
@@ -1566,11 +1690,18 @@ async function buildApp(overrides = {}) {
   });
 
   app.post('/v1/whatsapp/qr-refresh', async (request, reply) => {
-    const companyId = request.agneeSession?.companyId || database.companyId;
+    const companyId = request.agneeSession.companyId;
     if (database.status().connected) {
-      const usage = await database.getCompanyUsage(companyId);
-      if (usage && usage.maxWhatsapp > 0 && usage.currentWhatsapp >= usage.maxWhatsapp) {
-        return reply.code(403).send({ error: `Batas koneksi WhatsApp tercapai (${usage.maxWhatsapp}). Upgrade plan untuk menambah lebih banyak.` });
+      // The plan limit caps how many connections a company may CREATE. This
+      // route only ever (re)pairs the single 'whatsapp-main' connection, so once
+      // that row exists, refreshing its QR must stay allowed — otherwise a
+      // company on max_whatsapp=1 could never re-scan after its first pairing.
+      const existing = await database.getWhatsappConnection(companyId).catch(() => null);
+      if (!existing) {
+        const usage = await database.getCompanyUsage(companyId);
+        if (usage && usage.maxWhatsapp > 0 && usage.currentWhatsapp >= usage.maxWhatsapp) {
+          return reply.code(403).send({ error: `Batas koneksi WhatsApp tercapai (${usage.maxWhatsapp}). Upgrade plan untuk menambah lebih banyak.` });
+        }
       }
     }
     if (config.demoMode) {
@@ -1602,7 +1733,7 @@ async function buildApp(overrides = {}) {
   });
 
   app.post('/v1/whatsapp/logout', async (request, reply) => {
-    const companyId = request.agneeSession?.companyId || database.companyId;
+    const companyId = request.agneeSession.companyId;
     if (config.demoMode) return reply.code(409).send({ error: 'Cannot logout in demo mode' });
     const wa = manager.getClient(companyId);
     if (!wa) return reply.code(409).send({ error: 'WhatsApp client not initialized' });
@@ -1632,7 +1763,7 @@ async function buildApp(overrides = {}) {
       filter: { type: 'string', enum: ['all', 'unread', 'qualified', 'archived', 'inbox'], default: 'inbox' },
     } } },
   }, async (request) => {
-    const companyId = request.agneeSession?.companyId || database.companyId;
+    const companyId = request.agneeSession.companyId;
     const wa = manager.getClient(companyId);
     const waState = manager.getState(companyId);
     const limit = request.query.limit || 12;
@@ -1668,7 +1799,7 @@ async function buildApp(overrides = {}) {
       querystring: { type: 'object', properties: { limit: { type: 'integer', minimum: 1, maximum: 600, default: 30 } } },
     },
   }, async (request, reply) => {
-    const companyId = request.agneeSession?.companyId || database.companyId;
+    const companyId = request.agneeSession.companyId;
     const wa = manager.getClient(companyId);
     const waState = manager.getState(companyId);
     const { chatId } = request.params;
@@ -1686,7 +1817,7 @@ async function buildApp(overrides = {}) {
       chatId: { type: 'string', minLength: 1, maxLength: 128 },
     } } },
   }, async (request, reply) => {
-    const companyId = request.agneeSession?.companyId || database.companyId;
+    const companyId = request.agneeSession.companyId;
     const wa = manager.getClient(companyId);
     const waState = manager.getState(companyId);
     if (config.demoMode) {
@@ -1707,7 +1838,7 @@ async function buildApp(overrides = {}) {
       chatId: { type: 'string', minLength: 1, maxLength: 128 },
     } } },
   }, async (request, reply) => {
-    const companyId = request.agneeSession?.companyId || database.companyId;
+    const companyId = request.agneeSession.companyId;
     const wa = manager.getClient(companyId);
     const waState = manager.getState(companyId);
     const { chatId } = request.params;
@@ -1764,7 +1895,7 @@ async function buildApp(overrides = {}) {
     schema: { params: { type: 'object', required: ['chatId'], properties: {
       chatId: { type: 'string', minLength: 1, maxLength: 128 },
     } } },
-  }, async (request) => getLeadState(request.params.chatId, request.agneeSession?.companyId || database.companyId));
+  }, async (request) => getLeadState(request.params.chatId, request.agneeSession.companyId));
 
   app.get('/v1/chats/:chatId/summary', {
     schema: {
@@ -1776,7 +1907,7 @@ async function buildApp(overrides = {}) {
       } },
     },
   }, async (request, reply) => {
-    const companyId = request.agneeSession?.companyId || database.companyId;
+    const companyId = request.agneeSession.companyId;
     const wa = manager.getClient(companyId);
     try {
       return await summarizeConversation(request.params.chatId, request.query.locale, companyId, wa);
@@ -1797,7 +1928,7 @@ async function buildApp(overrides = {}) {
     },
   }, async (request, reply) => {
     if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat menandai lead.' });
-    const companyId = request.agneeSession?.companyId || database.companyId;
+    const companyId = request.agneeSession.companyId;
     const currentLead = await getLeadState(request.params.chatId, companyId);
     const lead = {
       ...currentLead,
@@ -1820,7 +1951,7 @@ async function buildApp(overrides = {}) {
       } },
     },
   }, async (request, reply) => {
-    const companyId = request.agneeSession?.companyId || database.companyId;
+    const companyId = request.agneeSession.companyId;
     const wa = manager.getClient(companyId);
     const waState = manager.getState(companyId);
     const { chatId } = request.params;
@@ -1849,7 +1980,7 @@ async function buildApp(overrides = {}) {
       } },
     },
   }, async (request, reply) => {
-    const companyId = request.agneeSession?.companyId || database.companyId;
+    const companyId = request.agneeSession.companyId;
     const wa = manager.getClient(companyId);
     const waState = manager.getState(companyId);
     const { chatId } = request.params;
@@ -1878,7 +2009,7 @@ async function buildApp(overrides = {}) {
       chatId: { type: 'string', minLength: 1, maxLength: 128 },
     } } },
   }, async (request, reply) => {
-    const companyId = request.agneeSession?.companyId || database.companyId;
+    const companyId = request.agneeSession.companyId;
     const wa = manager.getClient(companyId);
     const waState = manager.getState(companyId);
     if (config.demoMode || waState.phase !== 'ready') return reply.code(404).send();
@@ -1905,7 +2036,7 @@ async function buildApp(overrides = {}) {
       contactId: { type: 'string', minLength: 1, maxLength: 128 },
     } } },
   }, async (request, reply) => {
-    const companyId = request.agneeSession?.companyId || database.companyId;
+    const companyId = request.agneeSession.companyId;
     const wa = manager.getClient(companyId);
     const waState = manager.getState(companyId);
     if (config.demoMode || waState.phase !== 'ready') return reply.code(404).send();
@@ -1932,7 +2063,7 @@ async function buildApp(overrides = {}) {
       messageId: { type: 'string', minLength: 1, maxLength: 256 },
     } } },
   }, async (request, reply) => {
-    const companyId = request.agneeSession?.companyId || database.companyId;
+    const companyId = request.agneeSession.companyId;
     const wa = manager.getClient(companyId);
     const waState = manager.getState(companyId);
     if (config.demoMode || waState.phase !== 'ready') return reply.code(404).send();
@@ -2037,7 +2168,7 @@ async function buildApp(overrides = {}) {
       if (requestId) sendReceipts.set(requestId, result);
       return result;
     }
-    const companyId = request.agneeSession?.companyId || database.companyId;
+    const companyId = request.agneeSession.companyId;
     const wa = manager.getClient(companyId);
     const waState = manager.getState(companyId);
     if (waState.phase !== 'ready') return reply.code(503).send({ error: 'WhatsApp is not ready', phase: waState.phase });
@@ -2077,18 +2208,13 @@ async function buildApp(overrides = {}) {
 
   app.decorate('startWhatsapp', async () => {
     if (!config.startupEnabled || config.demoMode) return;
-    const companyId = database.companyId;
-    if (!companyId) return;
-    if (manager.getClient(companyId)) return; // already running
 
-    const connConfig = await getConnConfig(companyId);
-    await manager.startFor(companyId, connConfig, makeWaCallbacks());
-
-    // On startup, also resume any other companies whose last known status was ready/authenticated
+    // No default company to boot: resume exactly those companies whose last
+    // known session was live. Everyone else starts on demand when a supervisor
+    // opens the connection dialog.
     if (database.enabled && database.connected) {
       const otherConns = await database.listAllWhatsappConnections().catch(() => []);
       for (const conn of otherConns) {
-        if (conn.companyId === companyId) continue; // already started
         if (manager.getClient(conn.companyId)) continue;
         app.log.info({ companyId: conn.companyId, clientId: conn.clientId }, 'Auto-resuming WhatsApp session for company');
         await manager.startFor(conn.companyId, {

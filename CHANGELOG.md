@@ -8,6 +8,13 @@ Semua perubahan penting Agnee dicatat di file ini. Format mengikuti prinsip
 
 ### Added
 
+- Panel pengaturan **Pembayaran & Closing** (link pembayaran atau transfer
+  bank) — instruksi ini otomatis disisipkan ke konteks AI saat pelanggan
+  siap closing, sehingga AI tahu cara menutup transaksi tanpa mengarang.
+- Header `x-agnee-company` untuk pemanggil berbasis API key (termasuk MCP
+  server, lewat env `AGNEE_COMPANY`) — wajib diisi karena tidak ada lagi
+  tenant default yang bisa dijadikan fallback diam-diam.
+
 - Endpoint `POST /v1/chats/:chatId/mark-read` yang menandai chat sebagai
   terbaca (mengirim `sendSeen` ke WhatsApp) begitu chat tersebut dibuka;
   badge unread langsung hilang di UI tanpa menunggu refresh.
@@ -17,6 +24,22 @@ Semua perubahan penting Agnee dicatat di file ini. Format mengikuti prinsip
 
 ### Changed
 
+- Semua istilah teknis data-science di UI (`token`, `MODEL`, `STORAGE`,
+  `training`, dsb.) diganti dengan bahasa bisnis/marketing (`kredit`,
+  `MESIN AI`, `DATA`, `Latih AI`, dsb.) di kedua locale (ID/EN).
+- Inbox membedakan "WhatsApp sedang tersambung..." dari "Belum ada
+  percakapan" — sebelumnya keduanya tampil sebagai kotak masuk kosong yang
+  sama meski API sudah mengembalikan `phase` untuk kasus WhatsApp belum
+  siap.
+- Setiap perusahaan sekarang punya identitas WhatsApp sendiri
+  (`agnee-<companyId>`) alih-alih fallback ke client ID bersama — 4 dari 5
+  tenant sebelumnya berbagi satu profil Chromium dan saling merusak sesi
+  satu sama lain (kunci Singleton saling terhapus, QR tidak pernah muncul).
+- Perusahaan "default" bootstrap dihapus konsepnya sepenuhnya: 41 titik
+  fallback `database.companyId` di server.js dan ~30 default implisit di
+  database.js dihapus. Setiap sesi dan pemanggil API key sekarang wajib
+  menyebutkan company secara eksplisit. Perusahaan default lama di-rename
+  menjadi Agnive (identitas aslinya) alih-alih dihapus.
 - Notifikasi status WhatsApp (`whatsapp_phase`) kini didorong secara
   real-time lewat SSE ke UI alih-alih menunggu polling; polling hanya
   dipakai sebagai fallback setiap 30 detik.
@@ -26,6 +49,32 @@ Semua perubahan penting Agnee dicatat di file ini. Format mengikuti prinsip
 
 ### Fixed
 
+- Tombol koneksi WhatsApp, panel admin, dan playground kini disembunyikan
+  untuk agent non-supervisor; agent yang login sebelum WhatsApp perusahaan
+  tersambung melihat pesan "hubungi supervisor" alih-alih dialog QR yang
+  gagal.
+- QR code sekarang muncul untuk supervisor dari perusahaan yang WhatsApp-nya
+  belum pernah dijalankan sama sekali (`qr-refresh` sebelumnya hanya
+  me-restart client yang error, tidak menyalakan client yang belum pernah
+  ada).
+- `qr-refresh` tidak lagi terkunci permanen oleh limit `max_whatsapp` pada
+  perusahaan yang sudah punya koneksi — limit sekarang hanya menghalangi
+  pembuatan koneksi baru, bukan penyegaran QR pada koneksi yang sudah ada.
+- Supervisor pemilik akun (`owner`) tidak lagi mendapat 403 acak di halaman
+  admin — sesi yang di-refresh dari DB menulis ulang role mentah `owner`
+  alih-alih `supervisor` yang dipahami otorisasi, menyebabkan kegagalan
+  intermiten setiap 60 detik.
+- Agent yang mengklaim chat kosong (belum ada yang menangani) tidak lagi
+  diblokir 403 — pengetatan otorisasi chat sebelumnya membuat agent tidak
+  bisa mengambil percakapan apa pun.
+- Assignment chat ke agent sekarang benar-benar terikat perusahaan
+  (isolasi ganda WhatsApp + routing), mencegah agent satu tenant melihat
+  atau mengambil alih chat milik tenant lain.
+- `PATCH /v1/admin/company` memvalidasi `paymentLink` sebagai URL
+  http(s); sebelumnya bisa diisi skema apa pun (mis. `javascript:`).
+- Isi `knowledge_client` yang salah pasang diperbaiki: akun platform
+  Agnive sempat menampilkan playbook/FAQ proprietary milik tenant lain
+  (`bzone`) alih-alih konten internalnya sendiri.
 - Server tidak lagi crash total ketika whatsapp-web.js melempar error
   internal (mis. `TargetCloseError` saat `Client.inject`); ditambahkan
   handler `unhandledRejection`/`uncaughtException` di level proses.
@@ -48,6 +97,28 @@ Semua perubahan penting Agnee dicatat di file ini. Format mengikuti prinsip
   WhatsApp merotasi QR (~setiap 20 detik), didukung polling fallback 15
   detik yang tetap jalan meski SSE terputus sejenak — sehingga QR di
   layar tidak expired sebelum sempat di-scan.
+
+### Security
+
+- **Eskalasi privilese ditutup**: supervisor perusahaan sebelumnya bisa
+  mengubah `planStatus`, `plan`, dan seluruh kuota (`aiMessageLimit`,
+  `maxUsers`, `maxPlaybooks`, `maxWhatsapp`) miliknya sendiri lewat
+  `PATCH /v1/admin/company` — termasuk mengaktifkan diri sendiri dari
+  trial ke `active` dan menghapus batas pesan AI. Field-field ini kini
+  hanya bisa diubah oleh pemanggil API key (tim Agnee).
+- **Kebocoran knowledge base lintas tenant ditutup**: `knowledgeClient`
+  bisa diisi bebas oleh supervisor mana pun, sehingga satu tenant bisa
+  mengarahkan AI-nya membaca playbook/FAQ/harga milik tenant lain yang
+  bersifat proprietary. Field ini sekarang termasuk entitlement
+  platform-only di atas.
+- **Sesi tanpa company tidak lagi tembus ke tenant default**: sesi yang
+  kehilangan `companyId` (token cacat, atau jalur API key tanpa header)
+  sebelumnya diam-diam jatuh ke data perusahaan "default" bawaan sistem.
+  Sekarang ditolak eksplisit (`401`) — tidak ada lagi tenant default yang
+  bisa dijadikan tempat jatuh.
+- Payload webhook inbound sekarang menyertakan `companyId`, karena satu
+  URL webhook melayani seluruh tenant dan penerima sebelumnya tidak
+  punya cara membedakan pesan milik perusahaan mana.
 
 - Setup dan operations runbook lengkap, knowledge FAQ per kategori, sales
   funneling playbook, qualification schema, lead scoring, serta reply policy.

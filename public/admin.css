@@ -257,3 +257,71 @@ button, select, textarea { font: inherit; }
 .playbook-asset-delete { min-height: 30px; border: 1px solid #f0c0c0; border-radius: 8px; padding: 4px 10px; background: #fff5f5; color: #c00; font: 600 11px "IBM Plex Mono", monospace; cursor: pointer; transition: background .15s; }
 .playbook-asset-delete:hover { background: #ffe0e0; }
 .playbook-assets-empty { color: var(--muted); font-size: 13px; padding: 8px 0; }
+
+/* ── Reply coach (settings → Kualitas Balasan) ───────────────────────────── */
+.coach-tabs { display: flex; gap: 6px; margin: 18px 0 16px; flex-wrap: wrap; }
+.coach-tab {
+  padding: 8px 14px; border-radius: 999px; cursor: pointer;
+  border: 1px solid rgba(23, 58, 48, .18); background: transparent;
+  font: 500 13px/1 'DM Sans', system-ui, sans-serif; color: #4a5f57;
+}
+.coach-tab:hover { border-color: rgba(23, 58, 48, .38); }
+.coach-tab.active { background: #173a30; border-color: #173a30; color: #fff; }
+
+.coach-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+.coach-list { display: flex; flex-direction: column; gap: 8px; margin: 12px 0; }
+.coach-details { margin-top: 14px; border-top: 1px solid rgba(23, 58, 48, .1); padding-top: 12px; }
+.coach-details > summary { cursor: pointer; font: 500 13px/1.4 'DM Sans', system-ui, sans-serif; color: #4a5f57; }
+
+.coach-item {
+  border: 1px solid rgba(23, 58, 48, .14); border-radius: 12px;
+  padding: 12px 14px; background: rgba(255, 255, 255, .6);
+}
+.coach-item-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
+.coach-cat {
+  font: 600 10px/1 'IBM Plex Mono', monospace; letter-spacing: .06em; text-transform: uppercase;
+  padding: 4px 8px; border-radius: 6px; background: rgba(23, 58, 48, .08); color: #2c4c40;
+}
+.coach-prio-1 { background: rgba(200, 60, 40, .12); color: #a33021; }
+.coach-q { font: 500 14px/1.45 'DM Sans', system-ui, sans-serif; color: #14241f; flex: 1; min-width: 200px; }
+.coach-a { font: 400 13px/1.5 'DM Sans', system-ui, sans-serif; color: #4a5f57; margin-top: 4px; }
+.coach-item textarea, .coach-item input[type="text"] {
+  width: 100%; margin-top: 6px; padding: 9px 11px; border-radius: 9px;
+  border: 1px solid rgba(23, 58, 48, .2); font: 400 13px/1.5 'DM Sans', system-ui, sans-serif;
+  background: #fff; resize: vertical;
+}
+.coach-item-actions { display: flex; gap: 8px; margin-top: 8px; }
+
+.coach-transcript {
+  display: flex; flex-direction: column; gap: 8px; margin: 12px 0;
+  max-height: 320px; overflow-y: auto; padding: 4px;
+}
+.coach-transcript:empty { display: none; }
+.coach-bubble { max-width: 78%; padding: 9px 13px; border-radius: 14px; font: 400 13px/1.5 'DM Sans', system-ui, sans-serif; }
+.coach-bubble-customer { align-self: flex-start; background: rgba(23, 58, 48, .07); color: #14241f; border-bottom-left-radius: 4px; }
+.coach-bubble-agent { align-self: flex-end; background: #173a30; color: #fff; border-bottom-right-radius: 4px; }
+.coach-bubble small { display: block; font-size: 10px; opacity: .6; margin-bottom: 3px; text-transform: uppercase; letter-spacing: .05em; }
+
+.coach-mode-row { display: flex; gap: 16px; margin: 12px 0; flex-wrap: wrap; }
+.coach-radio { display: flex; align-items: center; gap: 7px; font: 400 13px/1 'DM Sans', system-ui, sans-serif; color: #4a5f57; cursor: pointer; }
+.coach-radio input { accent-color: #173a30; }
+
+.coach-result { margin-top: 16px; border-top: 1px solid rgba(23, 58, 48, .12); padding-top: 16px; }
+.coach-scores { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+.coach-score { text-align: center; padding: 10px 14px; border-radius: 10px; background: rgba(23, 58, 48, .06); min-width: 76px; }
+.coach-score b { display: block; font: 600 20px/1 'DM Sans', system-ui, sans-serif; color: #173a30; }
+.coach-score span { font: 500 10px/1 'IBM Plex Mono', monospace; text-transform: uppercase; letter-spacing: .06em; color: #6b7f76; }
+.coach-score.low b { color: #a33021; }
+.coach-score.mid b { color: #b3721a; }
+.coach-verdict { display: inline-block; padding: 5px 11px; border-radius: 999px; font: 600 11px/1 'IBM Plex Mono', monospace; text-transform: uppercase; letter-spacing: .06em; }
+.coach-verdict-pass { background: rgba(40, 140, 90, .14); color: #1f6b45; }
+.coach-verdict-revise { background: rgba(200, 60, 40, .12); color: #a33021; }
+.coach-feedback { margin-top: 12px; }
+.coach-feedback h4 { font: 600 12px/1 'IBM Plex Mono', monospace; text-transform: uppercase; letter-spacing: .06em; color: #6b7f76; margin: 12px 0 6px; }
+.coach-feedback ul { margin: 0; padding-left: 18px; }
+.coach-feedback li { font: 400 13px/1.6 'DM Sans', system-ui, sans-serif; color: #33473e; }
+.coach-compare { display: grid; gap: 12px; grid-template-columns: 1fr; margin-top: 14px; }
+@media (min-width: 820px) { .coach-compare { grid-template-columns: 1fr 1fr; } }
+.coach-compare-card { border: 1px solid rgba(23, 58, 48, .14); border-radius: 12px; padding: 12px 14px; background: rgba(255, 255, 255, .6); }
+.coach-compare-card h5 { font: 600 11px/1 'IBM Plex Mono', monospace; text-transform: uppercase; letter-spacing: .06em; color: #6b7f76; margin: 0 0 8px; }
+.coach-compare-card p { margin: 0; font: 400 13px/1.55 'DM Sans', system-ui, sans-serif; color: #14241f; white-space: pre-wrap; }

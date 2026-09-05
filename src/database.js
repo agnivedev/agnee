@@ -611,10 +611,17 @@ class Database {
   }
 
   /** Combined text context for the AI: typed brief + extracted text from ready documents. */
+  /**
+   * Everything the AI should treat as this company's own truth: the typed
+   * brief, the interviewed facts, and text extracted from uploaded documents.
+   * Facts come first because they are the most explicit and most recently
+   * confirmed by a human.
+   */
   async getPlaybookContext(companyId) {
     if (!this.enabled) return '';
-    const [playbook, assets] = await Promise.all([
+    const [playbook, facts, assets] = await Promise.all([
       this.getPlaybook(companyId),
+      this.listPlaybookFacts(companyId, { onlyAnswered: true }),
       this.pool.query(`
         SELECT filename, extracted_text AS "extractedText"
         FROM playbook_assets
@@ -623,11 +630,169 @@ class Database {
       `, [companyId]),
     ]);
     const parts = [];
+
+    if (facts.length) {
+      const byCategory = new Map();
+      for (const fact of facts) {
+        if (!byCategory.has(fact.category)) byCategory.set(fact.category, []);
+        byCategory.get(fact.category).push(fact);
+      }
+      const labels = {
+        profile: 'Profil perusahaan',
+        product: 'Produk & layanan',
+        pricing: 'Harga & paket',
+        faq: 'Pertanyaan yang sering ditanya',
+        funnel: 'Alur penjualan',
+        objection: 'Keberatan umum & jawabannya',
+        closing: 'Penutupan & pembayaran',
+      };
+      const sections = [];
+      for (const [category, rows] of byCategory) {
+        const lines = rows.map((row) => `- ${row.question}\n  ${row.answer}`).join('\n');
+        sections.push(`### ${labels[category] || category}\n${lines}`);
+      }
+      parts.push(`## FAKTA TERKONFIRMASI DARI PEMILIK BISNIS\n${sections.join('\n\n')}`);
+    }
+
     if (playbook.brief?.trim()) parts.push(playbook.brief.trim());
     for (const row of assets.rows) {
       parts.push(`--- Dokumen: ${row.filename} ---\n${row.extractedText}`);
     }
     return parts.join('\n\n');
+  }
+
+  // ── Playbook facts: the interviewed source of truth ───────────────────────
+
+  /**
+   * @param {object} opts
+   *   onlyAnswered - only facts with a real answer (what the AI may rely on)
+   *   onlyOpen     - only unanswered questions (the gaps still to be filled)
+   */
+  async listPlaybookFacts(companyId, { category, onlyAnswered, onlyOpen } = {}) {
+    if (!this.enabled) return [];
+    const where = ['company_id = $1'];
+    const values = [companyId];
+    if (category) { where.push(`category = $${values.length + 1}`); values.push(category); }
+    if (onlyAnswered) where.push("answer IS NOT NULL AND btrim(answer) <> ''");
+    if (onlyOpen) where.push("(answer IS NULL OR btrim(answer) = '')");
+    const result = await this.pool.query(`
+      SELECT id, category, question, answer, priority, source,
+             created_at AS "createdAt", updated_at AS "updatedAt"
+      FROM playbook_facts
+      WHERE ${where.join(' AND ')}
+      ORDER BY priority ASC, created_at ASC
+    `, values);
+    return result.rows;
+  }
+
+  async upsertPlaybookFact({ category, question, answer = null, priority = 2, source = 'interview' }, updatedBy, companyId) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      INSERT INTO playbook_facts (company_id, category, question, answer, priority, source, updated_by)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      ON CONFLICT (company_id, lower(question)) DO UPDATE SET
+        answer = COALESCE(EXCLUDED.answer, playbook_facts.answer),
+        category = EXCLUDED.category,
+        priority = EXCLUDED.priority,
+        updated_by = EXCLUDED.updated_by,
+        updated_at = NOW()
+      RETURNING id, category, question, answer, priority, source,
+                created_at AS "createdAt", updated_at AS "updatedAt"
+    `, [companyId, category, question, answer, priority, source, updatedBy || null]);
+    return result.rows[0] || null;
+  }
+
+  async deletePlaybookFact(factId, companyId) {
+    if (!this.enabled) return false;
+    const result = await this.pool.query(
+      'DELETE FROM playbook_facts WHERE id = $1 AND company_id = $2', [factId, companyId],
+    );
+    return result.rowCount > 0;
+  }
+
+  /** Per-category answered/open counts, for the setup progress display. */
+  async getPlaybookCoverage(companyId) {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(`
+      SELECT category,
+             COUNT(*) FILTER (WHERE answer IS NOT NULL AND btrim(answer) <> '')::int AS answered,
+             COUNT(*) FILTER (WHERE answer IS NULL OR btrim(answer) = '')::int       AS open
+      FROM playbook_facts
+      WHERE company_id = $1
+      GROUP BY category
+      ORDER BY category
+    `, [companyId]);
+    return result.rows;
+  }
+
+  // ── Simulation scenarios & graded runs ────────────────────────────────────
+
+  async listSimulationScenarios(companyId) {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(`
+      SELECT id, name, persona, opening_message AS "openingMessage", goal,
+             created_at AS "createdAt"
+      FROM simulation_scenarios
+      WHERE company_id = $1
+      ORDER BY created_at DESC
+    `, [companyId]);
+    return result.rows;
+  }
+
+  async getSimulationScenario(scenarioId, companyId) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      SELECT id, name, persona, opening_message AS "openingMessage", goal
+      FROM simulation_scenarios
+      WHERE id = $1 AND company_id = $2
+    `, [scenarioId, companyId]);
+    return result.rows[0] || null;
+  }
+
+  async createSimulationScenario({ name, persona = '', openingMessage, goal = '' }, createdBy, companyId) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      INSERT INTO simulation_scenarios (company_id, name, persona, opening_message, goal, created_by)
+      VALUES ($1, $2, $3, $4, $5, $6)
+      RETURNING id, name, persona, opening_message AS "openingMessage", goal, created_at AS "createdAt"
+    `, [companyId, name, persona, openingMessage, goal, createdBy || null]);
+    return result.rows[0] || null;
+  }
+
+  async deleteSimulationScenario(scenarioId, companyId) {
+    if (!this.enabled) return false;
+    const result = await this.pool.query(
+      'DELETE FROM simulation_scenarios WHERE id = $1 AND company_id = $2', [scenarioId, companyId],
+    );
+    return result.rowCount > 0;
+  }
+
+  async recordSimulationRun({ scenarioId = null, mode, chatId = null, customerMessage, reply, transcript = [], scores = {}, model = null }, createdBy, companyId) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      INSERT INTO simulation_runs
+        (company_id, scenario_id, mode, chat_id, customer_message, reply, transcript, scores, model, created_by)
+      VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9, $10)
+      RETURNING id, created_at AS "createdAt"
+    `, [companyId, scenarioId, mode, chatId, customerMessage, reply,
+      JSON.stringify(transcript), JSON.stringify(scores), model, createdBy || null]);
+    return result.rows[0] || null;
+  }
+
+  async listSimulationRuns(companyId, limit = 20) {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(`
+      SELECT r.id, r.mode, r.chat_id AS "chatId", r.customer_message AS "customerMessage",
+             r.reply, r.scores, r.model, r.created_at AS "createdAt",
+             s.name AS "scenarioName", u.display_name AS "createdByName"
+      FROM simulation_runs r
+      LEFT JOIN simulation_scenarios s ON s.id = r.scenario_id
+      LEFT JOIN users u ON u.id = r.created_by
+      WHERE r.company_id = $1
+      ORDER BY r.created_at DESC
+      LIMIT $2
+    `, [companyId, limit]);
+    return result.rows;
   }
 
   async incrementAiMessageCount(companyId) {

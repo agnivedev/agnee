@@ -22,6 +22,7 @@
       <nav aria-label="Navigasi pengaturan">
         <a href="#planSection"><span>◈</span><b>Paket &amp; Penggunaan</b></a>
         <a href="#paymentSection"><span>◆</span><b>Pembayaran</b></a>
+        <a href="#coachSection"><span>◈</span><b>Kualitas Balasan</b></a>
         <a href="#teamSection"><span>◎</span><b>Tim CS</b></a>
         <a href="#myAccount"><span>◉</span><b>Akun saya</b></a>
       </nav>
@@ -98,6 +99,112 @@
             <button id="savePaymentConfig" class="save-settings-btn" type="button">Simpan pembayaran</button>
             <span id="paymentSaved" class="settings-saved-badge" hidden>Tersimpan ✓</span>
           </div>
+        </div>
+      </section>
+
+      <section id="coachSection" class="team-card" aria-labelledby="coachTitle">
+        <div class="card-head">
+          <div><p class="eyebrow">KUALITAS BALASAN</p><h2 id="coachTitle">Latihan &amp; penilaian</h2></div>
+          <span id="coachCoverageBadge" class="plan-badge-pill"></span>
+        </div>
+        <p class="team-copy">Ajari AI tentang bisnis kamu, lalu uji balasan AI maupun balasan agent terhadap fakta yang sudah kamu isi.</p>
+
+        <div class="coach-tabs" role="tablist" aria-label="Bagian kualitas balasan">
+          <button type="button" class="coach-tab active" data-coach-tab="truth" role="tab" aria-selected="true">1. Sumber Kebenaran</button>
+          <button type="button" class="coach-tab" data-coach-tab="scenarios" role="tab" aria-selected="false">2. Skenario</button>
+          <button type="button" class="coach-tab" data-coach-tab="simulate" role="tab" aria-selected="false">3. Simulasi</button>
+        </div>
+
+        <!-- TAB 1: source of truth -->
+        <div class="coach-pane" id="coachPaneTruth">
+          <div class="coach-row">
+            <button id="coachAskBtn" class="save-settings-btn" type="button">Minta AI bertanya tentang bisnis saya</button>
+            <select id="coachFocus" class="pg-client-select">
+              <option value="">Semua kategori</option>
+              <option value="profile">Profil perusahaan</option>
+              <option value="product">Produk &amp; layanan</option>
+              <option value="pricing">Harga &amp; paket</option>
+              <option value="faq">FAQ</option>
+              <option value="funnel">Alur penjualan</option>
+              <option value="objection">Keberatan</option>
+              <option value="closing">Penutupan &amp; pembayaran</option>
+            </select>
+          </div>
+          <p id="coachTruthStatus" class="team-status" role="status"></p>
+
+          <div id="coachOpenList" class="coach-list"></div>
+
+          <details class="coach-details">
+            <summary>Tambah fakta manual</summary>
+            <form id="coachFactForm" class="team-form" autocomplete="off">
+              <label><span>Kategori</span>
+                <select name="category">
+                  <option value="profile">Profil perusahaan</option>
+                  <option value="product" selected>Produk &amp; layanan</option>
+                  <option value="pricing">Harga &amp; paket</option>
+                  <option value="faq">FAQ</option>
+                  <option value="funnel">Alur penjualan</option>
+                  <option value="objection">Keberatan</option>
+                  <option value="closing">Penutupan &amp; pembayaran</option>
+                </select>
+              </label>
+              <label><span>Pertanyaan / topik</span><input name="question" required minlength="3" maxlength="300" placeholder="Berapa harga paket Basic?"></label>
+              <label><span>Jawaban</span><input name="answer" maxlength="4000" placeholder="Rp 299.000/bulan, sudah termasuk 3 user"></label>
+              <button type="submit" class="save-settings-btn">Simpan fakta</button>
+            </form>
+          </details>
+
+          <details class="coach-details">
+            <summary>Fakta yang sudah terjawab (<span id="coachAnsweredCount">0</span>)</summary>
+            <div id="coachAnsweredList" class="coach-list"></div>
+          </details>
+        </div>
+
+        <!-- TAB 2: scenarios -->
+        <div class="coach-pane" id="coachPaneScenarios" hidden>
+          <div id="coachScenarioList" class="coach-list"></div>
+          <details class="coach-details" open>
+            <summary>Buat skenario baru</summary>
+            <form id="coachScenarioForm" class="team-form" autocomplete="off">
+              <label><span>Nama skenario</span><input name="name" required minlength="2" maxlength="120" placeholder="Customer tanya harga lalu ragu"></label>
+              <label><span>Karakter customer</span><input name="persona" maxlength="500" placeholder="Pemilik toko kecil, budget terbatas, belum paham produk"></label>
+              <label><span>Pesan pembuka customer</span><input name="openingMessage" required minlength="2" maxlength="1000" placeholder="Halo, ini harganya berapa ya?"></label>
+              <label><span>Target percakapan</span><input name="goal" maxlength="500" placeholder="Sampai customer setuju coba trial"></label>
+              <button type="submit" class="save-settings-btn">Simpan skenario</button>
+            </form>
+          </details>
+          <p id="coachScenarioStatus" class="team-status" role="status"></p>
+        </div>
+
+        <!-- TAB 3: simulate -->
+        <div class="coach-pane" id="coachPaneSimulate" hidden>
+          <div class="coach-row">
+            <select id="coachSimScenario" class="pg-client-select"><option value="">Tanpa skenario</option></select>
+            <button id="coachResetBtn" class="deactivate-btn" type="button">Mulai ulang</button>
+          </div>
+
+          <div id="coachTranscript" class="coach-transcript" aria-live="polite"></div>
+
+          <label class="pg-label">Pesan customer</label>
+          <textarea id="coachCustomerMsg" class="pg-textarea" rows="2" maxlength="4000" placeholder="Tulis pesan seperti yang dikirim customer…"></textarea>
+
+          <div class="coach-mode-row">
+            <label class="coach-radio"><input type="radio" name="coachMode" value="ai" checked> Lihat balasan AI</label>
+            <label class="coach-radio"><input type="radio" name="coachMode" value="human"> Saya yang balas (latihan)</label>
+          </div>
+
+          <div id="coachHumanWrap" hidden>
+            <label class="pg-label">Balasan kamu</label>
+            <textarea id="coachHumanReply" class="pg-textarea" rows="3" maxlength="4000" placeholder="Tulis balasan yang akan kamu kirim ke customer…"></textarea>
+            <label class="coach-radio"><input type="checkbox" id="coachCompare" checked> Bandingkan dengan balasan AI</label>
+          </div>
+
+          <div class="coach-row">
+            <button id="coachRunBtn" class="save-settings-btn" type="button">Kirim &amp; nilai</button>
+            <span id="coachRunStatus" class="team-status" role="status"></span>
+          </div>
+
+          <div id="coachResult" class="coach-result" hidden></div>
         </div>
       </section>
 

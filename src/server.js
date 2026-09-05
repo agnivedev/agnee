@@ -10,7 +10,7 @@ const QRCode = require('qrcode');
 const { WhatsappManager } = require('./whatsapp-manager.js');
 const KnowledgeBase = require('./knowledge-loader.js');
 const LlmService = require('./llm-service.js');
-const { normalizeUsage, styleWarnings } = require('./reply-style.js');
+const { normalizeUsage, styleWarnings, judgeReply } = require('./reply-style.js');
 const Database = require('./database.js');
 const { extractPlaybookText } = require('./playbook-extractor.js');
 
@@ -380,6 +380,66 @@ async function buildApp(overrides = {}) {
     if (!response.ok) throw new Error(`Inbound webhook returned HTTP ${response.status}`);
   }
 
+  /**
+   * Assemble everything the model needs to answer as this company: its own
+   * knowledge pack, its confirmed facts + brief + uploaded documents, its
+   * payment/closing instructions, and (when a real chat is involved) the lead
+   * state and running summary.
+   *
+   * Both the live WhatsApp reply path and the supervisor simulator call this,
+   * so what a supervisor tests is what a customer actually gets. Testing
+   * against a different context than production is worse than not testing.
+   */
+  async function buildReplyContext({ companyId, text, chatId = null }) {
+    const kb = await getKnowledgeBase(companyId);
+    if (!kb.loaded) await kb.load().catch(() => {});
+    const relevantFaqs = kb.findRelevantFaq(text || '');
+
+    const dbLive = database.enabled && database.connected;
+    const [leadStateRaw, latestSummary, playbookContext, companyConfig] = await Promise.all([
+      chatId ? getLeadState(chatId, companyId).catch(() => null) : null,
+      chatId && typeof database.getConversationSummary === 'function' && dbLive
+        ? database.getConversationSummary(chatId, 'id', companyId).catch(() => null)
+        : (chatId ? conversationSummaries.get(`${companyId}:${chatId}:id`) : null),
+      typeof database.getPlaybookContext === 'function' && dbLive
+        ? database.getPlaybookContext(companyId).catch(() => '')
+        : '',
+      dbLive ? database.getCompanyConfig(companyId).catch(() => null) : null,
+    ]);
+
+    let paymentContext = '';
+    if (companyConfig?.paymentMethod === 'link' && companyConfig.paymentLink) {
+      paymentContext = `## PANDUAN PEMBAYARAN & CLOSING\nMetode: Link pembayaran\nLink: ${companyConfig.paymentLink}${companyConfig.paymentNotes ? `\nCatatan: ${companyConfig.paymentNotes}` : ''}\nKirim link ini kepada customer saat mereka siap membayar. Jangan mengarang link atau metode lain.`;
+    } else if (companyConfig?.paymentMethod === 'bank_transfer') {
+      const parts = ['## PANDUAN PEMBAYARAN & CLOSING\nMetode: Transfer bank'];
+      if (companyConfig.bankName) parts.push(`Bank: ${companyConfig.bankName}`);
+      if (companyConfig.bankAccount) parts.push(`No. Rekening: ${companyConfig.bankAccount}`);
+      if (companyConfig.bankHolder) parts.push(`Atas nama: ${companyConfig.bankHolder}`);
+      if (companyConfig.paymentNotes) parts.push(`Catatan: ${companyConfig.paymentNotes}`);
+      parts.push('Sampaikan detail rekening ini kepada customer saat mereka siap membayar. Minta customer kirim bukti transfer, lalu handoff ke supervisor untuk verifikasi.');
+      paymentContext = parts.join('\n');
+    }
+
+    const contextSections = [
+      playbookContext ? `## PLAYBOOK PERUSAHAAN INI (SUMBER UTAMA — prioritaskan di atas knowledge umum di atas)\n${playbookContext}` : '',
+      paymentContext,
+    ].filter(Boolean).join('\n\n');
+
+    return {
+      kb,
+      relevantFaqs,
+      playbookContext,
+      paymentContext,
+      companyConfig,
+      leadState: latestSummary?.summary
+        ? { ...(leadStateRaw || {}), conversationSummary: latestSummary.summary }
+        : leadStateRaw,
+      systemPrompt: contextSections
+        ? `${kb.getSystemPrompt()}\n\n${contextSections}`
+        : kb.getSystemPrompt(),
+    };
+  }
+
   async function generateAutoReply(message, companyId) {
     if (!config.llmEnabled) return null;
     if (message.from.endsWith('@g.us')) return null;
@@ -429,45 +489,12 @@ async function buildApp(overrides = {}) {
     }
 
     // Use this company's own knowledge client from DB — never another tenant's
-    const kb = await getKnowledgeBase(companyId);
-    if (!kb.loaded) await kb.load().catch(() => {});
-    const relevantFaqs = kb.findRelevantFaq(message.body);
-    const leadState = await getLeadState(message.from, companyId);
-    const latestSummary = typeof database.getConversationSummary === 'function' && database.status().connected
-      ? await database.getConversationSummary(message.from, 'id', companyId)
-      : conversationSummaries.get(`${companyId}:${message.from}:id`);
-    const playbookContext = typeof database.getPlaybookContext === 'function' && database.status().connected
-      ? await database.getPlaybookContext(companyId).catch(() => '')
-      : '';
-
-    // Build payment/closing context from company config
-    let paymentContext = '';
-    if (database.enabled && database.connected) {
-      const companyConfig = await database.getCompanyConfig(companyId).catch(() => null);
-      if (companyConfig?.paymentMethod === 'link' && companyConfig.paymentLink) {
-        paymentContext = `## PANDUAN PEMBAYARAN & CLOSING\nMetode: Link pembayaran\nLink: ${companyConfig.paymentLink}${companyConfig.paymentNotes ? `\nCatatan: ${companyConfig.paymentNotes}` : ''}\nKirim link ini kepada customer saat mereka siap membayar. Jangan mengarang link atau metode lain.`;
-      } else if (companyConfig?.paymentMethod === 'bank_transfer') {
-        const parts = ['## PANDUAN PEMBAYARAN & CLOSING\nMetode: Transfer bank'];
-        if (companyConfig.bankName) parts.push(`Bank: ${companyConfig.bankName}`);
-        if (companyConfig.bankAccount) parts.push(`No. Rekening: ${companyConfig.bankAccount}`);
-        if (companyConfig.bankHolder) parts.push(`Atas nama: ${companyConfig.bankHolder}`);
-        if (companyConfig.paymentNotes) parts.push(`Catatan: ${companyConfig.paymentNotes}`);
-        parts.push('Sampaikan detail rekening ini kepada customer saat mereka siap membayar. Minta customer kirim bukti transfer, lalu handoff ke supervisor untuk verifikasi.');
-        paymentContext = parts.join('\n');
-      }
-    }
-
-    const contextSections = [
-      playbookContext ? `## PLAYBOOK PERUSAHAAN INI (SUMBER UTAMA — prioritaskan di atas knowledge umum di atas)\n${playbookContext}` : '',
-      paymentContext,
-    ].filter(Boolean).join('\n\n');
+    const ctx = await buildReplyContext({ companyId, text: message.body, chatId: message.from });
 
     const result = await llmService.generateReply(message.body, {
-      systemPrompt: contextSections
-        ? `${kb.getSystemPrompt()}\n\n${contextSections}`
-        : kb.getSystemPrompt(),
-      relevantFaqs,
-      leadState: latestSummary?.summary ? { ...leadState, conversationSummary: latestSummary.summary } : leadState,
+      systemPrompt: ctx.systemPrompt,
+      relevantFaqs: ctx.relevantFaqs,
+      leadState: ctx.leadState,
     });
 
     return result?.text || null;
@@ -1647,6 +1674,367 @@ async function buildApp(overrides = {}) {
     database: database.status(),
     runs: await database.listPlaygroundRuns(request.query.limit || 20, request.agneeSession.companyId),
   }));
+
+  // ── Reply Coach: source of truth, simulation, and grading ─────────────────
+  //
+  // These routes are NOT under /v1/admin/, so the blanket supervisor gate in
+  // the onRequest hook does not apply — each one states its own rule.
+  // Managing the source of truth and scenarios is supervisor-only; running a
+  // simulation and getting graded is open to agents, because practising is
+  // exactly what agents need.
+
+  const COACH_CATEGORIES = ['profile', 'product', 'pricing', 'faq', 'funnel', 'objection', 'closing'];
+
+  // Each LLM-backed coach call costs money, and these routes sit outside the
+  // customer-facing AI quota, so cap them per company rather than leaving an
+  // unmetered path to the model.
+  const coachUsage = new Map();
+  const COACH_WINDOW_MS = 60 * 60 * 1000;
+  const COACH_MAX_PER_HOUR = 120;
+  function coachRateLimited(companyId) {
+    const now = Date.now();
+    const entry = coachUsage.get(companyId) || { count: 0, resetAt: now + COACH_WINDOW_MS };
+    if (now > entry.resetAt) { entry.count = 0; entry.resetAt = now + COACH_WINDOW_MS; }
+    entry.count += 1;
+    coachUsage.set(companyId, entry);
+    return entry.count > COACH_MAX_PER_HOUR;
+  }
+
+  function requireCoachDb(reply) {
+    if (!database.status().connected) {
+      reply.code(503).send({ error: 'Fitur ini butuh database aktif.' });
+      return false;
+    }
+    return true;
+  }
+
+  /** The company's own truth, formatted for a judge prompt. */
+  async function coachSourceOfTruth(companyId) {
+    const context = await database.getPlaybookContext(companyId).catch(() => '');
+    if (!context) return '';
+    return `## SUMBER KEBENARAN PERUSAHAAN\n${context}`;
+  }
+
+  app.get('/v1/coach/facts', async (request, reply) => {
+    if (!requireCoachDb(reply)) return;
+    const companyId = request.agneeSession.companyId;
+    const [facts, coverage] = await Promise.all([
+      database.listPlaybookFacts(companyId),
+      database.getPlaybookCoverage(companyId),
+    ]);
+    const answered = facts.filter((f) => f.answer && f.answer.trim()).length;
+    return {
+      facts,
+      coverage,
+      totals: { answered, open: facts.length - answered, total: facts.length },
+      categories: COACH_CATEGORIES,
+    };
+  });
+
+  app.post('/v1/coach/facts', {
+    schema: { body: { type: 'object', additionalProperties: false, required: ['category', 'question'], properties: {
+      category: { type: 'string', enum: COACH_CATEGORIES },
+      question: { type: 'string', minLength: 3, maxLength: 300 },
+      answer: { type: ['string', 'null'], maxLength: 4000 },
+      priority: { type: 'integer', minimum: 1, maximum: 3 },
+    } } },
+  }, async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) {
+      return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengubah sumber kebenaran.' });
+    }
+    if (!requireCoachDb(reply)) return;
+    const saved = await database.upsertPlaybookFact({
+      category: request.body.category,
+      question: request.body.question.trim(),
+      answer: typeof request.body.answer === 'string' ? request.body.answer.trim() : null,
+      priority: request.body.priority || 2,
+      source: 'manual',
+    }, request.agneeSession.userId, request.agneeSession.companyId);
+    return { fact: saved };
+  });
+
+  app.delete('/v1/coach/facts/:factId', {
+    schema: { params: { type: 'object', required: ['factId'], properties: {
+      factId: { type: 'string', minLength: 1, maxLength: 100 },
+    } } },
+  }, async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) {
+      return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengubah sumber kebenaran.' });
+    }
+    if (!requireCoachDb(reply)) return;
+    const deleted = await database.deletePlaybookFact(request.params.factId, request.agneeSession.companyId);
+    if (!deleted) return reply.code(404).send({ error: 'Fakta tidak ditemukan.' });
+    return reply.code(204).send();
+  });
+
+  /**
+   * Ask the model what it still needs to know about this business, given what
+   * has already been answered, and store the questions as open gaps. This is
+   * how the system asks to be taught instead of guessing.
+   */
+  app.post('/v1/coach/interview', {
+    schema: { body: { type: 'object', additionalProperties: false, properties: {
+      focus: { type: 'string', enum: COACH_CATEGORIES },
+    } } },
+  }, async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) {
+      return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengubah sumber kebenaran.' });
+    }
+    if (!requireCoachDb(reply)) return;
+    if (!llmService.enabled) return reply.code(503).send({ error: 'AI belum aktif. Periksa OPENROUTER_API_KEY.' });
+    const companyId = request.agneeSession.companyId;
+    if (coachRateLimited(companyId)) {
+      return reply.code(429).send({ error: 'Terlalu banyak permintaan AI. Coba lagi nanti.' });
+    }
+
+    const [existing, companyConfig] = await Promise.all([
+      database.listPlaybookFacts(companyId),
+      database.getCompanyConfig(companyId).catch(() => null),
+    ]);
+    const known = existing
+      .filter((f) => f.answer && f.answer.trim())
+      .map((f) => `[${f.category}] ${f.question} => ${f.answer}`)
+      .join('\n') || '(belum ada yang terjawab)';
+    const asked = existing.map((f) => f.question).join('\n') || '(belum ada)';
+
+    const focusLine = request.body.focus
+      ? `Fokuskan pertanyaan HANYA pada kategori "${request.body.focus}".`
+      : 'Sebarkan pertanyaan ke kategori yang masih paling kosong.';
+
+    const systemPrompt = `Anda membantu pemilik bisnis menyiapkan customer service AI.
+Tugas Anda: menanyakan hal-hal yang BELUM Anda ketahui tentang bisnis mereka, supaya AI bisa menjawab pelanggan dengan akurat.
+
+Nama perusahaan: ${companyConfig?.name || 'tidak diketahui'}
+
+Yang sudah diketahui:
+${known}
+
+Pertanyaan yang SUDAH pernah diajukan (jangan diulang, jangan diparafrase):
+${asked}
+
+${focusLine}
+
+Balas HANYA JSON valid tanpa markdown:
+{"questions":[{"category":"profile|product|pricing|faq|funnel|objection|closing","question":"...","priority":1}]}
+
+Aturan:
+- Maksimal 6 pertanyaan.
+- Satu pertanyaan = satu fakta konkret. Jangan bertanya berlapis.
+- Pakai bahasa Indonesia yang sederhana, seperti bertanya ke pemilik toko.
+- priority 1 = tanpa ini AI tidak bisa jual, 2 = penting, 3 = pelengkap.
+- Tanyakan hal spesifik bisnis (nama produk, harga, cara bayar, syarat), bukan hal umum.`;
+
+    const result = await llmService.generateReply('Apa lagi yang perlu Anda ketahui?', { systemPrompt }).catch(() => null);
+    if (!result?.text) return reply.code(502).send({ error: 'AI tidak menghasilkan pertanyaan.' });
+
+    const raw = String(result.text).replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
+    let parsed = null;
+    try { parsed = JSON.parse(raw); } catch {
+      const a = raw.indexOf('{'); const b = raw.lastIndexOf('}');
+      if (a !== -1 && b > a) { try { parsed = JSON.parse(raw.slice(a, b + 1)); } catch { /* ignore */ } }
+    }
+    const questions = Array.isArray(parsed?.questions) ? parsed.questions : [];
+    if (!questions.length) return reply.code(502).send({ error: 'AI tidak menghasilkan pertanyaan yang bisa dibaca.' });
+
+    const created = [];
+    for (const item of questions.slice(0, 6)) {
+      const category = COACH_CATEGORIES.includes(item?.category) ? item.category : 'product';
+      const question = String(item?.question || '').trim();
+      if (question.length < 3) continue;
+      const priority = [1, 2, 3].includes(Number(item?.priority)) ? Number(item.priority) : 2;
+      const saved = await database.upsertPlaybookFact(
+        { category, question, answer: null, priority, source: 'interview' },
+        request.agneeSession.userId, companyId,
+      ).catch(() => null);
+      if (saved) created.push(saved);
+    }
+    return { questions: created, model: result.model || null };
+  });
+
+  // ── Scenarios ("di setup" — saved once, replayed by anyone practising) ────
+
+  app.get('/v1/coach/scenarios', async (request, reply) => {
+    if (!requireCoachDb(reply)) return;
+    return { scenarios: await database.listSimulationScenarios(request.agneeSession.companyId) };
+  });
+
+  app.post('/v1/coach/scenarios', {
+    schema: { body: { type: 'object', additionalProperties: false, required: ['name', 'openingMessage'], properties: {
+      name: { type: 'string', minLength: 2, maxLength: 120 },
+      persona: { type: 'string', maxLength: 500 },
+      openingMessage: { type: 'string', minLength: 2, maxLength: 1000 },
+      goal: { type: 'string', maxLength: 500 },
+    } } },
+  }, async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) {
+      return reply.code(403).send({ error: 'Hanya supervisor yang dapat membuat skenario.' });
+    }
+    if (!requireCoachDb(reply)) return;
+    const scenario = await database.createSimulationScenario({
+      name: request.body.name.trim(),
+      persona: (request.body.persona || '').trim(),
+      openingMessage: request.body.openingMessage.trim(),
+      goal: (request.body.goal || '').trim(),
+    }, request.agneeSession.userId, request.agneeSession.companyId);
+    return reply.code(201).send({ scenario });
+  });
+
+  app.delete('/v1/coach/scenarios/:scenarioId', {
+    schema: { params: { type: 'object', required: ['scenarioId'], properties: {
+      scenarioId: { type: 'string', minLength: 1, maxLength: 100 },
+    } } },
+  }, async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) {
+      return reply.code(403).send({ error: 'Hanya supervisor yang dapat menghapus skenario.' });
+    }
+    if (!requireCoachDb(reply)) return;
+    const deleted = await database.deleteSimulationScenario(request.params.scenarioId, request.agneeSession.companyId);
+    if (!deleted) return reply.code(404).send({ error: 'Skenario tidak ditemukan.' });
+    return reply.code(204).send();
+  });
+
+  // ── Simulate & grade ──────────────────────────────────────────────────────
+
+  /** Turn any open gaps the judge surfaced into questions on the setup list. */
+  async function recordMissingInfo(missingInfo, userId, companyId) {
+    if (!Array.isArray(missingInfo) || !missingInfo.length) return [];
+    const added = [];
+    for (const item of missingInfo.slice(0, 4)) {
+      const question = String(item || '').trim();
+      if (question.length < 3) continue;
+      const saved = await database.upsertPlaybookFact(
+        { category: 'product', question, answer: null, priority: 1, source: 'simulation' },
+        userId, companyId,
+      ).catch(() => null);
+      if (saved) added.push(saved);
+    }
+    return added;
+  }
+
+  const SIM_TRANSCRIPT_SCHEMA = {
+    type: 'array',
+    maxItems: 40,
+    items: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['role', 'text'],
+      properties: {
+        role: { type: 'string', enum: ['customer', 'agent'] },
+        text: { type: 'string', minLength: 1, maxLength: 4000 },
+      },
+    },
+  };
+
+  /**
+   * mode 'ai'     — generate a reply with the production pipeline, then grade it.
+   * mode 'human'  — grade a reply an agent typed; optionally also show what the
+   *                 AI would have said, so the two can be compared.
+   * mode 'review' — grade a reply that already went out in a real conversation.
+   */
+  app.post('/v1/coach/simulate', {
+    schema: { body: { type: 'object', additionalProperties: false, required: ['mode', 'customerMessage'], properties: {
+      mode: { type: 'string', enum: ['ai', 'human', 'review'] },
+      customerMessage: { type: 'string', minLength: 1, maxLength: 4000 },
+      humanReply: { type: 'string', maxLength: 4000 },
+      transcript: SIM_TRANSCRIPT_SCHEMA,
+      scenarioId: { type: ['string', 'null'], maxLength: 100 },
+      chatId: { type: ['string', 'null'], maxLength: 128 },
+      compareWithAi: { type: 'boolean', default: false },
+      grade: { type: 'boolean', default: true },
+    } } },
+  }, async (request, reply) => {
+    if (!requireCoachDb(reply)) return;
+    const companyId = request.agneeSession.companyId;
+    const userId = request.agneeSession.userId;
+    const { mode, compareWithAi, grade } = request.body;
+    const customerMessage = request.body.customerMessage.trim();
+    const transcript = request.body.transcript || [];
+
+    if (mode !== 'ai' && !String(request.body.humanReply || '').trim()) {
+      return reply.code(400).send({ error: 'Isi dulu balasan yang mau dinilai.' });
+    }
+    if (!llmService.enabled && (mode === 'ai' || grade)) {
+      return reply.code(503).send({ error: 'AI belum aktif. Periksa OPENROUTER_API_KEY.' });
+    }
+    if (coachRateLimited(companyId)) {
+      return reply.code(429).send({ error: 'Terlalu banyak permintaan AI. Coba lagi nanti.' });
+    }
+
+    // Same context the live WhatsApp path uses, so results match production.
+    const ctx = await buildReplyContext({ companyId, text: customerMessage, chatId: request.body.chatId || null });
+    const history = transcript.map((turn) => ({
+      role: turn.role === 'customer' ? 'user' : 'assistant',
+      content: turn.text,
+    }));
+
+    let aiReply = null;
+    let aiModel = null;
+    if (mode === 'ai' || compareWithAi) {
+      const generated = await llmService.generateReply(customerMessage, {
+        systemPrompt: ctx.systemPrompt,
+        relevantFaqs: ctx.relevantFaqs,
+        leadState: ctx.leadState,
+        history,
+      }).catch(() => null);
+      if (!generated?.text && mode === 'ai') {
+        return reply.code(502).send({ error: 'AI tidak menghasilkan balasan.' });
+      }
+      aiReply = generated?.text || null;
+      aiModel = generated?.model || null;
+    }
+
+    const gradedReply = mode === 'ai' ? aiReply : String(request.body.humanReply).trim();
+
+    const expectsDirectHandoff = requestsHumanAgent(customerMessage);
+    const warnings = styleWarnings(gradedReply, { expectDirectHandoff: expectsDirectHandoff });
+    const rules = { passed: warnings.length === 0, warnings };
+
+    let judge = null;
+    if (grade) {
+      judge = await judgeReply(llmService, {
+        customerMessage,
+        reply: gradedReply,
+        context: await coachSourceOfTruth(companyId),
+        transcript,
+      });
+    }
+
+    const newGaps = judge?.missingInfo?.length && isSupervisor(request.agneeSession)
+      ? await recordMissingInfo(judge.missingInfo, userId, companyId)
+      : [];
+
+    const scores = { rules, judge };
+    const saved = await database.recordSimulationRun({
+      scenarioId: request.body.scenarioId || null,
+      mode,
+      chatId: request.body.chatId || null,
+      customerMessage,
+      reply: gradedReply,
+      transcript: [...transcript, { role: 'customer', text: customerMessage }, { role: 'agent', text: gradedReply }],
+      scores,
+      model: mode === 'ai' ? aiModel : (judge?.model || null),
+    }, userId, companyId).catch(() => null);
+
+    return {
+      mode,
+      reply: gradedReply,
+      aiReply: mode === 'ai' ? null : aiReply,
+      model: aiModel,
+      rules,
+      judge,
+      newGaps,
+      runId: saved?.id || null,
+    };
+  });
+
+  app.get('/v1/coach/runs', {
+    schema: { querystring: { type: 'object', properties: {
+      limit: { type: 'integer', minimum: 1, maximum: 50, default: 20 },
+    } } },
+  }, async (request, reply) => {
+    if (!requireCoachDb(reply)) return;
+    return { runs: await database.listSimulationRuns(request.agneeSession.companyId, request.query.limit || 20) };
+  });
 
   app.get('/v1/whatsapp/status', async (request) => {
     const companyId = request.agneeSession.companyId;

@@ -31,6 +31,7 @@ const ui = {
     truth: document.querySelector('#coachPaneTruth'),
     scenarios: document.querySelector('#coachPaneScenarios'),
     simulate: document.querySelector('#coachPaneSimulate'),
+    review: document.querySelector('#coachPaneReview'),
   },
   coachAskBtn: document.querySelector('#coachAskBtn'),
   coachFocus: document.querySelector('#coachFocus'),
@@ -52,6 +53,12 @@ const ui = {
   coachRunBtn: document.querySelector('#coachRunBtn'),
   coachRunStatus: document.querySelector('#coachRunStatus'),
   coachResult: document.querySelector('#coachResult'),
+  coachReviewAuthor: document.querySelector('#coachReviewAuthor'),
+  coachReviewIncludeDone: document.querySelector('#coachReviewIncludeDone'),
+  coachReviewRefresh: document.querySelector('#coachReviewRefresh'),
+  coachAgentSummary: document.querySelector('#coachAgentSummary'),
+  coachReviewStatus: document.querySelector('#coachReviewStatus'),
+  coachReviewList: document.querySelector('#coachReviewList'),
 };
 
 const CATEGORY_LABELS = {
@@ -591,75 +598,24 @@ function scoreTile(label, value) {
 }
 
 function renderCoachResult(data) {
-  ui.coachResult.replaceChildren();
   ui.coachResult.hidden = false;
+  renderJudgeInto(ui.coachResult, data);
 
-  const judge = data.judge;
-  if (judge) {
-    const verdict = document.createElement('span');
-    verdict.className = `coach-verdict coach-verdict-${judge.verdict}`;
-    verdict.textContent = judge.verdict === 'pass' ? `Lolos · rata-rata ${judge.overall}` : `Perlu diperbaiki · rata-rata ${judge.overall}`;
-    ui.coachResult.append(verdict);
-
-    const scores = document.createElement('div');
-    scores.className = 'coach-scores';
-    scores.append(
-      scoreTile('Akurasi', judge.scores.accuracy),
-      scoreTile('Membantu', judge.scores.helpfulness),
-      scoreTile('Funnel', judge.scores.funnel),
-      scoreTile('Nada', judge.scores.tone),
-    );
-    ui.coachResult.append(scores);
+  // Only simulate mode has a second reply to compare against.
+  if (!data.aiReply) return;
+  const compare = document.createElement('div');
+  compare.className = 'coach-compare';
+  for (const [title, body] of [['Balasan AI', data.aiReply], ['Balasan kamu', data.reply]]) {
+    const card = document.createElement('div');
+    card.className = 'coach-compare-card';
+    const h5 = document.createElement('h5');
+    h5.textContent = title;
+    const p = document.createElement('p');
+    p.textContent = body;
+    card.append(h5, p);
+    compare.append(card);
   }
-
-  const feedback = document.createElement('div');
-  feedback.className = 'coach-feedback';
-
-  const addList = (title, items) => {
-    if (!items || !items.length) return;
-    const h = document.createElement('h4');
-    h.textContent = title;
-    const ul = document.createElement('ul');
-    items.forEach((entry) => {
-      const li = document.createElement('li');
-      li.textContent = entry;
-      ul.append(li);
-    });
-    feedback.append(h, ul);
-  };
-
-  if (!data.rules.passed) addList('Masalah gaya', data.rules.warnings);
-  if (judge) {
-    addList('Sudah bagus', judge.strengths);
-    addList('Perlu diperbaiki', judge.issues);
-  }
-  if (data.newGaps?.length) {
-    addList('Info yang AI belum tahu (ditambahkan ke Sumber Kebenaran)', data.newGaps.map((g) => g.question));
-  }
-  if (feedback.children.length) ui.coachResult.append(feedback);
-
-  const cards = [];
-  if (data.aiReply) {
-    cards.push(['Balasan AI', data.aiReply]);
-    cards.push(['Balasan kamu', data.reply]);
-  }
-  if (judge?.suggestedReply) cards.push(['Saran perbaikan', judge.suggestedReply]);
-
-  if (cards.length) {
-    const compare = document.createElement('div');
-    compare.className = 'coach-compare';
-    for (const [title, body] of cards) {
-      const card = document.createElement('div');
-      card.className = 'coach-compare-card';
-      const h5 = document.createElement('h5');
-      h5.textContent = title;
-      const p = document.createElement('p');
-      p.textContent = body;
-      card.append(h5, p);
-      compare.append(card);
-    }
-    ui.coachResult.append(compare);
-  }
+  ui.coachResult.append(compare);
 }
 
 function coachMode() {
@@ -716,7 +672,204 @@ function coachReset() {
   if (opt?.dataset.opening) ui.coachCustomerMsg.value = opt.dataset.opening;
 }
 
-ui.coachTabs.forEach((tab) => tab.addEventListener('click', () => coachSelectTab(tab.dataset.coachTab)));
+function renderJudgeInto(container, data) {
+  container.replaceChildren();
+  const judge = data.judge;
+
+  if (judge) {
+    const verdict = document.createElement('span');
+    verdict.className = `coach-verdict coach-verdict-${judge.verdict}`;
+    verdict.textContent = judge.verdict === 'pass'
+      ? `Lolos · rata-rata ${judge.overall}`
+      : `Perlu diperbaiki · rata-rata ${judge.overall}`;
+    container.append(verdict);
+
+    const scores = document.createElement('div');
+    scores.className = 'coach-scores';
+    scores.append(
+      scoreTile('Akurasi', judge.scores.accuracy),
+      scoreTile('Membantu', judge.scores.helpfulness),
+      scoreTile('Funnel', judge.scores.funnel),
+      scoreTile('Nada', judge.scores.tone),
+    );
+    container.append(scores);
+  }
+
+  const feedback = document.createElement('div');
+  feedback.className = 'coach-feedback';
+  const addList = (title, items) => {
+    if (!items || !items.length) return;
+    const h = document.createElement('h4');
+    h.textContent = title;
+    const ul = document.createElement('ul');
+    items.forEach((entry) => {
+      const li = document.createElement('li');
+      li.textContent = entry;
+      ul.append(li);
+    });
+    feedback.append(h, ul);
+  };
+  if (data.rules && !data.rules.passed) addList('Masalah gaya', data.rules.warnings);
+  if (judge) {
+    addList('Sudah bagus', judge.strengths);
+    addList('Perlu diperbaiki', judge.issues);
+  }
+  if (data.newGaps?.length) {
+    addList('Info yang AI belum tahu (ditambahkan ke Sumber Kebenaran)', data.newGaps.map((g) => g.question));
+  }
+  if (feedback.children.length) container.append(feedback);
+
+  if (judge?.suggestedReply) {
+    const card = document.createElement('div');
+    card.className = 'coach-compare-card';
+    card.style.marginTop = '12px';
+    const h5 = document.createElement('h5');
+    h5.textContent = 'Seharusnya dibalas seperti ini';
+    const p = document.createElement('p');
+    p.textContent = judge.suggestedReply;
+    card.append(h5, p);
+    container.append(card);
+  }
+}
+
+function reviewRow(entry) {
+  const item = document.createElement('div');
+  item.className = 'coach-item';
+
+  const head = document.createElement('div');
+  head.className = 'coach-item-head';
+  const who = document.createElement('span');
+  who.className = 'coach-cat';
+  who.textContent = entry.authorName || (entry.author === 'ai' ? 'AI' : 'Agent');
+  const when = document.createElement('span');
+  when.className = 'coach-q';
+  when.textContent = new Date(entry.createdAt).toLocaleString('id-ID');
+  head.append(who, when);
+  if (entry.reviewedAt) {
+    const done = document.createElement('span');
+    done.className = 'coach-verdict coach-verdict-pass';
+    done.textContent = 'sudah dinilai';
+    head.append(done);
+  }
+  item.append(head);
+
+  if (entry.inReplyTo) {
+    const ctx = document.createElement('p');
+    ctx.className = 'coach-a';
+    ctx.textContent = `Customer: "${entry.inReplyTo}"`;
+    item.append(ctx);
+  }
+
+  const body = document.createElement('p');
+  body.className = 'coach-a';
+  body.style.color = '#14241f';
+  body.textContent = `Balasan: ${entry.body}`;
+  item.append(body);
+
+  // Older replies predate attribution, so the customer message may be missing.
+  let manual = null;
+  if (!entry.inReplyTo) {
+    manual = document.createElement('input');
+    manual.type = 'text';
+    manual.maxLength = 4000;
+    manual.placeholder = 'Pesan customer tidak tercatat — isi manual supaya bisa dinilai';
+    item.append(manual);
+  }
+
+  const actions = document.createElement('div');
+  actions.className = 'coach-item-actions';
+  const grade = document.createElement('button');
+  grade.type = 'button';
+  grade.className = 'save-settings-btn';
+  grade.textContent = entry.reviewedAt ? 'Nilai ulang' : 'Nilai';
+  const result = document.createElement('div');
+  result.className = 'coach-result';
+
+  grade.addEventListener('click', async () => {
+    const payload = {};
+    if (manual && manual.value.trim()) payload.customerMessage = manual.value.trim();
+    grade.disabled = true;
+    grade.textContent = 'Menilai…';
+    try {
+      const data = await api(`/v1/coach/review/${entry.id}`, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+      result.hidden = false;
+      renderJudgeInto(result, data);
+      grade.textContent = 'Nilai ulang';
+      if (data.newGaps?.length) await loadCoachFacts();
+    } catch (error) {
+      ui.coachReviewStatus.textContent = error.message;
+      grade.textContent = 'Nilai';
+    } finally {
+      grade.disabled = false;
+    }
+  });
+
+  actions.append(grade);
+  item.append(actions, result);
+  return item;
+}
+
+async function loadCoachReviewQueue() {
+  ui.coachReviewStatus.textContent = 'Memuat…';
+  try {
+    const params = new URLSearchParams({
+      author: ui.coachReviewAuthor.value,
+      includeReviewed: String(ui.coachReviewIncludeDone.checked),
+    });
+    const data = await api(`/v1/coach/review-queue?${params}`);
+
+    ui.coachAgentSummary.replaceChildren();
+    for (const row of data.summary || []) {
+      const card = document.createElement('div');
+      card.className = 'coach-item';
+      const head = document.createElement('div');
+      head.className = 'coach-item-head';
+      const name = document.createElement('span');
+      name.className = 'coach-q';
+      name.textContent = `${row.name} · ${row.mode}`;
+      head.append(name);
+      const scores = document.createElement('div');
+      scores.className = 'coach-scores';
+      scores.style.margin = '0';
+      scores.append(
+        scoreTile('Rata-rata', row.avgOverall === null ? null : Math.round(Number(row.avgOverall))),
+        scoreTile('Akurasi', row.avgAccuracy === null ? null : Math.round(Number(row.avgAccuracy))),
+        scoreTile('Dinilai', row.graded),
+      );
+      card.append(head, scores);
+      ui.coachAgentSummary.append(card);
+    }
+
+    ui.coachReviewList.replaceChildren();
+    const replies = data.replies || [];
+    if (!replies.length) {
+      const empty = document.createElement('p');
+      empty.className = 'team-copy';
+      empty.textContent = ui.coachReviewIncludeDone.checked
+        ? 'Belum ada balasan yang tercatat.'
+        : 'Tidak ada balasan yang menunggu dinilai. Balasan baru akan muncul di sini setelah agent membalas customer.';
+      ui.coachReviewList.append(empty);
+    } else {
+      replies.forEach((entry) => ui.coachReviewList.append(reviewRow(entry)));
+    }
+    ui.coachReviewStatus.textContent = '';
+  } catch (error) {
+    if (error.status === 401) { window.location.href = '/'; return; }
+    ui.coachReviewStatus.textContent = error.message;
+  }
+}
+
+ui.coachReviewRefresh.addEventListener('click', loadCoachReviewQueue);
+ui.coachReviewAuthor.addEventListener('change', loadCoachReviewQueue);
+ui.coachReviewIncludeDone.addEventListener('change', loadCoachReviewQueue);
+
+ui.coachTabs.forEach((tab) => tab.addEventListener('click', () => {
+  coachSelectTab(tab.dataset.coachTab);
+  if (tab.dataset.coachTab === 'review') void loadCoachReviewQueue();
+}));
 ui.coachAskBtn.addEventListener('click', coachAskQuestions);
 ui.coachFactForm.addEventListener('submit', saveManualFact);
 ui.coachScenarioForm.addEventListener('submit', saveScenario);

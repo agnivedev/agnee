@@ -249,6 +249,20 @@ async function buildApp(overrides = {}) {
   let demoQr = null;
   const SSE_MAX_CLIENTS = 50;
   const sendReceipts = new Map();
+  // chatKey -> last inbound customer message body. Lets an outgoing human reply
+  // record what it was answering without slowing the send path down with an
+  // extra WhatsApp fetch. Best-effort: empty after a restart, and capped so a
+  // long-running process cannot grow it without bound.
+  const lastInboundText = new Map();
+  const LAST_INBOUND_MAX = 2000;
+  function rememberInbound(companyId, chatId, text) {
+    if (!text) return;
+    if (lastInboundText.size >= LAST_INBOUND_MAX) {
+      const oldest = lastInboundText.keys().next().value;
+      if (oldest !== undefined) lastInboundText.delete(oldest);
+    }
+    lastInboundText.set(`${companyId}:${chatId}`, String(text).slice(0, 4000));
+  }
   const leadStates = new Map();
   const conversationRouting = new Map();
   const conversationNotes = new Map();
@@ -337,10 +351,19 @@ async function buildApp(overrides = {}) {
     return {
       log: app.log,
       onMessage: async (companyId, message) => {
+        rememberInbound(companyId, message.from, message.body);
         await deliverInboundWebhook(message, companyId);
         const autoReply = await generateAutoReply(message, companyId);
         if (autoReply) {
           await message.reply(autoReply);
+          if (database.enabled && database.connected) {
+            await database.recordOutboundReply({
+              chatId: message.from,
+              author: 'ai',
+              body: autoReply,
+              inReplyTo: message.body || null,
+            }, companyId).catch((error) => app.log.warn({ err: error }, 'Could not record AI reply'));
+          }
         } else if (config.ackEnabled && message.body) {
           await message.reply(config.ackText);
         }
@@ -2027,6 +2050,115 @@ Aturan:
     };
   });
 
+  /**
+   * The review queue: real replies that already went out, newest first.
+   * Defaults to human-written and not yet graded. Supervisor-only, because it
+   * exposes every agent's work, not just the caller's own.
+   */
+  app.get('/v1/coach/review-queue', {
+    schema: { querystring: { type: 'object', properties: {
+      author: { type: 'string', enum: ['human', 'ai'], default: 'human' },
+      authorUserId: { type: 'string', maxLength: 100 },
+      includeReviewed: { type: 'boolean', default: false },
+      limit: { type: 'integer', minimum: 1, maximum: 50, default: 25 },
+    } } },
+  }, async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) {
+      return reply.code(403).send({ error: 'Hanya supervisor yang dapat meninjau balasan agent.' });
+    }
+    if (!requireCoachDb(reply)) return;
+    const companyId = request.agneeSession.companyId;
+    const [replies, summary] = await Promise.all([
+      database.listOutboundReplies(companyId, {
+        author: request.query.author || 'human',
+        authorUserId: request.query.authorUserId || undefined,
+        onlyUnreviewed: !request.query.includeReviewed,
+        limit: request.query.limit || 25,
+      }),
+      database.getAgentQualitySummary(companyId).catch(() => []),
+    ]);
+    return { replies, summary };
+  });
+
+  /**
+   * Grade a reply that already went out. Unlike /simulate this takes the reply
+   * by id from the queue, so the graded text is the text the customer actually
+   * received rather than something retyped by the reviewer.
+   */
+  app.post('/v1/coach/review/:replyId', {
+    schema: {
+      params: { type: 'object', required: ['replyId'], properties: {
+        replyId: { type: 'string', minLength: 1, maxLength: 100 },
+      } },
+      body: { type: 'object', additionalProperties: false, properties: {
+        customerMessage: { type: 'string', maxLength: 4000 },
+      } },
+    },
+  }, async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) {
+      return reply.code(403).send({ error: 'Hanya supervisor yang dapat meninjau balasan agent.' });
+    }
+    if (!requireCoachDb(reply)) return;
+    if (!llmService.enabled) return reply.code(503).send({ error: 'AI belum aktif. Periksa OPENROUTER_API_KEY.' });
+    const companyId = request.agneeSession.companyId;
+    const userId = request.agneeSession.userId;
+    if (coachRateLimited(companyId)) {
+      return reply.code(429).send({ error: 'Terlalu banyak permintaan AI. Coba lagi nanti.' });
+    }
+
+    const record = await database.getOutboundReply(request.params.replyId, companyId);
+    if (!record) return reply.code(404).send({ error: 'Balasan tidak ditemukan.' });
+
+    // The stored inbound is best-effort; let the reviewer supply it when the
+    // reply predates attribution or the cache had already been cleared.
+    const customerMessage = String(request.body.customerMessage || record.inReplyTo || '').trim();
+    if (!customerMessage) {
+      return reply.code(400).send({
+        error: 'Pesan customer untuk balasan ini tidak tercatat. Isi manual supaya penilaian punya konteks.',
+        needsCustomerMessage: true,
+      });
+    }
+
+    const warnings = styleWarnings(record.body, { expectDirectHandoff: requestsHumanAgent(customerMessage) });
+    const rules = { passed: warnings.length === 0, warnings };
+
+    const judge = await judgeReply(llmService, {
+      customerMessage,
+      reply: record.body,
+      context: await coachSourceOfTruth(companyId),
+      transcript: [],
+    });
+
+    const newGaps = judge?.missingInfo?.length
+      ? await recordMissingInfo(judge.missingInfo, userId, companyId)
+      : [];
+
+    const saved = await database.recordSimulationRun({
+      mode: 'review',
+      chatId: record.chatId,
+      customerMessage,
+      reply: record.body,
+      transcript: [{ role: 'customer', text: customerMessage }, { role: 'agent', text: record.body }],
+      scores: { rules, judge },
+      model: judge?.model || null,
+    }, userId, companyId).catch(() => null);
+
+    if (saved?.id) {
+      await database.markOutboundReplyReviewed(record.id, saved.id, companyId).catch(() => {});
+    }
+
+    return {
+      mode: 'review',
+      replyId: record.id,
+      customerMessage,
+      reply: record.body,
+      rules,
+      judge,
+      newGaps,
+      runId: saved?.id || null,
+    };
+  });
+
   app.get('/v1/coach/runs', {
     schema: { querystring: { type: 'object', properties: {
       limit: { type: 'integer', minimum: 1, maximum: 50, default: 20 },
@@ -2577,6 +2709,18 @@ Aturan:
       attachment,
     });
     const result = { ok: true, messageId: sent.messageId, timestamp: sent.timestamp, to: chatId };
+    // Attribute the reply so it can be graded later in review mode. Text only:
+    // an attachment on its own has no wording to assess.
+    if (text && database.enabled && database.connected) {
+      await database.recordOutboundReply({
+        chatId,
+        messageId: sent.messageId || null,
+        author: 'human',
+        authorUserId: request.agneeSession?.userId || null,
+        body: text,
+        inReplyTo: lastInboundText.get(`${companyId}:${chatId}`) || null,
+      }, companyId).catch((error) => app.log.warn({ err: error }, 'Could not record human reply'));
+    }
     if (requestId) {
       sendReceipts.set(requestId, result);
       setTimeout(() => sendReceipts.delete(requestId), 5 * 60 * 1000).unref?.();
@@ -2586,6 +2730,7 @@ Aturan:
 
   app.addHook('onClose', async () => {
     sendReceipts.clear();
+    lastInboundText.clear();
     leadStates.clear();
     conversationRouting.clear();
     conversationNotes.clear();

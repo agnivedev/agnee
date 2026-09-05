@@ -779,6 +779,85 @@ class Database {
     return result.rows[0] || null;
   }
 
+  // ── Outbound reply attribution (feeds review mode) ────────────────────────
+
+  async recordOutboundReply({ chatId, messageId = null, author, authorUserId = null, body, inReplyTo = null }, companyId) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      INSERT INTO outbound_replies
+        (company_id, chat_id, message_id, author, author_user_id, body, in_reply_to)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      RETURNING id, created_at AS "createdAt"
+    `, [companyId, chatId, messageId, author, authorUserId, body, inReplyTo]);
+    return result.rows[0] || null;
+  }
+
+  /**
+   * Replies available to grade. Defaults to human-written ones that nobody has
+   * graded yet — the actual review queue a supervisor works through.
+   */
+  async listOutboundReplies(companyId, { author = 'human', onlyUnreviewed = true, authorUserId, limit = 25 } = {}) {
+    if (!this.enabled) return [];
+    const where = ['r.company_id = $1'];
+    const values = [companyId];
+    if (author) { where.push(`r.author = $${values.length + 1}`); values.push(author); }
+    if (authorUserId) { where.push(`r.author_user_id = $${values.length + 1}`); values.push(authorUserId); }
+    if (onlyUnreviewed) where.push('r.reviewed_at IS NULL');
+    values.push(limit);
+    const result = await this.pool.query(`
+      SELECT r.id, r.chat_id AS "chatId", r.message_id AS "messageId", r.author,
+             r.author_user_id AS "authorUserId", r.body, r.in_reply_to AS "inReplyTo",
+             r.reviewed_at AS "reviewedAt", r.created_at AS "createdAt",
+             u.display_name AS "authorName"
+      FROM outbound_replies r
+      LEFT JOIN users u ON u.id = r.author_user_id
+      WHERE ${where.join(' AND ')}
+      ORDER BY r.created_at DESC
+      LIMIT $${values.length}
+    `, values);
+    return result.rows;
+  }
+
+  async getOutboundReply(replyId, companyId) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      SELECT id, chat_id AS "chatId", author, author_user_id AS "authorUserId",
+             body, in_reply_to AS "inReplyTo", reviewed_at AS "reviewedAt"
+      FROM outbound_replies
+      WHERE id = $1 AND company_id = $2
+    `, [replyId, companyId]);
+    return result.rows[0] || null;
+  }
+
+  async markOutboundReplyReviewed(replyId, runId, companyId) {
+    if (!this.enabled) return false;
+    const result = await this.pool.query(`
+      UPDATE outbound_replies SET reviewed_at = NOW(), review_run_id = $2
+      WHERE id = $1 AND company_id = $3
+    `, [replyId, runId, companyId]);
+    return result.rowCount > 0;
+  }
+
+  /** Per-agent grading summary, so a supervisor can see who needs coaching. */
+  async getAgentQualitySummary(companyId, days = 30) {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(`
+      SELECT COALESCE(u.display_name, u.email, 'AI') AS name,
+             r.mode,
+             COUNT(*)::int AS graded,
+             ROUND(AVG((r.scores -> 'judge' ->> 'overall')::numeric), 2) AS "avgOverall",
+             ROUND(AVG((r.scores -> 'judge' -> 'scores' ->> 'accuracy')::numeric), 2) AS "avgAccuracy"
+      FROM simulation_runs r
+      LEFT JOIN users u ON u.id = r.created_by
+      WHERE r.company_id = $1
+        AND r.created_at > NOW() - ($2 || ' days')::interval
+        AND r.scores -> 'judge' ->> 'overall' IS NOT NULL
+      GROUP BY COALESCE(u.display_name, u.email, 'AI'), r.mode
+      ORDER BY "avgOverall" ASC NULLS LAST
+    `, [companyId, String(days)]);
+    return result.rows;
+  }
+
   async listSimulationRuns(companyId, limit = 20) {
     if (!this.enabled) return [];
     const result = await this.pool.query(`

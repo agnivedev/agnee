@@ -57,10 +57,11 @@ async function judgeReply(llmService, { customerMessage, reply, context, transcr
     ? transcript.map((turn) => `${turn.role === 'customer' ? 'Customer' : 'CS'}: ${turn.text}`).join('\n')
     : '(belum ada riwayat)';
 
+  const hasContext = Boolean(context && context.trim());
   const systemPrompt = `Anda adalah quality assurance untuk tim customer service.
 Nilai SATU balasan CS terhadap sumber kebenaran perusahaan di bawah.
 
-${context || '(belum ada playbook — nilai hanya dari kaidah umum CS dan tandai accuracy rendah jika balasan mengklaim fakta spesifik)'}
+${hasContext ? context : '(SUMBER KEBENARAN KOSONG — perusahaan belum mengisi fakta apa pun)'}
 
 Balas HANYA JSON valid, tanpa penjelasan, tanpa markdown, dengan bentuk:
 {
@@ -90,7 +91,16 @@ suggestedReply WAJIB memenuhi semua ini (jangan menyalin gaya buruk dari balasan
 - Tanpa salam pembuka dan tanpa memperkenalkan diri.
 - Tanpa kalimat template: "Terima kasih atas pertanyaannya", "Saya memahami", "Tentu saja", "Apakah ada hal lain yang bisa saya bantu".
 - Maksimal satu pertanyaan, dan hanya kalau perlu untuk langkah berikutnya.
-- Hanya memakai fakta dari playbook di atas. Kalau faktanya tidak ada, katakan akan dicek ke tim.`;
+- JANGAN PERNAH menulis angka, harga, persentase, nama paket, nomor rekening, atau link
+  yang tidak ada di sumber kebenaran di atas. Ini termasuk angka yang muncul di
+  balasan yang sedang dinilai — balasan itu justru yang diduga salah, jadi
+  angkanya tidak boleh dipercaya atau diulang.
+- Kalau faktanya tidak tersedia, tulis kalimat yang menjanjikan pengecekan,
+  misalnya "harga paketnya saya cek dulu ke tim ya" — jangan mengisi angka apa pun.${hasContext ? '' : `
+
+PENTING: sumber kebenaran KOSONG. Berarti TIDAK ADA satu pun fakta produk yang
+boleh Anda nyatakan. accuracy maksimal 2 jika balasan menyebut fakta spesifik,
+dan suggestedReply tidak boleh memuat angka atau klaim produk sama sekali.`}`;
 
   const userPrompt = `Riwayat percakapan:
 ${history}

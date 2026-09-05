@@ -113,6 +113,7 @@
           <button type="button" class="coach-tab active" data-coach-tab="truth" role="tab" aria-selected="true">1. Sumber Kebenaran</button>
           <button type="button" class="coach-tab" data-coach-tab="scenarios" role="tab" aria-selected="false">2. Skenario</button>
           <button type="button" class="coach-tab" data-coach-tab="simulate" role="tab" aria-selected="false">3. Simulasi</button>
+          <button type="button" class="coach-tab" data-coach-tab="review" role="tab" aria-selected="false">4. Review Chat Asli</button>
         </div>
 
         <!-- TAB 1: source of truth -->
@@ -205,6 +206,24 @@
           </div>
 
           <div id="coachResult" class="coach-result" hidden></div>
+        </div>
+
+        <!-- TAB 4: review real replies that already went out -->
+        <div class="coach-pane" id="coachPaneReview" hidden>
+          <p class="team-copy">Balasan yang benar-benar sudah dikirim ke customer. Nilai di sini untuk melihat kualitas kerja agent yang sesungguhnya.</p>
+
+          <div class="coach-row">
+            <select id="coachReviewAuthor" class="pg-client-select">
+              <option value="human">Balasan agent (human)</option>
+              <option value="ai">Balasan AI</option>
+            </select>
+            <label class="coach-radio"><input type="checkbox" id="coachReviewIncludeDone"> Tampilkan yang sudah dinilai</label>
+            <button id="coachReviewRefresh" class="save-settings-btn" type="button">Muat ulang</button>
+          </div>
+
+          <div id="coachAgentSummary" class="coach-list"></div>
+          <p id="coachReviewStatus" class="team-status" role="status"></p>
+          <div id="coachReviewList" class="coach-list"></div>
         </div>
       </section>
 

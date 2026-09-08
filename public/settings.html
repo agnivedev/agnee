@@ -227,6 +227,51 @@
         </div>
       </section>
 
+      <section id="waCloudSection" class="team-card" aria-labelledby="waCloudTitle">
+        <div class="card-head">
+          <div><p class="eyebrow">WHATSAPP BUSINESS API</p><h2 id="waCloudTitle">Koneksi Cloud API</h2></div>
+          <span id="waCloudBadge" class="plan-badge-pill" hidden></span>
+        </div>
+        <p class="team-copy">Hubungkan nomor WhatsApp Business via Meta Cloud API (official). Setelah tersambung, pesan masuk diterima lewat webhook Meta — tidak perlu QR pairing.</p>
+
+        <div id="waCloudConnected" hidden class="plan-config">
+          <p style="margin:0 0 .75rem">
+            <strong id="waCloudPhone"></strong>
+            <span id="waCloudWabaId" style="color:var(--text-muted);font-size:.8rem;display:block;margin-top:2px"></span>
+          </p>
+          <p class="team-copy" style="margin:0 0 1rem">Webhook URL yang harus didaftarkan di Meta Developer Console:</p>
+          <code id="waCloudWebhookUrl" class="webhook-url-box"></code>
+          <div class="model-chain-actions" style="margin-top:1rem">
+            <button id="waCloudDisconnect" class="save-settings-btn" type="button" style="background:var(--danger,#c0392b)">Putuskan koneksi</button>
+          </div>
+        </div>
+
+        <form id="waCloudForm" class="plan-config" autocomplete="off">
+          <label>Phone Number ID <small>(dari Meta Developer Console → WhatsApp → Configuration)</small>
+            <input id="waPhoneNumberId" type="text" required minlength="1" maxlength="64" placeholder="1234567890123456">
+          </label>
+          <label>WABA ID <small>(WhatsApp Business Account ID)</small>
+            <input id="waWabaId" type="text" required minlength="1" maxlength="64" placeholder="1067460402672812">
+          </label>
+          <label>Access Token <small>(temporary atau permanent token dari Meta)</small>
+            <div class="password-wrap">
+              <input id="waAccessToken" type="password" required minlength="10" maxlength="512" placeholder="EAABsbCS...">
+              <button type="button" class="eye-btn" data-target="waAccessToken" aria-label="Tampilkan token">👁</button>
+            </div>
+          </label>
+          <label>App Secret <small>(dari Meta Developer App → Settings → Basic)</small>
+            <div class="password-wrap">
+              <input id="waAppSecret" type="password" required minlength="10" maxlength="256" placeholder="abc123...">
+              <button type="button" class="eye-btn" data-target="waAppSecret" aria-label="Tampilkan secret">👁</button>
+            </div>
+          </label>
+          <div class="model-chain-actions" style="margin-top:.5rem">
+            <button id="waCloudConnect" class="save-settings-btn" type="submit">Sambungkan</button>
+            <span id="waCloudStatus" class="team-status" role="status"></span>
+          </div>
+        </form>
+      </section>
+
       <section id="teamSection" class="team-card" aria-labelledby="teamTitle">
         <div class="card-head"><div><p class="eyebrow">TIM LAYANAN PELANGGAN</p><h2 id="teamTitle">Supervisor dan agent</h2></div></div>
         <p class="team-copy">Supervisor dapat membagi chat ke agent. Setiap agent masuk menggunakan akun masing-masing.</p>

@@ -35,6 +35,10 @@ class Database {
     this.enabled = Boolean(options.pool || this.connectionString || process.env.PGHOST);
     this.connected = false;
     this.pool = options.pool || null;
+    // Symmetric key for pgcrypto (pgp_sym_encrypt/decrypt) on per-company
+    // Cloud API credentials (access_token, app_secret). Process-level secret,
+    // never persisted to the database itself.
+    this.credentialsEncryptionKey = options.credentialsEncryptionKey || process.env.CREDENTIALS_ENCRYPTION_KEY || '';
     if (this.enabled && !this.pool) {
       const poolOptions = {
         max: Number(process.env.DATABASE_POOL_MAX || 10),
@@ -434,7 +438,8 @@ class Database {
              trial_ends_at AS "trialEndsAt",
              payment_method AS "paymentMethod", payment_link AS "paymentLink",
              bank_name AS "bankName", bank_account AS "bankAccount",
-             bank_holder AS "bankHolder", payment_notes AS "paymentNotes"
+             bank_holder AS "bankHolder", payment_notes AS "paymentNotes",
+             whatsapp_provider AS "whatsappProvider"
       FROM companies WHERE id = $1
     `, [companyId]);
     return result.rows[0] || null;
@@ -521,13 +526,14 @@ class Database {
         c.max_whatsapp   AS "maxWhatsapp",
         (SELECT COUNT(*) FROM company_members WHERE company_id = c.id AND status = 'active')::int  AS "currentUsers",
         (SELECT COUNT(*) FROM playbook_assets  WHERE company_id = c.id)::int                       AS "currentPlaybooks",
-        (SELECT COUNT(*) FROM whatsapp_connections WHERE company_id = c.id)::int                   AS "currentWhatsapp"
+        ((SELECT COUNT(*) FROM whatsapp_connections WHERE company_id = c.id)
+          + (SELECT COUNT(*) FROM whatsapp_cloud_connections WHERE company_id = c.id))::int        AS "currentWhatsapp"
       FROM companies c WHERE c.id = $1
     `, [companyId]);
     return result.rows[0] || null;
   }
 
-  async updateCompanyConfig({ plan, planStatus, knowledgeClient, aiMessageLimit, maxUsers, maxPlaybooks, maxWhatsapp, paymentMethod, paymentLink, bankName, bankAccount, bankHolder, paymentNotes }, companyId) {
+  async updateCompanyConfig({ plan, planStatus, knowledgeClient, aiMessageLimit, maxUsers, maxPlaybooks, maxWhatsapp, paymentMethod, paymentLink, bankName, bankAccount, bankHolder, paymentNotes, whatsappProvider }, companyId) {
     if (!this.enabled) return null;
     const fields = [];
     const values = [];
@@ -545,6 +551,7 @@ class Database {
     if (bankAccount !== undefined) { fields.push(`bank_account = $${i++}`); values.push(bankAccount || null); }
     if (bankHolder !== undefined) { fields.push(`bank_holder = $${i++}`); values.push(bankHolder || null); }
     if (paymentNotes !== undefined) { fields.push(`payment_notes = $${i++}`); values.push(paymentNotes || null); }
+    if (whatsappProvider !== undefined) { fields.push(`whatsapp_provider = $${i++}`); values.push(whatsappProvider); }
     if (!fields.length) return this.getCompanyConfig(companyId);
     fields.push(`updated_at = NOW()`);
     values.push(companyId);
@@ -981,6 +988,115 @@ class Database {
       ORDER BY wc.created_at ASC
     `);
     return result.rows;
+  }
+
+  // ── WhatsApp Cloud API connection helpers ────────────────────────────────
+  // Each company owns its own WABA/phone number/access token — never a
+  // shared or global connection. access_token/app_secret are encrypted at
+  // rest with pgcrypto using a process-level key (never stored in the DB).
+
+  async getCloudApiConnection(companyId) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      SELECT id, company_id AS "companyId", phone_number_id AS "phoneNumberId",
+             waba_id AS "wabaId", display_phone_number AS "displayPhoneNumber",
+             pgp_sym_decrypt(access_token_enc, $2) AS "accessToken",
+             pgp_sym_decrypt(app_secret_enc, $2) AS "appSecret",
+             status, last_error AS "lastError", connected_at AS "connectedAt"
+      FROM whatsapp_cloud_connections
+      WHERE company_id = $1
+      LIMIT 1
+    `, [companyId, this.credentialsEncryptionKey]);
+    return result.rows[0] || null;
+  }
+
+  async getCloudApiConnectionByPhoneNumberId(phoneNumberId) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      SELECT id, company_id AS "companyId", phone_number_id AS "phoneNumberId",
+             waba_id AS "wabaId", display_phone_number AS "displayPhoneNumber",
+             pgp_sym_decrypt(access_token_enc, $2) AS "accessToken",
+             pgp_sym_decrypt(app_secret_enc, $2) AS "appSecret",
+             status, last_error AS "lastError", connected_at AS "connectedAt"
+      FROM whatsapp_cloud_connections
+      WHERE phone_number_id = $1
+      LIMIT 1
+    `, [phoneNumberId, this.credentialsEncryptionKey]);
+    return result.rows[0] || null;
+  }
+
+  async upsertCloudApiConnection(companyId, { phoneNumberId, wabaId, displayPhoneNumber = null, accessToken, appSecret }) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      INSERT INTO whatsapp_cloud_connections
+        (company_id, phone_number_id, waba_id, display_phone_number, access_token_enc, app_secret_enc, status, connected_at)
+      VALUES ($1, $2, $3, $4, pgp_sym_encrypt($5, $7), pgp_sym_encrypt($6, $7), 'connected', NOW())
+      ON CONFLICT (company_id) DO UPDATE SET
+        phone_number_id = EXCLUDED.phone_number_id,
+        waba_id = EXCLUDED.waba_id,
+        display_phone_number = COALESCE(EXCLUDED.display_phone_number, whatsapp_cloud_connections.display_phone_number),
+        access_token_enc = EXCLUDED.access_token_enc,
+        app_secret_enc = EXCLUDED.app_secret_enc,
+        status = 'connected',
+        last_error = NULL,
+        connected_at = NOW(),
+        updated_at = NOW()
+      RETURNING id, phone_number_id AS "phoneNumberId", waba_id AS "wabaId",
+                display_phone_number AS "displayPhoneNumber", status
+    `, [companyId, phoneNumberId, wabaId, displayPhoneNumber, accessToken, appSecret, this.credentialsEncryptionKey]);
+    return result.rows[0] || null;
+  }
+
+  async updateCloudApiStatus(companyId, status, lastError = null) {
+    if (!this.enabled) return;
+    await this.pool.query(`
+      UPDATE whatsapp_cloud_connections SET
+        status = $2,
+        last_error = $3,
+        updated_at = NOW()
+      WHERE company_id = $1
+    `, [companyId, status, lastError]);
+  }
+
+  // ── Cloud API message log ────────────────────────────────────────────────
+  // Cloud API is a stateless webhook with no "list my chats" endpoint, unlike
+  // whatsapp-web.js which reads live from its own in-memory store — so this
+  // persisted log is what /v1/chats and /v1/chats/:chatId/messages read from
+  // for a company on the cloud_api provider.
+
+  async recordCloudMessage(companyId, { chatId, fromMe, body, messageType = 'text', waMessageId = null, timestamp }) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      INSERT INTO cloud_messages (company_id, chat_id, wa_message_id, from_me, body, message_type, timestamp)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      RETURNING id, chat_id AS "chatId", from_me AS "fromMe", body, message_type AS "type", timestamp
+    `, [companyId, chatId, waMessageId, fromMe, body, messageType, timestamp]);
+    return result.rows[0] || null;
+  }
+
+  async listCloudChats(companyId) {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(`
+      SELECT DISTINCT ON (chat_id)
+        chat_id AS "id", chat_id AS "name", body AS "preview", timestamp,
+        false AS "isGroup", false AS "pinned", false AS "archived"
+      FROM cloud_messages
+      WHERE company_id = $1
+      ORDER BY chat_id, timestamp DESC
+    `, [companyId]);
+    return result.rows.map((row) => ({ ...row, unreadCount: 0 }));
+  }
+
+  async listCloudMessages(companyId, chatId, limit = 30) {
+    if (!this.enabled) return { messages: [], hasMore: false };
+    const result = await this.pool.query(`
+      SELECT id, from_me AS "fromMe", body, message_type AS "type", timestamp
+      FROM cloud_messages
+      WHERE company_id = $1 AND chat_id = $2
+      ORDER BY timestamp DESC
+      LIMIT $3
+    `, [companyId, chatId, limit]);
+    return { messages: result.rows.reverse(), hasMore: result.rowCount === limit };
   }
 
   // ── Status ────────────────────────────────────────────────────────────────

@@ -8,6 +8,7 @@ const fastifyStatic = require('@fastify/static');
 const fastifyMultipart = require('@fastify/multipart');
 const QRCode = require('qrcode');
 const { WhatsappManager } = require('./whatsapp-manager.js');
+const { CloudApiManager } = require('./cloud-api-manager.js');
 const KnowledgeBase = require('./knowledge-loader.js');
 const LlmService = require('./llm-service.js');
 const { normalizeUsage, styleWarnings, judgeReply } = require('./reply-style.js');
@@ -55,6 +56,8 @@ function loadConfig(overrides = {}) {
     llmMaxTokens: Number(process.env.LLM_MAX_TOKENS || 512),
     knowledgeClient: process.env.KNOWLEDGE_CLIENT || 'bzone',
     databaseUrl: process.env.DATABASE_URL || '',
+    credentialsEncryptionKey: process.env.CREDENTIALS_ENCRYPTION_KEY || '',
+    cloudApiWebhookVerifyToken: process.env.CLOUD_API_WEBHOOK_VERIFY_TOKEN || '',
     // Only trust X-Forwarded-For when an explicit proxy allowlist/hop count is set.
     // Without this, any client can spoof the header and bypass IP rate limiting.
     trustProxy: parseTrustProxy(process.env.TRUST_PROXY),
@@ -299,8 +302,10 @@ async function buildApp(overrides = {}) {
   const database = overrides.database || new Database({
     connectionString: config.databaseUrl,
     logger: app.log,
+    credentialsEncryptionKey: config.credentialsEncryptionKey,
   });
   await database.connect();
+  const cloudApiManager = new CloudApiManager(database);
   if (config.llmEnabled) await knowledgeBase.load();
   // Initialise demo company state if in demo mode
   if (config.demoMode) {
@@ -346,28 +351,66 @@ async function buildApp(overrides = {}) {
     };
   }
 
+  /** Which messaging channel this company uses — 'whatsapp_web' (default) or 'cloud_api'. */
+  async function getWhatsappProvider(companyId) {
+    if (!database.enabled || !database.connected) return 'whatsapp_web';
+    const companyConfig = await database.getCompanyConfig(companyId).catch(() => null);
+    return companyConfig?.whatsappProvider || 'whatsapp_web';
+  }
+
+  /**
+   * Single send call site for both channels. Neither provider needs to share
+   * a common client interface — this just picks which one to call, so the
+   * whatsapp-web.js path (sendTextForUi, Puppeteer-driven) stays untouched.
+   */
+  async function sendOutbound(companyId, chatId, text, options = {}) {
+    const provider = await getWhatsappProvider(companyId);
+    if (provider === 'cloud_api') {
+      const sent = await cloudApiManager.sendText(companyId, chatId, text);
+      if (database.enabled && database.connected) {
+        await database.recordCloudMessage(companyId, {
+          chatId, fromMe: true, body: text, waMessageId: sent.messageId, timestamp: sent.timestamp,
+        }).catch((error) => app.log.warn({ err: error }, 'Could not persist outbound cloud message'));
+      }
+      broadcastEvent(companyId, 'message', { chatId, fromMe: true, body: text, timestamp: sent.timestamp });
+      return sent;
+    }
+    const wa = manager.getClient(companyId);
+    return sendTextForUi(wa, chatId, text, options);
+  }
+
+  /**
+   * Shared inbound-message pipeline: rememberInbound → outbound webhook → AI
+   * auto-reply → persist. Runs identically for a whatsapp-web.js `message`
+   * event and a Cloud API webhook delivery — both normalize to the same
+   * minimal shape (`from`, `body`, `type`, `hasMedia`, `id._serialized`,
+   * `timestamp`, `reply(text)`) before calling this, so this function never
+   * needs to know which provider produced the message.
+   */
+  async function handleInboundMessage(companyId, message) {
+    rememberInbound(companyId, message.from, message.body);
+    await deliverInboundWebhook(message, companyId);
+    const autoReply = await generateAutoReply(message, companyId);
+    if (autoReply) {
+      await message.reply(autoReply);
+      if (database.enabled && database.connected) {
+        await database.recordOutboundReply({
+          chatId: message.from,
+          author: 'ai',
+          body: autoReply,
+          inReplyTo: message.body || null,
+        }, companyId).catch((error) => app.log.warn({ err: error }, 'Could not record AI reply'));
+      }
+    } else if (config.ackEnabled && message.body) {
+      await message.reply(config.ackText);
+    }
+  }
+
   /** Callbacks passed to manager.startFor — defined here so they close over buildApp scope. */
   function makeWaCallbacks() {
     return {
       log: app.log,
-      onMessage: async (companyId, message) => {
-        rememberInbound(companyId, message.from, message.body);
-        await deliverInboundWebhook(message, companyId);
-        const autoReply = await generateAutoReply(message, companyId);
-        if (autoReply) {
-          await message.reply(autoReply);
-          if (database.enabled && database.connected) {
-            await database.recordOutboundReply({
-              chatId: message.from,
-              author: 'ai',
-              body: autoReply,
-              inReplyTo: message.body || null,
-            }, companyId).catch((error) => app.log.warn({ err: error }, 'Could not record AI reply'));
-          }
-        } else if (config.ackEnabled && message.body) {
-          await message.reply(config.ackText);
-        }
-      },
+      onMessage: handleInboundMessage,
       onStatusUpdate: async (companyId, status, phoneNumber) => {
         if (database.enabled && database.connected) {
           await database.updateWhatsappStatus(companyId, status, phoneNumber).catch(() => {});
@@ -1075,6 +1118,90 @@ async function buildApp(overrides = {}) {
     whatsapp: { demoMode: config.demoMode, activeCompanies: manager.activeCompanyCount() },
   }));
 
+  // ── Meta Cloud API webhook — public, no session ────────────────────────────
+  // GET: Meta's hub verification challenge (one-time setup).
+  app.get('/webhook/meta', async (request, reply) => {
+    const mode = request.query['hub.mode'];
+    const token = request.query['hub.verify_token'];
+    const challenge = request.query['hub.challenge'];
+    if (mode === 'subscribe' && token === config.cloudApiWebhookVerifyToken) {
+      return reply.code(200).send(challenge);
+    }
+    return reply.code(403).send('Forbidden');
+  });
+
+  // POST: inbound messages from Meta. Validated per-company via HMAC-SHA256.
+  app.post('/webhook/meta', {
+    preParsing: async function captureRawBody(request, _reply, payload) {
+      const chunks = [];
+      for await (const chunk of payload) chunks.push(chunk);
+      const raw = Buffer.concat(chunks);
+      request.rawBody = raw;
+      const { Readable } = require('node:stream');
+      return Readable.from(raw);
+    },
+  }, async (request, reply) => {
+    const payload = request.body;
+    if (payload?.object !== 'whatsapp_business_account') return reply.send('OK');
+
+    for (const entry of payload?.entry || []) {
+      for (const change of entry?.changes || []) {
+        if (change.field !== 'messages') continue;
+        const value = change.value || {};
+        const phoneNumberId = value.metadata?.phone_number_id;
+        if (!phoneNumberId) continue;
+
+        const conn = database.enabled ? await database.getCloudApiConnectionByPhoneNumberId(phoneNumberId) : null;
+        if (!conn) { app.log.warn({ phoneNumberId }, 'Cloud API webhook: unknown phone_number_id'); continue; }
+
+        // Verify HMAC signature once per entry (same raw body, same secret for all messages).
+        const sig = request.headers['x-hub-signature-256'] || '';
+        if (conn.appSecret && sig) {
+          const expected = 'sha256=' + crypto.createHmac('sha256', conn.appSecret).update(request.rawBody).digest('hex');
+          if (sig !== expected) { app.log.warn({ phoneNumberId }, 'Cloud API webhook: bad signature'); return reply.code(401).send('Unauthorized'); }
+        }
+
+        for (const msg of value.messages || []) {
+          const chatId = msg.from;
+          const body = msg.type === 'text' ? (msg.text?.body || '') : `[${msg.type}]`;
+          const timestamp = Number(msg.timestamp) || Math.floor(Date.now() / 1000);
+          const waMessageId = msg.id;
+
+          if (database.enabled && database.connected) {
+            await database.recordCloudMessage(conn.companyId, {
+              chatId, fromMe: false, body, messageType: msg.type || 'text', waMessageId, timestamp,
+            }).catch((err) => app.log.warn({ err }, 'Cloud API: could not record inbound'));
+          }
+
+          broadcastEvent(conn.companyId, 'message', { chatId, fromMe: false, body, timestamp });
+
+          const fakeMessage = {
+            from: chatId,
+            body,
+            type: msg.type || 'text',
+            hasMedia: msg.type !== 'text',
+            id: { _serialized: waMessageId },
+            timestamp,
+            reply: async (text) => {
+              const sent = await cloudApiManager.sendText(conn.companyId, chatId, text);
+              if (database.enabled && database.connected) {
+                await database.recordCloudMessage(conn.companyId, {
+                  chatId, fromMe: true, body: text, messageType: 'text',
+                  timestamp: sent.timestamp,
+                }).catch(() => {});
+              }
+              broadcastEvent(conn.companyId, 'message', { chatId, fromMe: true, body: text, timestamp: sent.timestamp });
+            },
+          };
+          handleInboundMessage(conn.companyId, fakeMessage).catch((err) => {
+            app.log.warn({ err, companyId: conn.companyId }, 'Cloud API inbound pipeline error');
+          });
+        }
+      }
+    }
+    return reply.send('EVENT_RECEIVED');
+  });
+
   app.post('/v1/auth/login', {
     schema: {
       body: {
@@ -1702,9 +1829,9 @@ async function buildApp(overrides = {}) {
   //
   // These routes are NOT under /v1/admin/, so the blanket supervisor gate in
   // the onRequest hook does not apply — each one states its own rule.
-  // Managing the source of truth and scenarios is supervisor-only; running a
-  // simulation and getting graded is open to agents, because practising is
-  // exactly what agents need.
+  // Every route here is supervisor-only: the source of truth, the scenario
+  // library, practice and review are all the supervisor's to run. Hiding the
+  // section in the UI is not enough on its own, so each route checks too.
 
   const COACH_CATEGORIES = ['profile', 'product', 'pricing', 'faq', 'funnel', 'objection', 'closing'];
 
@@ -1731,6 +1858,12 @@ async function buildApp(overrides = {}) {
     return true;
   }
 
+  function requireCoachSupervisor(request, reply) {
+    if (isSupervisor(request.agneeSession)) return true;
+    reply.code(403).send({ error: 'Hanya supervisor yang dapat memakai latihan & penilaian.' });
+    return false;
+  }
+
   /** The company's own truth, formatted for a judge prompt. */
   async function coachSourceOfTruth(companyId) {
     const context = await database.getPlaybookContext(companyId).catch(() => '');
@@ -1739,6 +1872,7 @@ async function buildApp(overrides = {}) {
   }
 
   app.get('/v1/coach/facts', async (request, reply) => {
+    if (!requireCoachSupervisor(request, reply)) return;
     if (!requireCoachDb(reply)) return;
     const companyId = request.agneeSession.companyId;
     const [facts, coverage] = await Promise.all([
@@ -1874,9 +2008,10 @@ Aturan:
     return { questions: created, model: result.model || null };
   });
 
-  // ── Scenarios ("di setup" — saved once, replayed by anyone practising) ────
+  // ── Scenarios ("di setup" — saved once, replayed on every practice run) ───
 
   app.get('/v1/coach/scenarios', async (request, reply) => {
+    if (!requireCoachSupervisor(request, reply)) return;
     if (!requireCoachDb(reply)) return;
     return { scenarios: await database.listSimulationScenarios(request.agneeSession.companyId) };
   });
@@ -1966,6 +2101,7 @@ Aturan:
       grade: { type: 'boolean', default: true },
     } } },
   }, async (request, reply) => {
+    if (!requireCoachSupervisor(request, reply)) return;
     if (!requireCoachDb(reply)) return;
     const companyId = request.agneeSession.companyId;
     const userId = request.agneeSession.userId;
@@ -2022,7 +2158,7 @@ Aturan:
       });
     }
 
-    const newGaps = judge?.missingInfo?.length && isSupervisor(request.agneeSession)
+    const newGaps = judge?.missingInfo?.length
       ? await recordMissingInfo(judge.missingInfo, userId, companyId)
       : [];
 
@@ -2164,13 +2300,25 @@ Aturan:
       limit: { type: 'integer', minimum: 1, maximum: 50, default: 20 },
     } } },
   }, async (request, reply) => {
+    if (!requireCoachSupervisor(request, reply)) return;
     if (!requireCoachDb(reply)) return;
     return { runs: await database.listSimulationRuns(request.agneeSession.companyId, request.query.limit || 20) };
   });
 
   app.get('/v1/whatsapp/status', async (request) => {
     const companyId = request.agneeSession.companyId;
-    return manager.publicState(companyId, config.demoMode);
+    const provider = await getWhatsappProvider(companyId);
+    if (provider === 'cloud_api') {
+      const connection = await cloudApiManager.getConnection(companyId);
+      return {
+        provider: 'cloud_api',
+        phase: connection?.status === 'connected' ? 'ready' : 'disconnected',
+        account: connection?.displayPhoneNumber || null,
+        hasQr: false,
+        demoMode: false,
+      };
+    }
+    return { provider: 'whatsapp_web', ...manager.publicState(companyId, config.demoMode) };
   });
 
   app.get('/v1/events', async (request, reply) => {
@@ -2275,6 +2423,42 @@ Aturan:
     return { ok: true };
   });
 
+  // ── WhatsApp Cloud API credential management ──────────────────────────────
+  app.post('/v1/whatsapp/cloud-api/connect', {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['phoneNumberId', 'wabaId', 'accessToken', 'appSecret'],
+        additionalProperties: false,
+        properties: {
+          phoneNumberId: { type: 'string', minLength: 1, maxLength: 64 },
+          wabaId:        { type: 'string', minLength: 1, maxLength: 64 },
+          accessToken:   { type: 'string', minLength: 10, maxLength: 512 },
+          appSecret:     { type: 'string', minLength: 10, maxLength: 256 },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengonfigurasi koneksi.' });
+    const companyId = request.agneeSession.companyId;
+    const { phoneNumberId, wabaId, accessToken, appSecret } = request.body;
+    try {
+      const conn = await cloudApiManager.connect(companyId, { phoneNumberId, wabaId, accessToken, appSecret });
+      await database.updateCompanyConfig({ whatsappProvider: 'cloud_api' }, companyId);
+      return { ok: true, phoneNumberId: conn.phoneNumberId, wabaId: conn.wabaId, displayPhoneNumber: conn.displayPhoneNumber };
+    } catch (err) {
+      return reply.code(422).send({ error: err.message });
+    }
+  });
+
+  app.delete('/v1/whatsapp/cloud-api/connect', async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengubah koneksi.' });
+    const companyId = request.agneeSession.companyId;
+    await database.updateCloudApiStatus(companyId, 'disconnected');
+    await database.updateCompanyConfig({ whatsappProvider: 'whatsapp_web' }, companyId);
+    return { ok: true };
+  });
+
   app.get('/v1/chats', {
     schema: { querystring: { type: 'object', properties: {
       limit: { type: 'integer', minimum: 1, maximum: 50, default: 12 },
@@ -2284,14 +2468,17 @@ Aturan:
     } } },
   }, async (request) => {
     const companyId = request.agneeSession.companyId;
+    const provider = await getWhatsappProvider(companyId);
     const wa = manager.getClient(companyId);
     const waState = manager.getState(companyId);
     const limit = request.query.limit || 12;
     const offset = request.query.offset || 0;
-    if (!config.demoMode && waState.phase !== 'ready') return { chats: [], phase: waState.phase };
+    if (provider !== 'cloud_api' && !config.demoMode && waState.phase !== 'ready') return { chats: [], phase: waState.phase };
     const query = String(request.query.q || '').trim().toLocaleLowerCase('id-ID');
     const filter = request.query.filter || 'inbox';
-    let chats = config.demoMode ? [...demo.chats] : await getChatsForUi(wa);
+    let chats;
+    if (provider === 'cloud_api') chats = await database.listCloudChats(companyId);
+    else chats = config.demoMode ? [...demo.chats] : await getChatsForUi(wa);
     if (!isSupervisor(request.agneeSession)) {
       const routing = await Promise.all(chats.map((chat) => getRouting(chat.id, companyId)));
       chats = chats.filter((_chat, index) => routing[index].mode === 'human'
@@ -2320,10 +2507,12 @@ Aturan:
     },
   }, async (request, reply) => {
     const companyId = request.agneeSession.companyId;
-    const wa = manager.getClient(companyId);
-    const waState = manager.getState(companyId);
     const { chatId } = request.params;
     const limit = request.query.limit || 30;
+    const provider = await getWhatsappProvider(companyId);
+    if (provider === 'cloud_api') return database.listCloudMessages(companyId, chatId, limit);
+    const wa = manager.getClient(companyId);
+    const waState = manager.getState(companyId);
     if (config.demoMode) {
       const all = demo.messages[chatId] || [];
       return { messages: all.slice(-limit), hasMore: all.length > limit };
@@ -2689,9 +2878,7 @@ Aturan:
       return result;
     }
     const companyId = request.agneeSession.companyId;
-    const wa = manager.getClient(companyId);
-    const waState = manager.getState(companyId);
-    if (waState.phase !== 'ready') return reply.code(503).send({ error: 'WhatsApp is not ready', phase: waState.phase });
+    const provider = await getWhatsappProvider(companyId);
     let chatId;
     try {
       chatId = request.body.chatId || normalizeChatId(request.body.to, config.defaultCountryCode);
@@ -2703,6 +2890,26 @@ Aturan:
       && (routing.mode !== 'human' || routing.assigneeUserId !== request.agneeSession?.userId)) {
       return reply.code(403).send({ error: 'Ambil alih chat ini sebelum membalas.' });
     }
+    if (provider === 'cloud_api') {
+      if (!text) return reply.code(400).send({ error: 'Cloud API hanya mendukung pesan teks.' });
+      const sent = await sendOutbound(companyId, chatId, text);
+      const result = { ok: true, messageId: sent.messageId, timestamp: sent.timestamp, to: chatId };
+      if (text && database.enabled && database.connected) {
+        await database.recordOutboundReply({
+          chatId, messageId: sent.messageId || null, author: 'human',
+          authorUserId: request.agneeSession?.userId || null,
+          body: text, inReplyTo: lastInboundText.get(`${companyId}:${chatId}`) || null,
+        }, companyId).catch((err) => app.log.warn({ err }, 'Could not record human reply'));
+      }
+      if (requestId) {
+        sendReceipts.set(requestId, result);
+        setTimeout(() => sendReceipts.delete(requestId), 5 * 60 * 1000).unref?.();
+      }
+      return result;
+    }
+    const wa = manager.getClient(companyId);
+    const waState = manager.getState(companyId);
+    if (waState.phase !== 'ready') return reply.code(503).send({ error: 'WhatsApp is not ready', phase: waState.phase });
     if (!request.body.chatId && !(await wa.isRegisteredUser(chatId))) return reply.code(422).send({ error: 'Recipient is not on WhatsApp' });
     const sent = await sendTextForUi(wa, chatId, text, {
       quotedMessageId: request.body.quotedMessageId || null,

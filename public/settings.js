@@ -25,6 +25,7 @@ const ui = {
   teamForm: document.querySelector('#teamForm'),
   teamStatus: document.querySelector('#teamStatus'),
   myAccountInfo: document.querySelector('#myAccountInfo'),
+  coachSection: document.querySelector('#coachSection'),
   coachCoverageBadge: document.querySelector('#coachCoverageBadge'),
   coachTabs: [...document.querySelectorAll('[data-coach-tab]')],
   coachPanes: {
@@ -293,21 +294,21 @@ async function init() {
     const isAgent = currentUser.role === 'agent';
     ui.teamForm.hidden = isAgent;
 
-    // Agents may practise and be graded, but the source of truth and the
-    // scenario library are the supervisor's to curate — the server enforces
-    // this too, this just avoids showing controls that would 403.
-    if (isAgent) {
-      ui.coachTabs.filter((tab) => tab.dataset.coachTab !== 'simulate')
-        .forEach((tab) => { tab.hidden = true; });
-      coachSelectTab('simulate');
-    }
+    // Latihan & penilaian is supervisor-only — the source of truth, the
+    // scenario library, practice and review all belong to the supervisor. The
+    // server enforces this too; hiding the section just avoids showing an area
+    // where every call would come back 403.
+    ui.coachSection.hidden = isAgent;
 
     renderMyAccount(currentUser);
+    // Cloud API section only for supervisors
+    if (isAgent) { document.querySelector('#waCloudSection').hidden = true; }
     await Promise.all([
       loadCompanyConfig(),
       loadTeam(),
       isAgent ? Promise.resolve() : loadCoachFacts(),
-      loadCoachScenarios(),
+      isAgent ? Promise.resolve() : loadCoachScenarios(),
+      isAgent ? Promise.resolve() : loadCloudApiStatus(),
     ]);
   } catch (error) {
     if (error.status === 401) {
@@ -878,6 +879,99 @@ ui.coachRunBtn.addEventListener('click', runCoachSimulation);
 ui.coachSimScenario.addEventListener('change', coachReset);
 document.querySelectorAll('input[name="coachMode"]').forEach((radio) => {
   radio.addEventListener('change', () => { ui.coachHumanWrap.hidden = coachMode() !== 'human'; });
+});
+
+// ── WhatsApp Cloud API section ─────────────────────────────────────────────
+
+const waCloud = {
+  badge:       document.querySelector('#waCloudBadge'),
+  connected:   document.querySelector('#waCloudConnected'),
+  phone:       document.querySelector('#waCloudPhone'),
+  wabaId:      document.querySelector('#waCloudWabaId'),
+  webhookUrl:  document.querySelector('#waCloudWebhookUrl'),
+  form:        document.querySelector('#waCloudForm'),
+  disconnect:  document.querySelector('#waCloudDisconnect'),
+  phoneId:     document.querySelector('#waPhoneNumberId'),
+  wabaInput:   document.querySelector('#waWabaId'),
+  token:       document.querySelector('#waAccessToken'),
+  secret:      document.querySelector('#waAppSecret'),
+  status:      document.querySelector('#waCloudStatus'),
+};
+
+function showCloudConnected(conn) {
+  waCloud.phone.textContent = conn.displayPhoneNumber || conn.phoneNumberId;
+  waCloud.wabaId.textContent = `WABA ID: ${conn.wabaId}`;
+  waCloud.webhookUrl.textContent = `${window.location.origin}/webhook/meta`;
+  waCloud.badge.textContent = 'Terhubung ✓';
+  waCloud.badge.className = 'plan-badge-pill plan-company';
+  waCloud.badge.hidden = false;
+  waCloud.connected.hidden = false;
+  waCloud.form.hidden = true;
+}
+
+function showCloudDisconnected() {
+  waCloud.badge.textContent = 'Belum terhubung';
+  waCloud.badge.className = 'plan-badge-pill plan-personal';
+  waCloud.badge.hidden = false;
+  waCloud.connected.hidden = true;
+  waCloud.form.hidden = false;
+}
+
+async function loadCloudApiStatus() {
+  try {
+    const data = await api('/v1/whatsapp/status');
+    if (data.provider === 'cloud_api' && data.phase === 'ready') {
+      showCloudConnected({ displayPhoneNumber: data.account, phoneNumberId: '', wabaId: '' });
+    } else {
+      showCloudDisconnected();
+    }
+  } catch { showCloudDisconnected(); }
+}
+
+waCloud.form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  waCloud.status.textContent = 'Menghubungkan…';
+  const btn = waCloud.form.querySelector('#waCloudConnect');
+  btn.disabled = true;
+  try {
+    const conn = await api('/v1/whatsapp/cloud-api/connect', {
+      method: 'POST',
+      body: JSON.stringify({
+        phoneNumberId: waCloud.phoneId.value.trim(),
+        wabaId:        waCloud.wabaInput.value.trim(),
+        accessToken:   waCloud.token.value.trim(),
+        appSecret:     waCloud.secret.value.trim(),
+      }),
+    });
+    waCloud.status.textContent = '';
+    showCloudConnected(conn);
+  } catch (err) {
+    waCloud.status.textContent = err.message;
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+document.querySelectorAll('.eye-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const input = document.getElementById(btn.dataset.target);
+    if (!input) return;
+    input.type = input.type === 'password' ? 'text' : 'password';
+    btn.textContent = input.type === 'password' ? '👁' : '🙈';
+  });
+});
+
+waCloud.disconnect.addEventListener('click', async () => {
+  if (!confirm('Putuskan koneksi Cloud API dan kembali ke mode QR pairing?')) return;
+  waCloud.disconnect.disabled = true;
+  try {
+    await api('/v1/whatsapp/cloud-api/connect', { method: 'DELETE' });
+    showCloudDisconnected();
+  } catch (err) {
+    alert(err.message);
+  } finally {
+    waCloud.disconnect.disabled = false;
+  }
 });
 
 init();

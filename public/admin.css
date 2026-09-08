@@ -325,3 +325,17 @@ button, select, textarea { font: inherit; }
 .coach-compare-card { border: 1px solid rgba(23, 58, 48, .14); border-radius: 12px; padding: 12px 14px; background: rgba(255, 255, 255, .6); }
 .coach-compare-card h5 { font: 600 11px/1 'IBM Plex Mono', monospace; text-transform: uppercase; letter-spacing: .06em; color: #6b7f76; margin: 0 0 8px; }
 .coach-compare-card p { margin: 0; font: 400 13px/1.55 'DM Sans', system-ui, sans-serif; color: #14241f; white-space: pre-wrap; }
+
+/* WhatsApp Cloud API webhook URL display */
+.webhook-url-box { display: block; background: rgba(23,58,48,.07); border: 1px solid rgba(23,58,48,.14); border-radius: 8px; padding: 10px 14px; font: 500 13px/1.5 'IBM Plex Mono', monospace; color: #173A30; word-break: break-all; user-select: all; }
+.password-wrap { position: relative; display: flex; align-items: center; }
+.password-wrap input { flex: 1; padding-right: 2.5rem !important; }
+.eye-btn { position: absolute; right: 8px; background: none; border: none; cursor: pointer; font-size: 1rem; padding: 0; line-height: 1; opacity: .5; transition: opacity .15s; }
+.eye-btn:hover { opacity: 1; }
+
+/* Pointer from the admin playground to the full coach area in Settings. */
+.coach-link-card { max-width: 1180px; margin: 16px auto; padding: clamp(20px, 3vw, 28px); display: flex; align-items: center; justify-content: space-between; gap: 24px; flex-wrap: wrap; border: 1px solid rgba(25,198,102,.28); border-radius: 24px 24px 8px 24px; background: rgba(25,198,102,.07); }
+.coach-link-card > div { flex: 1 1 320px; min-width: 0; }
+.coach-link-card h2 { margin: 0; font-size: 21px; letter-spacing: -.035em; }
+.coach-link-card p:last-of-type { margin: 9px 0 0; color: var(--muted); font-size: 13px; line-height: 1.55; }
+.coach-link-card a { flex: 0 0 auto; text-decoration: none; }

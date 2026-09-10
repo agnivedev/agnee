@@ -16,13 +16,34 @@ function formatUsd(value) {
   return `$${Number(value || 0).toFixed(8)}`;
 }
 
+/**
+ * Rule checks for the reply coach.
+ *
+ * These follow the same floor as the WhatsApp output contract in
+ * knowledge-loader: a company playbook may legitimately ask for emoji, a short
+ * numbered list of options, and a checkout link, so those are no longer
+ * warnings on their own. What still is: brochure length, emoji spam, markdown
+ * that WhatsApp cannot render, interrogating the customer, and canned phrases.
+ */
 function styleWarnings(text, expectations = {}) {
   const value = String(text || '');
   const warnings = [];
+  const maxWords = Number(expectations.maxWords) || 150;
   const wordCount = value.trim().split(/\s+/).filter(Boolean).length;
-  if (wordCount > 70) warnings.push(`${wordCount} words (max 70)`);
-  if (/\p{Extended_Pictographic}/u.test(value)) warnings.push('contains emoji');
-  if (/(^|\n)\s*(?:[-*]|\d+[.)])\s+/m.test(value) || /\*\*/.test(value)) warnings.push('contains list/markdown');
+  if (wordCount > maxWords) warnings.push(`${wordCount} words (max ${maxWords})`);
+  // List markers a playbook may legitimately use (1️⃣ 2️⃣ ✅ ✔️ 👉 at the start of
+  // a line, or 👉 introducing a link) are structure, not decoration, so they do
+  // not count against the emoji budget.
+  const decorative = value
+    .replace(/(^|\n)\s*(?:[0-9]\uFE0F?\u20E3|[\u2705\u2714\uFE0F]+|\u{1F449})\s*/gu, '$1')
+    .replace(/\u{1F449}\s*(?=https?:\/\/)/gu, '');
+  const emojiCount = (decorative.match(/\p{Extended_Pictographic}/gu) || []).length;
+  if (emojiCount > 3) warnings.push(`${emojiCount} emoji (max 3)`);
+  // *bold* is WhatsApp's own syntax; **bold**, headings and tables are not.
+  if (/(^|\n)\s*#{1,6}\s+/.test(value) || /\*\*/.test(value) || /(^|\n)\s*\|.*\|/.test(value)) {
+    warnings.push('contains markdown WhatsApp cannot render');
+  }
+  if (/\[[^\]]+\]\(https?:\/\/[^)]+\)/.test(value)) warnings.push('markdown link instead of plain URL');
   if ((value.match(/\?/g) || []).length > 1) warnings.push('more than one question');
   if (expectations.expectDirectHandoff && value.includes('?')) warnings.push('asks a question after explicit handoff request');
   const canned = [
@@ -82,13 +103,15 @@ Panduan penilaian:
 - accuracy: apakah setiap klaim didukung playbook di atas. Mengarang harga, fitur, atau link = 1.
 - helpfulness: apakah pertanyaan customer benar-benar terjawab.
 - funnel: apakah balasan memajukan percakapan ke tahap berikutnya (tanya kebutuhan → tawarkan → closing) tanpa memaksa.
-- tone: apakah terdengar seperti manusia yang ngobrol, bukan brosur atau AI.
+- tone: apakah terdengar seperti manusia yang ngobrol, bukan brosur atau AI, dan sesuai persona serta format yang diminta playbook.
 - missingInfo: kosongkan jika playbook sudah cukup. Isi hanya kalau balasan butuh fakta yang tidak tersedia.
 
 suggestedReply WAJIB memenuhi semua ini (jangan menyalin gaya buruk dari balasan yang dinilai):
-- 1-3 kalimat, maksimal 70 kata, satu paragraf plain text.
-- Tanpa emoji, tanpa markdown, tanpa bullet.
-- Tanpa salam pembuka dan tanpa memperkenalkan diri.
+- Ikuti template dan format yang ada di sumber kebenaran di atas kalau situasinya diatur di sana.
+- Kalau tidak diatur: 2-4 kalimat, maksimal 150 kata, gaya chat WhatsApp.
+- Emoji maksimal 2-3. Daftar bernomor pendek boleh untuk pilihan atau isi paket; heading, tabel, dan bold markdown tidak boleh.
+- Link ditulis sebagai URL polos, bukan format markdown.
+- Salam dan perkenalan diri hanya kalau ini balasan pertama ke customer baru.
 - Tanpa kalimat template: "Terima kasih atas pertanyaannya", "Saya memahami", "Tentu saja", "Apakah ada hal lain yang bisa saya bantu".
 - Maksimal satu pertanyaan, dan hanya kalau perlu untuk langkah berikutnya.
 - JANGAN PERNAH menulis angka, harga, persentase, nama paket, nomor rekening, atau link

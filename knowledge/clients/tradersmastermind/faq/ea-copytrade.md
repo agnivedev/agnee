@@ -24,11 +24,11 @@
 - **Jawaban:** EA kami pure risk management tool, bukan EA scalping atau high-frequency yang sering dikomplain prop firm. Fungsinya hanya atur lot, pasang SL otomatis, dan cegah overtrading. Ini diperbolehkan di hampir semua prop firm besar. Kalau kamu mau konfirmasi untuk prop firm tertentu, share nama firmnya dan kami cek rule mereka.
 - **Next action:** Kalau customer sebut nama prop firm spesifik, handoff untuk verifikasi rule.
 
-## FAQ-EA-005 — Apa bedanya dengan sinyal gratis di Telegram?
+## FAQ-EA-005 — Apa bedanya Telegram gratis dan Recovery Package?
 - **Status:** confirmed
-- **Intent:** sinyal gratis, telegram gratis, bedanya sinyal, banyak yang gratis, kenapa bayar
-- **Jawaban:** Sinyal gratis banyak, dan mayoritas yang pakai hasilnya biasa saja. Bukan karena sinyalnya jelek, tapi karena sinyal tanpa risk management yang benar, tanpa EA yang bantu eksekusi, dan tanpa tim yang bisa ditanya itu cuma setengah dari yang dibutuhkan. Di program ini sinyal adalah satu dari tiga komponen.
-- **Next action:** Tawarkan Telegram gratis dulu sebagai bukti kualitas sinyal.
+- **Intent:** sinyal gratis, telegram gratis, bedanya sinyal, bedanya telegram, banyak yang gratis, kenapa bayar
+- **Jawaban:** Telegram gratis cocok untuk lihat signal dan kenalan dengan pendekatan tim kami. Recovery Package lebih lengkap karena kakak dapat copy trade, ebook recovery, signal, dan pendampingan tim. Jadi bukan hanya menerima arah entry, tapi juga punya alat dan bantuan selama prosesnya.
+- **Next action:** Kirim link Telegram https://t.me/bzonesyndicate kalau lead mau lihat dulu.
 
 ## FAQ-EA-006 — Apakah perlu laptop atau cukup HP?
 - **Status:** confirmed

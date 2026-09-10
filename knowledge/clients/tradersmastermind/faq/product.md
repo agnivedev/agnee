@@ -1,15 +1,15 @@
-# FAQ — Produk Trading Recovery Plan
+# FAQ — Produk Recovery Package
 
-## FAQ-PROD-001 — Apa itu Trading Recovery Plan?
+## FAQ-PROD-001 — Apa itu Recovery Package? Dapat apa saja?
 - **Status:** confirmed
-- **Intent:** apa itu recovery plan, program apa, ini program apa, trading recovery plan
-- **Jawaban:** Program 90 hari untuk trader yang akunnya minus atau stuck — bukan kursus biasa. Dapat tiga hal sekaligus: sinyal entry harian dari tim, EA yang manage risk otomatis di akun kamu, dan tim trading yang standby di WhatsApp. Dibagi tiga fase: bangun fondasi, eksekusi dengan sistem, lalu capital preservation.
-- **Next action:** Tanyakan kondisi akun customer sekarang.
+- **Intent:** apa itu recovery package, recovery plan, dapat apa aja, isinya apa, program apa, ini program apa, isi paket
+- **Jawaban:** Recovery Package Rp99.000 berisi empat hal: copy trade untuk bantu eksekusi, ebook panduan recovery berisi langkah dan risk management, signal dari tim supaya tidak perlu cari entry sendirian, dan pendampingan tim selama prosesnya. Semuanya sudah termasuk dalam satu paket. Checkout: https://tradersmastermind.myr.id/pl/trading-recovery-plan-checkout
+- **Next action:** Kirim link checkout dan minta lead membalas SUDAH setelah bayar.
 
 ## FAQ-PROD-002 — Apakah ada jaminan profit?
 - **Status:** confirmed
 - **Intent:** jaminan profit, dijamin profit, pasti profit, garansi profit, profit berapa persen
-- **Jawaban:** Tidak ada, dan kami tidak akan pernah menjanjikan itu karena tidak ada yang bisa jamin profit di trading. Yang kami sediakan: sistem, sinyal yang sudah terbukti, dan tim yang standby. Hasil akhirnya tetap tergantung eksekusi dan kondisi market.
+- **Jawaban:** Aku tidak bisa janji profit atau pasti balik modal ya kak, karena trading tetap berisiko. Yang kami berikan adalah sistem yang lebih terarah: copy trade, panduan recovery, signal, dan tim yang mendampingi supaya keputusan trading tidak dijalankan sendirian.
 - **Next action:** Jangan pernah menyebut angka profit atau persentase return.
 
 ## FAQ-PROD-003 — Instrumen apa saja yang didukung?
@@ -18,7 +18,7 @@
 - **Jawaban:** Fokus utama di Gold (XAUUSD) — itu yang paling banyak ditrading member dan sinyal kami paling kuat di sana. Untuk Forex major seperti EURUSD dan GBPUSD ada sinyal sesekali, tapi inti program ini di Gold.
 - **Next action:** Tanyakan instrumen yang biasa ditrading customer.
 
-## FAQ-PROD-004 — Apa isi tiga fase programnya?
+## FAQ-PROD-004 — Apa isi tiga fase programnya? (sekunder, hanya kalau ditanya)
 - **Status:** confirmed
 - **Intent:** tiga fase, fase 1, fase 2, fase 3, 90 hari isinya apa, tahapannya
 - **Jawaban:** Fase 1 (30 hari) bangun fondasi: rebuild risk management dan susun trading plan sesuai kondisi akun. Fase 2 (30 hari) sinyal konsisten plus pilihan copy trade. Fase 3 (30 hari) capital preservation: jaga modal yang sudah tumbuh dan trading tanpa gambling.
@@ -33,8 +33,8 @@
 ## FAQ-PROD-006 — Perlu pengalaman trading sebelumnya?
 - **Status:** confirmed
 - **Intent:** perlu pengalaman, pemula bisa, baru mulai trading, belum pernah trading
-- **Jawaban:** Lebih baik kalau sudah pernah trading, karena program ini recovery dan upgrade sistem, bukan kursus dari nol. Tapi kalau kamu pemula yang mau langsung mulai dengan fondasi benar, masih bisa diikuti — tim bisa sesuaikan materi Fase 1 dengan level kamu.
-- **Next action:** Tanyakan sudah berapa lama trading.
+- **Jawaban:** Justru cocok mulai dari sini kak. Ebook membantu memahami dasarnya, signal dan copy trade membantu proses eksekusi, lalu tim bisa mendampingi kalau ada yang belum jelas.
+- **Next action:** Tawarkan mulai dari free signal Telegram kalau lead masih ragu.
 
 ## FAQ-PROD-007 — Berapa jam per hari yang dibutuhkan?
 - **Status:** confirmed

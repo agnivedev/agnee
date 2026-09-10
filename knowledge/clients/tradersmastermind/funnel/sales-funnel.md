@@ -2,10 +2,16 @@
 
 ## Produk & Harga
 
-| Paket | Harga | Normal |
+| Paket | Harga promo | Harga normal |
 |---|---|---|
-| Recovery Plan (90 hari) | **Rp99.000** | Rp1.900.000 (pernah Rp4.900.000) |
+| Recovery Plan (90 hari) | **Rp99.000** | Rp1.900.000 |
 | Bundle + Mentorship 1-on-1 | **Rp188.000** | Slot: 15 orang per batch |
+
+**Anchor harga tunggal: normal Rp1.900.000 → promo Rp99.000.** Pakai hanya angka
+ini di percakapan biasa. Angka Rp4.900.000 adalah harga peluncuran awal dan
+HANYA disebut kalau customer mempertanyakan kenapa harganya murah — kalau
+dipakai sebagai pembanding di percakapan biasa, AI jadi terdengar tidak
+konsisten (kadang bilang normalnya 1,9jt kadang 4,9jt).
 
 Harga Rp99.000 adalah harga promo launch batch awal untuk bangun testimoni. Setelah batch penuh, harga kembali ke normal. Bukan gimmick — ini batas batch nyata.
 
@@ -90,7 +96,7 @@ Setelah present, tawaran copy trade:
 - Copy Trade Master: otomatis, tidak perlu lihat chart
 - Copy Trade EA: sinyal dari tim, EA yang eksekusi, bisa override
 
-Harga: Rp99.000 (dari Rp4.900.000, sekarang Rp1.900.000, sekarang Rp99.000 promo batch).
+Harga: Rp99.000, dari harga normal Rp1.900.000.
 
 ### Stage WL — Capture Nama + Broker (Sebelum Kasih Harga)
 
@@ -130,48 +136,17 @@ Setelah 3x tidak respon: stop. Tandai cold. Bisa di-retarget via iklan baru.
 
 ---
 
-## FAQ Produk
+## FAQ
 
-**Q: Apa itu Trading Recovery Plan?**
-Program 90 hari untuk trader minus atau stuck — bukan kursus biasa. Dapat: sinyal entry harian + EA risk management + tim standby WA. Tiga fase: bangun fondasi → sinyal + sistem → capital preservation.
+FAQ detail ada di `faq/` sebagai entri terpisah supaya hanya jawaban yang
+relevan yang disuntik ke konteks AI per pesan:
 
-**Q: Ada jaminan profit?**
-Tidak ada. Tidak ada yang bisa jamin profit di trading. Yang dijamin: sistem, sinyal terbukti, tim standby. Hasil tergantung eksekusi dan kondisi market.
-
-**Q: Instrumen apa yang didukung?**
-Fokus utama Gold (XAUUSD). Forex major (EURUSD, GBPUSD) ada sesekali.
-
-**Q: Bedanya Copy Trade Master vs Copy Trade EA?**
-Copy Trade Master: posisi otomatis ikutin master trader real-time, tidak perlu lihat chart.
-Copy Trade EA: terima sinyal dari tim, EA yang eksekusi + manage risk, bisa override.
-Keduanya tersedia di Fase 2.
-
-**Q: Broker apa yang didukung?**
-Hampir semua broker regulated yang support MT4/MT5 — IC Markets, Exness, XM, FBS, Tickmill, dan lainnya.
-
-**Q: Modal minimum?**
-Tidak ada minimum khusus. EA hitung lot sesuai kapasitas akun.
-
-**Q: Bagaimana setup EA?**
-Setelah bayar, tim follow up di WA untuk onboarding. Kirim file EA + panduan instalasi. Kalau ada kendala bisa via screen share. Rata-rata selesai <30 menit.
-
-**Q: EA aman untuk prop firm?**
-EA kami pure risk management — atur lot, SL otomatis, cegah overtrading. Diizinkan di hampir semua prop firm besar (FTMO, dll). Kalau mau konfirmasi prop firm spesifik, share nama firmnya.
-
-**Q: Ada refund?**
-Tidak ada refund setelah akses diberikan — standar program digital. Tanyakan dulu semua hal sebelum bayar.
-
-**Q: Kenapa harganya cuma Rp99.000?**
-Harga launch promo untuk batch pertama, tujuan bangun testimoni. Harga aslinya Rp4.900.000, pernah dijual Rp1.900.000. Setelah batch penuh, harga naik kembali.
-
-**Q: Berapa jam per hari dibutuhkan?**
-Pakai copy trade: praktis nol. Ikuti sinyal manual: 30-60 menit/hari.
-
-**Q: Kapan mulai setelah bayar?**
-Langsung. Follow up dalam 1-2 jam di jam aktif (08.00-22.00 WIB). Akses grup sinyal di hari yang sama.
-
-**Q: Apa yang terjadi setelah 90 hari?**
-Materi + panduan tetap milik member. Untuk sinyal dan akses grup lanjut dengan paket berbeda. Target: setelah 90 hari bisa trading lebih mandiri.
+| File | Cakupan |
+|---|---|
+| `faq/product.md` | Apa itu program, jaminan profit, instrumen, fase, durasi, waktu harian, jadwal sinyal |
+| `faq/pricing.md` | Harga, kenapa murah, bundle vs reguler, metode bayar, link checkout, refund |
+| `faq/ea-copytrade.md` | EA, Copy Trade Master vs EA, setup, prop firm, vs sinyal gratis, HP vs laptop |
+| `faq/account-broker.md` | Broker didukung, modal minimum, margin call, loss besar |
 
 ---
 

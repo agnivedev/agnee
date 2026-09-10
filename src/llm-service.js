@@ -3,7 +3,7 @@
 class LlmService {
   constructor(config = {}) {
     this.apiKey = config.apiKey || process.env.OPENROUTER_API_KEY;
-    this.model = config.model || process.env.OPENROUTER_MODEL || 'qwen-2.5-72b-instruct';
+    this.model = config.model || process.env.OPENROUTER_MODEL || 'google/gemini-2.5-flash';
     this.modelChain = config.modelChain || [];
     this.baseUrl = 'https://openrouter.ai/api/v1';
     this.contextWindow = config.contextWindow || 8000;

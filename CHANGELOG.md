@@ -8,6 +8,54 @@ Semua perubahan penting Agnee dicatat di file ini. Format mengikuti prinsip
 
 ### Added
 
+- **Knowledge base TM lengkap**: `funnel/sales-funnel.md` untuk Trader's Mastermind
+  — produk Recovery Plan (Rp99k) dan Bundle Mentorship (Rp188k), Copy Trade
+  Master vs Copy Trade EA, alur funnel 6 stage, FAQ, objection handling, link
+  checkout, dan panduan onboarding. AI kini punya sumber fakta yang jelas
+  dan tidak perlu mengarang detail produk.
+
+- FAQ Trader's Mastermind dipecah jadi 25 entri terindeks di `faq/`
+  (produk, harga, EA & copy trade, akun & broker) sehingga hanya jawaban yang
+  relevan disuntik ke konteks AI per pesan, bukan seluruh dokumen funnel.
+
+### Changed
+
+- **Model AI default: `qwen-2.5-72b-instruct` → `google/gemini-2.5-flash`.**
+  Alasannya bukan harga (biayanya setara karena balasan WhatsApp pendek,
+  sehingga biaya didominasi token masuk), tapi kecepatan: 0,9–1,3 detik
+  dibanding 3–7 detik. Funnel sendiri menargetkan balasan di bawah 5 menit.
+  Gemini juga lebih patuh pada kontrak keluaran (8/8 vs 2/3 pada uji yang sama)
+  dan mengikuti tahap discovery playbook, bukan langsung menawarkan harga.
+- Daftar model di panel admin dirapikan: 4 dari 7 pilihan sebelumnya sudah
+  tidak ada di OpenRouter (`mistralai/mistral-7b-instruct`,
+  `google/gemini-2.0-flash-exp`, `anthropic/claude-3.5-haiku`,
+  `anthropic/claude-opus-4-1`) — memilihnya membuat balasan gagal tanpa
+  pesan yang jelas. Semua ID sekarang sudah diverifikasi aktif, dan labelnya
+  menampilkan harga masuk dan keluar terpisah karena keduanya bisa berbeda
+  jauh (Gemini Flash: masuk $0,30 tapi keluar $2,50).
+- Harga acuan Trader's Mastermind dibakukan jadi **normal Rp1.900.000 → promo
+  Rp99.000**. Sebelumnya dokumen memuat tiga angka (Rp4.900.000, Rp1.900.000,
+  Rp99.000) tanpa aturan pemakaian, sehingga AI kadang menyebut harga normal
+  Rp1,9jt dan kadang Rp4,9jt ke customer. Angka Rp4.900.000 sekarang hanya
+  dipakai saat customer mempertanyakan kenapa harganya murah.
+
+### Fixed
+
+- **Playground auto-reply balas HTTP 500** kalau driver database tidak
+  menyediakan `getPlaybookContext` — `.catch()` hanya menangkap promise yang
+  reject, bukan `TypeError` sinkron dari memanggil sesuatu yang bukan fungsi.
+  Ditambahkan guard `typeof` yang sama seperti yang sudah dipakai jalur
+  balasan live.
+- **AI re-introduce diri di setiap pesan** — `generateAutoReply()` kini mengambil
+  10 pesan terakhir dari chat WhatsApp dan meneruskannya sebagai conversation
+  history ke LLM. AI tahu konteks percakapan sebelumnya dan tidak memulai
+  ulang dengan "Halo kak, aku Anya…" setiap kali customer membalas.
+- **Nama persona TM salah** — `tenant.json` sebelumnya menyebutkan
+  `assistantName: "Admin"` padahal persona customer-facing-nya adalah
+  **Anya**. Dikoreksi, juga di `reply-policy.md`.
+
+### Added
+
 - Panel pengaturan **Pembayaran & Closing** (link pembayaran atau transfer
   bank) — instruksi ini otomatis disisipkan ke konteks AI saat pelanggan
   siap closing, sehingga AI tahu cara menutup transaksi tanpa mengarang.

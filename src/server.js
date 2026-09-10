@@ -52,7 +52,7 @@ function loadConfig(overrides = {}) {
     ackText: process.env.WA_ACK_TEXT || 'Terima kasih, pesan Anda sudah kami terima.',
     llmEnabled: process.env.LLM_ENABLED === 'true',
     openrouterApiKey: process.env.OPENROUTER_API_KEY || '',
-    openrouterModel: process.env.OPENROUTER_MODEL || 'qwen-2.5-72b-instruct',
+    openrouterModel: process.env.OPENROUTER_MODEL || 'google/gemini-2.5-flash',
     llmMaxTokens: Number(process.env.LLM_MAX_TOKENS || 512),
     knowledgeClient: process.env.KNOWLEDGE_CLIENT || 'bzone',
     databaseUrl: process.env.DATABASE_URL || '',
@@ -1815,7 +1815,8 @@ async function buildApp(overrides = {}) {
 
     // Mirror the live auto-reply path: the company playbook outranks the file
     // knowledge base, so a test that omits it does not show what customers get.
-    const playbookContext = database.status().connected && request.agneeSession?.companyId
+    const playbookContext = typeof database.getPlaybookContext === 'function'
+      && database.status().connected && request.agneeSession?.companyId
       ? await database.getPlaybookContext(request.agneeSession.companyId).catch(() => '')
       : '';
     const systemPrompt = playbookContext

@@ -2,16 +2,21 @@
 
 const tr = (key, vars) => window.AgneeI18n.t(key, vars);
 
+// Harga per 1 juta token (masuk / keluar). Balasan WhatsApp pendek, jadi biaya
+// hampir seluruhnya ditentukan harga masuk — model dengan harga keluar tinggi
+// belum tentu mahal di pemakaian nyata.
+// Semua ID di bawah sudah diverifikasi aktif di OpenRouter (2026-09-10).
 const AVAILABLE_MODELS = [
   { value: '', labelKey: 'admin.notUsed' },
-  { value: 'meta-llama/llama-3.1-8b-instruct', label: 'Llama 3.1 8B  ·  $0.02/1M' },
-  { value: 'mistralai/mistral-7b-instruct', label: 'Mistral 7B  ·  $0.14/1M' },
-  { value: 'google/gemini-2.0-flash-exp', label: 'Gemini 2.0 Flash  ·  $0.075/1M' },
-  { value: 'openai/gpt-4o-mini', label: 'GPT-4o mini  ·  $0.15/1M' },
-  { value: 'anthropic/claude-3.5-haiku', label: 'Claude 3.5 Haiku  ·  $0.80/1M' },
-  { value: 'qwen-2.5-72b-instruct', label: 'Qwen 2.5 72B  ·  $0.40/1M (default)' },
-  { value: 'openai/gpt-4-turbo', label: 'GPT-4 Turbo  ·  $10/1M' },
-  { value: 'anthropic/claude-opus-4-1', label: 'Claude Opus 4.1  ·  $15/1M' },
+  { value: 'mistralai/mistral-nemo', label: 'Mistral Nemo  ·  masuk $0,02 / keluar $0,03' },
+  { value: 'meta-llama/llama-3.1-8b-instruct', label: 'Llama 3.1 8B  ·  masuk $0,05 / keluar $0,08' },
+  { value: 'google/gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash Lite  ·  masuk $0,10 / keluar $0,40' },
+  { value: 'meta-llama/llama-3.3-70b-instruct', label: 'Llama 3.3 70B  ·  masuk $0,10 / keluar $0,32' },
+  { value: 'openai/gpt-4o-mini', label: 'GPT-4o mini  ·  masuk $0,15 / keluar $0,60' },
+  { value: 'google/gemini-2.5-flash', label: 'Gemini 2.5 Flash  ·  masuk $0,30 / keluar $2,50 (default)' },
+  { value: 'qwen/qwen-2.5-72b-instruct', label: 'Qwen 2.5 72B  ·  masuk $0,36 / keluar $0,40' },
+  { value: 'anthropic/claude-haiku-4.5', label: 'Claude Haiku 4.5  ·  masuk $1,00 / keluar $5,00' },
+  { value: 'anthropic/claude-sonnet-5', label: 'Claude Sonnet 5  ·  masuk $2,00 / keluar $10,00' },
 ];
 
 function renderMarkdown(text) {

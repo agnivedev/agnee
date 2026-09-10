@@ -213,6 +213,15 @@ button, select, textarea { font: inherit; }
 .member-role-select { min-height: 30px; border: 1px solid var(--line); border-radius: 8px; padding: 4px 7px; background: #fff; font: 600 11px "IBM Plex Mono", monospace; color: #285248; cursor: pointer; }
 .deactivate-btn { min-height: 30px; border: 1px solid #f0c0c0; border-radius: 8px; padding: 4px 10px; background: #fff5f5; color: #c00; font: 600 11px "IBM Plex Mono", monospace; cursor: pointer; transition: background .15s; }
 .deactivate-btn:hover { background: #ffe0e0; }
+.edit-btn { min-height: 30px; border: 1px solid var(--line); border-radius: 8px; padding: 4px 10px; background: #fff; color: #285248; font: 600 11px "IBM Plex Mono", monospace; cursor: pointer; transition: background .15s; }
+.edit-btn:hover { background: #eef2ec; }
+.member-editor { grid-template-columns: 1fr 1fr 1fr auto; }
+.member-editor input { min-height: 34px; border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; background: #fff; font: 400 13px "DM Sans", sans-serif; color: inherit; min-width: 0; }
+.member-editor input:focus { outline: 2px solid #b7d9c5; outline-offset: -1px; }
+.member-save-btn { min-height: 30px; border: 1px solid #087f4d; border-radius: 8px; padding: 4px 12px; background: #087f4d; color: #fff; font: 600 11px "IBM Plex Mono", monospace; cursor: pointer; }
+.member-save-btn:disabled { opacity: .6; cursor: default; }
+.member-cancel-btn { min-height: 30px; border: 1px solid var(--line); border-radius: 8px; padding: 4px 10px; background: #fff; color: var(--muted); font: 600 11px "IBM Plex Mono", monospace; cursor: pointer; }
+@media (max-width: 720px) { .member-editor { grid-template-columns: 1fr; } }
 
 /* Plan management */
 .plan-badge-pill { padding: 5px 12px; border-radius: 999px; font: 700 11px "IBM Plex Mono", monospace; text-transform: uppercase; letter-spacing: .04em; }
@@ -339,3 +348,29 @@ button, select, textarea { font: inherit; }
 .coach-link-card h2 { margin: 0; font-size: 21px; letter-spacing: -.035em; }
 .coach-link-card p:last-of-type { margin: 9px 0 0; color: var(--muted); font-size: 13px; line-height: 1.55; }
 .coach-link-card a { flex: 0 0 auto; text-decoration: none; }
+
+/* ── Dialog aplikasi (pengganti confirm/alert/prompt bawaan browser) ────────
+   Digaya menyamai .workspace-dialog di inbox supaya terasa satu produk.
+   Dialog OS tidak bisa digaya dan tidak ikut bahasa yang dipilih user. */
+.ui-dialog { width: min(92vw, 440px); max-height: min(80dvh, 640px); padding: 26px; overflow: auto; border: 0; border-radius: 25px 25px 9px 25px; color: var(--ink); background: var(--panel); box-shadow: var(--shadow); }
+.ui-dialog::backdrop { background: rgba(10, 25, 19, .48); backdrop-filter: blur(7px); }
+.ui-dialog header { margin-bottom: 14px; }
+.ui-dialog h2 { margin: 0; font-size: 19px; letter-spacing: -.035em; }
+.ui-dialog-message { margin: 0; color: var(--muted); font-size: 13.5px; line-height: 1.6; white-space: pre-line; }
+.ui-dialog-preview { margin-top: 14px; padding: 13px 15px; border: 1px solid var(--line); border-left: 3px solid var(--green-dark); border-radius: 4px 12px 12px 4px; background: white; color: var(--ink); font: 400 13px/1.6 "IBM Plex Mono", monospace; white-space: pre-wrap; word-break: break-word; }
+.ui-dialog-field { display: grid; gap: 7px; margin-top: 16px; color: var(--muted); font-size: 12px; font-weight: 600; }
+.ui-dialog-field input, .ui-dialog-field textarea { width: 100%; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; outline: none; resize: vertical; color: var(--ink); background: white; font: 400 14px "DM Sans", sans-serif; }
+.ui-dialog-field input:focus, .ui-dialog-field textarea:focus { border-color: var(--green-dark); }
+.ui-dialog-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 22px; }
+.ui-dialog-actions button { padding: 11px 20px; border-radius: 12px; cursor: pointer; font: 600 13px "DM Sans", sans-serif; transition: .18s ease; }
+.ui-dialog-cancel { border: 1px solid var(--line); color: var(--muted); background: transparent; }
+.ui-dialog-cancel:hover { border-color: rgba(20, 36, 31, .3); color: var(--ink); }
+.ui-dialog-confirm { border: 0; color: white; background: var(--ink); }
+.ui-dialog-confirm:hover { background: #203a31; transform: translateY(-1px); }
+.ui-dialog-confirm.is-danger { background: var(--danger); }
+.ui-dialog-confirm.is-danger:hover { background: #8d322a; }
+@media (max-width: 560px) {
+  .ui-dialog { width: calc(100vw - 28px); padding: 22px; }
+  .ui-dialog-actions { flex-direction: column-reverse; }
+  .ui-dialog-actions button { width: 100%; }
+}

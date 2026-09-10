@@ -257,7 +257,7 @@ function renderTeam(members) {
           await api(`/v1/team/members/${member.id}/role`, { method: 'PATCH', body: JSON.stringify({ role: roleSelect.value }) });
           await loadTeam();
         } catch (err) {
-          alert(err.message);
+          await AgneeDialog.error(err);
           roleSelect.value = member.role;
         }
       });
@@ -267,12 +267,18 @@ function renderTeam(members) {
       deactivateBtn.type = 'button';
       deactivateBtn.textContent = 'Nonaktifkan';
       deactivateBtn.addEventListener('click', async () => {
-        if (!confirm(`Nonaktifkan ${name}?`)) return;
+        const okDeactivate = await AgneeDialog.confirm({
+          title: tr('dialog.deactivateTitle'),
+          message: tr('dialog.deactivateCopy', { name }),
+          confirmLabel: tr('dialog.deactivateConfirm'),
+          danger: true,
+        });
+        if (!okDeactivate) return;
         try {
           await api(`/v1/team/members/${member.id}`, { method: 'DELETE' });
           await loadTeam();
         } catch (err) {
-          alert(err.message);
+          await AgneeDialog.error(err);
         }
       });
 
@@ -438,7 +444,7 @@ ui.saveAiSettings.addEventListener('click', async () => {
     ui.aiSettingsSaved.hidden = false;
     setTimeout(() => { ui.aiSettingsSaved.hidden = true; }, 2500);
   } catch (err) {
-    alert(tr('admin.saveFailed', { message: err.message }));
+    await AgneeDialog.alert({ message: tr('admin.saveFailed', { message: err.message }) });
   } finally {
     ui.saveAiSettings.disabled = false;
   }
@@ -492,13 +498,20 @@ function renderPlaybookAssets(assets) {
     del.className = 'playbook-asset-delete';
     del.textContent = 'Hapus';
     del.addEventListener('click', async () => {
+      const okDeleteFile = await AgneeDialog.confirm({
+        title: tr('dialog.deleteFileTitle'),
+        message: tr('dialog.deleteFileCopy'),
+        confirmLabel: tr('dialog.deleteConfirm'),
+        danger: true,
+      });
+      if (!okDeleteFile) return;
       del.disabled = true;
       try {
         await api(`/v1/admin/playbook/assets/${asset.id}`, { method: 'DELETE' });
         row.remove();
         if (!playbookUi.assets.children.length) renderPlaybookAssets([]);
       } catch (error) {
-        alert(`Gagal menghapus file: ${error.message}`);
+        await AgneeDialog.error(error);
         del.disabled = false;
       }
     });
@@ -525,7 +538,7 @@ playbookUi.saveBrief.addEventListener('click', async () => {
     playbookUi.briefSaved.hidden = false;
     setTimeout(() => { playbookUi.briefSaved.hidden = true; }, 2500);
   } catch (error) {
-    alert(`Gagal menyimpan brief: ${error.message}`);
+    await AgneeDialog.error(error);
   } finally {
     playbookUi.saveBrief.disabled = false;
   }

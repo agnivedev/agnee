@@ -1,5 +1,7 @@
 'use strict';
 
+const tr = (key, vars) => window.AgneeI18n.t(key, vars);
+
 const ui = {
   sidebarDot: document.querySelector('#sidebarDot'),
   sidebarName: document.querySelector('#sidebarName'),
@@ -146,7 +148,7 @@ async function savePaymentConfig() {
     ui.paymentSaved.hidden = false;
     setTimeout(() => { ui.paymentSaved.hidden = true; }, 2500);
   } catch (err) {
-    alert(err.message);
+    await AgneeDialog.error(err);
   } finally {
     ui.savePaymentConfig.disabled = false;
   }
@@ -183,6 +185,14 @@ function renderTeam(members, user) {
       const actionsEl = document.createElement('div');
       actionsEl.className = 'member-actions';
 
+      const editBtn = document.createElement('button');
+      editBtn.className = 'edit-btn';
+      editBtn.type = 'button';
+      editBtn.textContent = 'Ubah';
+      editBtn.addEventListener('click', () => {
+        row.replaceWith(buildMemberEditor(member));
+      });
+
       const roleSelect = document.createElement('select');
       roleSelect.className = 'member-role-select';
       [{ value: 'agent', label: 'Agent' }, { value: 'supervisor', label: 'Supervisor' }].forEach(({ value, label }) => {
@@ -197,7 +207,7 @@ function renderTeam(members, user) {
           await api(`/v1/team/members/${member.id}/role`, { method: 'PATCH', body: JSON.stringify({ role: roleSelect.value }) });
           await loadTeam();
         } catch (err) {
-          alert(err.message);
+          await AgneeDialog.error(err);
           roleSelect.value = member.role;
         }
       });
@@ -207,21 +217,92 @@ function renderTeam(members, user) {
       deactivateBtn.type = 'button';
       deactivateBtn.textContent = 'Nonaktifkan';
       deactivateBtn.addEventListener('click', async () => {
-        if (!confirm(`Nonaktifkan ${name}?`)) return;
+        const okDeactivate = await AgneeDialog.confirm({
+          title: tr('dialog.deactivateTitle'),
+          message: tr('dialog.deactivateCopy', { name }),
+          confirmLabel: tr('dialog.deactivateConfirm'),
+          danger: true,
+        });
+        if (!okDeactivate) return;
         try {
           await api(`/v1/team/members/${member.id}`, { method: 'DELETE' });
           await loadTeam();
         } catch (err) {
-          alert(err.message);
+          await AgneeDialog.error(err);
         }
       });
 
-      actionsEl.append(roleSelect, deactivateBtn);
+      actionsEl.append(editBtn, roleSelect, deactivateBtn);
       row.append(actionsEl);
     }
 
     ui.teamMembers.append(row);
   }
+}
+
+function buildMemberEditor(member) {
+  const form = document.createElement('form');
+  form.className = 'team-member member-editor';
+
+  const nameInput = document.createElement('input');
+  nameInput.name = 'displayName';
+  nameInput.required = true;
+  nameInput.minLength = 2;
+  nameInput.placeholder = 'Nama';
+  nameInput.value = member.displayName || '';
+
+  const emailInput = document.createElement('input');
+  emailInput.name = 'email';
+  emailInput.type = 'email';
+  emailInput.required = true;
+  emailInput.placeholder = 'Email';
+  emailInput.value = member.email || '';
+
+  const passwordInput = document.createElement('input');
+  passwordInput.name = 'password';
+  passwordInput.type = 'password';
+  passwordInput.minLength = 8;
+  passwordInput.placeholder = 'Kata sandi baru (opsional)';
+  passwordInput.autocomplete = 'new-password';
+
+  const saveBtn = document.createElement('button');
+  saveBtn.type = 'submit';
+  saveBtn.className = 'member-save-btn';
+  saveBtn.textContent = 'Simpan';
+
+  const cancelBtn = document.createElement('button');
+  cancelBtn.type = 'button';
+  cancelBtn.className = 'member-cancel-btn';
+  cancelBtn.textContent = 'Batal';
+  cancelBtn.addEventListener('click', () => { void loadTeam(); });
+
+  const actionsEl = document.createElement('div');
+  actionsEl.className = 'member-actions';
+  actionsEl.append(saveBtn, cancelBtn);
+
+  form.append(nameInput, emailInput, passwordInput, actionsEl);
+
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const payload = {};
+    if (nameInput.value.trim() !== (member.displayName || '')) payload.displayName = nameInput.value.trim();
+    if (emailInput.value.trim().toLowerCase() !== (member.email || '')) payload.email = emailInput.value.trim().toLowerCase();
+    if (passwordInput.value) payload.password = passwordInput.value;
+    if (!Object.keys(payload).length) return loadTeam();
+
+    saveBtn.disabled = true;
+    ui.teamStatus.textContent = 'Menyimpan…';
+    try {
+      await api(`/v1/team/members/${member.id}`, { method: 'PATCH', body: JSON.stringify(payload) });
+      ui.teamStatus.textContent = 'Anggota diperbarui.';
+      await loadTeam();
+    } catch (error) {
+      ui.teamStatus.textContent = error.message;
+      saveBtn.disabled = false;
+    }
+  });
+
+  return form;
 }
 
 function renderMyAccount(user) {
@@ -397,7 +478,13 @@ function factRow(fact, { editable }) {
     remove.className = 'deactivate-btn';
     remove.textContent = 'Hapus';
     remove.addEventListener('click', async () => {
-      if (!confirm('Hapus pertanyaan ini?')) return;
+      const okDeleteFact = await AgneeDialog.confirm({
+        title: tr('dialog.deleteFactTitle'),
+        message: tr('dialog.deleteFactCopy'),
+        confirmLabel: tr('dialog.deleteConfirm'),
+        danger: true,
+      });
+      if (!okDeleteFact) return;
       try {
         await api(`/v1/coach/facts/${fact.id}`, { method: 'DELETE' });
         await loadCoachFacts();
@@ -517,7 +604,13 @@ async function loadCoachScenarios() {
       del.className = 'deactivate-btn';
       del.textContent = 'Hapus';
       del.addEventListener('click', async () => {
-        if (!confirm(`Hapus skenario "${scenario.name}"?`)) return;
+        const okDeleteScenario = await AgneeDialog.confirm({
+          title: tr('dialog.deleteScenarioTitle'),
+          message: tr('dialog.deleteScenarioCopy', { name: scenario.name }),
+          confirmLabel: tr('dialog.deleteConfirm'),
+          danger: true,
+        });
+        if (!okDeleteScenario) return;
         try {
           await api(`/v1/coach/scenarios/${scenario.id}`, { method: 'DELETE' });
           await loadCoachScenarios();
@@ -962,13 +1055,19 @@ document.querySelectorAll('.eye-btn').forEach(btn => {
 });
 
 waCloud.disconnect.addEventListener('click', async () => {
-  if (!confirm('Putuskan koneksi Cloud API dan kembali ke mode QR pairing?')) return;
+  const okDisconnect = await AgneeDialog.confirm({
+    title: tr('dialog.disconnectCloudTitle'),
+    message: tr('dialog.disconnectCloudCopy'),
+    confirmLabel: tr('dialog.disconnectCloudConfirm'),
+    danger: true,
+  });
+  if (!okDisconnect) return;
   waCloud.disconnect.disabled = true;
   try {
     await api('/v1/whatsapp/cloud-api/connect', { method: 'DELETE' });
     showCloudDisconnected();
   } catch (err) {
-    alert(err.message);
+    await AgneeDialog.error(err);
   } finally {
     waCloud.disconnect.disabled = false;
   }

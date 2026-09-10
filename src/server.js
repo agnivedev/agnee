@@ -12,6 +12,7 @@ const { CloudApiManager } = require('./cloud-api-manager.js');
 const KnowledgeBase = require('./knowledge-loader.js');
 const LlmService = require('./llm-service.js');
 const { normalizeUsage, styleWarnings, judgeReply } = require('./reply-style.js');
+const { FollowUpScheduler, decide: followUpDecide } = require('./follow-up.js');
 const Database = require('./database.js');
 const { extractPlaybookText } = require('./playbook-extractor.js');
 
@@ -389,6 +390,13 @@ async function buildApp(overrides = {}) {
    */
   async function handleInboundMessage(companyId, message) {
     rememberInbound(companyId, message.from, message.body);
+    // The customer spoke, so any follow-up sequence for this chat is over.
+    // Done before the AI reply so a slow model can't leave a stale sequence
+    // running long enough for the scheduler to send on top of a live reply.
+    if (database.enabled && database.connected && !message.from.endsWith('@g.us')) {
+      await database.markFollowUpReplied(message.from, companyId).catch(() => {});
+      await database.stopFollowUpSequence(message.from, companyId, 'replied').catch(() => {});
+    }
     await deliverInboundWebhook(message, companyId);
     const autoReply = await generateAutoReply(message, companyId);
     if (autoReply) {
@@ -400,10 +408,25 @@ async function buildApp(overrides = {}) {
           body: autoReply,
           inReplyTo: message.body || null,
         }, companyId).catch((error) => app.log.warn({ err: error }, 'Could not record AI reply'));
+        await armFollowUp(companyId, message.from);
       }
     } else if (config.ackEnabled && message.body) {
       await message.reply(config.ackText);
     }
+  }
+
+  /**
+   * Restarts the silence window after we send to a customer: if they go quiet
+   * from here, day 1 is counted from this message. A no-op while the company
+   * has follow-up switched off, so disabled tenants never accumulate state.
+   */
+  async function armFollowUp(companyId, chatId) {
+    if (!database.enabled || !database.connected) return;
+    if (chatId.endsWith('@g.us')) return;
+    const settings = await database.getFollowUpSettings(companyId).catch(() => null);
+    if (!settings?.enabled) return;
+    await database.startFollowUpSequence(chatId, companyId)
+      .catch((error) => app.log.warn({ err: error, chatId }, 'Could not arm follow-up'));
   }
 
   /** Callbacks passed to manager.startFor — defined here so they close over buildApp scope. */
@@ -2352,6 +2375,361 @@ Aturan:
     return { runs: await database.listSimulationRuns(request.agneeSession.companyId, request.query.limit || 20) };
   });
 
+  // ── Playbook documents: built by talking to the Agnee admin assistant ─────
+  //
+  // The supervisor does not write markdown. They describe how their CS should
+  // behave in a chat, the assistant asks what is still missing, and the
+  // markdown is the artefact that falls out at the end. That markdown is what
+  // the reply pipeline reads, so the chat is the authoring tool, not a toy.
+
+  const PLAYBOOK_KIND_BRIEF = {
+    persona: 'nama CS, gaya bicara, sapaan, bahasa, aturan emoji',
+    compliance: 'apa yang TIDAK BOLEH dikatakan atau dijanjikan, dan kenapa',
+    qna: 'pertanyaan yang sering ditanya customer dan jawaban resminya',
+    discovery: 'apa yang perlu digali dari customer, urutannya, kapan berhenti bertanya',
+    objection: 'keberatan yang sering muncul dan cara menanggapinya',
+    closing: 'cara menutup penjualan, link/instruksi pembayaran, langkah setelah bayar',
+    followup: 'apa yang disampaikan di tiap follow-up supaya tidak terasa menagih',
+    handoff: 'kapan chat diserahkan ke manusia, ke siapa, dan apa yang dikatakan',
+  };
+
+  function playbookInterviewPrompt(kind, existingMd) {
+    return `Kamu adalah asisten admin Agnee. Kamu membantu pemilik bisnis menyusun playbook "${kind}" (${PLAYBOOK_KIND_BRIEF[kind]}) untuk tim customer service mereka.
+
+Playbook ini akan dibaca oleh AI yang membalas customer sungguhan, jadi isinya harus konkret dan tidak boleh kamu karang.
+
+${existingMd ? `Playbook yang sudah ada sekarang:\n---\n${existingMd}\n---\n` : 'Belum ada playbook untuk bagian ini.\n'}
+Cara kerjamu:
+- Tanya satu hal saja per balasan, yang paling menentukan isi playbook.
+- Kalau jawaban pemilik bisnis masih kabur, minta contoh kalimat nyata.
+- Jangan pernah mengisi sendiri fakta yang belum dia sebut — angka, harga, nama produk, janji. Kalau belum tahu, tanya.
+- Kalau bagian ini sudah cukup lengkap, katakan begitu dan tawarkan untuk menyimpan.
+- Bahasa Indonesia, ringkas, maksimal 60 kata per balasan.`;
+  }
+
+  app.get('/v1/playbooks', async (request, reply) => {
+    if (!requireCoachSupervisor(request, reply)) return;
+    if (!requireCoachDb(reply)) return;
+    const docs = await database.listPlaybookDocs(request.agneeSession.companyId);
+    const byKind = new Map(docs.map((d) => [d.kind, d]));
+    return {
+      kinds: Database.PLAYBOOK_KINDS.map((kind) => ({
+        kind,
+        brief: PLAYBOOK_KIND_BRIEF[kind],
+        filled: (byKind.get(kind)?.contentLength || 0) > 0,
+        version: byKind.get(kind)?.version || 0,
+        updatedAt: byKind.get(kind)?.updatedAt || null,
+      })),
+    };
+  });
+
+  app.get('/v1/playbooks/:kind', {
+    schema: { params: { type: 'object', required: ['kind'], properties: {
+      kind: { type: 'string', enum: Database.PLAYBOOK_KINDS },
+    } } },
+  }, async (request, reply) => {
+    if (!requireCoachSupervisor(request, reply)) return;
+    if (!requireCoachDb(reply)) return;
+    const doc = await database.getPlaybookDoc(request.params.kind, request.agneeSession.companyId);
+    return {
+      kind: request.params.kind,
+      brief: PLAYBOOK_KIND_BRIEF[request.params.kind],
+      contentMd: doc?.contentMd || '',
+      interview: doc?.interview || [],
+      version: doc?.version || 0,
+      updatedAt: doc?.updatedAt || null,
+    };
+  });
+
+  /** One turn of the authoring conversation. Does not save on its own. */
+  app.post('/v1/playbooks/:kind/chat', {
+    schema: {
+      params: { type: 'object', required: ['kind'], properties: {
+        kind: { type: 'string', enum: Database.PLAYBOOK_KINDS },
+      } },
+      body: {
+        type: 'object', additionalProperties: false, required: ['message'],
+        properties: { message: { type: 'string', minLength: 1, maxLength: 4000 } },
+      },
+    },
+  }, async (request, reply) => {
+    if (!requireCoachSupervisor(request, reply)) return;
+    if (!requireCoachDb(reply)) return;
+    if (!llmService.enabled) return reply.code(503).send({ error: 'Mesin AI belum aktif.' });
+    const companyId = request.agneeSession.companyId;
+    if (coachRateLimited(companyId)) {
+      return reply.code(429).send({ error: 'Terlalu banyak permintaan. Coba lagi beberapa menit.' });
+    }
+    const { kind } = request.params;
+    const doc = await database.getPlaybookDoc(kind, companyId);
+    const interview = Array.isArray(doc?.interview) ? doc.interview : [];
+
+    const result = await llmService.generateReply(request.body.message, {
+      systemPrompt: playbookInterviewPrompt(kind, doc?.contentMd || ''),
+      history: interview,
+    });
+    if (!result) return reply.code(502).send({ error: 'Mesin AI tidak memberi jawaban.' });
+
+    // Persist the transcript so the next turn continues instead of restarting.
+    const nextInterview = [
+      ...interview,
+      { role: 'user', content: request.body.message },
+      { role: 'assistant', content: result.text },
+    ].slice(-40);
+    await database.savePlaybookDoc({
+      kind, contentMd: doc?.contentMd || '', interview: nextInterview,
+    }, request.agneeSession.userId, companyId);
+
+    return { reply: result.text, interview: nextInterview, model: result.model || null };
+  });
+
+  /** Turns the conversation so far into the markdown playbook. */
+  app.post('/v1/playbooks/:kind/compile', {
+    schema: { params: { type: 'object', required: ['kind'], properties: {
+      kind: { type: 'string', enum: Database.PLAYBOOK_KINDS },
+    } } },
+  }, async (request, reply) => {
+    if (!requireCoachSupervisor(request, reply)) return;
+    if (!requireCoachDb(reply)) return;
+    if (!llmService.enabled) return reply.code(503).send({ error: 'Mesin AI belum aktif.' });
+    const companyId = request.agneeSession.companyId;
+    if (coachRateLimited(companyId)) {
+      return reply.code(429).send({ error: 'Terlalu banyak permintaan. Coba lagi beberapa menit.' });
+    }
+    const { kind } = request.params;
+    const doc = await database.getPlaybookDoc(kind, companyId);
+    const interview = Array.isArray(doc?.interview) ? doc.interview : [];
+    if (!interview.length) {
+      return reply.code(400).send({ error: 'Belum ada percakapan untuk disusun jadi playbook.' });
+    }
+
+    const transcript = interview
+      .map((m) => `${m.role === 'user' ? 'Pemilik bisnis' : 'Asisten'}: ${m.content}`)
+      .join('\n');
+    const result = await llmService.generateReply(
+      `Susun playbook "${kind}" dalam Markdown dari percakapan berikut.\n\n${transcript}`,
+      {
+        systemPrompt: `Ubah percakapan menjadi playbook Markdown yang akan dibaca AI customer service.
+
+Aturan:
+- Tulis HANYA yang benar-benar dikatakan pemilik bisnis. Jangan menambah contoh, angka, harga, atau aturan yang tidak dia sebut.
+- Susun sebagai instruksi yang bisa dijalankan, bukan ringkasan percakapan.
+- Pakai heading dan poin. Bahasa Indonesia.
+- Kalau ada hal penting yang belum dia jawab, tulis di bagian terakhir dengan heading "## Belum ditentukan" sebagai daftar, supaya jelas apa yang masih kosong.
+- Keluarkan Markdown-nya saja, tanpa pembuka atau penutup.`,
+      },
+    );
+    if (!result) return reply.code(502).send({ error: 'Mesin AI tidak dapat menyusun playbook.' });
+
+    const saved = await database.savePlaybookDoc({
+      kind, contentMd: result.text.trim(), interview,
+    }, request.agneeSession.userId, companyId);
+    return { kind, contentMd: saved.contentMd, version: saved.version, updatedAt: saved.updatedAt };
+  });
+
+  /** Direct edit, for when the supervisor would rather fix the markdown. */
+  app.put('/v1/playbooks/:kind', {
+    schema: {
+      params: { type: 'object', required: ['kind'], properties: {
+        kind: { type: 'string', enum: Database.PLAYBOOK_KINDS },
+      } },
+      body: {
+        type: 'object', additionalProperties: false, required: ['contentMd'],
+        properties: { contentMd: { type: 'string', maxLength: 40000 } },
+      },
+    },
+  }, async (request, reply) => {
+    if (!requireCoachSupervisor(request, reply)) return;
+    if (!requireCoachDb(reply)) return;
+    const saved = await database.savePlaybookDoc(
+      { kind: request.params.kind, contentMd: request.body.contentMd },
+      request.agneeSession.userId, request.agneeSession.companyId,
+    );
+    return { kind: saved.kind, contentMd: saved.contentMd, version: saved.version, updatedAt: saved.updatedAt };
+  });
+
+  app.delete('/v1/playbooks/:kind', {
+    schema: { params: { type: 'object', required: ['kind'], properties: {
+      kind: { type: 'string', enum: Database.PLAYBOOK_KINDS },
+    } } },
+  }, async (request, reply) => {
+    if (!requireCoachSupervisor(request, reply)) return;
+    if (!requireCoachDb(reply)) return;
+    const removed = await database.deletePlaybookDoc(request.params.kind, request.agneeSession.companyId);
+    if (!removed) return reply.code(404).send({ error: 'Playbook tidak ditemukan.' });
+    return { ok: true };
+  });
+
+  // ── Follow-up settings ────────────────────────────────────────────────────
+
+  app.get('/v1/follow-up/settings', async (request, reply) => {
+    if (!requireCoachSupervisor(request, reply)) return;
+    if (!requireCoachDb(reply)) return;
+    const companyId = request.agneeSession.companyId;
+    const [settings, stats] = await Promise.all([
+      database.getFollowUpSettings(companyId),
+      database.getFollowUpStats(companyId),
+    ]);
+    return { ...settings, stats };
+  });
+
+  app.patch('/v1/follow-up/settings', {
+    schema: {
+      body: {
+        type: 'object', additionalProperties: false,
+        properties: {
+          enabled: { type: 'boolean' },
+          // Plafon per hari. Dibatasi 10 per hari dan 7 hari: di atas itu,
+          // yang rusak bukan cuma kualitas percakapan tapi reputasi nomor
+          // WhatsApp-nya, dan itu tidak bisa dibatalkan.
+          dayCaps: {
+            type: 'array', minItems: 1, maxItems: 7,
+            items: { type: 'integer', minimum: 0, maximum: 10 },
+          },
+          minGapMinutes: { type: 'integer', minimum: 30, maximum: 1440 },
+          sendFromHour: { type: 'integer', minimum: 0, maximum: 23 },
+          sendToHour: { type: 'integer', minimum: 0, maximum: 23 },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    if (!requireCoachSupervisor(request, reply)) return;
+    if (!requireCoachDb(reply)) return;
+    const saved = await database.saveFollowUpSettings(
+      request.body, request.agneeSession.userId, request.agneeSession.companyId,
+    );
+    return saved;
+  });
+
+  // ── Manual follow-up: draft, show the supervisor, then send ───────────────
+  //
+  // Two steps on purpose. The supervisor must read the exact text before it
+  // reaches a customer, and the caps are re-checked at send time so an
+  // approved draft that sat on screen cannot slip past a limit that has since
+  // been reached by the scheduler.
+
+  /** Maps a refusal from the shared cap logic onto an i18n key for the UI. */
+  const FOLLOW_UP_REFUSAL = {
+    day_cap_reached: 'fu.capReached',
+    outside_send_window: 'fu.outsideWindow',
+    exhausted: 'fu.exhausted',
+    human_takeover: 'fu.humanHandled',
+    nothing_worth_sending: 'fu.nothingToSay',
+    clock_skew: 'fu.noSequence',
+  };
+
+  /**
+   * Loads the chat's state and settings, refusing early with a reason the UI
+   * can translate. Manual sending deliberately still requires the feature to
+   * be on: a supervisor who has not accepted the automatic rules should not
+   * get a back door to the same messages.
+   */
+  async function loadFollowUpRow(chatId, companyId, reply) {
+    const row = await database.getFollowUpState(chatId, companyId);
+    if (!row) {
+      reply.code(409).send({ error: 'Percakapan ini belum masuk rangkaian tindak lanjut.', reasonKey: 'fu.noSequence' });
+      return null;
+    }
+    if (!row.enabled) {
+      reply.code(409).send({ error: 'Aktifkan tindak lanjut otomatis dulu.', reasonKey: 'fu.disabled' });
+      return null;
+    }
+    if (row.stoppedAt) {
+      reply.code(409).send({
+        error: 'Rangkaian tindak lanjut untuk percakapan ini sudah selesai.',
+        reasonKey: FOLLOW_UP_REFUSAL[row.stopReason] || 'fu.exhausted',
+      });
+      return null;
+    }
+    return row;
+  }
+
+  app.post('/v1/follow-up/draft', {
+    schema: {
+      body: {
+        type: 'object', additionalProperties: false, required: ['chatId'],
+        properties: { chatId: { type: 'string', minLength: 1, maxLength: 128 } },
+      },
+    },
+  }, async (request, reply) => {
+    if (!requireCoachSupervisor(request, reply)) return;
+    if (!requireCoachDb(reply)) return;
+    if (!llmService.enabled) return reply.code(503).send({ error: 'Mesin AI belum aktif.' });
+    const companyId = request.agneeSession.companyId;
+    if (coachRateLimited(companyId)) {
+      return reply.code(429).send({ error: 'Terlalu banyak permintaan. Coba lagi beberapa menit.' });
+    }
+    const chatId = normalizeChatId(request.body.chatId);
+    const row = await loadFollowUpRow(chatId, companyId, reply);
+    if (!row) return;
+
+    // Jarak minimum tidak berlaku untuk kirim manual — supervisor yang
+    // memutuskan waktunya. Plafon harian, jam kirim, dan batas hari tetap
+    // berlaku, karena itu yang melindungi reputasi nomor WhatsApp-nya.
+    const prepared = await followUpScheduler.draft({ ...row, lastSentAt: null });
+    if (!prepared.ok) {
+      return reply.code(409).send({
+        error: 'Tindak lanjut tidak dapat dikirim sekarang.',
+        reason: prepared.reason,
+        reasonKey: FOLLOW_UP_REFUSAL[prepared.reason] || 'fu.exhausted',
+        vars: prepared.reason === 'outside_send_window'
+          ? { from: row.sendFromHour, to: row.sendToHour } : undefined,
+      });
+    }
+    return {
+      chatId,
+      text: prepared.text,
+      day: prepared.dayIndex + 1,
+      attemptInDay: prepared.attemptInDay,
+      dayCap: row.dayCaps[prepared.dayIndex],
+    };
+  });
+
+  app.post('/v1/follow-up/send', {
+    schema: {
+      body: {
+        type: 'object', additionalProperties: false, required: ['chatId', 'text'],
+        properties: {
+          chatId: { type: 'string', minLength: 1, maxLength: 128 },
+          text: { type: 'string', minLength: 1, maxLength: 4096 },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    if (!requireCoachSupervisor(request, reply)) return;
+    if (!requireCoachDb(reply)) return;
+    const companyId = request.agneeSession.companyId;
+    const chatId = normalizeChatId(request.body.chatId);
+    const row = await loadFollowUpRow(chatId, companyId, reply);
+    if (!row) return;
+
+    // Cek plafon ulang di sini: draft yang sudah disetujui bisa saja menganggur
+    // di layar sementara scheduler mengirim dan memenuhi plafon hari itu.
+    const verdict = followUpDecide({ ...row, lastSentAt: null });
+    if (!verdict.send) {
+      if (verdict.stop) {
+        await database.stopFollowUpSequence(chatId, companyId, verdict.stop).catch(() => {});
+      }
+      return reply.code(409).send({
+        error: 'Tindak lanjut tidak dapat dikirim sekarang.',
+        reason: verdict.stop || verdict.skip,
+        reasonKey: FOLLOW_UP_REFUSAL[verdict.stop || verdict.skip] || 'fu.exhausted',
+        vars: verdict.skip === 'outside_send_window'
+          ? { from: row.sendFromHour, to: row.sendToHour } : undefined,
+      });
+    }
+    if (await followUpScheduler.deps.isHumanHandled(companyId, chatId)) {
+      await database.stopFollowUpSequence(chatId, companyId, 'human_takeover').catch(() => {});
+      return reply.code(409).send({ error: 'Chat ini sedang dipegang agent.', reasonKey: 'fu.humanHandled' });
+    }
+
+    await followUpScheduler.send(
+      { companyId, chatId },
+      { text: request.body.text, dayIndex: verdict.dayIndex, attemptInDay: verdict.attemptInDay },
+    );
+    return { ok: true, day: verdict.dayIndex + 1, attemptInDay: verdict.attemptInDay };
+  });
+
   app.get('/v1/whatsapp/status', async (request) => {
     const companyId = request.agneeSession.companyId;
     const provider = await getWhatsappProvider(companyId);
@@ -2947,6 +3325,7 @@ Aturan:
           authorUserId: request.agneeSession?.userId || null,
           body: text, inReplyTo: lastInboundText.get(`${companyId}:${chatId}`) || null,
         }, companyId).catch((err) => app.log.warn({ err }, 'Could not record human reply'));
+        await armFollowUp(companyId, chatId);
       }
       if (requestId) {
         sendReceipts.set(requestId, result);
@@ -2974,6 +3353,7 @@ Aturan:
         body: text,
         inReplyTo: lastInboundText.get(`${companyId}:${chatId}`) || null,
       }, companyId).catch((error) => app.log.warn({ err: error }, 'Could not record human reply'));
+      await armFollowUp(companyId, chatId);
     }
     if (requestId) {
       sendReceipts.set(requestId, result);
@@ -2982,7 +3362,46 @@ Aturan:
     return result;
   });
 
+  /**
+   * Follow-up scheduler. Generates each message through the same reply context
+   * the live path uses, so a follow-up cannot cite facts the AI would not cite
+   * in a normal reply.
+   */
+  const followUpScheduler = new FollowUpScheduler({
+    database,
+    logger: app.log,
+    deps: {
+      isHumanHandled: async (companyId, chatId) => {
+        const routing = await getRouting(chatId, companyId).catch(() => null);
+        return routing?.mode === 'human';
+      },
+      generate: async (companyId, chatId, prompt) => {
+        // The AI quota covers follow-ups too: they are messages the customer
+        // receives, so they must not be a way around the plan limit.
+        const usage = await database.incrementAiMessageCount(companyId).catch(() => ({ exceeded: false }));
+        if (usage.exceeded) {
+          app.log.warn({ companyId }, 'Follow-up skipped — AI quota exceeded');
+          return null;
+        }
+        const ctx = await buildReplyContext({ companyId, text: prompt, chatId });
+        const result = await llmService.generateReply(prompt, {
+          systemPrompt: ctx.systemPrompt,
+          leadState: ctx.leadState,
+        });
+        return result?.text || null;
+      },
+      sendMessage: async (companyId, chatId, text) => {
+        await sendOutbound(companyId, chatId, text);
+        await database.recordOutboundReply({
+          chatId, author: 'ai', body: text, inReplyTo: null,
+        }, companyId).catch(() => {});
+      },
+    },
+  });
+  app.decorate('followUpScheduler', followUpScheduler);
+
   app.addHook('onClose', async () => {
+    followUpScheduler.stop();
     sendReceipts.clear();
     lastInboundText.clear();
     leadStates.clear();
@@ -2995,6 +3414,10 @@ Aturan:
 
   app.decorate('startWhatsapp', async () => {
     if (!config.startupEnabled || config.demoMode) return;
+
+    // Only in a real run: tests build the app with startupEnabled false and
+    // must not get a live timer sending WhatsApp messages.
+    if (database.enabled && database.connected) followUpScheduler.start();
 
     // No default company to boot: resume exactly those companies whose last
     // known session was live. Everyone else starts on demand when a supervisor

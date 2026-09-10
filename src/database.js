@@ -626,7 +626,7 @@ class Database {
    */
   async getPlaybookContext(companyId) {
     if (!this.enabled) return '';
-    const [playbook, facts, assets] = await Promise.all([
+    const [playbook, facts, assets, docs] = await Promise.all([
       this.getPlaybook(companyId),
       this.listPlaybookFacts(companyId, { onlyAnswered: true }),
       this.pool.query(`
@@ -635,8 +635,38 @@ class Database {
         WHERE company_id = $1 AND extraction_status = 'ready' AND extracted_text IS NOT NULL
         ORDER BY created_at DESC
       `, [companyId]),
+      this.pool.query(`
+        SELECT kind, content_md AS "contentMd"
+        FROM playbook_docs
+        WHERE company_id = $1 AND btrim(content_md) <> ''
+      `, [companyId]),
     ]);
     const parts = [];
+
+    // Playbooks the supervisor wrote (via the admin chatbox) outrank the file
+    // knowledge pack: they are this company's own rules. Emitted in a fixed
+    // order so persona and compliance are read before the sales material —
+    // a rule that forbids something has to be seen before the text that
+    // might tempt the model into it.
+    if (docs.rows.length) {
+      const labels = {
+        persona: 'Persona & gaya bicara',
+        compliance: 'LARANGAN — patuhi di atas segalanya',
+        qna: 'Pertanyaan & jawaban',
+        discovery: 'Cara menggali kebutuhan',
+        objection: 'Menangani keberatan',
+        closing: 'Menutup penjualan',
+        followup: 'Aturan follow-up',
+        handoff: 'Kapan menyerahkan ke manusia',
+      };
+      const byKind = new Map(docs.rows.map((row) => [row.kind, row.contentMd]));
+      const ordered = Database.PLAYBOOK_KINDS
+        .filter((kind) => byKind.has(kind))
+        .map((kind) => `### ${labels[kind] || kind}\n${byKind.get(kind).trim()}`);
+      if (ordered.length) {
+        parts.push(`## PLAYBOOK YANG DITULIS PEMILIK BISNIS INI\n${ordered.join('\n\n')}`);
+      }
+    }
 
     if (facts.length) {
       const byCategory = new Map();
@@ -730,6 +760,295 @@ class Database {
       ORDER BY category
     `, [companyId]);
     return result.rows;
+  }
+
+  // ── Playbook documents (markdown, built via the admin chatbox) ────────────
+
+  /** Fixed list; the reply pipeline reads them in this order. */
+  static get PLAYBOOK_KINDS() {
+    return ['persona', 'compliance', 'qna', 'discovery', 'objection', 'closing', 'followup', 'handoff'];
+  }
+
+  async listPlaybookDocs(companyId) {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(`
+      SELECT id, kind, content_md AS "contentMd", version,
+             updated_at AS "updatedAt",
+             length(btrim(content_md)) AS "contentLength"
+      FROM playbook_docs
+      WHERE company_id = $1
+      ORDER BY kind
+    `, [companyId]);
+    return result.rows;
+  }
+
+  async getPlaybookDoc(kind, companyId) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      SELECT id, kind, content_md AS "contentMd", interview, version,
+             updated_at AS "updatedAt"
+      FROM playbook_docs
+      WHERE company_id = $1 AND kind = $2
+    `, [companyId, kind]);
+    return result.rows[0] || null;
+  }
+
+  /**
+   * Writes the markdown and, when the text actually changed, snapshots the
+   * previous version first. Playbooks drive what the AI says to customers, so
+   * an edit that turns out wrong has to be recoverable.
+   */
+  async savePlaybookDoc({ kind, contentMd, interview }, updatedBy, companyId) {
+    if (!this.enabled) return null;
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const existing = await client.query(
+        'SELECT id, content_md, version FROM playbook_docs WHERE company_id = $1 AND kind = $2 FOR UPDATE',
+        [companyId, kind],
+      );
+      const prev = existing.rows[0];
+      if (prev && prev.content_md !== contentMd) {
+        await client.query(
+          'INSERT INTO playbook_doc_versions (doc_id, version, content_md, updated_by) VALUES ($1, $2, $3, $4)',
+          [prev.id, prev.version, prev.content_md, updatedBy || null],
+        );
+      }
+      const result = await client.query(`
+        INSERT INTO playbook_docs (company_id, kind, content_md, interview, updated_by)
+        VALUES ($1, $2, $3, COALESCE($4::jsonb, '[]'::jsonb), $5)
+        ON CONFLICT (company_id, kind) DO UPDATE
+          SET content_md = EXCLUDED.content_md,
+              -- Reads $4 directly, not EXCLUDED: the insert branch coalesces
+              -- NULL to '[]' for the NOT NULL column, so EXCLUDED is never
+              -- NULL here and would wipe the stored transcript on every save
+              -- that omits it.
+              interview  = COALESCE($4::jsonb, playbook_docs.interview),
+              version    = playbook_docs.version
+                           + CASE WHEN playbook_docs.content_md <> EXCLUDED.content_md THEN 1 ELSE 0 END,
+              updated_by = EXCLUDED.updated_by,
+              updated_at = NOW()
+        RETURNING id, kind, content_md AS "contentMd", version, updated_at AS "updatedAt"
+      `, [companyId, kind, contentMd, interview ? JSON.stringify(interview) : null, updatedBy || null]);
+      await client.query('COMMIT');
+      return result.rows[0];
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+
+  async deletePlaybookDoc(kind, companyId) {
+    if (!this.enabled) return false;
+    const result = await this.pool.query(
+      'DELETE FROM playbook_docs WHERE company_id = $1 AND kind = $2',
+      [companyId, kind],
+    );
+    return result.rowCount > 0;
+  }
+
+  // ── Follow-up: settings, per-chat state, send log ─────────────────────────
+
+  async getFollowUpSettings(companyId) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      SELECT enabled, day_caps AS "dayCaps", min_gap_minutes AS "minGapMinutes",
+             send_from_hour AS "sendFromHour", send_to_hour AS "sendToHour",
+             updated_at AS "updatedAt"
+      FROM follow_up_settings
+      WHERE company_id = $1
+    `, [companyId]);
+    // Absent row means the feature was never configured: off, with the
+    // defaults the migration documents.
+    return result.rows[0] || {
+      enabled: false, dayCaps: [5, 3, 2], minGapMinutes: 120,
+      sendFromHour: 8, sendToHour: 21, updatedAt: null,
+    };
+  }
+
+  async saveFollowUpSettings(patch, updatedBy, companyId) {
+    if (!this.enabled) return null;
+    const current = await this.getFollowUpSettings(companyId);
+    const next = { ...current, ...patch };
+    const result = await this.pool.query(`
+      INSERT INTO follow_up_settings
+        (company_id, enabled, day_caps, min_gap_minutes, send_from_hour, send_to_hour, updated_by)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      ON CONFLICT (company_id) DO UPDATE
+        SET enabled = EXCLUDED.enabled, day_caps = EXCLUDED.day_caps,
+            min_gap_minutes = EXCLUDED.min_gap_minutes,
+            send_from_hour = EXCLUDED.send_from_hour, send_to_hour = EXCLUDED.send_to_hour,
+            updated_by = EXCLUDED.updated_by, updated_at = NOW()
+      RETURNING enabled, day_caps AS "dayCaps", min_gap_minutes AS "minGapMinutes",
+                send_from_hour AS "sendFromHour", send_to_hour AS "sendToHour",
+                updated_at AS "updatedAt"
+    `, [companyId, next.enabled, next.dayCaps, next.minGapMinutes,
+      next.sendFromHour, next.sendToHour, updatedBy || null]);
+    return result.rows[0];
+  }
+
+  /**
+   * Starts or restarts the silence window for a chat. Called when we send to a
+   * customer, so the window is measured from our last outbound message.
+   */
+  async startFollowUpSequence(chatId, companyId) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      INSERT INTO follow_up_state (company_id, chat_id, sequence_started_at, sent_per_day)
+      VALUES ($1, $2, NOW(), ARRAY[]::INTEGER[])
+      ON CONFLICT (company_id, chat_id) DO UPDATE
+        SET sequence_started_at = NOW(), last_sent_at = NULL, sent_total = 0,
+            sent_per_day = ARRAY[]::INTEGER[], stopped_at = NULL, stop_reason = NULL,
+            updated_at = NOW()
+      RETURNING company_id AS "companyId", chat_id AS "chatId"
+    `, [companyId, chatId]);
+    return result.rows[0];
+  }
+
+  /** The customer spoke (or a human took over): the sequence is over. */
+  async stopFollowUpSequence(chatId, companyId, reason) {
+    if (!this.enabled) return false;
+    const result = await this.pool.query(`
+      UPDATE follow_up_state
+      SET stopped_at = NOW(), stop_reason = $3, updated_at = NOW()
+      WHERE company_id = $1 AND chat_id = $2 AND stopped_at IS NULL
+    `, [companyId, chatId, reason]);
+    return result.rowCount > 0;
+  }
+
+  /**
+   * Chats whose silence window is still open and whose minimum gap has passed.
+   * Returns the company's settings alongside each row so the scheduler does
+   * not have to query per chat. Companies with the feature off, or on a
+   * suspended plan, are excluded here rather than filtered later.
+   */
+  async listDueFollowUps(limit = 50) {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(`
+      SELECT s.company_id AS "companyId", s.chat_id AS "chatId",
+             s.sequence_started_at AS "sequenceStartedAt", s.last_sent_at AS "lastSentAt",
+             s.sent_total AS "sentTotal", s.sent_per_day AS "sentPerDay",
+             f.day_caps AS "dayCaps", f.min_gap_minutes AS "minGapMinutes",
+             f.send_from_hour AS "sendFromHour", f.send_to_hour AS "sendToHour",
+             c.slug AS "companySlug"
+      FROM follow_up_state s
+      JOIN follow_up_settings f ON f.company_id = s.company_id AND f.enabled
+      JOIN companies c ON c.id = s.company_id
+      WHERE s.stopped_at IS NULL
+        AND COALESCE(c.plan_status, 'beta') <> 'suspended'
+        AND (s.last_sent_at IS NULL
+             OR s.last_sent_at <= NOW() - (f.min_gap_minutes || ' minutes')::interval)
+      ORDER BY s.last_sent_at NULLS FIRST
+      LIMIT $1
+    `, [limit]);
+    return result.rows;
+  }
+
+  /**
+   * One chat's follow-up state joined with its company settings — the same
+   * shape listDueFollowUps returns, so the manual send path can run it through
+   * the identical cap/gap/window check instead of a second implementation.
+   * Ignores the gap and enabled filters; the caller decides what to do about
+   * those, because it has a user to explain them to.
+   */
+  async getFollowUpState(chatId, companyId) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      SELECT s.company_id AS "companyId", s.chat_id AS "chatId",
+             s.sequence_started_at AS "sequenceStartedAt", s.last_sent_at AS "lastSentAt",
+             s.sent_total AS "sentTotal", s.sent_per_day AS "sentPerDay",
+             s.stopped_at AS "stoppedAt", s.stop_reason AS "stopReason",
+             f.enabled, f.day_caps AS "dayCaps", f.min_gap_minutes AS "minGapMinutes",
+             f.send_from_hour AS "sendFromHour", f.send_to_hour AS "sendToHour"
+      FROM follow_up_state s
+      LEFT JOIN follow_up_settings f ON f.company_id = s.company_id
+      WHERE s.company_id = $1 AND s.chat_id = $2
+    `, [companyId, chatId]);
+    return result.rows[0] || null;
+  }
+
+  /** Records a sent follow-up and bumps the counters for that day. */
+  async recordFollowUpSend({ chatId, dayIndex, attemptInDay, body }, companyId) {
+    if (!this.enabled) return null;
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query(
+        `INSERT INTO follow_up_sends (company_id, chat_id, day_index, attempt_in_day, body)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [companyId, chatId, dayIndex, attemptInDay, body],
+      );
+      // Pad sent_per_day up to dayIndex (Postgres arrays are 1-based, so the
+      // slot for day N is index N+1), then increment just that slot.
+      const result = await client.query(`
+        UPDATE follow_up_state SET
+          sent_total = sent_total + 1,
+          sent_per_day = (
+            SELECT array_agg(
+                     CASE WHEN i = $3 + 1 THEN COALESCE(sent_per_day[i], 0) + 1
+                          ELSE COALESCE(sent_per_day[i], 0) END
+                     ORDER BY i)
+            FROM generate_series(
+                   1,
+                   GREATEST(COALESCE(array_length(sent_per_day, 1), 0), $3 + 1)
+                 ) AS i
+          ),
+          last_sent_at = NOW(), updated_at = NOW()
+        WHERE company_id = $1 AND chat_id = $2
+        RETURNING sent_total AS "sentTotal", sent_per_day AS "sentPerDay"
+      `, [companyId, chatId, dayIndex]);
+      await client.query('COMMIT');
+      return result.rows[0];
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * Follow-ups already sent on this chat, oldest first. The generator needs
+   * these so attempt N does not restate attempt N-1 — repeating yourself is
+   * what turns a follow-up into nagging.
+   */
+  async listFollowUpSends(chatId, companyId) {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(`
+      SELECT day_index AS "dayIndex", attempt_in_day AS "attemptInDay", body,
+             created_at AS "createdAt"
+      FROM follow_up_sends
+      WHERE company_id = $1 AND chat_id = $2
+      ORDER BY created_at
+    `, [companyId, chatId]);
+    return result.rows;
+  }
+
+  /** Marks the most recent follow-up as having earned a reply. */
+  async markFollowUpReplied(chatId, companyId) {
+    if (!this.enabled) return false;
+    const result = await this.pool.query(`
+      UPDATE follow_up_sends SET replied_at = NOW()
+      WHERE id = (
+        SELECT id FROM follow_up_sends
+        WHERE company_id = $1 AND chat_id = $2 AND replied_at IS NULL
+        ORDER BY created_at DESC LIMIT 1
+      )
+    `, [companyId, chatId]);
+    return result.rowCount > 0;
+  }
+
+  async getFollowUpStats(companyId) {
+    if (!this.enabled) return { sent: 0, replied: 0, active: 0 };
+    const result = await this.pool.query(`
+      SELECT
+        (SELECT COUNT(*)::int FROM follow_up_sends WHERE company_id = $1) AS sent,
+        (SELECT COUNT(*)::int FROM follow_up_sends WHERE company_id = $1 AND replied_at IS NOT NULL) AS replied,
+        (SELECT COUNT(*)::int FROM follow_up_state WHERE company_id = $1 AND stopped_at IS NULL) AS active
+    `, [companyId]);
+    return result.rows[0];
   }
 
   // ── Simulation scenarios & graded runs ────────────────────────────────────
@@ -908,6 +1227,34 @@ class Database {
       UPDATE company_members SET role = $1, updated_at = NOW()
       WHERE company_id = $2 AND user_id = $3 AND role != 'owner'
     `, [role, companyId, userId]);
+    const result = await this.pool.query(`
+      SELECT u.id, u.email, u.display_name AS "displayName", cm.role, cm.status
+      FROM company_members cm JOIN users u ON u.id = cm.user_id
+      WHERE cm.company_id = $1 AND cm.user_id = $2
+    `, [companyId, userId]);
+    return result.rows[0] || null;
+  }
+
+  async updateTeamMember(userId, { displayName, email, password }, companyId) {
+    if (!this.enabled) return null;
+    const owns = await this.pool.query(
+      `SELECT 1 FROM company_members WHERE company_id = $1 AND user_id = $2 AND role != 'owner'`,
+      [companyId, userId],
+    );
+    if (owns.rowCount === 0) return null;
+
+    const sets = [];
+    const values = [];
+    if (displayName !== undefined) { values.push(displayName); sets.push(`display_name = $${values.length}`); }
+    if (email !== undefined) { values.push(email.toLowerCase()); sets.push(`email = $${values.length}`); }
+    if (password !== undefined) { values.push(hashPassword(password)); sets.push(`password_hash = $${values.length}`); }
+    if (sets.length) {
+      values.push(userId);
+      await this.pool.query(
+        `UPDATE users SET ${sets.join(', ')}, updated_at = NOW() WHERE id = $${values.length}`,
+        values,
+      );
+    }
     const result = await this.pool.query(`
       SELECT u.id, u.email, u.display_name AS "displayName", cm.role, cm.status
       FROM company_members cm JOIN users u ON u.id = cm.user_id

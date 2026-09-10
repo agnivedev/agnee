@@ -8,6 +8,82 @@ Semua perubahan penting Agnee dicatat di file ini. Format mengikuti prinsip
 
 ### Added
 
+- **Tindak lanjut lead yang diam.** Kalau customer berhenti membalas, AI
+  menyapa kembali dengan **plafon per hari** (default 5 di hari pertama, 3 di
+  hari kedua, 2 di hari ketiga, lalu berhenti permanen). Angka itu batas atas,
+  bukan kuota: mesin hanya mengirim kalau ada yang layak disampaikan, dan
+  generatornya boleh menjawab `SKIP` tanpa memakai kuota hari itu.
+  Pengamanannya: jarak minimum antar pesan (default 120 menit), jam kirim
+  8–21 WIB, berhenti begitu customer membalas atau agent mengambil alih chat,
+  dan kuota AI paket tetap dihitung supaya tindak lanjut bukan celah untuk
+  melewatinya. Plafon disimpan **per company**, jadi tenant yang funnel-nya
+  hanya mengizinkan 3 kali bisa diset `[1,1,1]`.
+  Fitur ini **mati secara default** — deploy tidak akan mengirim apa pun
+  sampai supervisor menyalakannya, karena menyalakan tindak lanjut otomatis ke
+  seluruh basis chat lama adalah cara tercepat kena laporan spam.
+- **Kirim tindak lanjut manual** lewat dua langkah: `POST /v1/follow-up/draft`
+  menyusun pesannya, supervisor membaca teks persisnya di dialog konfirmasi,
+  lalu `POST /v1/follow-up/send` mengirimnya. Plafon diperiksa **ulang** saat
+  kirim, supaya draft yang sempat menganggur di layar tidak lolos melewati
+  batas yang sudah dipenuhi scheduler. Jarak minimum sengaja tidak berlaku di
+  jalur manual — supervisor yang memutuskan waktunya.
+- **Playbook per company sebagai dokumen Markdown**, disusun lewat percakapan
+  dengan asisten admin (bukan mengisi formulir): supervisor menjelaskan cara
+  kerja CS-nya, asisten menanyakan yang masih kurang, lalu percakapan itu
+  dijadikan satu dokumen `.md` yang dibaca AI saat membalas customer.
+  Delapan jenis: persona, compliance, qna, discovery, objection, closing,
+  followup, handoff. Ada riwayat versi, dan dokumen bisa juga disunting
+  langsung. Disimpan di DB, bukan di `knowledge/clients/` — file repo sama
+  untuk semua tenant dan tidak bisa ditulis dari UI.
+  Urutan bacanya tetap: persona dan compliance lebih dulu, supaya aturan yang
+  melarang sesuatu terbaca sebelum materi jualan yang bisa menggodanya.
+- **Komponen dialog aplikasi** (`public/ui-dialog.js`) untuk konfirmasi,
+  pemberitahuan, dan input.
+
+### Changed
+
+- **Semua dialog bawaan browser diganti.** 14 pemakaian `confirm()`/`alert()`
+  di `admin.js` dan `settings.js` dihapus: dialog OS tidak bisa digaya, tidak
+  ikut bahasa yang dipilih user, dan memblokir thread. Penggantinya memakai
+  `<dialog>` dengan gaya yang sama seperti `.workspace-dialog` di inbox.
+  Konfirmasi yang menghapus sesuatu kini menjelaskan akibatnya, bukan hanya
+  menanyakan "yakin?".
+- `settings.js` sebelumnya **tidak memakai i18n sama sekali** — seluruh
+  teksnya Indonesia dan tidak berubah walau user memilih English. Sekarang
+  helper `tr()` tersedia di sana, dan seluruh string baru punya pasangan
+  ID/EN (389 kunci, seimbang di kedua bahasa).
+
+### Fixed
+
+- **Hapus dokumen playbook tidak punya konfirmasi apa pun** — sekali klik
+  langsung terhapus, padahal isinya dipakai AI sebagai sumber jawaban.
+
+### Known issues — belum diperbaiki
+
+Ditemukan lewat test 8-turn di production (2026-09-10) terhadap Anya/tradersmastermind,
+setelah fix conversation history dan model swap ke Gemini. Cek otomatis (kontrak
+output, klaim hasil trading) lulus 0 pelanggaran, tapi transkrip menunjukkan
+tiga masalah funnel yang cek otomatis tidak tangkap:
+
+1. **Balasan singkat ambigu ("1", "ya", "oke") ditebak, bukan diklarifikasi.**
+   Kalau history tidak memuat opsi bernomor eksplisit, AI tetap mencoba
+   menjawab seolah tahu maksudnya — dalam satu kasus uji, dia malah membahas
+   onboarding pasca-bayar padahal customer belum memutuskan beli.
+2. **Gerbang capture nama + broker (Stage WL di sales-funnel.md) bisa
+   terlewat.** Kalau customer tidak menjawab saat ditanya nama/broker dan
+   melanjutkan topik lain, AI tidak menanyakan ulang dan tetap lanjut memberi
+   harga di stage berikutnya — lead masuk ke harga tanpa data untuk follow-up.
+3. **Bahasa hasil yang menjurus ke janji tanpa angka** ("modalmu bisa tumbuh
+   lagi dengan aman") lolos filter kata terlarang (yang berbasis
+   pola/angka) karena tidak menyebut figur, tapi mengarah ke arah yang sama.
+
+Perbaikan yang diusulkan: tambah aturan eksplisit di system prompt/funnel —
+(a) pesan ambigu tanpa rujukan jelas → klarifikasi dulu, jangan menebak;
+(b) jangan bahas onboarding/pasca-bayar sebelum keputusan beli; (c) block
+harga sampai nama+broker tercatat. Belum dikerjakan — menunggu keputusan user.
+
+### Added
+
 - **Knowledge base TM lengkap**: `funnel/sales-funnel.md` untuk Trader's Mastermind
   — produk Recovery Plan (Rp99k) dan Bundle Mentorship (Rp188k), Copy Trade
   Master vs Copy Trade EA, alur funnel 6 stage, FAQ, objection handling, link

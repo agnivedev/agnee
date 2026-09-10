@@ -30,7 +30,13 @@ class KnowledgeBase {
       // Load FAQ files
       const faqDir = path.join(knowledgeDir, 'faq');
       if (fs.existsSync(faqDir)) {
-        for (const file of fs.readdirSync(faqDir)) {
+        // Diurutkan eksplisit: urutan sisip ke faqDatabase menentukan pemenang
+        // saat dua FAQ punya skor sama di findRelevantFaq(), dan readdirSync
+        // tidak menjamin urutan apa pun. macOS dan overlayfs di container
+        // kebetulan sama-sama mengembalikan alfabetis sekarang, jadi ini tidak
+        // mengubah peringkat — hanya memastikan hasilnya tidak bergantung pada
+        // filesystem.
+        for (const file of fs.readdirSync(faqDir).sort()) {
           if (file.endsWith('.md')) {
             const content = fs.readFileSync(path.join(faqDir, file), 'utf8');
             this.parseFaqFile(content, file);

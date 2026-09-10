@@ -28,6 +28,7 @@ DECLARE
   kinds TEXT[];
   bodies TEXT[];
   i INT;
+  changed INT := 0;
 BEGIN
   SELECT id INTO co FROM companies WHERE slug = 'tradersmastermind';
   IF co IS NULL THEN
@@ -444,19 +445,31 @@ $md$
   ];
 
   FOR i IN 1 .. array_length(kinds, 1) LOOP
+    -- RETURNING INTO membiarkan variabelnya apa adanya kalau tidak ada baris
+    -- yang kembali, jadi harus dikosongkan dulu setiap iterasi.
+    doc := NULL;
+
+    -- WHERE di DO UPDATE membuat seed ini benar-benar idempotent: menjalankan
+    -- ulang dengan isi yang sama tidak menaikkan version dan tidak menumpuk
+    -- snapshot identik di playbook_doc_versions. Versi adalah riwayat
+    -- perubahan isi, bukan hitungan berapa kali skrip dijalankan.
     INSERT INTO playbook_docs (company_id, kind, content_md)
     VALUES (co, kinds[i], bodies[i])
     ON CONFLICT (company_id, kind) DO UPDATE
       SET content_md = EXCLUDED.content_md,
           version = playbook_docs.version + 1,
           updated_at = NOW()
+      WHERE playbook_docs.content_md IS DISTINCT FROM EXCLUDED.content_md
     RETURNING id INTO doc;
 
-    INSERT INTO playbook_doc_versions (doc_id, version, content_md)
-    SELECT id, version, content_md FROM playbook_docs WHERE id = doc;
+    IF doc IS NOT NULL THEN
+      INSERT INTO playbook_doc_versions (doc_id, version, content_md)
+      SELECT id, version, content_md FROM playbook_docs WHERE id = doc;
+      changed := changed + 1;
+    END IF;
   END LOOP;
 
-  RAISE NOTICE 'playbook_docs Trader''s Mastermind: % dokumen', array_length(kinds, 1);
+  RAISE NOTICE 'playbook_docs Trader''s Mastermind: % dokumen, % berubah', array_length(kinds, 1), changed;
 END
 $seed$;
 

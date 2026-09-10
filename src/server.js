@@ -557,10 +557,25 @@ async function buildApp(overrides = {}) {
     // Use this company's own knowledge client from DB — never another tenant's
     const ctx = await buildReplyContext({ companyId, text: message.body, chatId: message.from });
 
+    // Fetch recent conversation history so the AI knows what was already said.
+    // Uses message.getChat() which is available on whatsapp-web.js messages;
+    // Cloud API messages won't have it — we fall back to no history silently.
+    let conversationHistory = [];
+    try {
+      const chat = await message.getChat();
+      const hiddenTypes = new Set(['e2e_notification', 'protocol', 'notification_template', 'gp2', 'call_log']);
+      const recent = await chat.fetchMessages({ limit: 20 });
+      conversationHistory = recent
+        .filter(m => !hiddenTypes.has(m.type) && m.body && m.id?._serialized !== message.id?._serialized)
+        .slice(-10)
+        .map(m => ({ role: m.fromMe ? 'assistant' : 'user', content: m.body }));
+    } catch { /* Cloud API or unavailable — proceed without history */ }
+
     const result = await llmService.generateReply(message.body, {
       systemPrompt: ctx.systemPrompt,
       relevantFaqs: ctx.relevantFaqs,
       leadState: ctx.leadState,
+      history: conversationHistory,
     });
 
     return result?.text || null;
@@ -1447,6 +1462,27 @@ async function buildApp(overrides = {}) {
     return { member };
   });
 
+  app.patch('/v1/team/members/:userId', {
+    schema: { body: { type: 'object', additionalProperties: false, minProperties: 1, properties: {
+      email: { type: 'string', minLength: 5, maxLength: 200 },
+      displayName: { type: 'string', minLength: 2, maxLength: 100 },
+      password: { type: 'string', minLength: 8, maxLength: 200 },
+    } } },
+  }, async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengubah anggota.' });
+    if (!database.status().connected) return reply.code(503).send({ error: 'Penyimpanan belum tersedia.' });
+    let member;
+    try {
+      member = await database.updateTeamMember(request.params.userId, request.body, request.agneeSession?.companyId);
+    } catch (error) {
+      if (error.code === '23505') return reply.code(409).send({ error: 'Email sudah dipakai akun lain.' });
+      throw error;
+    }
+    if (!member) return reply.code(404).send({ error: 'Anggota tidak ditemukan atau tidak dapat diubah.' });
+    broadcastEvent(request.agneeSession.companyId, 'team', { action: 'updated', member });
+    return { member };
+  });
+
   app.delete('/v1/team/members/:userId', async (request, reply) => {
     if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat menonaktifkan anggota.' });
     if (!database.status().connected) return reply.code(503).send({ error: 'Penyimpanan belum tersedia.' });
@@ -1759,7 +1795,7 @@ async function buildApp(overrides = {}) {
         required: ['message', 'clientId'],
         properties: {
           message: { type: 'string', minLength: 1, maxLength: 2000 },
-          clientId: { type: 'string', enum: ['bzone', 'agnee'] },
+          clientId: { type: 'string', enum: Object.keys(KNOWLEDGE_CLIENT_NAMES) },
         },
       },
     },
@@ -1776,9 +1812,19 @@ async function buildApp(overrides = {}) {
     if (!playgroundKnowledge.loaded) return reply.code(404).send({ error: 'Knowledge client tidak ditemukan.' });
 
     const relevantFaqs = playgroundKnowledge.findRelevantFaq(message);
+
+    // Mirror the live auto-reply path: the company playbook outranks the file
+    // knowledge base, so a test that omits it does not show what customers get.
+    const playbookContext = database.status().connected && request.agneeSession?.companyId
+      ? await database.getPlaybookContext(request.agneeSession.companyId).catch(() => '')
+      : '';
+    const systemPrompt = playbookContext
+      ? `${playgroundKnowledge.getSystemPrompt()}\n\n## PLAYBOOK PERUSAHAAN INI (SUMBER UTAMA — prioritaskan di atas knowledge umum di atas)\n${playbookContext}`
+      : playgroundKnowledge.getSystemPrompt();
+
     const startedAt = Date.now();
     const result = await llmService.generateReply(message, {
-      systemPrompt: playgroundKnowledge.getSystemPrompt(),
+      systemPrompt,
       relevantFaqs,
     });
     if (!result) return reply.code(502).send({ error: 'OpenRouter tidak menghasilkan balasan.' });

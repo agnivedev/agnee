@@ -3,7 +3,9 @@
   "configurations": [
     {
       "name": "Agnee Dev",
-      "url": "http://localhost:4100"
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["-lc", "set -a && source .env 2>/dev/null || true && set +a && WA_STARTUP_ENABLED=false WA_DEMO_MODE=true /opt/homebrew/opt/node@22/bin/node src/server.js"],
+      "port": 4100
     }
   ]
 }

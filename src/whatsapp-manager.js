@@ -203,6 +203,10 @@ class WhatsappManager {
 
     const wa = new Client({
       authStrategy: new LocalAuth({ clientId, dataPath: sessionPath }),
+      // Default 'local' writes ./.wwebjs_cache next to cwd; in the container /app
+      // is root-owned and we run as uid 1000, so that mkdir throws EACCES before
+      // the page helpers get injected and the client never reaches 'ready'.
+      webVersionCache: { type: 'none' },
       puppeteer: {
         headless: true,
         executablePath: resolveBrowserExecutable(),

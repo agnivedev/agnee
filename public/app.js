@@ -1719,10 +1719,16 @@ async function openConnection() {
   ui.qrShell.hidden = true;
   ui.qrNote.textContent = tr('wa.preparing');
   try {
-    const data = await api('/v1/whatsapp/qr');
-    ui.qrImage.src = data.qrDataUrl;
-    ui.qrShell.hidden = false;
-    ui.qrNote.textContent = tr('wa.updated');
+    const data = await api('/v1/whatsapp/qr-refresh', { method: 'POST' });
+    if (data?.qrDataUrl) {
+      ui.qrImage.src = data.qrDataUrl;
+      ui.qrShell.hidden = false;
+      ui.qrNote.textContent = tr('wa.updated');
+    } else {
+      // Server just started the client — SSE will push the QR once generated.
+      ui.qrShell.hidden = true;
+      ui.qrNote.textContent = tr('wa.preparing');
+    }
   } catch {
     ui.qrShell.hidden = true;
     ui.qrNote.textContent = tr('wa.waiting');

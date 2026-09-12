@@ -6,6 +6,19 @@ Semua perubahan penting Agnee dicatat di file ini. Format mengikuti prinsip
 
 ## [Unreleased]
 
+### Added
+
+- **Halaman pengelolaan nomor WhatsApp** di Settings: daftar nomor, tambah
+  nomor, keluarkan/masukkan rotasi, hapus, dan tombol "Scan QR" yang membawa
+  supervisor ke dialog pairing di inbox untuk nomor itu (`/?connect=<id>`).
+  Tanpa ini rotator tidak bisa dipakai sama sekali — API-nya ada tapi tidak
+  ada cara menambah nomor dari aplikasi.
+  Halamannya menyebut batas kapasitas apa adanya: tiap nomor menjalankan
+  browser sendiri dan memakai sekitar 400 MB memori server.
+- Dialog pairing di inbox menerima `connectionId`, dan mengabaikan event fase
+  dari nomor lain selagi memasang satu nomor — kalau tidak, QR nomor kedua bisa
+  tertimpa perubahan fase nomor pertama.
+
 ### Changed
 
 - **`WhatsappManager` kini di-key `connectionId`, bukan `companyId`.** Ini

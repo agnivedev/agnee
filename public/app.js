@@ -245,7 +245,7 @@ function showApp(sessionData) {
     ui.loginView.hidden = true;
     ui.appView.hidden = false;
   });
-  loadWorkspace().then(() => maybeShowOnboarding());
+  loadWorkspace().then(() => { maybeShowOnboarding(); maybeOpenConnectionFromUrl(); });
   connectEvents();
   clearInterval(state.workspaceTimer);
   state.workspaceTimer = setInterval(refreshEmptyInbox, 5000);
@@ -1318,6 +1318,10 @@ function connectEvents() {
     // membawa `account`, jadi menyalinnya mentah-mentah menghapus akun yang
     // sudah diketahui — dan `percent` sebelumnya tidak pernah masuk ke state,
     // sehingga openConnection() membaca syncPercent yang basi.
+    // Saat dialog sedang memasang satu nomor, event fase dari nomor lain tidak
+    // boleh mengubah tampilannya — kalau tidak, QR nomor kedua bisa tertimpa
+    // oleh perubahan fase nomor pertama.
+    if (state.connectingId && payload.connectionId && payload.connectionId !== state.connectingId) return;
     state.whatsapp = {
       ...state.whatsapp,
       phase: payload.phase,
@@ -1690,8 +1694,11 @@ function finishConnectionDialog(account) {
   }, 300);
 }
 
-async function openConnection() {
+async function openConnection(connectionId = null) {
   if (!isCurrentUserSupervisor()) return;
+  // Satu company bisa punya beberapa nomor. `connectionId` memilih nomor mana
+  // yang dipasangkan; tanpa itu, nomor utama.
+  state.connectingId = connectionId || null;
   ui.connectionDialog.showModal();
   ui.qrImage.removeAttribute('src');
   ui.qrShell.hidden = true;
@@ -1734,7 +1741,10 @@ async function openConnection() {
   ui.qrShell.hidden = true;
   ui.qrNote.textContent = tr('wa.preparing');
   try {
-    const data = await api('/v1/whatsapp/qr-refresh', { method: 'POST' });
+    const data = await api('/v1/whatsapp/qr-refresh', {
+      method: 'POST',
+      body: JSON.stringify(state.connectingId ? { connectionId: state.connectingId } : {}),
+    });
     if (data?.qrDataUrl) {
       ui.qrImage.src = data.qrDataUrl;
       ui.qrShell.hidden = false;
@@ -1779,7 +1789,7 @@ async function checkConnection() {
         showDialogQr();
         ui.qrNote.textContent = tr('wa.updated');
       }
-      const data = await api('/v1/whatsapp/qr');
+      const data = await api(`/v1/whatsapp/qr${state.connectingId ? `?connectionId=${encodeURIComponent(state.connectingId)}` : ''}`);
       if (ui.qrImage.src !== data.qrDataUrl) ui.qrImage.src = data.qrDataUrl;
     }
   } catch (error) {
@@ -1973,7 +1983,19 @@ ui.chatList.addEventListener('scroll', () => {
 ui.messageList.addEventListener('scroll', () => {
   if (ui.messageList.scrollTop < 100 && state.hasMoreMessages) loadOlderMessages();
 });
-ui.connectionButton.addEventListener('click', openConnection);
+ui.connectionButton.addEventListener('click', () => openConnection());
+
+/**
+ * Halaman pengaturan menautkan ke sini dengan `?connect=<id>` supaya supervisor
+ * bisa memasang QR untuk nomor tertentu. Parameternya dibersihkan dari URL agar
+ * refresh tidak membuka dialog lagi.
+ */
+function maybeOpenConnectionFromUrl() {
+  const requested = new URLSearchParams(window.location.search).get('connect');
+  if (!requested) return;
+  window.history.replaceState({}, '', window.location.pathname);
+  openConnection(requested);
+}
 ui.inboxButton.addEventListener('click', async () => {
   if (!ui.playgroundPanel.hidden) closePlayground();
   state.activeTab = 'inbox';
@@ -2188,7 +2210,10 @@ if (refreshQrBtn) {
     refreshQrBtn.disabled = true;
     refreshQrBtn.classList.add('loading');
     try {
-      const data = await api('/v1/whatsapp/qr-refresh', { method: 'POST' });
+      const data = await api('/v1/whatsapp/qr-refresh', {
+        method: 'POST',
+        body: JSON.stringify(state.connectingId ? { connectionId: state.connectingId } : {}),
+      });
       if (data?.qrDataUrl) {
         ui.qrImage.src = data.qrDataUrl;
         ui.qrShell.hidden = false;

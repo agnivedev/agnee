@@ -473,6 +473,7 @@ async function init() {
       isAgent ? Promise.resolve() : loadCoachScenarios(),
       isAgent ? Promise.resolve() : loadCloudApiStatus(),
       isAgent ? Promise.resolve() : loadFollowUpSettings(),
+      isAgent ? Promise.resolve() : loadWaNumbers(),
     ]);
   } catch (error) {
     if (error.status === 401) {
@@ -484,6 +485,7 @@ async function init() {
 ui.paymentMethodSelect.addEventListener('change', () => updatePaymentFields(ui.paymentMethodSelect.value));
 ui.savePaymentConfig.addEventListener('click', savePaymentConfig);
 ui.saveFollowUp.addEventListener('click', saveFollowUpSettings);
+waNumbers.add.addEventListener('click', addWaNumber);
 ui.followUpEnabled.addEventListener('change', () => renderFollowUpEnabled(ui.followUpEnabled.checked));
 ui.teamForm.addEventListener('submit', addMember);
 
@@ -1060,6 +1062,124 @@ document.querySelectorAll('input[name="coachMode"]').forEach((radio) => {
 });
 
 // ── WhatsApp Cloud API section ─────────────────────────────────────────────
+
+const waNumbers = {
+  section: document.querySelector('#waNumbersSection'),
+  badge:   document.querySelector('#waNumbersBadge'),
+  list:    document.querySelector('#waNumbersList'),
+  label:   document.querySelector('#waNumberLabel'),
+  add:     document.querySelector('#addWaNumber'),
+  status:  document.querySelector('#waNumberStatus'),
+};
+
+/**
+ * Nomor WhatsApp Web (jalur QR). Pemasangan QR-nya sendiri terjadi di inbox,
+ * karena di sanalah dialog pairing hidup — tombol di sini hanya membawa
+ * supervisor ke dialog itu untuk nomor yang dipilih.
+ */
+function renderWaNumbers(numbers) {
+  waNumbers.badge.textContent = `${numbers.filter((n) => n.phase === 'ready').length}/${numbers.length} tersambung`;
+  waNumbers.badge.className = 'plan-badge-pill plan-company';
+  waNumbers.badge.hidden = false;
+  waNumbers.list.replaceChildren();
+
+  for (const number of numbers) {
+    const row = document.createElement('div');
+    row.className = 'wa-number-row';
+
+    const info = document.createElement('div');
+    const name = document.createElement('strong');
+    name.textContent = number.label || number.connectionKey;
+    const meta = document.createElement('span');
+    meta.className = 'wa-number-meta';
+    meta.textContent = [
+      number.phoneNumber ? number.phoneNumber.replace('@c.us', '') : 'belum terhubung',
+      number.phase === 'ready' ? 'siap' : number.phase,
+      number.isActive ? 'dalam rotasi' : 'tidak menerima percakapan baru',
+    ].filter(Boolean).join(' · ');
+    info.append(name, meta);
+
+    const actions = document.createElement('div');
+    actions.className = 'wa-number-actions';
+
+    const scan = document.createElement('button');
+    scan.type = 'button';
+    scan.className = 'edit-btn';
+    scan.textContent = number.phase === 'ready' ? 'Ganti nomor' : 'Scan QR';
+    scan.addEventListener('click', () => {
+      window.location.href = `/?connect=${encodeURIComponent(number.id)}`;
+    });
+    actions.append(scan);
+
+    const toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = 'edit-btn';
+    toggle.textContent = number.isActive ? 'Keluarkan dari rotasi' : 'Masukkan ke rotasi';
+    toggle.addEventListener('click', async () => {
+      toggle.disabled = true;
+      try {
+        await api(`/v1/whatsapp/numbers/${number.id}`, {
+          method: 'PATCH', body: JSON.stringify({ isActive: !number.isActive }),
+        });
+        await loadWaNumbers();
+      } catch (err) { await AgneeDialog.error(err); toggle.disabled = false; }
+    });
+    actions.append(toggle);
+
+    // Nomor utama adalah identitas WhatsApp company; server menolak menghapusnya.
+    if (number.connectionKey !== 'whatsapp-main') {
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'deactivate-btn';
+      remove.textContent = 'Hapus';
+      remove.addEventListener('click', async () => {
+        const ok = await AgneeDialog.confirm({
+          title: 'Hapus nomor ini?',
+          message: 'Sesi WhatsApp nomor ini diputus dan percakapan yang menempel padanya akan dibalas dari nomor lain. Untuk sekadar menghentikan percakapan baru, pakai "Keluarkan dari rotasi".',
+          confirmLabel: 'Hapus nomor',
+          danger: true,
+        });
+        if (!ok) return;
+        remove.disabled = true;
+        try {
+          await api(`/v1/whatsapp/numbers/${number.id}`, { method: 'DELETE' });
+          await loadWaNumbers();
+        } catch (err) { await AgneeDialog.error(err); remove.disabled = false; }
+      });
+      actions.append(remove);
+    }
+
+    row.append(info, actions);
+    waNumbers.list.append(row);
+  }
+}
+
+async function loadWaNumbers() {
+  try {
+    const data = await api('/v1/whatsapp/numbers');
+    renderWaNumbers(data.numbers || []);
+  } catch {
+    waNumbers.section.hidden = true;
+  }
+}
+
+async function addWaNumber() {
+  waNumbers.add.disabled = true;
+  waNumbers.status.textContent = '';
+  try {
+    await api('/v1/whatsapp/numbers', {
+      method: 'POST',
+      body: JSON.stringify(waNumbers.label.value.trim() ? { label: waNumbers.label.value.trim() } : {}),
+    });
+    waNumbers.label.value = '';
+    waNumbers.status.textContent = 'Nomor ditambahkan. Klik "Scan QR" untuk menghubungkannya.';
+    await loadWaNumbers();
+  } catch (err) {
+    waNumbers.status.textContent = err.message;
+  } finally {
+    waNumbers.add.disabled = false;
+  }
+}
 
 const waCloud = {
   badge:       document.querySelector('#waCloudBadge'),

@@ -8,6 +8,24 @@ Semua perubahan penting Agnee dicatat di file ini. Format mengikuti prinsip
 
 ### Added
 
+- **Catatan pesan masuk (`inbound_messages`, migration 019).** Untuk jalur
+  whatsapp-web.js, database sebelumnya hanya menyimpan balasan KITA
+  (`outbound_replies`) — isi chat customer hanya hidup di dalam browser
+  Chromium. Akibatnya kolom "pesan terakhir" ikut mati setiap kali client
+  WhatsApp bermasalah. Tabel ini menyimpannya untuk kedua provider.
+  Idempotent lewat `UNIQUE (company_id, wa_message_id)`: whatsapp-web.js
+  menembakkan ulang event setelah reconnect dan Meta mengirim ulang webhook
+  yang belum di-ACK, jadi pesan yang sama bisa sampai dua kali.
+  `listLastInboundPerChat()` memberi satu baris per percakapan lewat satu
+  query `DISTINCT ON` — export Sheets butuh itu, dan memanggil per kontak akan
+  menjadi ratusan query tiap sinkronisasi.
+- **Dasar rotator nomor lewat QR** (migration 019): `whatsapp_connections`
+  mendapat `is_active`, dan `whatsapp_chat_numbers` menempelkan percakapan ke
+  satu nomor — cerminan `cloud_chat_numbers` di jalur Cloud API, dengan alasan
+  yang sama. Kolom `connection_id` di `inbound_messages` mencatat nomor mana
+  yang menerima tiap pesan.
+
+
 - **Rotator nomor WhatsApp lewat Cloud API** (migration 018). Satu company kini
   boleh punya banyak nomor: `UNIQUE (company_id)` dilepas dan diganti
   `UNIQUE (company_id, phone_number_id)`. `phone_number_id` tetap unik global

@@ -1357,6 +1357,66 @@ class Database {
     return result.rows;
   }
 
+  // ── Catatan pesan masuk (kedua provider) ─────────────────────────────────
+
+  /**
+   * Catat satu pesan masuk.
+   *
+   * Idempotent lewat `UNIQUE (company_id, wa_message_id)`: whatsapp-web.js
+   * menembakkan ulang event setelah reconnect dan Meta mengirim ulang webhook
+   * yang belum di-ACK, jadi pesan yang sama bisa sampai dua kali.
+   *
+   * @returns {Promise<boolean>} true kalau baris baru benar-benar ditulis.
+   */
+  async recordInboundMessage(companyId, {
+    chatId, connectionId = null, provider, waMessageId = null,
+    body = null, messageType = 'text', timestamp,
+  }) {
+    if (!this.enabled) return false;
+    const result = await this.pool.query(`
+      INSERT INTO inbound_messages
+        (company_id, chat_id, connection_id, provider, wa_message_id, body, message_type, timestamp)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      ON CONFLICT (company_id, wa_message_id) DO NOTHING
+    `, [companyId, chatId, connectionId, provider, waMessageId, body, messageType, timestamp]);
+    return result.rowCount > 0;
+  }
+
+  /** Pesan masuk terakhir untuk satu percakapan. */
+  async getLastInboundMessage(companyId, chatId) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      SELECT chat_id AS "chatId", body, message_type AS "messageType",
+             timestamp, connection_id AS "connectionId", provider
+      FROM inbound_messages
+      WHERE company_id = $1 AND chat_id = $2
+      ORDER BY timestamp DESC, id DESC
+      LIMIT 1
+    `, [companyId, chatId]);
+    return result.rows[0] || null;
+  }
+
+  /**
+   * Pesan masuk terakhir untuk SETIAP percakapan sebuah company.
+   *
+   * Dipakai export Google Sheets, yang butuh satu baris per kontak. Dikerjakan
+   * dengan DISTINCT ON di satu query — memanggil getLastInboundMessage per
+   * kontak akan menjadi ratusan query tiap sinkronisasi.
+   */
+  async listLastInboundPerChat(companyId, limit = 1000) {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(`
+      SELECT DISTINCT ON (chat_id)
+             chat_id AS "chatId", body, message_type AS "messageType",
+             timestamp, connection_id AS "connectionId", provider
+      FROM inbound_messages
+      WHERE company_id = $1
+      ORDER BY chat_id, timestamp DESC, id DESC
+      LIMIT $2
+    `, [companyId, limit]);
+    return result.rows;
+  }
+
   // ── WhatsApp Cloud API connection helpers ────────────────────────────────
   // Each company owns its own WABA/phone number/access token — never a
   // shared or global connection. access_token/app_secret are encrypted at

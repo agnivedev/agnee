@@ -391,8 +391,22 @@ async function buildApp(overrides = {}) {
    * `timestamp`, `reply(text)`) before calling this, so this function never
    * needs to know which provider produced the message.
    */
-  async function handleInboundMessage(companyId, message) {
+  async function handleInboundMessage(companyId, message, meta = {}) {
     rememberInbound(companyId, message.from, message.body);
+    // Catat pesan masuk supaya "pesan terakhir" tetap terbaca walau client
+    // WhatsApp sedang bermasalah. Untuk jalur whatsapp-web.js, sebelum ini isi
+    // chat customer hanya hidup di dalam browser Chromium.
+    if (database.enabled && database.connected) {
+      await database.recordInboundMessage(companyId, {
+        chatId: message.from,
+        connectionId: meta.connectionId || null,
+        provider: meta.provider || 'whatsapp_web',
+        waMessageId: message.id?._serialized || null,
+        body: message.body || null,
+        messageType: message.type || 'text',
+        timestamp: message.timestamp || Math.floor(Date.now() / 1000),
+      }).catch((error) => app.log.warn({ err: error }, 'Could not record inbound message'));
+    }
     // The customer spoke, so any follow-up sequence for this chat is over.
     // Done before the AI reply so a slow model can't leave a stale sequence
     // running long enough for the scheduler to send on top of a live reply.
@@ -1298,7 +1312,9 @@ async function buildApp(overrides = {}) {
               broadcastEvent(conn.companyId, 'message', { chatId, fromMe: true, body: text, timestamp: sent.timestamp });
             },
           };
-          handleInboundMessage(conn.companyId, fakeMessage).catch((err) => {
+          handleInboundMessage(conn.companyId, fakeMessage, {
+            provider: 'cloud_api', connectionId: conn.id,
+          }).catch((err) => {
             app.log.warn({ err, companyId: conn.companyId }, 'Cloud API inbound pipeline error');
           });
         }

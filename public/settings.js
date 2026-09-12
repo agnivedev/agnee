@@ -23,6 +23,15 @@ const ui = {
   paymentNotesInput: document.querySelector('#paymentNotesInput'),
   savePaymentConfig: document.querySelector('#savePaymentConfig'),
   paymentSaved: document.querySelector('#paymentSaved'),
+  followUpEnabled: document.querySelector('#followUpEnabled'),
+  followUpEnabledLabel: document.querySelector('#followUpEnabledLabel'),
+  followUpDayCaps: document.querySelector('#followUpDayCaps'),
+  followUpMinGap: document.querySelector('#followUpMinGap'),
+  followUpFromHour: document.querySelector('#followUpFromHour'),
+  followUpToHour: document.querySelector('#followUpToHour'),
+  followUpStats: document.querySelector('#followUpStats'),
+  saveFollowUp: document.querySelector('#saveFollowUp'),
+  followUpSaved: document.querySelector('#followUpSaved'),
   teamMembers: document.querySelector('#teamMembers'),
   teamForm: document.querySelector('#teamForm'),
   teamStatus: document.querySelector('#teamStatus'),
@@ -132,18 +141,89 @@ function updatePaymentFields(method) {
   ui.bankTransferFields.hidden = !(method === 'bank_transfer' || method === 'both');
 }
 
+// ── Tindak lanjut otomatis ──────────────────────────────────────────────────
+
+/** "1,1,1" -> [1,1,1]. Menolak yang di luar batas yang diterima server. */
+function parseDayCaps(raw) {
+  const caps = String(raw || '')
+    .split(',')
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map(Number);
+  if (!caps.length || caps.length > 7) return null;
+  if (caps.some((n) => !Number.isInteger(n) || n < 0 || n > 10)) return null;
+  return caps;
+}
+
+function renderFollowUpEnabled(enabled) {
+  ui.followUpEnabledLabel.textContent = enabled ? tr('fu.on') : tr('fu.off');
+}
+
+async function loadFollowUpSettings() {
+  try {
+    const data = await api('/v1/follow-up/settings');
+    ui.followUpEnabled.checked = Boolean(data.enabled);
+    renderFollowUpEnabled(data.enabled);
+    ui.followUpDayCaps.value = (data.dayCaps || []).join(',');
+    ui.followUpMinGap.value = data.minGapMinutes ?? 120;
+    ui.followUpFromHour.value = data.sendFromHour ?? 8;
+    ui.followUpToHour.value = data.sendToHour ?? 21;
+    const s = data.stats || {};
+    ui.followUpStats.textContent = [
+      tr('fu.statsSent', { count: s.sent ?? 0 }),
+      tr('fu.statsReplied', { count: s.replied ?? 0 }),
+      tr('fu.statsActive', { count: s.active ?? 0 }),
+    ].join(' · ');
+  } catch {
+    // Bukan bagian kritis halaman — biarkan section-nya diam kalau gagal.
+  }
+}
+
+async function saveFollowUpSettings() {
+  const dayCaps = parseDayCaps(ui.followUpDayCaps.value);
+  if (!dayCaps) {
+    await AgneeDialog.alert({ title: tr('fu.capsInvalidTitle'), message: tr('fu.capsInvalidCopy') });
+    return;
+  }
+  ui.saveFollowUp.disabled = true;
+  try {
+    const saved = await api('/v1/follow-up/settings', {
+      method: 'PATCH',
+      body: JSON.stringify({
+        enabled: ui.followUpEnabled.checked,
+        dayCaps,
+        minGapMinutes: Number(ui.followUpMinGap.value) || 120,
+        sendFromHour: Number(ui.followUpFromHour.value),
+        sendToHour: Number(ui.followUpToHour.value),
+      }),
+    });
+    renderFollowUpEnabled(saved.enabled);
+    ui.followUpSaved.hidden = false;
+    setTimeout(() => { ui.followUpSaved.hidden = true; }, 2500);
+  } catch (err) {
+    await AgneeDialog.error(err);
+  } finally {
+    ui.saveFollowUp.disabled = false;
+  }
+}
+
 async function savePaymentConfig() {
   ui.savePaymentConfig.disabled = true;
   try {
     const method = ui.paymentMethodSelect.value;
+    // 'both' harus mengirim kedua kelompok field. Kalau dicek dengan
+    // perbandingan persis ke 'link'/'bank_transfer', memilih "keduanya" justru
+    // menyimpan dua-duanya kosong.
+    const usesLink = method === 'link' || method === 'both';
+    const usesBank = method === 'bank_transfer' || method === 'both';
     await api('/v1/admin/company', {
       method: 'PATCH',
       body: JSON.stringify({
         paymentMethod: method,
-        paymentLink: method === 'link' ? ui.paymentLinkInput.value.trim() : '',
-        bankName: method === 'bank_transfer' ? ui.bankNameInput.value.trim() : '',
-        bankAccount: method === 'bank_transfer' ? ui.bankAccountInput.value.trim() : '',
-        bankHolder: method === 'bank_transfer' ? ui.bankHolderInput.value.trim() : '',
+        paymentLink: usesLink ? ui.paymentLinkInput.value.trim() : '',
+        bankName: usesBank ? ui.bankNameInput.value.trim() : '',
+        bankAccount: usesBank ? ui.bankAccountInput.value.trim() : '',
+        bankHolder: usesBank ? ui.bankHolderInput.value.trim() : '',
         paymentNotes: ui.paymentNotesInput.value.trim(),
       }),
     });
@@ -392,6 +472,7 @@ async function init() {
       isAgent ? Promise.resolve() : loadCoachFacts(),
       isAgent ? Promise.resolve() : loadCoachScenarios(),
       isAgent ? Promise.resolve() : loadCloudApiStatus(),
+      isAgent ? Promise.resolve() : loadFollowUpSettings(),
     ]);
   } catch (error) {
     if (error.status === 401) {
@@ -402,6 +483,8 @@ async function init() {
 
 ui.paymentMethodSelect.addEventListener('change', () => updatePaymentFields(ui.paymentMethodSelect.value));
 ui.savePaymentConfig.addEventListener('click', savePaymentConfig);
+ui.saveFollowUp.addEventListener('click', saveFollowUpSettings);
+ui.followUpEnabled.addEventListener('change', () => renderFollowUpEnabled(ui.followUpEnabled.checked));
 ui.teamForm.addEventListener('submit', addMember);
 
 

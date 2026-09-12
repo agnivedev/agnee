@@ -8,6 +8,25 @@ Semua perubahan penting Agnee dicatat di file ini. Format mengikuti prinsip
 
 ### Added
 
+- **Halaman pengaturan tindak lanjut** di Settings. Mesinnya, API-nya, dan
+  kunci terjemahannya sudah ada sejak rilis follow-up, tapi tidak pernah ada
+  antarmukanya — supervisor tidak punya cara menyalakan atau mengatur plafon
+  selain memanggil API langsung. Sekarang ada: sakelar aktif/nonaktif, batas
+  kirim per hari, jarak minimum antar pesan, jam kirim, dan ringkasan berapa
+  yang terkirim/dibalas/sedang berjalan.
+  Salinan di halaman itu menegaskan hal yang paling sering disalahpahami:
+  angkanya batas atas, bukan target, dan menyalakannya TIDAK menyasar
+  percakapan lama — rangkaian hanya dimulai untuk chat baru sesudahnya.
+
+### Fixed
+
+- **Memilih "Link pembayaran + transfer bank" justru menyimpan dua-duanya
+  kosong.** `savePaymentConfig()` membandingkan metode persis ke `'link'` /
+  `'bank_transfer'`, jadi nilai `'both'` yang baru tidak cocok dengan keduanya
+  dan semua field dikirim sebagai string kosong. Ditemukan saat menelusuri
+  jalur simpan setelah menambahkan opsinya.
+
+
 - **Pembayaran boleh link DAN transfer bank sekaligus** (`payment_method = 'both'`,
   migration 017). Sebelumnya metodenya eksklusif, jadi company yang menerima
   keduanya — pola lumrah di Indonesia — harus memilih satu dan yang satunya

@@ -374,3 +374,21 @@ button, select, textarea { font: inherit; }
   .ui-dialog-actions { flex-direction: column-reverse; }
   .ui-dialog-actions button { width: 100%; }
 }
+
+/* Tindak lanjut otomatis — toggle dan pasangan jam kirim. */
+.fu-toggle-row {
+  display: flex;
+  align-items: center;
+  gap: .55rem;
+  flex-direction: row;
+}
+.fu-toggle-row input[type="checkbox"] {
+  width: auto;
+  margin: 0;
+}
+.fu-window {
+  display: flex;
+  gap: .75rem;
+  flex-wrap: wrap;
+}
+.fu-window label { flex: 1 1 9rem; }

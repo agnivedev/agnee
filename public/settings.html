@@ -103,6 +103,36 @@
         </div>
       </section>
 
+      <section id="followUpSection" class="team-card" aria-labelledby="followUpTitle">
+        <div class="card-head"><div><p class="eyebrow">TINDAK LANJUT</p><h2 id="followUpTitle">Sapa lagi lead yang diam</h2></div></div>
+        <p class="team-copy">Kalau customer berhenti membalas, AI menyapa kembali. Angka di bawah adalah <strong>batas atas, bukan target</strong> — AI hanya mengirim kalau ada yang layak disampaikan, dan berhenti begitu customer membalas atau agent mengambil alih chat. Percakapan lama tidak ikut disapa; rangkaian hanya dimulai untuk chat baru setelah fitur ini dinyalakan.</p>
+        <div class="plan-config" id="followUpConfig">
+          <label class="fu-toggle-row">
+            <input id="followUpEnabled" type="checkbox">
+            <span id="followUpEnabledLabel">Nonaktif</span>
+          </label>
+          <label>Maksimal kirim per hari <small>(pisahkan dengan koma — <code>1,1,1</code> berarti tiga hari, satu pesan tiap hari)</small>
+            <input id="followUpDayCaps" type="text" placeholder="1,1,1" maxlength="30">
+          </label>
+          <label>Jarak minimum antar pesan <small>(menit)</small>
+            <input id="followUpMinGap" type="number" min="30" max="1440" step="10">
+          </label>
+          <div class="fu-window">
+            <label>Kirim mulai jam
+              <input id="followUpFromHour" type="number" min="0" max="23">
+            </label>
+            <label>sampai jam <small>(WIB)</small>
+              <input id="followUpToHour" type="number" min="0" max="23">
+            </label>
+          </div>
+          <p class="team-copy" id="followUpStats"></p>
+          <div class="model-chain-actions" style="margin-top:.5rem">
+            <button id="saveFollowUp" class="save-settings-btn" type="button">Simpan tindak lanjut</button>
+            <span id="followUpSaved" class="settings-saved-badge" hidden>Tersimpan ✓</span>
+          </div>
+        </div>
+      </section>
+
       <section id="coachSection" class="team-card" aria-labelledby="coachTitle">
         <div class="card-head">
           <div><p class="eyebrow">KUALITAS BALASAN</p><h2 id="coachTitle">Latihan &amp; penilaian</h2></div>

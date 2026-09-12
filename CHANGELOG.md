@@ -166,6 +166,29 @@ Semua perubahan penting Agnee dicatat di file ini. Format mengikuti prinsip
 - **Hapus dokumen playbook tidak punya konfirmasi apa pun** — sekali klik
   langsung terhapus, padahal isinya dipakai AI sebagai sumber jawaban.
 
+### Belum dikerjakan — antrean per 2026-09-12
+
+1. **Rotator nomor WhatsApp** — jalur belum dipilih. Skema `whatsapp_connections`
+   sudah mendukung banyak nomor (`UNIQUE (company_id, connection_key)`), tapi
+   kodenya mengunci `connection_key = 'whatsapp-main'` dan `WhatsappManager`
+   di-key `companyId` saja. Biaya terukur: satu nomor lewat WhatsApp Web =
+   ~400 MB + ~118 pid; lewat Cloud API ~0.
+2. **Export Google Sheets** — belum mulai. Diblokir kredensial service account
+   per company.
+3. **Tabel pesan masuk** — belum ada. Untuk WhatsApp Web, DB hanya menyimpan
+   balasan kita (`outbound_replies`); isi chat customer hanya hidup di browser.
+   Ini memblokir kolom "chat terakhir" pada nomor 2.
+4. **UI kirim tindak lanjut manual** — route `/v1/follow-up/draft` dan `/send`
+   plus kunci i18n `fu.manual*` sudah ada, tapi belum punya antarmuka di mana
+   pun. Tempatnya di inbox, per percakapan.
+5. **Konfigurasi produksi yang belum diisi** — pembayaran keempat company masih
+   `none`; tindak lanjut belum dinyalakan untuk siapa pun; `[LINK_AKSES]` masih
+   placeholder di `chart-campaign.md`.
+6. **Kecil** — balasan "yakinin aku" masih ~163 kata setelah satu kali tulis
+   ulang (batas 150; panjang sengaja diperlakukan sebagai pelanggaran lunak).
+   `/v1/admin/playground/auto-reply` masih satu pesan tanpa history, jadi kasus
+   multi-turn tidak bisa diuji dari sana.
+
 ### Known issues — status per 2026-09-12
 
 Poin 1 dan 3 sudah diperbaiki (lihat Added di atas). Poin 2 **sengaja tidak

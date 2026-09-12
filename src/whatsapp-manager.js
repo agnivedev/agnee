@@ -111,12 +111,17 @@ class WhatsappManager {
   _markReady(companyId, account, log, onStatusUpdate) {
     const entry = this._getEntry(companyId);
     const state = entry.state;
+    const resolved = account || null;
+    // Watchdog dan event 'ready' bawaan whatsapp-web.js bisa sampai duluan
+    // bergantian. Tanpa penjaga ini keduanya menyiarkan 'ready', dan setiap
+    // browser yang terhubung memuat ulang workspace dua kali.
+    if (state.phase === 'ready' && state.account === resolved) return;
     this._clearQrMirror(companyId);
     clearTimeout(entry.restoredSessionTimer);
     entry.restoredSessionTimer = null;
     state.phase = 'ready';
     state.connectedAt = new Date().toISOString();
-    state.account = account || null;
+    state.account = resolved;
     state.qrDataUrl = null;
     state.qrPayload = null;
     state.qrGeneratedAt = null;

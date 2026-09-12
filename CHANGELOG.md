@@ -37,6 +37,9 @@ Semua perubahan penting Agnee dicatat di file ini. Format mengikuti prinsip
   lupa membersihkan `qrDataUrl`/`syncPercent`, sehingga status publik masih
   melaporkan `hasQr: true` padahal sudah tersambung. Sekarang keduanya lewat
   satu `_markReady()`.
+- **Fase `ready` disiarkan dua kali.** Watchdog dan event `ready` bawaan
+  whatsapp-web.js bisa sampai duluan bergantian, sehingga setiap browser yang
+  terhubung memuat ulang workspace dua kali di setiap koneksi.
 - **Frontend menghapus field status yang tidak dikirim event.** Handler SSE
   menyalin `payload.account` mentah-mentah, jadi setiap event `syncing`
   (yang tidak membawa akun) menghapus akun yang sudah diketahui; `percent` juga

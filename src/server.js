@@ -1264,6 +1264,10 @@ async function buildApp(overrides = {}) {
 
         for (const msg of value.messages || []) {
           const chatId = msg.from;
+          // Nomor yang MENERIMA pesan ini adalah kebenaran paling kuat soal
+          // nomor mana yang dipakai percakapan ini. Tempelkan sebelum apa pun
+          // membalas, supaya balasan tidak keluar dari nomor lain.
+          await cloudApiManager.attachInbound(conn.companyId, chatId, conn.id).catch(() => {});
           const body = msg.type === 'text' ? (msg.text?.body || '') : `[${msg.type}]`;
           const timestamp = Number(msg.timestamp) || Math.floor(Date.now() / 1000);
           const waMessageId = msg.id;
@@ -2923,20 +2927,72 @@ Aturan:
           wabaId:        { type: 'string', minLength: 1, maxLength: 64 },
           accessToken:   { type: 'string', minLength: 10, maxLength: 512 },
           appSecret:     { type: 'string', minLength: 10, maxLength: 256 },
+          label:         { type: 'string', maxLength: 60 },
         },
       },
     },
   }, async (request, reply) => {
     if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengonfigurasi koneksi.' });
     const companyId = request.agneeSession.companyId;
-    const { phoneNumberId, wabaId, accessToken, appSecret } = request.body;
+    const { phoneNumberId, wabaId, accessToken, appSecret, label } = request.body;
     try {
-      const conn = await cloudApiManager.connect(companyId, { phoneNumberId, wabaId, accessToken, appSecret });
+      // Menambah nomor kedua dan seterusnya lewat route yang sama: sejak
+      // migration 018 satu company boleh punya banyak nomor, dan upsert-nya
+      // dikunci pada (company_id, phone_number_id).
+      const conn = await cloudApiManager.connect(companyId, { phoneNumberId, wabaId, accessToken, appSecret, label: label || null });
       await database.updateCompanyConfig({ whatsappProvider: 'cloud_api' }, companyId);
-      return { ok: true, phoneNumberId: conn.phoneNumberId, wabaId: conn.wabaId, displayPhoneNumber: conn.displayPhoneNumber };
+      return { ok: true, id: conn.id, phoneNumberId: conn.phoneNumberId, wabaId: conn.wabaId, displayPhoneNumber: conn.displayPhoneNumber, label: conn.label, isActive: conn.isActive };
     } catch (err) {
       return reply.code(422).send({ error: err.message });
     }
+  });
+
+  /** Daftar nomor dalam rotasi, tanpa kredensial. */
+  app.get('/v1/whatsapp/cloud-api/numbers', async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat melihat koneksi.' });
+    const rows = await cloudApiManager.listConnections(request.agneeSession.companyId);
+    // accessToken dan appSecret sengaja tidak ikut: tidak ada alasan browser
+    // perlu melihatnya, dan sekali terkirim ia ada di riwayat jaringan.
+    return {
+      numbers: rows.map((row) => ({
+        id: row.id,
+        phoneNumberId: row.phoneNumberId,
+        displayPhoneNumber: row.displayPhoneNumber,
+        label: row.label,
+        isActive: row.isActive,
+        status: row.status,
+        lastError: row.lastError,
+      })),
+    };
+  });
+
+  /** Keluarkan/masukkan satu nomor dari rotasi percakapan BARU. */
+  app.patch('/v1/whatsapp/cloud-api/numbers/:id', {
+    schema: {
+      params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } },
+      body: {
+        type: 'object', required: ['isActive'], additionalProperties: false,
+        properties: { isActive: { type: 'boolean' } },
+      },
+    },
+  }, async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengubah koneksi.' });
+    const updated = await database.setCloudApiConnectionActive(
+      request.agneeSession.companyId, request.params.id, request.body.isActive,
+    );
+    if (!updated) return reply.code(404).send({ error: 'Nomor tidak ditemukan.' });
+    // Percakapan yang sudah menempel TIDAK dilepas: menonaktifkan hanya
+    // menghentikan nomor ini menerima percakapan baru.
+    return { ok: true, id: updated.id, isActive: updated.isActive };
+  });
+
+  app.delete('/v1/whatsapp/cloud-api/numbers/:id', {
+    schema: { params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } } },
+  }, async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengubah koneksi.' });
+    const removed = await database.deleteCloudApiConnection(request.agneeSession.companyId, request.params.id);
+    if (!removed) return reply.code(404).send({ error: 'Nomor tidak ditemukan.' });
+    return { ok: true };
   });
 
   app.delete('/v1/whatsapp/cloud-api/connect', async (request, reply) => {

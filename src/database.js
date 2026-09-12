@@ -1372,9 +1372,94 @@ class Database {
              status, last_error AS "lastError", connected_at AS "connectedAt"
       FROM whatsapp_cloud_connections
       WHERE company_id = $1
+      ORDER BY is_active DESC, created_at ASC
       LIMIT 1
     `, [companyId, this.credentialsEncryptionKey]);
     return result.rows[0] || null;
+  }
+
+  /** Semua nomor Cloud API milik satu company, untuk rotator dan UI. */
+  async listCloudApiConnections(companyId) {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(`
+      SELECT id, company_id AS "companyId", phone_number_id AS "phoneNumberId",
+             waba_id AS "wabaId", display_phone_number AS "displayPhoneNumber",
+             label, is_active AS "isActive",
+             pgp_sym_decrypt(access_token_enc, $2) AS "accessToken",
+             pgp_sym_decrypt(app_secret_enc, $2) AS "appSecret",
+             status, last_error AS "lastError", connected_at AS "connectedAt"
+      FROM whatsapp_cloud_connections
+      WHERE company_id = $1
+      ORDER BY created_at ASC
+    `, [companyId, this.credentialsEncryptionKey]);
+    return result.rows;
+  }
+
+  async setCloudApiConnectionActive(companyId, id, isActive) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      UPDATE whatsapp_cloud_connections SET is_active = $3, updated_at = NOW()
+      WHERE company_id = $1 AND id = $2
+      RETURNING id, is_active AS "isActive"
+    `, [companyId, id, isActive]);
+    return result.rows[0] || null;
+  }
+
+  async deleteCloudApiConnection(companyId, id) {
+    if (!this.enabled) return false;
+    const result = await this.pool.query(
+      'DELETE FROM whatsapp_cloud_connections WHERE company_id = $1 AND id = $2',
+      [companyId, id],
+    );
+    return result.rowCount > 0;
+  }
+
+  /** Nomor yang sudah menempel pada satu percakapan, atau null. */
+  async getCloudChatNumber(companyId, chatId) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      SELECT c.id, c.phone_number_id AS "phoneNumberId", c.is_active AS "isActive",
+             c.display_phone_number AS "displayPhoneNumber", c.label,
+             pgp_sym_decrypt(c.access_token_enc, $3) AS "accessToken",
+             pgp_sym_decrypt(c.app_secret_enc, $3) AS "appSecret"
+      FROM cloud_chat_numbers n
+      JOIN whatsapp_cloud_connections c ON c.id = n.connection_id
+      WHERE n.company_id = $1 AND n.chat_id = $2
+    `, [companyId, chatId, this.credentialsEncryptionKey]);
+    return result.rows[0] || null;
+  }
+
+  /**
+   * Tempelkan percakapan ke satu nomor. Idempotent: percakapan yang sudah
+   * punya nomor TIDAK dipindahkan, karena memindahkannya akan membuat balasan
+   * datang dari nomor asing di sisi customer.
+   */
+  async assignCloudChatNumber(companyId, chatId, connectionId) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      INSERT INTO cloud_chat_numbers (company_id, chat_id, connection_id)
+      VALUES ($1, $2, $3)
+      ON CONFLICT (company_id, chat_id) DO NOTHING
+      RETURNING connection_id AS "connectionId"
+    `, [companyId, chatId, connectionId]);
+    return result.rows[0] || null;
+  }
+
+  /**
+   * Jumlah percakapan yang menempel per nomor aktif. Rotator memilih yang
+   * paling sedikit, jadi beban menyebar walau nomor ditambah belakangan.
+   */
+  async countCloudChatsPerConnection(companyId) {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(`
+      SELECT c.id, COUNT(n.chat_id)::int AS "chatCount"
+      FROM whatsapp_cloud_connections c
+      LEFT JOIN cloud_chat_numbers n ON n.connection_id = c.id
+      WHERE c.company_id = $1 AND c.is_active AND c.status = 'connected'
+      GROUP BY c.id
+      ORDER BY COUNT(n.chat_id) ASC, c.created_at ASC
+    `, [companyId]);
+    return result.rows;
   }
 
   async getCloudApiConnectionByPhoneNumberId(phoneNumberId) {
@@ -1392,14 +1477,13 @@ class Database {
     return result.rows[0] || null;
   }
 
-  async upsertCloudApiConnection(companyId, { phoneNumberId, wabaId, displayPhoneNumber = null, accessToken, appSecret }) {
+  async upsertCloudApiConnection(companyId, { phoneNumberId, wabaId, displayPhoneNumber = null, accessToken, appSecret, label = null }) {
     if (!this.enabled) return null;
     const result = await this.pool.query(`
       INSERT INTO whatsapp_cloud_connections
-        (company_id, phone_number_id, waba_id, display_phone_number, access_token_enc, app_secret_enc, status, connected_at)
-      VALUES ($1, $2, $3, $4, pgp_sym_encrypt($5, $7), pgp_sym_encrypt($6, $7), 'connected', NOW())
-      ON CONFLICT (company_id) DO UPDATE SET
-        phone_number_id = EXCLUDED.phone_number_id,
+        (company_id, phone_number_id, waba_id, display_phone_number, access_token_enc, app_secret_enc, status, connected_at, label)
+      VALUES ($1, $2, $3, $4, pgp_sym_encrypt($5, $7), pgp_sym_encrypt($6, $7), 'connected', NOW(), $8)
+      ON CONFLICT (company_id, phone_number_id) DO UPDATE SET
         waba_id = EXCLUDED.waba_id,
         display_phone_number = COALESCE(EXCLUDED.display_phone_number, whatsapp_cloud_connections.display_phone_number),
         access_token_enc = EXCLUDED.access_token_enc,
@@ -1407,10 +1491,13 @@ class Database {
         status = 'connected',
         last_error = NULL,
         connected_at = NOW(),
+        label = COALESCE(EXCLUDED.label, whatsapp_cloud_connections.label),
+        is_active = true,
         updated_at = NOW()
       RETURNING id, phone_number_id AS "phoneNumberId", waba_id AS "wabaId",
-                display_phone_number AS "displayPhoneNumber", status
-    `, [companyId, phoneNumberId, wabaId, displayPhoneNumber, accessToken, appSecret, this.credentialsEncryptionKey]);
+                display_phone_number AS "displayPhoneNumber", label,
+                is_active AS "isActive", status
+    `, [companyId, phoneNumberId, wabaId, displayPhoneNumber, accessToken, appSecret, this.credentialsEncryptionKey, label]);
     return result.rows[0] || null;
   }
 

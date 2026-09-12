@@ -392,3 +392,31 @@ button, select, textarea { font: inherit; }
   flex-wrap: wrap;
 }
 .fu-window label { flex: 1 1 9rem; }
+
+/* Rotator Cloud API — daftar nomor dalam rotasi. */
+.wa-number-list {
+  display: flex;
+  flex-direction: column;
+  gap: .5rem;
+}
+.wa-number-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .75rem;
+  flex-wrap: wrap;
+  padding: .6rem .75rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.wa-number-meta {
+  display: block;
+  margin-top: 2px;
+  font-size: .78rem;
+  color: var(--muted);
+}
+.wa-number-actions {
+  display: flex;
+  gap: .4rem;
+  flex-wrap: wrap;
+}

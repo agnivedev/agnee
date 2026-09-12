@@ -1063,9 +1063,9 @@ document.querySelectorAll('input[name="coachMode"]').forEach((radio) => {
 
 const waCloud = {
   badge:       document.querySelector('#waCloudBadge'),
+  numbers:     document.querySelector('#waCloudNumbers'),
+  label:       document.querySelector('#waLabel'),
   connected:   document.querySelector('#waCloudConnected'),
-  phone:       document.querySelector('#waCloudPhone'),
-  wabaId:      document.querySelector('#waCloudWabaId'),
   webhookUrl:  document.querySelector('#waCloudWebhookUrl'),
   form:        document.querySelector('#waCloudForm'),
   disconnect:  document.querySelector('#waCloudDisconnect'),
@@ -1076,33 +1076,87 @@ const waCloud = {
   status:      document.querySelector('#waCloudStatus'),
 };
 
-function showCloudConnected(conn) {
-  waCloud.phone.textContent = conn.displayPhoneNumber || conn.phoneNumberId;
-  waCloud.wabaId.textContent = `WABA ID: ${conn.wabaId}`;
-  waCloud.webhookUrl.textContent = `${window.location.origin}/webhook/meta`;
-  waCloud.badge.textContent = 'Terhubung ✓';
-  waCloud.badge.className = 'plan-badge-pill plan-company';
+/**
+ * Rotator: formulir tambah nomor selalu terlihat, karena menambah nomor kedua
+ * dan seterusnya adalah alur normal — bukan perbaikan koneksi yang rusak.
+ */
+function renderCloudNumbers(numbers) {
+  const hasAny = numbers.length > 0;
+  waCloud.badge.textContent = hasAny
+    ? `${numbers.filter((n) => n.isActive).length} nomor aktif`
+    : 'Belum terhubung';
+  waCloud.badge.className = `plan-badge-pill ${hasAny ? 'plan-company' : 'plan-personal'}`;
   waCloud.badge.hidden = false;
-  waCloud.connected.hidden = false;
-  waCloud.form.hidden = true;
+  waCloud.connected.hidden = !hasAny;
+  waCloud.webhookUrl.textContent = `${window.location.origin}/webhook/meta`;
+
+  waCloud.numbers.replaceChildren();
+  for (const number of numbers) {
+    const row = document.createElement('div');
+    row.className = 'wa-number-row';
+
+    const info = document.createElement('div');
+    const name = document.createElement('strong');
+    name.textContent = number.label || number.displayPhoneNumber || number.phoneNumberId;
+    const meta = document.createElement('span');
+    meta.className = 'wa-number-meta';
+    meta.textContent = [
+      number.displayPhoneNumber && number.label ? number.displayPhoneNumber : '',
+      number.isActive ? 'dalam rotasi' : 'tidak menerima percakapan baru',
+      number.status === 'connected' ? '' : `status: ${number.status}`,
+    ].filter(Boolean).join(' · ');
+    info.append(name, meta);
+
+    const actions = document.createElement('div');
+    actions.className = 'wa-number-actions';
+
+    const toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = 'edit-btn';
+    toggle.textContent = number.isActive ? 'Keluarkan dari rotasi' : 'Masukkan ke rotasi';
+    toggle.addEventListener('click', async () => {
+      toggle.disabled = true;
+      try {
+        await api(`/v1/whatsapp/cloud-api/numbers/${number.id}`, {
+          method: 'PATCH', body: JSON.stringify({ isActive: !number.isActive }),
+        });
+        await loadCloudApiStatus();
+      } catch (err) { await AgneeDialog.error(err); toggle.disabled = false; }
+    });
+
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'deactivate-btn';
+    remove.textContent = 'Hapus';
+    remove.addEventListener('click', async () => {
+      const ok = await AgneeDialog.confirm({
+        title: 'Hapus nomor ini?',
+        message: 'Percakapan yang menempel pada nomor ini ikut terhapus dari pemetaan, dan balasan berikutnya akan keluar dari nomor lain. Untuk sekadar menghentikan percakapan baru, pakai "Keluarkan dari rotasi".',
+        confirmLabel: 'Hapus nomor',
+        danger: true,
+      });
+      if (!ok) return;
+      remove.disabled = true;
+      try {
+        await api(`/v1/whatsapp/cloud-api/numbers/${number.id}`, { method: 'DELETE' });
+        await loadCloudApiStatus();
+      } catch (err) { await AgneeDialog.error(err); remove.disabled = false; }
+    });
+
+    actions.append(toggle, remove);
+    row.append(info, actions);
+    waCloud.numbers.append(row);
+  }
 }
 
 function showCloudDisconnected() {
-  waCloud.badge.textContent = 'Belum terhubung';
-  waCloud.badge.className = 'plan-badge-pill plan-personal';
-  waCloud.badge.hidden = false;
-  waCloud.connected.hidden = true;
-  waCloud.form.hidden = false;
+  renderCloudNumbers([]);
 }
 
 async function loadCloudApiStatus() {
   try {
-    const data = await api('/v1/whatsapp/status');
-    if (data.provider === 'cloud_api' && data.phase === 'ready') {
-      showCloudConnected({ displayPhoneNumber: data.account, phoneNumberId: '', wabaId: '' });
-    } else {
-      showCloudDisconnected();
-    }
+    const data = await api('/v1/whatsapp/cloud-api/numbers');
+    renderCloudNumbers(data.numbers || []);
   } catch { showCloudDisconnected(); }
 }
 
@@ -1112,17 +1166,21 @@ waCloud.form.addEventListener('submit', async (e) => {
   const btn = waCloud.form.querySelector('#waCloudConnect');
   btn.disabled = true;
   try {
-    const conn = await api('/v1/whatsapp/cloud-api/connect', {
+    await api('/v1/whatsapp/cloud-api/connect', {
       method: 'POST',
       body: JSON.stringify({
         phoneNumberId: waCloud.phoneId.value.trim(),
         wabaId:        waCloud.wabaInput.value.trim(),
         accessToken:   waCloud.token.value.trim(),
         appSecret:     waCloud.secret.value.trim(),
+        ...(waCloud.label.value.trim() ? { label: waCloud.label.value.trim() } : {}),
       }),
     });
     waCloud.status.textContent = '';
-    showCloudConnected(conn);
+    // Kosongkan kredensial supaya nomor berikutnya tidak terkirim dengan token
+    // nomor sebelumnya.
+    waCloud.form.reset();
+    await loadCloudApiStatus();
   } catch (err) {
     waCloud.status.textContent = err.message;
   } finally {

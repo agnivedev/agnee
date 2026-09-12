@@ -266,18 +266,20 @@
         <p class="team-copy">Hubungkan nomor WhatsApp Business via Meta Cloud API (official). Setelah tersambung, pesan masuk diterima lewat webhook Meta — tidak perlu QR pairing.</p>
 
         <div id="waCloudConnected" hidden class="plan-config">
-          <p style="margin:0 0 .75rem">
-            <strong id="waCloudPhone"></strong>
-            <span id="waCloudWabaId" style="color:var(--text-muted);font-size:.8rem;display:block;margin-top:2px"></span>
-          </p>
-          <p class="team-copy" style="margin:0 0 1rem">Webhook URL yang harus didaftarkan di Meta Developer Console:</p>
+          <p class="team-copy" style="margin:0 0 .5rem"><strong>Nomor dalam rotasi</strong></p>
+          <p class="team-copy" style="margin:0 0 .75rem">Percakapan baru dibagi ke nomor aktif yang bebannya paling ringan. Percakapan yang sudah berjalan <strong>tetap di nomornya</strong> — termasuk kalau nomor itu dinonaktifkan — supaya balasan tidak datang dari nomor asing.</p>
+          <div id="waCloudNumbers" class="wa-number-list"></div>
+          <p class="team-copy" style="margin:1rem 0 1rem">Webhook URL yang harus didaftarkan di Meta Developer Console untuk <em>setiap</em> nomor:</p>
           <code id="waCloudWebhookUrl" class="webhook-url-box"></code>
           <div class="model-chain-actions" style="margin-top:1rem">
-            <button id="waCloudDisconnect" class="save-settings-btn" type="button" style="background:var(--danger,#c0392b)">Putuskan koneksi</button>
+            <button id="waCloudDisconnect" class="save-settings-btn" type="button" style="background:var(--danger,#c0392b)">Matikan Cloud API</button>
           </div>
         </div>
 
         <form id="waCloudForm" class="plan-config" autocomplete="off">
+          <label>Nama nomor <small>(opsional — untuk membedakannya di daftar)</small>
+            <input id="waLabel" type="text" maxlength="60" placeholder="CS 1 / Sales / Jakarta">
+          </label>
           <label>Phone Number ID <small>(dari Meta Developer Console → WhatsApp → Configuration)</small>
             <input id="waPhoneNumberId" type="text" required minlength="1" maxlength="64" placeholder="1234567890123456">
           </label>

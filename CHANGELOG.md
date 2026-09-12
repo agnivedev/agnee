@@ -8,6 +8,27 @@ Semua perubahan penting Agnee dicatat di file ini. Format mengikuti prinsip
 
 ### Added
 
+- **Rotator nomor WhatsApp lewat Cloud API** (migration 018). Satu company kini
+  boleh punya banyak nomor: `UNIQUE (company_id)` dilepas dan diganti
+  `UNIQUE (company_id, phone_number_id)`. `phone_number_id` tetap unik global
+  karena webhook Meta memetakan pesan masuk ke company lewat kolom itu.
+  Jalur Cloud API dipilih karena tidak memakai Chromium: satu nomor lewat
+  whatsapp-web.js terukur ~400 MB dan ~118 pid di produksi, Cloud API mendekati
+  nol.
+  **Rotasi hanya berlaku untuk percakapan baru.** Tabel `cloud_chat_numbers`
+  menempelkan tiap percakapan ke satu nomor selamanya — termasuk kalau nomor itu
+  kemudian dinonaktifkan. Di sisi customer, balasan dari nomor lain bukan
+  kelanjutan percakapan melainkan chat baru dari nomor asing, dan riwayatnya
+  pecah. Pesan masuk menempelkan percakapan ke nomor yang menerimanya; itu
+  sumber kebenaran terkuat karena customer memang sedang bicara ke nomor itu.
+  Percakapan baru jatuh ke nomor aktif dengan beban paling ringan, bukan
+  round-robin berbasis urutan, supaya nomor yang ditambah belakangan langsung
+  ikut menyerap beban.
+  Settings mendapat daftar nomor: tambah nomor (dengan nama opsional),
+  keluarkan/masukkan ke rotasi, dan hapus. Token dan app secret tidak pernah
+  dikirim balik ke browser.
+
+
 - **Halaman pengaturan tindak lanjut** di Settings. Mesinnya, API-nya, dan
   kunci terjemahannya sudah ada sejak rilis follow-up, tapi tidak pernah ada
   antarmukanya — supervisor tidak punya cara menyalakan atau mengatur plafon

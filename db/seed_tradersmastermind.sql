@@ -112,9 +112,11 @@ melanggar salah satu poin di bawah, jangan dikirim.
   "aman", "risikonya nyaris tidak ada", "bebas risiko", "risiko terkontrol",
   "teruji", "terbukti", "pasti balik". Adanya refund BUKAN alasan untuk bilang
   risikonya kecil — refund mengembalikan biaya paket, bukan modal trading.
-- Jangan membahas langkah setelah pembayaran (onboarding, "balas SUDAH",
-  konfirmasi transfer) sebelum lead menyatakan keputusan membeli. Menawarkan
-  checkout boleh; menganggap dia sudah membeli tidak.
+- Jangan memperlakukan lead seolah sudah membayar sebelum dia bilang begitu.
+  Menempelkan "balas *SUDAH* setelah checkout" pada link checkout yang sedang
+  ditawarkan BOLEH — itu memang bagian dari penawaran dan penanda masuk
+  onboarding. Yang dilarang adalah menganggap pembeliannya sudah terjadi,
+  misalnya membalas pesan ambigu dengan instruksi konfirmasi pembayaran.
 - Kalau pesan lead pendek atau ambigu ("1", "ya", "oke", "boleh") dan
   percakapan sebelumnya tidak memuat pilihan bernomor yang jelas dirujuk,
   tanyakan dulu maksudnya. Jangan menebak lalu mengirim link checkout.

@@ -1453,6 +1453,100 @@ class Database {
     return result.rows;
   }
 
+  // ── Sinkronisasi OneDrive Excel ──────────────────────────────────────────
+  // client_secret dienkripsi pgcrypto dengan kunci proses, sama seperti
+  // kredensial Cloud API.
+
+  async getOneDriveConnection(companyId) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      SELECT id, company_id AS "companyId", tenant_id AS "tenantId",
+             client_id AS "clientId",
+             pgp_sym_decrypt(client_secret_enc, $2) AS "clientSecret",
+             drive_id AS "driveId", item_id AS "itemId",
+             worksheet_name AS "worksheetName", file_name AS "fileName",
+             web_url AS "webUrl", enabled, last_row_count AS "lastRowCount",
+             last_synced_at AS "lastSyncedAt", last_error AS "lastError"
+      FROM onedrive_connections WHERE company_id = $1
+    `, [companyId, this.credentialsEncryptionKey]);
+    return result.rows[0] || null;
+  }
+
+  /** Semua koneksi yang menyala — dipakai penjadwal sinkronisasi. */
+  async listEnabledOneDriveConnections() {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(`
+      SELECT o.company_id AS "companyId", o.tenant_id AS "tenantId",
+             o.client_id AS "clientId",
+             pgp_sym_decrypt(o.client_secret_enc, $1) AS "clientSecret",
+             o.drive_id AS "driveId", o.item_id AS "itemId",
+             o.worksheet_name AS "worksheetName",
+             o.last_row_count AS "lastRowCount"
+      FROM onedrive_connections o
+      JOIN companies c ON c.id = o.company_id
+      WHERE o.enabled AND COALESCE(c.plan_status, 'beta') <> 'suspended'
+      ORDER BY COALESCE(o.last_synced_at, 'epoch'::timestamptz) ASC
+    `, [this.credentialsEncryptionKey]);
+    return result.rows;
+  }
+
+  async upsertOneDriveConnection(companyId, {
+    tenantId, clientId, clientSecret, driveId, itemId,
+    worksheetName = 'Kontak', fileName = null, webUrl = null,
+  }) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      INSERT INTO onedrive_connections
+        (company_id, tenant_id, client_id, client_secret_enc, drive_id, item_id,
+         worksheet_name, file_name, web_url)
+      VALUES ($1, $2, $3, pgp_sym_encrypt($4, $10), $5, $6, $7, $8, $9)
+      ON CONFLICT (company_id) DO UPDATE SET
+        tenant_id = EXCLUDED.tenant_id,
+        client_id = EXCLUDED.client_id,
+        client_secret_enc = EXCLUDED.client_secret_enc,
+        drive_id = EXCLUDED.drive_id,
+        item_id = EXCLUDED.item_id,
+        worksheet_name = EXCLUDED.worksheet_name,
+        file_name = EXCLUDED.file_name,
+        web_url = EXCLUDED.web_url,
+        enabled = true,
+        last_error = NULL,
+        -- Workbook berganti berarti baris lamanya bukan urusan kita lagi.
+        last_row_count = 0,
+        updated_at = NOW()
+      RETURNING id, worksheet_name AS "worksheetName", file_name AS "fileName", web_url AS "webUrl"
+    `, [companyId, tenantId, clientId, clientSecret, driveId, itemId,
+        worksheetName, fileName, webUrl, this.credentialsEncryptionKey]);
+    return result.rows[0] || null;
+  }
+
+  async recordOneDriveSync(companyId, { rowCount = null, error = null }) {
+    if (!this.enabled) return;
+    await this.pool.query(`
+      UPDATE onedrive_connections SET
+        last_row_count = COALESCE($2, last_row_count),
+        last_synced_at = CASE WHEN $3::text IS NULL THEN NOW() ELSE last_synced_at END,
+        last_error = $3,
+        updated_at = NOW()
+      WHERE company_id = $1
+    `, [companyId, rowCount, error]);
+  }
+
+  async setOneDriveEnabled(companyId, enabled) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(
+      'UPDATE onedrive_connections SET enabled = $2, updated_at = NOW() WHERE company_id = $1 RETURNING enabled',
+      [companyId, enabled],
+    );
+    return result.rows[0] || null;
+  }
+
+  async deleteOneDriveConnection(companyId) {
+    if (!this.enabled) return false;
+    const result = await this.pool.query('DELETE FROM onedrive_connections WHERE company_id = $1', [companyId]);
+    return result.rowCount > 0;
+  }
+
   // ── Export kontak ────────────────────────────────────────────────────────
 
   /**

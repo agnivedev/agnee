@@ -16,6 +16,7 @@ const {
   isAmbiguousCustomerReply, stripLinks,
 } = require('./reply-style.js');
 const { FollowUpScheduler, decide: followUpDecide } = require('./follow-up.js');
+const onedrive = require('./onedrive-sync.js');
 const Database = require('./database.js');
 const { extractPlaybookText } = require('./playbook-extractor.js');
 
@@ -3092,6 +3093,119 @@ Aturan:
     return reply.send(`\uFEFF${csv}`);
   });
 
+  // ── Sinkronisasi ke OneDrive Excel ────────────────────────────────────────
+
+  /** Satu putaran sinkronisasi untuk satu company. Melempar dengan pesan jelas. */
+  async function syncOneDriveFor(conn) {
+    const { accessToken } = await onedrive.fetchAppToken(conn);
+    const rows = await buildExportRows(conn.companyId);
+    const result = await onedrive.syncRows(accessToken, {
+      driveId: conn.driveId,
+      itemId: conn.itemId,
+      worksheetName: conn.worksheetName,
+      header: EXPORT_COLUMNS.map(([, label]) => label),
+      rows: rows.map((row) => EXPORT_COLUMNS.map(([key]) => row[key])),
+      previousRowCount: conn.lastRowCount || 0,
+    });
+    await database.recordOneDriveSync(conn.companyId, { rowCount: result.rowCount, error: null });
+    return result;
+  }
+
+  app.get('/v1/export/onedrive', async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengatur ekspor.' });
+    if (!canCall('getOneDriveConnection')) return { connected: false };
+    const conn = await database.getOneDriveConnection(request.agneeSession.companyId);
+    if (!conn) return { connected: false };
+    // clientSecret sengaja tidak dikembalikan: browser tidak pernah perlu
+    // melihatnya, dan sekali terkirim ia ada di riwayat jaringan.
+    return {
+      connected: true,
+      enabled: conn.enabled,
+      fileName: conn.fileName,
+      webUrl: conn.webUrl,
+      worksheetName: conn.worksheetName,
+      lastSyncedAt: conn.lastSyncedAt,
+      lastRowCount: conn.lastRowCount,
+      lastError: conn.lastError,
+    };
+  });
+
+  app.post('/v1/export/onedrive', {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['tenantId', 'clientId', 'clientSecret', 'fileUrl'],
+        additionalProperties: false,
+        properties: {
+          tenantId:      { type: 'string', minLength: 1, maxLength: 128 },
+          clientId:      { type: 'string', minLength: 1, maxLength: 128 },
+          clientSecret:  { type: 'string', minLength: 1, maxLength: 512 },
+          fileUrl:       { type: 'string', minLength: 8, maxLength: 2000 },
+          worksheetName: { type: 'string', minLength: 1, maxLength: 31 },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengatur ekspor.' });
+    if (!canCall('upsertOneDriveConnection')) return reply.code(503).send({ error: 'Database tidak tersedia.' });
+    const companyId = request.agneeSession.companyId;
+    const { tenantId, clientId, clientSecret, fileUrl } = request.body;
+    const worksheetName = request.body.worksheetName?.trim() || 'Kontak';
+
+    try {
+      // Diverifikasi ke Microsoft SEBELUM disimpan: kredensial yang salah lebih
+      // baik ditolak sekarang daripada diam-diam gagal tiap putaran nanti.
+      const { accessToken } = await onedrive.fetchAppToken({ tenantId, clientId, clientSecret });
+      const workbook = await onedrive.resolveWorkbook(accessToken, fileUrl);
+      await onedrive.ensureWorksheet(accessToken, { ...workbook, worksheetName });
+
+      const saved = await database.upsertOneDriveConnection(companyId, {
+        tenantId, clientId, clientSecret,
+        driveId: workbook.driveId, itemId: workbook.itemId,
+        worksheetName, fileName: workbook.fileName, webUrl: workbook.webUrl,
+      });
+      return reply.code(201).send({ ok: true, fileName: workbook.fileName, webUrl: workbook.webUrl, worksheetName: saved.worksheetName });
+    } catch (error) {
+      return reply.code(422).send({ error: error.message });
+    }
+  });
+
+  app.post('/v1/export/onedrive/sync', async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengatur ekspor.' });
+    if (!canCall('getOneDriveConnection')) return reply.code(503).send({ error: 'Database tidak tersedia.' });
+    const conn = await database.getOneDriveConnection(request.agneeSession.companyId);
+    if (!conn) return reply.code(409).send({ error: 'Hubungkan file Excel dulu.' });
+    try {
+      const result = await syncOneDriveFor({ ...conn, companyId: request.agneeSession.companyId });
+      return { ok: true, rowCount: result.rowCount, blanked: result.blanked };
+    } catch (error) {
+      await database.recordOneDriveSync(request.agneeSession.companyId, { error: error.message }).catch(() => {});
+      return reply.code(502).send({ error: error.message });
+    }
+  });
+
+  app.patch('/v1/export/onedrive', {
+    schema: {
+      body: {
+        type: 'object', required: ['enabled'], additionalProperties: false,
+        properties: { enabled: { type: 'boolean' } },
+      },
+    },
+  }, async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengatur ekspor.' });
+    if (!canCall('setOneDriveEnabled')) return reply.code(503).send({ error: 'Database tidak tersedia.' });
+    const updated = await database.setOneDriveEnabled(request.agneeSession.companyId, request.body.enabled);
+    if (!updated) return reply.code(404).send({ error: 'Belum ada file yang terhubung.' });
+    return { ok: true, enabled: updated.enabled };
+  });
+
+  app.delete('/v1/export/onedrive', async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengatur ekspor.' });
+    if (!canCall('deleteOneDriveConnection')) return reply.code(503).send({ error: 'Database tidak tersedia.' });
+    await database.deleteOneDriveConnection(request.agneeSession.companyId);
+    return { ok: true };
+  });
+
   // ── Nomor WhatsApp Web milik satu company (rotator) ───────────────────────
 
   app.get('/v1/whatsapp/numbers', async (request, reply) => {
@@ -3829,6 +3943,8 @@ Aturan:
 
   app.addHook('onClose', async () => {
     followUpScheduler.stop();
+    if (oneDriveTimer) clearInterval(oneDriveTimer);
+    oneDriveTimer = null;
     sendReceipts.clear();
     lastInboundText.clear();
     leadStates.clear();
@@ -3839,12 +3955,52 @@ Aturan:
     await database.close();
   });
 
+  /**
+   * Penjadwal sinkronisasi OneDrive.
+   *
+   * Sengaja satu interval sederhana, bukan pemicu per perubahan: menulis ke
+   * Excel setiap ada pesan masuk akan menembus batas laju Graph dan membuat
+   * file terus-menerus terkunci untuk orang yang sedang membukanya.
+   */
+  let oneDriveTimer = null;
+  let oneDriveRunning = false;
+  const ONEDRIVE_INTERVAL_MS = 10 * 60_000;
+
+  async function runOneDriveSyncRound() {
+    if (oneDriveRunning) return;
+    oneDriveRunning = true;
+    try {
+      const conns = await database.listEnabledOneDriveConnections().catch(() => []);
+      for (const conn of conns) {
+        try {
+          const result = await syncOneDriveFor(conn);
+          app.log.info({ companyId: conn.companyId, rows: result.rowCount }, 'OneDrive sync selesai');
+        } catch (error) {
+          // Satu company yang gagal tidak boleh menghentikan yang lain, dan
+          // alasannya disimpan supaya terlihat di halaman pengaturan.
+          app.log.warn({ err: error, companyId: conn.companyId }, 'OneDrive sync gagal');
+          await database.recordOneDriveSync(conn.companyId, { error: error.message }).catch(() => {});
+        }
+      }
+    } finally {
+      oneDriveRunning = false;
+    }
+  }
+
+  function startOneDriveSyncLoop() {
+    if (oneDriveTimer) return;
+    oneDriveTimer = setInterval(() => { runOneDriveSyncRound().catch(() => {}); }, ONEDRIVE_INTERVAL_MS);
+    oneDriveTimer.unref?.();
+    app.log.info({ intervalMs: ONEDRIVE_INTERVAL_MS }, 'OneDrive sync scheduler started');
+  }
+
   app.decorate('startWhatsapp', async () => {
     if (!config.startupEnabled || config.demoMode) return;
 
     // Only in a real run: tests build the app with startupEnabled false and
     // must not get a live timer sending WhatsApp messages.
     if (database.enabled && database.connected) followUpScheduler.start();
+    if (database.enabled && database.connected) startOneDriveSyncLoop();
 
     // No default company to boot: resume exactly those companies whose last
     // known session was live. Everyone else starts on demand when a supervisor

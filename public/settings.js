@@ -474,6 +474,7 @@ async function init() {
       isAgent ? Promise.resolve() : loadCloudApiStatus(),
       isAgent ? Promise.resolve() : loadFollowUpSettings(),
       isAgent ? Promise.resolve() : loadWaNumbers(),
+      isAgent ? Promise.resolve() : loadExport(),
     ]);
   } catch (error) {
     if (error.status === 401) {
@@ -486,6 +487,79 @@ ui.paymentMethodSelect.addEventListener('change', () => updatePaymentFields(ui.p
 ui.savePaymentConfig.addEventListener('click', savePaymentConfig);
 ui.saveFollowUp.addEventListener('click', saveFollowUpSettings);
 waNumbers.add.addEventListener('click', addWaNumber);
+
+xport.download.addEventListener('click', () => {
+  // Unduhan memakai cookie sesi yang sama seperti request lain di halaman ini.
+  window.location.href = '/v1/export/contacts.csv';
+});
+
+xport.form.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  xport.status.textContent = 'Memeriksa ke Microsoft…';
+  const btn = document.querySelector('#exportConnect');
+  btn.disabled = true;
+  try {
+    await api('/v1/export/onedrive', {
+      method: 'POST',
+      body: JSON.stringify({
+        tenantId: xport.tenantId.value.trim(),
+        clientId: xport.clientId.value.trim(),
+        clientSecret: xport.secret.value.trim(),
+        fileUrl: xport.fileUrl.value.trim(),
+        ...(xport.worksheet.value.trim() ? { worksheetName: xport.worksheet.value.trim() } : {}),
+      }),
+    });
+    xport.status.textContent = '';
+    xport.form.reset();
+    await loadExport();
+  } catch (err) {
+    xport.status.textContent = err.message;
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+xport.syncNow.addEventListener('click', async () => {
+  xport.syncNow.disabled = true;
+  const label = xport.syncNow.textContent;
+  xport.syncNow.textContent = 'Menyinkronkan…';
+  try {
+    const out = await api('/v1/export/onedrive/sync', { method: 'POST' });
+    await loadExport();
+    await AgneeDialog.alert({
+      title: 'Selesai',
+      message: `${out.rowCount} baris ditulis ke Excel${out.blanked ? `, ${out.blanked} baris lama dikosongkan` : ''}.`,
+    });
+  } catch (err) {
+    await loadExport();
+    await AgneeDialog.error(err);
+  } finally {
+    xport.syncNow.textContent = label;
+    xport.syncNow.disabled = false;
+  }
+});
+
+xport.toggle.addEventListener('click', async () => {
+  xport.toggle.disabled = true;
+  try {
+    await api('/v1/export/onedrive', { method: 'PATCH', body: JSON.stringify({ enabled: !exportEnabled }) });
+    await loadExport();
+  } catch (err) { await AgneeDialog.error(err); } finally { xport.toggle.disabled = false; }
+});
+
+xport.disconnect.addEventListener('click', async () => {
+  const ok = await AgneeDialog.confirm({
+    title: 'Putuskan file Excel?',
+    message: 'Kredensial Microsoft dihapus dan sinkronisasi berhenti. Isi file yang sudah tertulis tetap ada di OneDrive.',
+    confirmLabel: 'Putuskan',
+    danger: true,
+  });
+  if (!ok) return;
+  try {
+    await api('/v1/export/onedrive', { method: 'DELETE' });
+    await loadExport();
+  } catch (err) { await AgneeDialog.error(err); }
+});
 ui.followUpEnabled.addEventListener('change', () => renderFollowUpEnabled(ui.followUpEnabled.checked));
 ui.teamForm.addEventListener('submit', addMember);
 
@@ -1062,6 +1136,61 @@ document.querySelectorAll('input[name="coachMode"]').forEach((radio) => {
 });
 
 // ── WhatsApp Cloud API section ─────────────────────────────────────────────
+
+const xport = {
+  badge:      document.querySelector('#exportBadge'),
+  connected:  document.querySelector('#exportConnected'),
+  fileName:   document.querySelector('#exportFileName'),
+  meta:       document.querySelector('#exportMeta'),
+  error:      document.querySelector('#exportError'),
+  form:       document.querySelector('#exportForm'),
+  status:     document.querySelector('#exportStatus'),
+  syncNow:    document.querySelector('#exportSyncNow'),
+  toggle:     document.querySelector('#exportToggle'),
+  disconnect: document.querySelector('#exportDisconnect'),
+  download:   document.querySelector('#downloadCsv'),
+  tenantId:   document.querySelector('#odTenantId'),
+  clientId:   document.querySelector('#odClientId'),
+  secret:     document.querySelector('#odClientSecret'),
+  fileUrl:    document.querySelector('#odFileUrl'),
+  worksheet:  document.querySelector('#odWorksheet'),
+};
+
+let exportEnabled = false;
+
+function renderExport(data) {
+  const connected = Boolean(data?.connected);
+  exportEnabled = Boolean(data?.enabled);
+  xport.connected.hidden = !connected;
+  xport.form.hidden = connected;
+  xport.badge.hidden = false;
+  xport.badge.textContent = connected
+    ? (exportEnabled ? 'Aktif' : 'Dimatikan')
+    : 'Belum terhubung';
+  xport.badge.className = `plan-badge-pill ${connected && exportEnabled ? 'plan-company' : 'plan-personal'}`;
+  if (!connected) return;
+
+  xport.fileName.textContent = data.fileName || 'File Excel';
+  xport.meta.textContent = [
+    `worksheet ${data.worksheetName}`,
+    data.lastSyncedAt
+      ? `terakhir ${new Date(data.lastSyncedAt).toLocaleString('id-ID')} (${data.lastRowCount} baris)`
+      : 'belum pernah tersinkron',
+  ].join(' · ');
+  xport.toggle.textContent = exportEnabled ? 'Matikan' : 'Nyalakan';
+  // Kegagalan terakhir ditampilkan apa adanya. Sinkronisasi berjalan di latar,
+  // jadi tanpa ini kegagalannya tidak akan pernah terlihat siapa pun.
+  xport.error.hidden = !data.lastError;
+  xport.error.textContent = data.lastError || '';
+}
+
+async function loadExport() {
+  try {
+    renderExport(await api('/v1/export/onedrive'));
+  } catch {
+    renderExport({ connected: false });
+  }
+}
 
 const waNumbers = {
   section: document.querySelector('#waNumbersSection'),

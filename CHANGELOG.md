@@ -8,6 +8,26 @@ Semua perubahan penting Agnee dicatat di file ini. Format mengikuti prinsip
 
 ### Added
 
+- **Sinkronisasi kontak ke Excel di OneDrive** (migration 020). Kredensial
+  Microsoft disimpan per company dan client secret dienkripsi pgcrypto, sama
+  seperti kredensial Cloud API — tenant Microsoft dan workbook tiap company
+  berbeda, jadi ini tidak pernah boleh jadi konfigurasi global.
+  Memakai alur client credentials (app-only), bukan OAuth delegasi: sinkronisasi
+  berjalan di server tanpa ada orang yang login, dan token delegasi akan
+  kedaluwarsa lalu menuntut seseorang masuk kembali. Konsekuensinya, app-nya
+  butuh persetujuan admin tenant.
+  Kredensial diverifikasi ke Microsoft **sebelum** disimpan, dan tautan berbagi
+  diterjemahkan jadi `driveId`/`itemId` — tautan bisa dicabut, id tetap.
+  Sinkronisasi menulis header, baris, lalu **mengosongkan sisa baris lama**:
+  Excel tidak menghapus baris hanya karena kita menulis lebih sedikit, jadi
+  tanpa itu kontak yang sudah hilang tetap terlihat ada.
+  Berjalan tiap 10 menit, satu interval sederhana — menulis tiap ada pesan
+  masuk akan menembus batas laju Graph dan mengunci file bagi orang yang sedang
+  membukanya. Satu company yang gagal tidak menghentikan yang lain, dan
+  alasannya ditampilkan di halaman pengaturan.
+- Tombol **Unduh CSV** di Settings untuk ekspor langsung tanpa setup apa pun.
+
+
 - **Export kontak**: `GET /v1/export/contacts` (JSON) dan
   `/v1/export/contacts.csv` (unduhan). Satu baris per percakapan, 23 kolom —
   nomor, nomor kita yang melayani, pesan masuk dan balasan terakhir beserta

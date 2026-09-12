@@ -258,6 +258,58 @@
         </div>
       </section>
 
+      <section id="exportSection" class="team-card" aria-labelledby="exportTitle">
+        <div class="card-head">
+          <div><p class="eyebrow">EKSPOR KONTAK</p><h2 id="exportTitle">Kirim kontak ke Excel di OneDrive</h2></div>
+          <span id="exportBadge" class="plan-badge-pill" hidden></span>
+        </div>
+        <p class="team-copy">Satu baris per percakapan: nomor, pesan terakhir, ringkasan, PIC, status, tahap lead, dan tindak lanjut. File di OneDrive ditimpa setiap 10 menit.</p>
+
+        <div class="model-chain-actions" style="margin-bottom:1rem">
+          <button id="downloadCsv" class="edit-btn" type="button">Unduh CSV sekarang</button>
+          <span class="team-status" style="margin:0">Tidak perlu setup — langsung bisa dibuka di Excel.</span>
+        </div>
+
+        <div id="exportConnected" hidden class="plan-config">
+          <p style="margin:0 0 .75rem">
+            <strong id="exportFileName"></strong>
+            <span id="exportMeta" class="wa-number-meta"></span>
+          </p>
+          <p id="exportError" class="team-status" style="margin:0 0 .75rem;color:#c00" hidden></p>
+          <div class="model-chain-actions">
+            <button id="exportSyncNow" class="save-settings-btn" type="button">Sinkronkan sekarang</button>
+            <button id="exportToggle" class="edit-btn" type="button">Matikan</button>
+            <button id="exportDisconnect" class="deactivate-btn" type="button">Putuskan</button>
+          </div>
+        </div>
+
+        <form id="exportForm" class="plan-config" autocomplete="off">
+          <p class="team-copy" style="margin:0">Butuh pendaftaran aplikasi di Azure AD dengan izin <code>Files.ReadWrite.All</code> dan persetujuan admin tenant. Nilai di bawah diambil dari halaman aplikasi itu.</p>
+          <label>Directory (tenant) ID
+            <input id="odTenantId" type="text" required maxlength="128" placeholder="00000000-0000-0000-0000-000000000000">
+          </label>
+          <label>Application (client) ID
+            <input id="odClientId" type="text" required maxlength="128" placeholder="00000000-0000-0000-0000-000000000000">
+          </label>
+          <label>Client secret
+            <div class="password-wrap">
+              <input id="odClientSecret" type="password" required maxlength="512" placeholder="nilai secret, bukan secret ID">
+              <button type="button" class="eye-btn" data-target="odClientSecret" aria-label="Tampilkan secret">👁</button>
+            </div>
+          </label>
+          <label>Tautan file Excel <small>(file .xlsx di OneDrive/SharePoint — salin tautan berbaginya)</small>
+            <input id="odFileUrl" type="url" required maxlength="2000" placeholder="https://contoh-my.sharepoint.com/:x:/g/personal/...">
+          </label>
+          <label>Nama worksheet <small>(dibuat otomatis kalau belum ada)</small>
+            <input id="odWorksheet" type="text" maxlength="31" placeholder="Kontak">
+          </label>
+          <div class="model-chain-actions">
+            <button id="exportConnect" class="save-settings-btn" type="submit">Hubungkan</button>
+            <span id="exportStatus" class="team-status" style="margin:0"></span>
+          </div>
+        </form>
+      </section>
+
       <section id="waNumbersSection" class="team-card" aria-labelledby="waNumbersTitle">
         <div class="card-head">
           <div><p class="eyebrow">NOMOR WHATSAPP</p><h2 id="waNumbersTitle">Nomor yang melayani customer</h2></div>

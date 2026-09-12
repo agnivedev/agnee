@@ -1314,7 +1314,17 @@ function connectEvents() {
   events.addEventListener('whatsapp_phase', async (event) => {
     let payload = {};
     try { payload = JSON.parse(event.data || '{}'); } catch { /* ignore */ }
-    state.whatsapp = { ...state.whatsapp, phase: payload.phase, account: payload.account };
+    // Hanya timpa field yang benar-benar ada di payload. Event 'syncing' tidak
+    // membawa `account`, jadi menyalinnya mentah-mentah menghapus akun yang
+    // sudah diketahui — dan `percent` sebelumnya tidak pernah masuk ke state,
+    // sehingga openConnection() membaca syncPercent yang basi.
+    state.whatsapp = {
+      ...state.whatsapp,
+      phase: payload.phase,
+      ...(payload.account !== undefined ? { account: payload.account } : {}),
+      ...(payload.percent !== undefined ? { syncPercent: payload.percent } : {}),
+      ...(payload.error !== undefined ? { lastError: payload.error } : {}),
+    };
     renderConnection(state.whatsapp);
     if (payload.phase === 'waiting_for_qr' && payload.qrDataUrl) {
       if (ui.connectionDialog.open && ui.qrShell.hidden) {
@@ -1655,9 +1665,14 @@ function showDialogError(message) {
   ui.syncShell.classList.add('is-error');
   ui.syncShell.querySelector('.sync-spinner').textContent = '!';
   ui.dialogTitle.textContent = tr('wa.connectionSlow');
-  ui.dialogCopy.textContent = tr('wa.connectionSlowCopy');
+  // Server mengirim alasan yang spesifik (mis. browser WhatsApp berhenti,
+  // atau tidak selesai tersambung dalam 5 menit). Sebelumnya alasan itu
+  // dibuang dan semua kegagalan terlihat sama, jadi tidak ada yang bisa
+  // dilakukan user selain menebak.
+  const detail = typeof message === 'string' && message.trim() ? message.trim() : '';
+  ui.dialogCopy.textContent = detail || tr('wa.connectionSlowCopy');
   ui.syncShell.querySelector('strong').textContent = tr('wa.connectionSlow');
-  ui.syncProgress.textContent = tr('wa.connectionSlowCopy');
+  ui.syncProgress.textContent = detail || tr('wa.connectionSlowCopy');
   ui.qrNote.textContent = tr('wa.refresh');
 }
 
@@ -2189,7 +2204,10 @@ if (refreshQrBtn) {
         refreshQrBtn.disabled = false;
       }
     } catch (err) {
-      console.warn('QR refresh failed:', err.message);
+      // Saat fase masih 'syncing', route ini menjawab 404 karena memang belum
+      // ada QR. Dulu error-nya hanya masuk console sehingga tombol terasa
+      // mati total; sekarang alasannya ditampilkan di dialog.
+      ui.qrNote.textContent = err.message || tr('wa.waiting');
       refreshQrBtn.classList.remove('loading');
       refreshQrBtn.disabled = false;
     }

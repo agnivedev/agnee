@@ -6,6 +6,53 @@ Semua perubahan penting Agnee dicatat di file ini. Format mengikuti prinsip
 
 ## [Unreleased]
 
+### Fixed
+
+- **WhatsApp macet selamanya di "Syncing messages 100%".** Watchdog pemulihan
+  sesi hanya berjalan selama fase `starting` dan `authenticated`. Begitu
+  WhatsApp menembakkan `loading_screen`, fase berubah jadi `syncing` dan tick
+  berikutnya langsung keluar sambil menghapus timernya — jadi kalau `ready`
+  tidak pernah datang setelah itu, tidak ada lagi yang memulihkan. Fase
+  bertahan di `syncing` 100% sampai container di-restart, dan UI berputar tanpa
+  ujung. Ini menjelaskan sifat kambuhannya: saat tidak ada backlog, watchdog
+  sempat menang balapan dan menandai `ready`; saat ada pesan yang harus
+  disinkronkan, `loading_screen` menang dan pemulihan mati.
+  Watchdog sekarang ikut mengawasi `syncing`, punya batas waktu nyata (5 menit),
+  membedakan "sedang sibuk" dari "macet" lewat pergerakan persen, dan kalau
+  menyerah ia melaporkan fase `error` — bukan diam. Fase `error` bisa
+  ditindaklanjuti `/v1/whatsapp/qr-refresh` (quarantine profil + start ulang),
+  sedangkan `syncing` tidak.
+- **Renderer Chromium yang mati tidak terdeteksi sama sekali.** Event
+  `disconnected` milik whatsapp-web.js hanya menyala untuk logout di sisi
+  WhatsApp, jadi browser yang kena OOM-kill menggantung tanpa jejak. Sekarang
+  `pupPage` (`close`, `error`) dan `pupBrowser` (`disconnected`) diawasi, dengan
+  penjaga agar `destroy()` yang disengaja tidak ikut tertangkap.
+- **`mem_limit` app dikembalikan ke 1536m dan `pids_limit` ke 1024.** Chromium +
+  Node sudah memakai ~635 MB hanya dengan satu company tersambung, jadi pada
+  768m sinkronisasi akun ber-backlog menembus plafon dan renderer kena
+  OOM-kill. Nilai ini pernah dinaikkan manual di VPS tapi tidak pernah masuk
+  repo, sehingga `git reset --hard` saat memperbaiki CI membuangnya dan deploy
+  berikutnya mengunci balik ke 768m.
+- **Fase `ready` ditetapkan di dua tempat dengan hasil berbeda.** Jalur watchdog
+  lupa membersihkan `qrDataUrl`/`syncPercent`, sehingga status publik masih
+  melaporkan `hasQr: true` padahal sudah tersambung. Sekarang keduanya lewat
+  satu `_markReady()`.
+- **Frontend menghapus field status yang tidak dikirim event.** Handler SSE
+  menyalin `payload.account` mentah-mentah, jadi setiap event `syncing`
+  (yang tidak membawa akun) menghapus akun yang sudah diketahui; `percent` juga
+  tidak pernah masuk state sehingga `openConnection()` membaca `syncPercent`
+  basi.
+- **Dialog koneksi membuang alasan kegagalan dari server** — semua error
+  terlihat sama ("koneksi lambat"), dan tombol ⟳ yang menjawab 404 saat fase
+  `syncing` hanya menulis ke console sehingga terasa mati total. Keduanya kini
+  menampilkan alasan sebenarnya.
+
+### Changed
+
+- `npm run check` kini ikut memeriksa `whatsapp-manager.js`, `follow-up.js`,
+  dan `knowledge-loader.js` — tiga file inti yang selama ini lolos dari syntax
+  check di CI.
+
 ### Added
 
 - **Tindak lanjut lead yang diam.** Kalau customer berhenti membalas, AI

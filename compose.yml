@@ -38,9 +38,17 @@ services:
       - whatsapp-session:/data/whatsapp
       - playbook-uploads:/data/playbooks
     shm_size: 512mb
-    mem_limit: 768m
+    # Chromium + Node sudah memakai ~635 MB hanya dengan SATU company
+    # tersambung. Pada 768m, sinkronisasi akun yang punya backlog menembus
+    # plafon, renderer kena OOM-kill, dan client tidak pernah sampai 'ready'.
+    # Nilai ini pernah dinaikkan manual di VPS tetapi tidak ada di repo,
+    # sehingga `git reset --hard` saat memperbaiki CI membuangnya dan deploy
+    # berikutnya mengunci balik ke 768m. Ditulis di sini supaya tidak hilang lagi.
+    mem_limit: 1536m
     cpus: 0.75
-    pids_limit: 256
+    # Chromium memecah diri jadi banyak proses; 256 terlalu dekat dengan
+    # pemakaian nyata (136 PID hanya untuk satu company).
+    pids_limit: 1024
     security_opt:
       - no-new-privileges:true
     depends_on:

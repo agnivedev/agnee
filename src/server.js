@@ -11,7 +11,10 @@ const { WhatsappManager } = require('./whatsapp-manager.js');
 const { CloudApiManager } = require('./cloud-api-manager.js');
 const KnowledgeBase = require('./knowledge-loader.js');
 const LlmService = require('./llm-service.js');
-const { normalizeUsage, styleWarnings, judgeReply } = require('./reply-style.js');
+const {
+  normalizeUsage, styleWarnings, judgeReply, enforceReplyContract,
+  isAmbiguousCustomerReply, stripLinks,
+} = require('./reply-style.js');
 const { FollowUpScheduler, decide: followUpDecide } = require('./follow-up.js');
 const Database = require('./database.js');
 const { extractPlaybookText } = require('./playbook-extractor.js');
@@ -594,14 +597,57 @@ async function buildApp(overrides = {}) {
         .map(m => ({ role: m.fromMe ? 'assistant' : 'user', content: m.body }));
     } catch { /* Cloud API or unavailable — proceed without history */ }
 
+    // Balasan pendek tanpa rujukan yang jelas ("ya" setelah CS menyebut isi
+    // paket, bukan setelah bertanya) sebelumnya ditebak sebagai "setuju beli"
+    // dan dibalas link checkout. Tebakan yang salah memaksa customer mengulang
+    // dari awal, jadi di sini kita bertanya dulu. Promptnya sengaja pendek —
+    // aturan di prompt 52.000 karakter terbukti tidak dipatuhi konsisten.
+    if (isAmbiguousCustomerReply(message.body, conversationHistory)) {
+      const clarification = await llmService.generateReply(
+        `Customer membalas "${message.body}". Maksudnya tidak jelas karena percakapan sebelumnya tidak memuat pilihan bernomor atau pertanyaan yang dirujuk balasan itu.\n\nTulis SATU kalimat pendek dengan persona kamu yang menanyakan maksudnya. Jangan menawarkan produk, jangan menyebut harga, jangan mengirim link, jangan menebak. Keluarkan HANYA kalimatnya.`,
+        { systemPrompt: ctx.systemPrompt, history: conversationHistory },
+      ).catch(() => null);
+      const asked = stripLinks(clarification?.text || '');
+      if (asked) return asked;
+      // Klarifikasi gagal dibuat — lanjut ke jalur normal daripada diam.
+    }
+
     const result = await llmService.generateReply(message.body, {
       systemPrompt: ctx.systemPrompt,
       relevantFaqs: ctx.relevantFaqs,
       leadState: ctx.leadState,
       history: conversationHistory,
     });
+    if (!result?.text) return null;
 
-    return result?.text || null;
+    // Aturan di system prompt saja tidak cukup. Diukur pada funnel Anya dengan
+    // prompt 52.000 karakter: model tetap menulis "risiko kakak nyaris nggak
+    // ada" dan mengarang "perbaikan signifikan di 60 hari pertama". Larangan
+    // yang terkubur di prompt panjang tidak dipatuhi konsisten, jadi kontraknya
+    // ditegakkan di sini — tepat sebelum pesan sampai ke customer.
+    const enforced = await enforceReplyContract(llmService, {
+      text: result.text,
+      systemPrompt: ctx.systemPrompt,
+      userMessage: message.body,
+      history: conversationHistory,
+    });
+    if (!enforced) {
+      // Tidak ada isi aman yang tersisa. Diam lebih baik daripada mengirim
+      // janji hasil; percakapan jatuh ke agent manusia.
+      app.log.warn({ companyId, chatId: message.from },
+        'Balasan AI dibuang karena melanggar kontrak keluaran');
+      return null;
+    }
+    if (enforced.rewritten || enforced.stripped) {
+      app.log.warn({
+        companyId,
+        chatId: message.from,
+        rewritten: enforced.rewritten,
+        stripped: enforced.stripped,
+        warnings: enforced.warnings,
+      }, 'Balasan AI diperbaiki sebelum dikirim');
+    }
+    return enforced.text;
   }
 
   // quarantineWhatsappProfile and createWhatsappClient moved to WhatsappManager

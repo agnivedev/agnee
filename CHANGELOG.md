@@ -6,6 +6,30 @@ Semua perubahan penting Agnee dicatat di file ini. Format mengikuti prinsip
 
 ## [Unreleased]
 
+### Added
+
+- **Kontrak keluaran ditegakkan di kode, bukan cuma di prompt.** Sebelum balasan
+  AI dikirim ke customer, `enforceReplyContract()` memeriksanya: kalau melanggar,
+  model diminta menulis ulang SEKALI dengan pelanggarannya disebut eksplisit
+  (prompt pendek, jadi aturannya tidak tenggelam); kalau klaim hasil/risiko masih
+  ada, kalimat yang melanggar dibuang; kalau tidak ada isi aman yang tersisa,
+  balasan otomatis dibatalkan dan percakapan jatuh ke manusia.
+  Alasannya terukur: dengan system prompt 52.000 karakter, Gemini Flash tetap
+  menulis "risiko kakak nyaris nggak ada" dan mengarang "rata-rata perbaikan
+  signifikan di 60 hari pertama". Larangan yang terkubur di prompt panjang tidak
+  dipatuhi konsisten.
+- **Deteksi klaim hasil dan klaim risiko** (`CLAIM_PATTERNS`). Sebelumnya tidak
+  ada cek apa pun untuk ini — `styleWarnings()` hanya menjaga panjang, emoji,
+  markdown, dan kalimat template. Pola sengaja sempit: "jaminan uang kembali",
+  "trading tetap berisiko", dan "link pembayarannya aman" harus lolos bersih,
+  sementara "dijamin balik modal", "bebas risiko", "lebih aman buat modal",
+  "meminimalisir risiko", dan "teruji" ditandai.
+- **Klarifikasi untuk balasan pendek yang ambigu.** Kalau customer membalas "ya",
+  "oke", atau "1" sementara giliran CS terakhir bukan pertanyaan dan tidak memuat
+  daftar bernomor, AI menanyakan maksudnya alih-alih menebak. Pembedanya
+  deterministik (`isAmbiguousCustomerReply()`), tidak bergantung kepatuhan model,
+  dan link dibuang paksa dari kalimat klarifikasi.
+
 ### Fixed
 
 - **WhatsApp macet selamanya di "Syncing messages 100%".** Watchdog pemulihan
@@ -108,9 +132,14 @@ Semua perubahan penting Agnee dicatat di file ini. Format mengikuti prinsip
 - **Hapus dokumen playbook tidak punya konfirmasi apa pun** — sekali klik
   langsung terhapus, padahal isinya dipakai AI sebagai sumber jawaban.
 
-### Known issues — belum diperbaiki
+### Known issues — status per 2026-09-12
 
-Ditemukan lewat test 8-turn di production (2026-09-10) terhadap Anya/tradersmastermind,
+Poin 1 dan 3 sudah diperbaiki (lihat Added di atas). Poin 2 **sengaja tidak
+dikerjakan**: gerbang "tahan harga sampai nama + broker tercatat" dibatalkan
+oleh funnel Recovery Package, yang memang menyebut harga sejak balasan pertama.
+Mengembalikannya akan merusak funnel yang berlaku.
+
+Catatan lama, ditemukan lewat test 8-turn di production (2026-09-10) terhadap Anya/tradersmastermind,
 setelah fix conversation history dan model swap ke Gemini. Cek otomatis (kontrak
 output, klaim hasil trading) lulus 0 pelanggaran, tapi transkrip menunjukkan
 tiga masalah funnel yang cek otomatis tidak tangkap:

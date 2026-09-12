@@ -4,7 +4,19 @@
     {
       "name": "Agnee Dev",
       "runtimeExecutable": "bash",
-      "runtimeArgs": ["-lc", "set -a && source .env 2>/dev/null || true && set +a && WA_STARTUP_ENABLED=false WA_DEMO_MODE=true /opt/homebrew/opt/node@22/bin/node src/server.js"],
+      "runtimeArgs": [
+        "-lc",
+        "set -a && source .env 2>/dev/null || true && set +a && WA_STARTUP_ENABLED=false WA_DEMO_MODE=true /opt/homebrew/opt/node@22/bin/node src/server.js"
+      ],
+      "port": 4100
+    },
+    {
+      "name": "Agnee Dev (WhatsApp real)",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-lc",
+        "set -a && source .env 2>/dev/null || true && set +a && WA_STARTUP_ENABLED=true WA_DEMO_MODE=false /opt/homebrew/opt/node@22/bin/node src/server.js"
+      ],
       "port": 4100
     }
   ]

@@ -1,5 +1,178 @@
 'use strict';
 
+/**
+ * Klaim hasil dan klaim tingkat risiko.
+ *
+ * Sebelumnya tidak ada cek apa pun untuk ini — satu-satunya penjaga adalah
+ * instruksi di system prompt. Uji funnel Anya membuktikan itu tidak cukup:
+ * dengan prompt 52.000 karakter, model tetap menulis "risiko kakak nyaris
+ * nggak ada" dan "rata-rata lihat perbaikan signifikan di 60 hari pertama".
+ * Larangan yang terkubur di prompt panjang tidak dipatuhi konsisten, jadi
+ * aturan ini ditegakkan di kode.
+ *
+ * Pola sengaja sempit supaya tidak berisik: hanya frasa yang menilai hasil
+ * atau tingkat risiko. "jaminan uang kembali" dan "trading tetap berisiko"
+ * harus lolos bersih.
+ */
+const CLAIM_PATTERNS = [
+  [/\b(?:di)?jamin(?:kan)?\b/i, 'menjamin hasil'],
+  [/\bpasti\s+(?:untung|profit|balik|cuan|naik|pulih)\b/i, 'menjanjikan hasil pasti'],
+  [/\bgaransi\s+(?:untung|profit|cuan|hasil)\b/i, 'menjanjikan hasil pasti'],
+  [/\b(?:tanpa|bebas)\s+risiko\b/i, 'mengklaim tanpa risiko'],
+  [/\brisiko\w*\s+(?:(?:kakak|kamu|anda)\s+)?(?:nyaris|hampir)?\s*(?:nggak|tidak|ga|gak)\s+ada\b/i, 'mengklaim tanpa risiko'],
+  [/\brisiko\w*\s+(?:nol|minim|kecil sekali)\b/i, 'mengecilkan risiko'],
+  [/\b(?:sudah\s+)?(?:teruji|terbukti)\b/i, 'klaim "teruji/terbukti" tanpa bukti'],
+  // Bentuk halus yang lolos dari pola di atas: tidak menyebut angka dan tidak
+  // memakai kata "aman", tapi tetap menjanjikan risiko berkurang.
+  [/\b(?:meminimalisir|meminimalkan|mengurangi|menekan|memperkecil)\s+(?:\w+\s+){0,2}?risiko/i, 'menjanjikan risiko berkurang'],
+  [/\brisiko\w*\s+(?:jadi\s+|lebih\s+)*terkontrol\b/i, 'menjanjikan risiko terkontrol'],
+  [/\brata-rata\s+\w*\s*(?:profit|untung|pulih|balik|perbaikan)/i, 'klaim hasil rata-rata'],
+  // "aman" hanya dihitung klaim kalau menilai modal/akun/trading. Kalimat sah
+  // seperti "link pembayarannya aman" harus lolos.
+  [/\blebih\s+aman\b/i, 'menilai keamanan'],
+  [/\baman\s+(?:buat|untuk)\s+(?:modal|akun|dana|pemula|trading)/i, 'menilai keamanan'],
+  [/\b(?:modal|akun|dana)\w*\s+(?:kakak|kamu|anda)?\s*(?:jadi\s+)?aman\b/i, 'menilai keamanan'],
+];
+
+/** Pecah jadi kalimat, tetap menyimpan baris supaya daftar tidak hancur. */
+function splitSentences(text) {
+  return String(text || '')
+    .split(/(?<=[.!?])\s+|\n+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+/** @returns {{sentence: string, label: string}[]} */
+function findClaimViolations(text) {
+  const found = [];
+  for (const sentence of splitSentences(text)) {
+    for (const [pattern, label] of CLAIM_PATTERNS) {
+      if (pattern.test(sentence)) {
+        found.push({ sentence, label });
+        break;
+      }
+    }
+  }
+  return found;
+}
+
+/**
+ * Buang kalimat yang melanggar. Kasar, tapi deterministik — dipakai hanya
+ * sebagai jaring terakhir setelah model gagal memperbaiki sendiri.
+ */
+function stripClaimSentences(text) {
+  const kept = splitSentences(text).filter((sentence) => (
+    !CLAIM_PATTERNS.some(([pattern]) => pattern.test(sentence))
+  ));
+  return kept.join('\n').trim();
+}
+
+/**
+ * Tegakkan kontrak keluaran SEBELUM balasan dikirim ke customer.
+ *
+ * Dipakai jalur balasan otomatis. Alurnya tiga tingkat, dari paling lunak:
+ *   1. Tidak melanggar -> kirim apa adanya.
+ *   2. Melanggar -> minta model menulis ulang SEKALI dengan pelanggarannya
+ *      disebutkan eksplisit. Prompt pendek jadi aturannya tidak tenggelam.
+ *   3. Masih melanggar klaim hasil/risiko -> buang kalimat yang melanggar.
+ *      Kasar, tapi klaim hasil itu soal kepatuhan, bukan selera gaya, jadi
+ *      lebih baik balasan pincang daripada janji yang tidak boleh dibuat.
+ *
+ * Kalau setelah dipangkas tidak tersisa isi yang berarti, kembalikan null —
+ * pemanggil memperlakukannya seperti "tidak ada balasan otomatis", sehingga
+ * percakapan jatuh ke manusia alih-alih mengirim potongan kalimat.
+ *
+ * @returns {Promise<{text: string, rewritten: boolean, stripped: boolean,
+ *                    warnings: string[]} | null>}
+ */
+async function enforceReplyContract(llmService, { text, systemPrompt, userMessage, history = [], expectations = {} }) {
+  const initial = String(text || '').trim();
+  if (!initial) return null;
+
+  let warnings = styleWarnings(initial, expectations);
+  if (!warnings.length) return { text: initial, rewritten: false, stripped: false, warnings: [] };
+
+  let current = initial;
+  let rewritten = false;
+
+  if (llmService?.enabled) {
+    const fixPrompt = `Balasan di bawah melanggar aturan berikut:
+${warnings.map((w) => `- ${w}`).join('\n')}
+
+Tulis ulang balasan itu supaya patuh. Pertahankan isi dan fakta yang sudah
+benar; jangan menambah fakta, angka, harga, atau link baru. Jangan menilai
+hasil, keamanan, atau tingkat risiko. Keluarkan HANYA teks balasannya.
+
+Balasan yang harus diperbaiki:
+${current}`;
+    const retry = await llmService.generateReply(fixPrompt, { systemPrompt, history }).catch(() => null);
+    if (retry?.text?.trim()) {
+      current = retry.text.trim();
+      rewritten = true;
+      warnings = styleWarnings(current, expectations);
+    }
+  }
+
+  // Klaim hasil/risiko adalah satu-satunya pelanggaran yang tidak boleh lolos.
+  // Sisanya (panjang, emoji) jelek tapi tidak berbahaya.
+  if (!findClaimViolations(current).length) {
+    return { text: current, rewritten, stripped: false, warnings };
+  }
+
+  const strippedText = stripClaimSentences(current);
+  if (strippedText.split(/\s+/).filter(Boolean).length < 5) return null;
+  return {
+    text: strippedText,
+    rewritten,
+    stripped: true,
+    warnings: styleWarnings(strippedText, expectations),
+  };
+}
+
+/**
+ * Apakah pesan customer terlalu pendek untuk dijawab tanpa menebak?
+ *
+ * Uji funnel Anya: customer membalas "ya" setelah Anya menyebut isi paket
+ * (bukan pertanyaan, bukan daftar bernomor). Model menafsirkannya sebagai
+ * "setuju beli" dan langsung mengirim link checkout. Aturan di system prompt
+ * tidak menghentikan ini, jadi keputusannya dibuat di kode.
+ *
+ * Pembedanya giliran terakhir CS: kalau di situ ada daftar bernomor atau
+ * pertanyaan, balasan pendek memang punya rujukan dan bukan ambigu.
+ */
+const SHORT_ACKS = new Set([
+  'ya', 'iya', 'yaa', 'y', 'ok', 'oke', 'okey', 'okay', 'sip', 'siap',
+  'boleh', 'itu', 'gitu', 'lanjut', 'mau', 'bisa', 'baik',
+]);
+
+function isAmbiguousCustomerReply(message, history = []) {
+  const bare = String(message || '')
+    .toLowerCase()
+    .replace(/[\p{Extended_Pictographic}\p{P}\p{S}]/gu, '')
+    .trim();
+  if (!bare) return false;
+  const isNumberPick = /^[1-9]$/.test(bare);
+  if (!isNumberPick && !SHORT_ACKS.has(bare)) return false;
+
+  const lastCs = [...history].reverse().find((turn) => turn?.role === 'assistant');
+  if (!lastCs) return true;
+  const body = String(lastCs.content || '');
+  const hasNumberedOptions = /(?:^|\n)\s*(?:[1-9]\uFE0F?\u20E3|[1-9][.)])\s/.test(body);
+  // Angka hanya bermakna kalau ada daftar bernomor untuk dirujuk.
+  if (isNumberPick) return !hasNumberedOptions;
+  // "ya"/"oke" bermakna kalau CS baru saja bertanya atau menawarkan pilihan.
+  return !hasNumberedOptions && !body.includes('?');
+}
+
+/** Balasan klarifikasi tidak boleh menawarkan atau mengirim link apa pun. */
+function stripLinks(text) {
+  return String(text || '')
+    .replace(/\s*(?:\u{1F449}\s*)?https?:\/\/\S+/gu, '')
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 function normalizeUsage(result) {
   const usage = result?.usage || {};
   const inputTokens = Number(usage.prompt_tokens) || 0;
@@ -46,6 +219,8 @@ function styleWarnings(text, expectations = {}) {
   if (/\[[^\]]+\]\(https?:\/\/[^)]+\)/.test(value)) warnings.push('markdown link instead of plain URL');
   if ((value.match(/\?/g) || []).length > 1) warnings.push('more than one question');
   if (expectations.expectDirectHandoff && value.includes('?')) warnings.push('asks a question after explicit handoff request');
+  const claim = findClaimViolations(value)[0];
+  if (claim) warnings.push(`klaim hasil/risiko: ${claim.label}`);
   const canned = [
     'saya memahami',
     'terima kasih atas pertanyaannya',
@@ -179,4 +354,8 @@ ${reply}`;
   };
 }
 
-module.exports = { normalizeUsage, formatUsd, styleWarnings, judgeReply };
+module.exports = {
+  normalizeUsage, formatUsd, styleWarnings, judgeReply,
+  CLAIM_PATTERNS, findClaimViolations, stripClaimSentences, enforceReplyContract,
+  isAmbiguousCustomerReply, stripLinks,
+};

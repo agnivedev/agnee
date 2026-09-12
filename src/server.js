@@ -336,9 +336,9 @@ async function buildApp(overrides = {}) {
   async function getConnConfig(companyId) {
     if (!companyId) throw new Error('getConnConfig requires a companyId');
     let conn = null;
-    if (database.enabled && database.connected) {
+    if (canCall('getWhatsappConnection')) {
       conn = await database.getWhatsappConnection(companyId).catch(() => null);
-      if (!conn) {
+      if (!conn && canCall('upsertWhatsappConnection')) {
         // Company with no identity of its own — mint one and persist it so the
         // profile stays stable across restarts.
         conn = await database.upsertWhatsappConnection(companyId, {
@@ -350,9 +350,92 @@ async function buildApp(overrides = {}) {
     }
     return {
       // Derive per-company even if the DB write failed — never share a clientId.
+      id: conn?.id || `${companyId}:whatsapp-main`,
+      companyId,
+      connectionKey: conn?.connectionKey || 'whatsapp-main',
+      label: conn?.label || 'WhatsApp utama',
+      isActive: conn?.isActive !== false,
       clientId: conn?.clientId || `agnee-${companyId}`,
       sessionPath: conn?.sessionPath || config.sessionPath,
     };
+  }
+
+  // ── Memilih nomor: satu company boleh punya beberapa ───────────────────────
+  //
+  // Manager di-key connectionId, jadi setiap pemanggil harus menyebut nomor
+  // mana yang dimaksud. Dua pertanyaan berbeda, dua helper berbeda:
+  // "nomor utama company ini" untuk hal yang tidak terikat percakapan, dan
+  // "nomor yang memiliki percakapan ini" untuk sisanya.
+
+  // Setiap pemanggilan database di helper ini memeriksa keberadaan methodnya
+  // dulu. `.catch()` tidak menangkap TypeError dari method yang tidak ada, dan
+  // driver pengganti (test, demo) memang tidak memiliki semuanya — itu pernah
+  // membuat satu route menjawab 500 tanpa jejak.
+  const canCall = (name) => database.enabled && database.connected
+    && typeof database[name] === 'function';
+
+  async function listWaConns(companyId) {
+    if (canCall('listWhatsappConnections')) {
+      const rows = await database.listWhatsappConnections(companyId).catch(() => []);
+      if (rows.length) return rows;
+    }
+    return [await getConnConfig(companyId)];
+  }
+
+  async function primaryWaConn(companyId) {
+    const rows = await listWaConns(companyId);
+    return rows.find((row) => row.connectionKey === 'whatsapp-main') || rows[0];
+  }
+
+  /**
+   * Nomor yang memiliki percakapan ini. Percakapan yang sudah menempel TIDAK
+   * pernah dipindahkan: balasan dari nomor lain, di sisi customer, adalah chat
+   * baru dari nomor asing, bukan kelanjutan percakapan.
+   */
+  async function waConnForChat(companyId, chatId) {
+    if (chatId && canCall('getWhatsappChatNumber')) {
+      const attached = await database.getWhatsappChatNumber(companyId, chatId).catch(() => null);
+      if (attached) return attached;
+    }
+    return primaryWaConn(companyId);
+  }
+
+  /**
+   * Nomor untuk mengirim ke percakapan ini. Kalau belum menempel, pilih nomor
+   * aktif dengan beban paling ringan lalu tempelkan — supaya nomor yang
+   * ditambah belakangan ikut menyerap percakapan baru.
+   */
+  async function waConnForOutbound(companyId, chatId) {
+    if (!canCall('getWhatsappChatNumber')) return primaryWaConn(companyId);
+    const attached = await database.getWhatsappChatNumber(companyId, chatId).catch(() => null);
+    if (attached) return attached;
+
+    const counts = canCall('countWhatsappChatsPerConnection')
+      ? await database.countWhatsappChatsPerConnection(companyId).catch(() => [])
+      : [];
+    const rows = await listWaConns(companyId);
+    const chosen = rows.find((row) => row.id === counts[0]?.id) || await primaryWaConn(companyId);
+    if (!chosen?.id) return chosen;
+    if (canCall('assignWhatsappChatNumber')) {
+      await database.assignWhatsappChatNumber(companyId, chatId, chosen.id).catch(() => {});
+    }
+    // Dua pengiriman bersamaan ke percakapan baru yang sama bisa memilih nomor
+    // berbeda; INSERT pertama menang. Baca ulang supaya keduanya sepakat.
+    return (await database.getWhatsappChatNumber(companyId, chatId).catch(() => null)) || chosen;
+  }
+
+  /** Nomor yang diminta pemanggil QR, atau nomor utama kalau tidak disebut. */
+  async function resolveQrConn(companyId, connectionId) {
+    if (!connectionId) return primaryWaConn(companyId);
+    const rows = await listWaConns(companyId);
+    return rows.find((row) => row.id === connectionId) || null;
+  }
+
+  /** Client + state untuk satu nomor. `chatId` null berarti nomor utama. */
+  async function waFor(companyId, chatId = null) {
+    const conn = chatId ? await waConnForChat(companyId, chatId) : await primaryWaConn(companyId);
+    if (!conn?.id) return { conn: null, client: null, state: { phase: 'disabled', syncPercent: null } };
+    return { conn, client: manager.getClient(conn.id), state: manager.getState(conn.id) };
   }
 
   /** Which messaging channel this company uses — 'whatsapp_web' (default) or 'cloud_api'. */
@@ -379,7 +462,10 @@ async function buildApp(overrides = {}) {
       broadcastEvent(companyId, 'message', { chatId, fromMe: true, body: text, timestamp: sent.timestamp });
       return sent;
     }
-    const wa = manager.getClient(companyId);
+    // Percakapan baru menempel ke nomor aktif yang bebannya paling ringan;
+    // percakapan lama tetap di nomornya.
+    const outConn = await waConnForOutbound(companyId, chatId);
+    const wa = manager.getClient(outConn?.id);
     return sendTextForUi(wa, chatId, text, options);
   }
 
@@ -396,7 +482,7 @@ async function buildApp(overrides = {}) {
     // Catat pesan masuk supaya "pesan terakhir" tetap terbaca walau client
     // WhatsApp sedang bermasalah. Untuk jalur whatsapp-web.js, sebelum ini isi
     // chat customer hanya hidup di dalam browser Chromium.
-    if (database.enabled && database.connected) {
+    if (canCall('recordInboundMessage')) {
       await database.recordInboundMessage(companyId, {
         chatId: message.from,
         connectionId: meta.connectionId || null,
@@ -1759,8 +1845,7 @@ async function buildApp(overrides = {}) {
   }, async (request, reply) => {
     const session = request.agneeSession;
     const companyId = session.companyId;
-    const wa = manager.getClient(companyId);
-    const waState = manager.getState(companyId);
+    const { client: wa, state: waState } = await waFor(companyId, request.params.chatId);
     const members = await getTeamMembers(companyId);
     let assigneeUserId = request.body.mode === 'ai' ? null : request.body.assigneeUserId;
     if (request.body.mode === 'human' && !assigneeUserId) assigneeUserId = session.userId;
@@ -2826,7 +2911,8 @@ Aturan:
         demoMode: false,
       };
     }
-    return { provider: 'whatsapp_web', ...manager.publicState(companyId, config.demoMode) };
+    const primary = await primaryWaConn(companyId);
+    return { provider: 'whatsapp_web', ...manager.publicState(primary?.id, config.demoMode) };
   });
 
   app.get('/v1/events', async (request, reply) => {
@@ -2834,7 +2920,8 @@ Aturan:
     if (manager.totalSseClients() >= SSE_MAX_CLIENTS) {
       return reply.code(503).send({ error: 'Too many event stream connections' });
     }
-    const waState = manager.getState(companyId);
+    const primary = await primaryWaConn(companyId);
+    const waState = primary?.id ? manager.getState(primary.id) : { phase: 'disabled' };
     reply.hijack();
     reply.raw.writeHead(200, {
       'content-type': 'text/event-stream; charset=utf-8',
@@ -2859,10 +2946,14 @@ Aturan:
       demoQr ||= await QRCode.toDataURL('AGNEE-DEMO-PAIRING', { margin: 1, width: 320, color: { dark: '#173A30', light: '#FFFFFF' } });
       return { qrDataUrl: demoQr, demoMode: true };
     }
-    await manager.mirrorCurrentQrFromBrowser(companyId, app.log);
-    const waState = manager.getState(companyId);
+    // `connectionId` memilih nomor mana yang QR-nya diminta. Tanpa itu,
+    // nomor utama — supaya pemanggil lama tetap bekerja.
+    const conn = await resolveQrConn(companyId, request.query.connectionId);
+    if (!conn) return reply.code(404).send({ error: 'Nomor tidak ditemukan.' });
+    await manager.mirrorCurrentQrFromBrowser(conn.id, app.log);
+    const waState = manager.getState(conn.id);
     if (!waState.qrDataUrl) return reply.code(404).send({ error: 'QR is not available', phase: waState.phase });
-    return { qrDataUrl: waState.qrDataUrl, qrGeneratedAt: waState.qrGeneratedAt, demoMode: false };
+    return { connectionId: conn.id, qrDataUrl: waState.qrDataUrl, qrGeneratedAt: waState.qrGeneratedAt, demoMode: false };
   });
 
   app.post('/v1/whatsapp/qr-refresh', async (request, reply) => {
@@ -2872,7 +2963,12 @@ Aturan:
       // route only ever (re)pairs the single 'whatsapp-main' connection, so once
       // that row exists, refreshing its QR must stay allowed — otherwise a
       // company on max_whatsapp=1 could never re-scan after its first pairing.
-      const existing = await database.getWhatsappConnection(companyId).catch(() => null);
+      // Plafon membatasi berapa nomor yang boleh DIBUAT. Memasang ulang QR
+      // untuk nomor yang sudah ada harus tetap boleh, kalau tidak company
+      // dengan max_whatsapp=1 tidak akan pernah bisa scan ulang.
+      const existing = request.body?.connectionId
+        ? true
+        : await database.getWhatsappConnection(companyId).catch(() => null);
       if (!existing) {
         const usage = await database.getCompanyUsage(companyId);
         if (usage && usage.maxWhatsapp > 0 && usage.currentWhatsapp >= usage.maxWhatsapp) {
@@ -2884,49 +2980,136 @@ Aturan:
       demoQr ||= await QRCode.toDataURL('AGNEE-DEMO-PAIRING', { margin: 1, width: 320, color: { dark: '#173A30', light: '#FFFFFF' } });
       return { qrDataUrl: demoQr, demoMode: true };
     }
-    const waState = manager.getState(companyId);
-    if (waState.phase === 'error' || !manager.getClient(companyId)) {
-      const connConfig = await getConnConfig(companyId);
+    const connConfig = await resolveQrConn(companyId, request.body?.connectionId);
+    if (!connConfig) return reply.code(404).send({ error: 'Nomor tidak ditemukan.' });
+    const waState = manager.getState(connConfig.id);
+    if (waState.phase === 'error' || !manager.getClient(connConfig.id)) {
       if (waState.phase === 'error') {
-        const backupName = manager.quarantineProfile(companyId, connConfig.sessionPath, connConfig.clientId, app.log);
-        await manager.stopClient(companyId);
+        const backupName = manager.quarantineProfile(connConfig.id, connConfig.sessionPath, connConfig.clientId, app.log);
+        await manager.stopClient(connConfig.id);
         waState.lastError = null;
-        app.log.info({ companyId, previousSessionBackedUp: Boolean(backupName) }, 'Restarting WhatsApp client after error');
+        app.log.info({ companyId, connectionId: connConfig.id, previousSessionBackedUp: Boolean(backupName) }, 'Restarting WhatsApp client after error');
       } else {
-        app.log.info({ companyId }, 'Starting WhatsApp client for first time');
+        app.log.info({ companyId, connectionId: connConfig.id }, 'Starting WhatsApp client for first time');
       }
       waState.phase = 'starting';
       waState.qrDataUrl = null;
-      manager.broadcast(companyId, 'whatsapp_phase', { phase: 'starting' });
-      manager.startFor(companyId, connConfig, makeWaCallbacks()).catch((error) => {
+      manager.broadcast(companyId, 'whatsapp_phase', { phase: 'starting', connectionId: connConfig.id });
+      manager.startFor(connConfig.id, connConfig, makeWaCallbacks()).catch((error) => {
         app.log.warn({ err: error, companyId }, 'Could not start WhatsApp client');
       });
-      return { restarting: true, phase: 'starting' };
+      return { restarting: true, phase: 'starting', connectionId: connConfig.id };
     }
-    await manager.mirrorCurrentQrFromBrowser(companyId, app.log);
+    await manager.mirrorCurrentQrFromBrowser(connConfig.id, app.log);
     if (!waState.qrDataUrl) return reply.code(404).send({ error: 'QR is not available', phase: waState.phase });
-    return { qrDataUrl: waState.qrDataUrl, qrGeneratedAt: waState.qrGeneratedAt, demoMode: false };
+    return { connectionId: connConfig.id, qrDataUrl: waState.qrDataUrl, qrGeneratedAt: waState.qrGeneratedAt, demoMode: false };
+  });
+
+  // ── Nomor WhatsApp Web milik satu company (rotator) ───────────────────────
+
+  app.get('/v1/whatsapp/numbers', async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat melihat koneksi.' });
+    const companyId = request.agneeSession.companyId;
+    const rows = await listWaConns(companyId);
+    return {
+      numbers: rows.map((row) => ({
+        id: row.id,
+        connectionKey: row.connectionKey,
+        label: row.label,
+        phoneNumber: row.phoneNumber || null,
+        isActive: row.isActive !== false,
+        // Fase diambil dari manager, bukan kolom status: kolom itu catatan
+        // terakhir yang tersimpan, sedangkan manager tahu keadaan sekarang.
+        phase: manager.getState(row.id).phase,
+      })),
+    };
+  });
+
+  app.post('/v1/whatsapp/numbers', {
+    schema: {
+      body: {
+        type: 'object', additionalProperties: false,
+        properties: { label: { type: 'string', maxLength: 60 } },
+      },
+    },
+  }, async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat menambah nomor.' });
+    if (!canCall('addWhatsappConnection')) return reply.code(503).send({ error: 'Database tidak tersedia.' });
+    const companyId = request.agneeSession.companyId;
+
+    // Plafon paket membatasi berapa nomor yang boleh dibuat.
+    const usage = await database.getCompanyUsage(companyId).catch(() => null);
+    if (usage && usage.maxWhatsapp > 0 && usage.currentWhatsapp >= usage.maxWhatsapp) {
+      return reply.code(403).send({ error: `Batas koneksi WhatsApp tercapai (${usage.maxWhatsapp}). Upgrade paket untuk menambah nomor.` });
+    }
+
+    const added = await database.addWhatsappConnection(companyId, {
+      sessionPath: config.sessionPath,
+      label: request.body?.label?.trim() || null,
+    });
+    if (!added) return reply.code(500).send({ error: 'Nomor tidak dapat dibuat.' });
+    // Belum di-start: client baru dinyalakan saat supervisor membuka dialog QR
+    // untuk nomor ini. Menyalakan Chromium yang belum tentu dipakai hanya
+    // memakan memori — satu nomor terukur ~400 MB.
+    return reply.code(201).send({
+      id: added.id, connectionKey: added.connectionKey, label: added.label, isActive: added.isActive,
+    });
+  });
+
+  app.patch('/v1/whatsapp/numbers/:id', {
+    schema: {
+      params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } },
+      body: {
+        type: 'object', required: ['isActive'], additionalProperties: false,
+        properties: { isActive: { type: 'boolean' } },
+      },
+    },
+  }, async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengubah koneksi.' });
+    if (!canCall('setWhatsappConnectionActive')) return reply.code(503).send({ error: 'Database tidak tersedia.' });
+    const updated = await database.setWhatsappConnectionActive(
+      request.agneeSession.companyId, request.params.id, request.body.isActive,
+    );
+    if (!updated) return reply.code(404).send({ error: 'Nomor tidak ditemukan.' });
+    // Percakapan yang sudah menempel tidak dilepas — menonaktifkan hanya
+    // menghentikan nomor ini menerima percakapan baru.
+    return { ok: true, id: updated.id, isActive: updated.isActive };
+  });
+
+  app.delete('/v1/whatsapp/numbers/:id', {
+    schema: { params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } } },
+  }, async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat menghapus nomor.' });
+    if (!canCall('deleteWhatsappConnection')) return reply.code(503).send({ error: 'Database tidak tersedia.' });
+    const removed = await database.deleteWhatsappConnection(request.agneeSession.companyId, request.params.id);
+    // Nomor utama sengaja tidak bisa dihapus: menghapusnya membuat company
+    // kehilangan identitas WhatsApp-nya sekaligus profil Chromium-nya.
+    if (!removed) return reply.code(404).send({ error: 'Nomor tidak ditemukan, atau nomor utama tidak dapat dihapus.' });
+    await manager.stopClient(removed.id).catch(() => {});
+    return { ok: true };
   });
 
   app.post('/v1/whatsapp/logout', async (request, reply) => {
     const companyId = request.agneeSession.companyId;
     if (config.demoMode) return reply.code(409).send({ error: 'Cannot logout in demo mode' });
-    const wa = manager.getClient(companyId);
+    // Tanpa `connectionId`, yang diputus adalah nomor utama.
+    const connConfig = await resolveQrConn(companyId, request.body?.connectionId);
+    if (!connConfig) return reply.code(404).send({ error: 'Nomor tidak ditemukan.' });
+    const wa = manager.getClient(connConfig.id);
+    const waState = manager.getState(connConfig.id);
     if (!wa) return reply.code(409).send({ error: 'WhatsApp client not initialized' });
-    const waState = manager.getState(companyId);
     try {
       await wa.logout();
     } catch {
       // logout() may throw if already disconnected — force restart anyway
-      const connConfig = await getConnConfig(companyId);
-      await manager.stopClient(companyId);
+      await manager.stopClient(connConfig.id);
       waState.phase = 'starting';
       waState.qrDataUrl = null;
       waState.account = null;
       waState.syncPercent = null;
       waState.lastError = null;
-      manager.broadcast(companyId, 'whatsapp_phase', { phase: 'starting' });
-      await manager.startFor(companyId, connConfig, makeWaCallbacks());
+      manager.broadcast(companyId, 'whatsapp_phase', { phase: 'starting', connectionId: connConfig.id });
+      await manager.startFor(connConfig.id, connConfig, makeWaCallbacks());
     }
     return { ok: true };
   });
@@ -3029,16 +3212,43 @@ Aturan:
   }, async (request) => {
     const companyId = request.agneeSession.companyId;
     const provider = await getWhatsappProvider(companyId);
-    const wa = manager.getClient(companyId);
-    const waState = manager.getState(companyId);
+    const conns = provider === 'cloud_api' ? [] : await listWaConns(companyId);
+    // Inbox menampilkan SEMUA nomor company. Kalau hanya nomor utama yang
+    // dibaca, percakapan yang masuk lewat nomor kedua tidak terlihat sama
+    // sekali — itu justru menghapus gunanya punya beberapa nomor.
+    const liveConns = conns.filter((conn) => manager.getClient(conn.id)
+      && manager.getState(conn.id).phase === 'ready');
+    const waState = conns.length
+      ? manager.getState((conns.find((c) => c.connectionKey === 'whatsapp-main') || conns[0]).id)
+      : { phase: 'disabled' };
     const limit = request.query.limit || 12;
     const offset = request.query.offset || 0;
-    if (provider !== 'cloud_api' && !config.demoMode && waState.phase !== 'ready') return { chats: [], phase: waState.phase };
+    if (provider !== 'cloud_api' && !config.demoMode && !liveConns.length) {
+      return { chats: [], phase: waState.phase };
+    }
     const query = String(request.query.q || '').trim().toLocaleLowerCase('id-ID');
     const filter = request.query.filter || 'inbox';
     let chats;
-    if (provider === 'cloud_api') chats = await database.listCloudChats(companyId);
-    else chats = config.demoMode ? [...demo.chats] : await getChatsForUi(wa);
+    if (provider === 'cloud_api') {
+      chats = await database.listCloudChats(companyId);
+    } else if (config.demoMode) {
+      chats = [...demo.chats];
+    } else {
+      // Percakapan yang sama tidak boleh muncul dua kali kalau dua nomor
+      // kebetulan sama-sama mengenal kontak itu; yang pertama menang, dan
+      // pemetaan sticky yang menentukan siapa yang membalas.
+      const perConn = await Promise.all(liveConns.map(async (conn) => {
+        const rows = await getChatsForUi(manager.getClient(conn.id)).catch(() => []);
+        return rows.map((chat) => ({ ...chat, connectionId: conn.id, connectionLabel: conn.label }));
+      }));
+      const seen = new Set();
+      chats = [];
+      for (const chat of perConn.flat()) {
+        if (seen.has(chat.id)) continue;
+        seen.add(chat.id);
+        chats.push(chat);
+      }
+    }
     if (!isSupervisor(request.agneeSession)) {
       const routing = await Promise.all(chats.map((chat) => getRouting(chat.id, companyId)));
       chats = chats.filter((_chat, index) => routing[index].mode === 'human'
@@ -3071,8 +3281,7 @@ Aturan:
     const limit = request.query.limit || 30;
     const provider = await getWhatsappProvider(companyId);
     if (provider === 'cloud_api') return database.listCloudMessages(companyId, chatId, limit);
-    const wa = manager.getClient(companyId);
-    const waState = manager.getState(companyId);
+    const { client: wa, state: waState } = await waFor(companyId, chatId);
     if (config.demoMode) {
       const all = demo.messages[chatId] || [];
       return { messages: all.slice(-limit), hasMore: all.length > limit };
@@ -3087,8 +3296,7 @@ Aturan:
     } } },
   }, async (request, reply) => {
     const companyId = request.agneeSession.companyId;
-    const wa = manager.getClient(companyId);
-    const waState = manager.getState(companyId);
+    const { client: wa, state: waState } = await waFor(companyId, request.params.chatId);
     if (config.demoMode) {
       const chat = demo.chats.find((item) => item.id === request.params.chatId);
       return { isGroup: Boolean(chat?.isGroup), participantCount: 0, participantNames: [] };
@@ -3108,9 +3316,8 @@ Aturan:
     } } },
   }, async (request, reply) => {
     const companyId = request.agneeSession.companyId;
-    const wa = manager.getClient(companyId);
-    const waState = manager.getState(companyId);
     const { chatId } = request.params;
+    const { client: wa, state: waState } = await waFor(companyId, chatId);
     if (config.demoMode) {
       const pinnedIds = new Set(demo.pinned[chatId] || []);
       return { messages: (demo.messages[chatId] || []).filter((message) => pinnedIds.has(message.id)) };
@@ -3177,7 +3384,7 @@ Aturan:
     },
   }, async (request, reply) => {
     const companyId = request.agneeSession.companyId;
-    const wa = manager.getClient(companyId);
+    const { client: wa } = await waFor(companyId, request.params.chatId);
     try {
       return await summarizeConversation(request.params.chatId, request.query.locale, companyId, wa);
     } catch (error) {
@@ -3221,9 +3428,8 @@ Aturan:
     },
   }, async (request, reply) => {
     const companyId = request.agneeSession.companyId;
-    const wa = manager.getClient(companyId);
-    const waState = manager.getState(companyId);
     const { chatId } = request.params;
+    const { client: wa, state: waState } = await waFor(companyId, chatId);
     if (config.demoMode) {
       const chat = demo.chats.find((c) => c.id === chatId);
       if (chat) chat.unreadCount = 0;
@@ -3250,10 +3456,9 @@ Aturan:
     },
   }, async (request, reply) => {
     const companyId = request.agneeSession.companyId;
-    const wa = manager.getClient(companyId);
-    const waState = manager.getState(companyId);
     const { chatId } = request.params;
     const { archived } = request.body;
+    const { client: wa, state: waState } = await waFor(companyId, chatId);
     if (config.demoMode) {
       const chat = demo.chats.find((item) => item.id === chatId);
       if (!chat) return reply.code(404).send({ error: 'Chat not found' });
@@ -3279,8 +3484,7 @@ Aturan:
     } } },
   }, async (request, reply) => {
     const companyId = request.agneeSession.companyId;
-    const wa = manager.getClient(companyId);
-    const waState = manager.getState(companyId);
+    const { client: wa, state: waState } = await waFor(companyId, request.params.chatId);
     if (config.demoMode || waState.phase !== 'ready') return reply.code(404).send();
     try {
       const avatarUrl = await getProfilePicUrlForUi(wa, request.params.chatId);
@@ -3306,8 +3510,7 @@ Aturan:
     } } },
   }, async (request, reply) => {
     const companyId = request.agneeSession.companyId;
-    const wa = manager.getClient(companyId);
-    const waState = manager.getState(companyId);
+    const { client: wa, state: waState } = await waFor(companyId);
     if (config.demoMode || waState.phase !== 'ready') return reply.code(404).send();
     try {
       const avatarUrl = await getProfilePicUrlForUi(wa, request.params.contactId);
@@ -3333,8 +3536,9 @@ Aturan:
     } } },
   }, async (request, reply) => {
     const companyId = request.agneeSession.companyId;
-    const wa = manager.getClient(companyId);
-    const waState = manager.getState(companyId);
+    // Route ini hanya membawa messageId, tanpa chatId untuk dipetakan ke nomor.
+    // Dilayani nomor utama; media dari nomor lain belum bisa diambil lewat sini.
+    const { client: wa, state: waState } = await waFor(companyId);
     if (config.demoMode || waState.phase !== 'ready') return reply.code(404).send();
     try {
       const media = await wa.pupPage.evaluate(async (messageId) => {
@@ -3468,8 +3672,9 @@ Aturan:
       }
       return result;
     }
-    const wa = manager.getClient(companyId);
-    const waState = manager.getState(companyId);
+    const outboundConn = await waConnForOutbound(companyId, chatId);
+    const wa = manager.getClient(outboundConn?.id);
+    const waState = outboundConn?.id ? manager.getState(outboundConn.id) : { phase: 'disabled' };
     if (waState.phase !== 'ready') return reply.code(503).send({ error: 'WhatsApp is not ready', phase: waState.phase });
     if (!request.body.chatId && !(await wa.isRegisteredUser(chatId))) return reply.code(422).send({ error: 'Recipient is not on WhatsApp' });
     const sent = await sendTextForUi(wa, chatId, text, {
@@ -3560,9 +3765,10 @@ Aturan:
     if (database.enabled && database.connected) {
       const otherConns = await database.listAllWhatsappConnections().catch(() => []);
       for (const conn of otherConns) {
-        if (manager.getClient(conn.companyId)) continue;
-        app.log.info({ companyId: conn.companyId, clientId: conn.clientId }, 'Auto-resuming WhatsApp session for company');
-        await manager.startFor(conn.companyId, {
+        if (manager.getClient(conn.id)) continue;
+        app.log.info({ companyId: conn.companyId, connectionId: conn.id, clientId: conn.clientId }, 'Auto-resuming WhatsApp session');
+        await manager.startFor(conn.id, {
+          companyId: conn.companyId,
           clientId: conn.clientId,
           sessionPath: conn.sessionPath || config.sessionPath,
         }, makeWaCallbacks()).catch((error) => {

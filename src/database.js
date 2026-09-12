@@ -1314,6 +1314,102 @@ class Database {
     return result.rows[0] || null;
   }
 
+  /** Semua nomor WhatsApp Web milik satu company, tertua dulu. */
+  async listWhatsappConnections(companyId) {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(`
+      SELECT id, company_id AS "companyId", connection_key AS "connectionKey",
+             label, client_id AS "clientId", phone_number AS "phoneNumber",
+             status, session_path AS "sessionPath", is_active AS "isActive",
+             connected_at AS "connectedAt"
+      FROM whatsapp_connections
+      WHERE company_id = $1
+      ORDER BY created_at ASC
+    `, [companyId]);
+    return result.rows;
+  }
+
+  /**
+   * Tambah satu nomor baru untuk company. `connection_key` dibuat otomatis
+   * ('whatsapp-2', 'whatsapp-3', ...) karena yang dipakai manusia adalah
+   * `label`, sedangkan kunci ini hanya perlu stabil dan unik per company.
+   */
+  async addWhatsappConnection(companyId, { sessionPath, label = null }) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      WITH next AS (
+        SELECT COALESCE(MAX(NULLIF(regexp_replace(connection_key, '\\D', '', 'g'), '')::int), 1) + 1 AS n
+        FROM whatsapp_connections WHERE company_id = $1
+      )
+      INSERT INTO whatsapp_connections (company_id, connection_key, client_id, session_path, label)
+      SELECT $1, 'whatsapp-' || next.n, 'agnee-' || $1 || '-' || next.n, $2,
+             COALESCE($3, 'WhatsApp ' || next.n)
+      FROM next
+      RETURNING id, connection_key AS "connectionKey", client_id AS "clientId",
+                session_path AS "sessionPath", label, status, is_active AS "isActive"
+    `, [companyId, sessionPath, label]);
+    return result.rows[0] || null;
+  }
+
+  async setWhatsappConnectionActive(companyId, id, isActive) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      UPDATE whatsapp_connections SET is_active = $3, updated_at = NOW()
+      WHERE company_id = $1 AND id = $2
+      RETURNING id, is_active AS "isActive"
+    `, [companyId, id, isActive]);
+    return result.rows[0] || null;
+  }
+
+  async deleteWhatsappConnection(companyId, id) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      DELETE FROM whatsapp_connections
+      WHERE company_id = $1 AND id = $2 AND connection_key <> 'whatsapp-main'
+      RETURNING id, client_id AS "clientId", session_path AS "sessionPath"
+    `, [companyId, id]);
+    return result.rows[0] || null;
+  }
+
+  /** Nomor yang sudah menempel pada satu percakapan, atau null. */
+  async getWhatsappChatNumber(companyId, chatId) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      SELECT c.id, c.client_id AS "clientId", c.session_path AS "sessionPath",
+             c.connection_key AS "connectionKey", c.label, c.is_active AS "isActive", c.status
+      FROM whatsapp_chat_numbers n
+      JOIN whatsapp_connections c ON c.id = n.connection_id
+      WHERE n.company_id = $1 AND n.chat_id = $2
+    `, [companyId, chatId]);
+    return result.rows[0] || null;
+  }
+
+  /** Idempotent: percakapan yang sudah punya nomor tidak dipindahkan. */
+  async assignWhatsappChatNumber(companyId, chatId, connectionId) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      INSERT INTO whatsapp_chat_numbers (company_id, chat_id, connection_id)
+      VALUES ($1, $2, $3)
+      ON CONFLICT (company_id, chat_id) DO NOTHING
+      RETURNING connection_id AS "connectionId"
+    `, [companyId, chatId, connectionId]);
+    return result.rows[0] || null;
+  }
+
+  /** Nomor aktif dengan percakapan paling sedikit lebih dulu. */
+  async countWhatsappChatsPerConnection(companyId) {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(`
+      SELECT c.id, COUNT(n.chat_id)::int AS "chatCount"
+      FROM whatsapp_connections c
+      LEFT JOIN whatsapp_chat_numbers n ON n.connection_id = c.id
+      WHERE c.company_id = $1 AND c.is_active
+      GROUP BY c.id
+      ORDER BY COUNT(n.chat_id) ASC, c.created_at ASC
+    `, [companyId]);
+    return result.rows;
+  }
+
   async upsertWhatsappConnection(companyId, { clientId, sessionPath, status = 'disconnected', phoneNumber = null }) {
     if (!this.enabled) return null;
     const result = await this.pool.query(`
@@ -1346,7 +1442,7 @@ class Database {
   async listAllWhatsappConnections() {
     if (!this.enabled) return [];
     const result = await this.pool.query(`
-      SELECT wc.company_id AS "companyId", wc.connection_key AS "connectionKey",
+      SELECT wc.id, wc.company_id AS "companyId", wc.connection_key AS "connectionKey",
              wc.client_id AS "clientId", wc.session_path AS "sessionPath",
              wc.status, wc.phone_number AS "phoneNumber", c.slug AS "companySlug"
       FROM whatsapp_connections wc

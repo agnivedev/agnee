@@ -20,8 +20,8 @@ async function startWithFakeClient(overrides = {}) {
   const manager = new WhatsappManager();
   const created = [];
 
-  manager._createClient = (companyId) => {
-    const entry = manager._getEntry(companyId);
+  manager._createClient = (connectionId) => {
+    const entry = manager._getEntry(connectionId);
     const client = {
       initialize: async () => {},
       destroy: async () => {},
@@ -39,8 +39,11 @@ async function startWithFakeClient(overrides = {}) {
     return client;
   };
 
-  await manager.startFor('c1', { clientId: 'agnee-c1', sessionPath: '/tmp/wa' }, { log: silentLog });
-  return { manager, entry: manager._getEntry('c1'), created };
+  // Kunci manager sekarang connectionId, dan companyId ikut di konfigurasi.
+  await manager.startFor('conn-1', {
+    companyId: 'c1', clientId: 'agnee-c1', sessionPath: '/tmp/wa',
+  }, { log: silentLog });
+  return { manager, entry: manager._getEntry('conn-1'), created };
 }
 
 test('watchdog tetap berjalan setelah fase berubah jadi syncing', async () => {
@@ -103,4 +106,24 @@ test('watchdog memulai ulang sekali saat helper halaman tidak pernah dimuat', as
   } finally {
     mock.timers.reset();
   }
+});
+
+test('entry di-key connectionId, SSE tetap per company', async () => {
+  const manager = new WhatsappManager();
+  manager.addSseClient('c1', { write() {} });
+  manager.addSseClient('c1', { write() {} });
+  manager.addSseClient('c2', { write() {} });
+
+  // Dua nomor milik company yang sama.
+  manager._getEntry('conn-a', 'c1');
+  manager._getEntry('conn-b', 'c1');
+  manager._getEntry('conn-c', 'c2');
+
+  assert.deepEqual(manager.listConnectionIds('c1').sort(), ['conn-a', 'conn-b']);
+  assert.equal(manager.totalSseClients(), 3, 'pendengar SSE dihitung per company, bukan per nomor');
+
+  manager._entries.get('conn-a').client = {};
+  manager._entries.get('conn-b').client = {};
+  assert.equal(manager.activeCompanyCount(), 1, 'satu company dengan dua nomor tetap satu company');
+  assert.deepEqual(manager.liveConnectionIds('c1').sort(), ['conn-a', 'conn-b']);
 });

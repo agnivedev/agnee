@@ -6,7 +6,44 @@ Semua perubahan penting Agnee dicatat di file ini. Format mengikuti prinsip
 
 ## [Unreleased]
 
+### Changed
+
+- **`WhatsappManager` kini di-key `connectionId`, bukan `companyId`.** Ini
+  syarat agar satu company boleh punya beberapa nomor WhatsApp Web, masing-masing
+  dengan profil Chromium sendiri. Menyentuh 48 titik panggil di `server.js`.
+  Pendengar SSE dipindah ke map terpisah yang tetap **per company** —
+  antarmukanya memang company-scoped, supervisor melihat satu inbox, bukan satu
+  inbox per nomor. `activeCompanyCount()` menghitung company, bukan koneksi.
+  Fase `ready` sekarang hanya ditetapkan lewat `_markReady()`, dan setiap
+  siaran `whatsapp_phase` membawa `connectionId`.
+- **Inbox menggabungkan percakapan dari semua nomor yang hidup.** Kalau hanya
+  nomor utama yang dibaca, percakapan yang masuk lewat nomor kedua tidak
+  terlihat sama sekali — itu menghapus gunanya punya beberapa nomor. Percakapan
+  yang sama tidak dimunculkan dua kali; pemetaan sticky yang menentukan siapa
+  yang membalas.
+- **Operasi per-percakapan memakai nomor pemilik percakapan itu** (riwayat,
+  pinned, arsip, tandai dibaca, avatar, ringkasan, kirim). Pengiriman ke
+  percakapan baru memilih nomor aktif dengan beban paling ringan lalu
+  menempelkannya.
+
 ### Added
+
+- **Route pengelolaan nomor**: `GET/POST /v1/whatsapp/numbers`,
+  `PATCH/DELETE /v1/whatsapp/numbers/:id`. Nomor utama tidak dapat dihapus —
+  menghapusnya membuat company kehilangan identitas WhatsApp sekaligus profil
+  Chromium-nya. Plafon `max_whatsapp` dihitung dari gabungan nomor WhatsApp Web
+  dan Cloud API. Nomor baru tidak langsung dinyalakan: Chromium yang belum
+  tentu dipakai hanya memakan ~400 MB.
+- `/v1/whatsapp/qr`, `/v1/whatsapp/qr-refresh`, dan `/v1/whatsapp/logout`
+  menerima `connectionId` untuk memilih nomor; tanpa itu, nomor utama.
+
+### Fixed
+
+- **Pemanggilan database baru dijaga `canCall()`.** `.catch()` tidak menangkap
+  TypeError dari method yang tidak ada, dan driver pengganti (test, demo) tidak
+  memiliki semuanya — itu sempat membuat route ringkasan percakapan menjawab
+  500 tanpa jejak begitu ia mulai memanggil `getConnConfig()`.
+
 
 - **Catatan pesan masuk (`inbound_messages`, migration 019).** Untuk jalur
   whatsapp-web.js, database sebelumnya hanya menyimpan balasan KITA

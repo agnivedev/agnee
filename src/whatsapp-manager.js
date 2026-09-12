@@ -44,7 +44,13 @@ function resolveBrowserExecutable() {
  */
 class WhatsappManager {
   constructor() {
-    this._entries = new Map(); // companyId -> entry
+    // Kunci entry adalah connectionId (satu baris whatsapp_connections), BUKAN
+    // companyId: satu company boleh punya beberapa nomor, masing-masing dengan
+    // profil Chromium sendiri.
+    this._entries = new Map(); // connectionId -> entry
+    // Pendengar SSE tetap per company. Antarmukanya memang company-scoped —
+    // supervisor melihat satu inbox, bukan satu inbox per nomor.
+    this._sse = new Map(); // companyId -> Set<raw>
   }
 
   _makeState(phase = 'disabled') {
@@ -63,32 +69,54 @@ class WhatsappManager {
     };
   }
 
-  _getEntry(companyId) {
-    if (!this._entries.has(companyId)) {
-      this._entries.set(companyId, {
+  /**
+   * @param connectionId kunci entry
+   * @param companyId wajib saat entry pertama kali dibuat; entry perlu tahu
+   *   miliknya siapa supaya bisa menyiarkan ke pendengar SSE company itu.
+   */
+  _getEntry(connectionId, companyId = null) {
+    if (!this._entries.has(connectionId)) {
+      this._entries.set(connectionId, {
+        connectionId,
+        companyId,
         client: null,
         state: this._makeState(),
-        sseClients: new Set(),
         qrMirrorTimer: null,
         restoredSessionTimer: null,
       });
     }
-    return this._entries.get(companyId);
+    const entry = this._entries.get(connectionId);
+    if (companyId && !entry.companyId) entry.companyId = companyId;
+    return entry;
   }
 
-  /** Returns the live WA Client instance for a company, or null. */
-  getClient(companyId) {
-    return this._entries.get(companyId)?.client || null;
+  /** Semua connectionId milik satu company yang pernah disentuh manager. */
+  listConnectionIds(companyId) {
+    return [...this._entries.values()]
+      .filter((entry) => entry.companyId === companyId)
+      .map((entry) => entry.connectionId);
   }
 
-  /** Returns the live state object (by reference) for a company. */
-  getState(companyId) {
-    return this._getEntry(companyId).state;
+  /** connectionId untuk tiap client yang hidup di satu company. */
+  liveConnectionIds(companyId) {
+    return [...this._entries.values()]
+      .filter((entry) => entry.companyId === companyId && entry.client)
+      .map((entry) => entry.connectionId);
   }
 
-  /** Returns the public-facing state snapshot for a company. */
-  publicState(companyId, demoMode = false) {
-    const s = this.getState(companyId);
+  /** Returns the live WA Client instance for one connection, or null. */
+  getClient(connectionId) {
+    return this._entries.get(connectionId)?.client || null;
+  }
+
+  /** Returns the live state object (by reference) for one connection. */
+  getState(connectionId) {
+    return this._getEntry(connectionId).state;
+  }
+
+  /** Returns the public-facing state snapshot for one connection. */
+  publicState(connectionId, demoMode = false) {
+    const s = this.getState(connectionId);
     return {
       phase: s.phase,
       connectedAt: s.connectedAt,
@@ -108,15 +136,15 @@ class WhatsappManager {
    * watchdog lupa membersihkan `qrDataUrl`/`syncPercent` — sehingga status
    * publik masih melaporkan `hasQr: true` padahal sudah tersambung.
    */
-  _markReady(companyId, account, log, onStatusUpdate) {
-    const entry = this._getEntry(companyId);
+  _markReady(connectionId, account, log, onStatusUpdate) {
+    const entry = this._getEntry(connectionId);
     const state = entry.state;
     const resolved = account || null;
     // Watchdog dan event 'ready' bawaan whatsapp-web.js bisa sampai duluan
     // bergantian. Tanpa penjaga ini keduanya menyiarkan 'ready', dan setiap
     // browser yang terhubung memuat ulang workspace dua kali.
     if (state.phase === 'ready' && state.account === resolved) return;
-    this._clearQrMirror(companyId);
+    this._clearQrMirror(connectionId);
     clearTimeout(entry.restoredSessionTimer);
     entry.restoredSessionTimer = null;
     state.phase = 'ready';
@@ -128,58 +156,65 @@ class WhatsappManager {
     state.syncPercent = 100;
     state.lastError = null;
     state.lastProgressAt = Date.now();
-    log?.info({ account: state.account }, 'WhatsApp ready');
-    this.broadcast(companyId, 'whatsapp_phase', { phase: 'ready', account: state.account });
-    onStatusUpdate?.(companyId, 'ready', state.account)?.catch?.(() => {});
+    log?.info({ account: state.account, connectionId }, 'WhatsApp ready');
+    this.broadcast(entry.companyId, 'whatsapp_phase', {
+      phase: 'ready', account: state.account, connectionId,
+    });
+    onStatusUpdate?.(entry.companyId, 'ready', state.account, connectionId)?.catch?.(() => {});
   }
 
-  /** Broadcast an SSE event to all connected clients for a company. */
+  /** Broadcast an SSE event to every listener of a company. */
   broadcast(companyId, event, payload) {
-    const entry = this._entries.get(companyId);
-    if (!entry) return;
+    const listeners = this._sse.get(companyId);
+    if (!listeners?.size) return;
     const frame = `event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`;
-    for (const raw of entry.sseClients) {
+    for (const raw of listeners) {
       try {
         raw.write(frame);
       } catch {
-        entry.sseClients.delete(raw);
+        listeners.delete(raw);
       }
     }
   }
 
   addSseClient(companyId, raw) {
-    this._getEntry(companyId).sseClients.add(raw);
+    if (!this._sse.has(companyId)) this._sse.set(companyId, new Set());
+    this._sse.get(companyId).add(raw);
   }
 
   removeSseClient(companyId, raw) {
-    this._entries.get(companyId)?.sseClients.delete(raw);
+    this._sse.get(companyId)?.delete(raw);
   }
 
   totalSseClients() {
     let n = 0;
-    for (const e of this._entries.values()) n += e.sseClients.size;
+    for (const listeners of this._sse.values()) n += listeners.size;
     return n;
   }
 
-  /** Number of companies with a live WA client — used by tenant-agnostic health. */
+  /**
+   * Berapa company yang punya minimal satu client hidup — dipakai health yang
+   * tidak terikat tenant. Dihitung per company, bukan per koneksi: satu company
+   * dengan tiga nomor tetap satu company.
+   */
   activeCompanyCount() {
-    let n = 0;
-    for (const e of this._entries.values()) if (e.client) n += 1;
-    return n;
+    const companies = new Set();
+    for (const e of this._entries.values()) if (e.client) companies.add(e.companyId);
+    return companies.size;
   }
 
   // ── QR mirror helpers ──────────────────────────────────────────────────────
 
-  _clearQrMirror(companyId) {
-    const entry = this._entries.get(companyId);
+  _clearQrMirror(connectionId) {
+    const entry = this._entries.get(connectionId);
     if (!entry) return;
     clearInterval(entry.qrMirrorTimer);
     entry.qrMirrorTimer = null;
   }
 
-  async _setCurrentQr(companyId, payload, source, log) {
+  async _setCurrentQr(connectionId, payload, source, log) {
     if (!payload) return false;
-    const entry = this._getEntry(companyId);
+    const entry = this._getEntry(connectionId);
     const officialQr = String(payload).startsWith('https://wa.me/settings/linked_devices#')
       ? String(payload)
       : `https://wa.me/settings/linked_devices#${payload}`;
@@ -190,17 +225,18 @@ class WhatsappManager {
     entry.state.qrGeneratedAt = new Date().toISOString();
     entry.state.syncPercent = null;
     entry.state.lastError = null;
-    log?.info({ source }, 'WhatsApp QR generated');
-    this.broadcast(companyId, 'whatsapp_phase', {
+    log?.info({ source, connectionId }, 'WhatsApp QR generated');
+    this.broadcast(entry.companyId, 'whatsapp_phase', {
       phase: 'waiting_for_qr',
+      connectionId,
       qrDataUrl: entry.state.qrDataUrl,
       qrGeneratedAt: entry.state.qrGeneratedAt,
     });
     return true;
   }
 
-  async mirrorCurrentQrFromBrowser(companyId, log) {
-    const entry = this._entries.get(companyId);
+  async mirrorCurrentQrFromBrowser(connectionId, log) {
+    const entry = this._entries.get(connectionId);
     if (!entry) return false;
     const { client, state } = entry;
     if (state.phase !== 'waiting_for_qr' || !client?.pupPage || client.pupPage.isClosed()) return false;
@@ -208,25 +244,25 @@ class WhatsappManager {
       const currentQr = await client.pupPage.evaluate(() => (
         document.querySelector('[data-ref^="https://wa.me/settings/linked_devices#"]')?.getAttribute('data-ref') || null
       ));
-      return await this._setCurrentQr(companyId, currentQr, 'browser', log);
+      return await this._setCurrentQr(connectionId, currentQr, 'browser', log);
     } catch (error) {
       log?.debug({ err: error }, 'Could not mirror current WhatsApp QR');
       return false;
     }
   }
 
-  _startQrMirror(companyId, log) {
-    const entry = this._getEntry(companyId);
+  _startQrMirror(connectionId, log) {
+    const entry = this._getEntry(connectionId);
     if (entry.qrMirrorTimer) return;
     entry.qrMirrorTimer = setInterval(() => {
-      this.mirrorCurrentQrFromBrowser(companyId, log).catch(() => {});
+      this.mirrorCurrentQrFromBrowser(connectionId, log).catch(() => {});
     }, 2_000);
     entry.qrMirrorTimer.unref?.();
   }
 
   // ── Session quarantine ─────────────────────────────────────────────────────
 
-  quarantineProfile(companyId, sessionPath, clientId, log) {
+  quarantineProfile(connectionId, sessionPath, clientId, log) {
     const profilePath = path.join(sessionPath, `session-${clientId}`);
     if (!fs.existsSync(profilePath)) return null;
     const suffix = new Date().toISOString().replace(/[:.]/g, '-');
@@ -238,8 +274,9 @@ class WhatsappManager {
 
   // ── Client creation ────────────────────────────────────────────────────────
 
-  _createClient(companyId, clientId, sessionPath, callbacks) {
-    const entry = this._getEntry(companyId);
+  _createClient(connectionId, clientId, sessionPath, callbacks) {
+    const entry = this._getEntry(connectionId);
+    const companyId = entry.companyId;
     const { log, onMessage, onStatusUpdate } = callbacks;
     const state = entry.state;
 
@@ -266,27 +303,27 @@ class WhatsappManager {
     entry.client = wa;
 
     wa.on('qr', async (qr) => {
-      await this._setCurrentQr(companyId, qr, 'event', log);
-      this._startQrMirror(companyId, log);
-      onStatusUpdate?.(companyId, 'waiting_for_qr', null).catch(() => {});
+      await this._setCurrentQr(connectionId, qr, 'event', log);
+      this._startQrMirror(connectionId, log);
+      onStatusUpdate?.(companyId, 'waiting_for_qr', null, connectionId).catch(() => {});
     });
 
     wa.on('authenticated', () => {
       if (state.phase === 'ready') return;
-      this._clearQrMirror(companyId);
+      this._clearQrMirror(connectionId);
       state.phase = 'authenticated';
       state.qrDataUrl = null;
       state.qrPayload = null;
       state.qrGeneratedAt = null;
       state.lastError = null;
       state.lastProgressAt = Date.now();
-      log?.info('WhatsApp authenticated');
-      this.broadcast(companyId, 'whatsapp_phase', { phase: 'authenticated' });
+      log?.info({ connectionId }, 'WhatsApp authenticated');
+      this.broadcast(companyId, 'whatsapp_phase', { phase: 'authenticated', connectionId });
     });
 
     wa.on('loading_screen', (percent) => {
       if (state.phase === 'ready') return;
-      this._clearQrMirror(companyId);
+      this._clearQrMirror(connectionId);
       state.phase = 'syncing';
       state.qrDataUrl = null;
       state.qrPayload = null;
@@ -298,40 +335,40 @@ class WhatsappManager {
       if (next !== state.syncPercent) state.lastProgressAt = Date.now();
       state.syncPercent = next;
       state.lastError = null;
-      this.broadcast(companyId, 'whatsapp_phase', { phase: 'syncing', percent: state.syncPercent });
+      this.broadcast(companyId, 'whatsapp_phase', { phase: 'syncing', percent: state.syncPercent, connectionId });
     });
 
     wa.on('ready', () => {
-      this._markReady(companyId, wa.info?.wid?._serialized, log, onStatusUpdate);
+      this._markReady(connectionId, wa.info?.wid?._serialized, log, onStatusUpdate);
     });
 
     wa.on('auth_failure', (msg) => {
       state.phase = 'auth_failure';
       state.syncPercent = null;
       state.lastError = String(msg);
-      log?.warn({ msg }, 'WhatsApp auth_failure');
-      this.broadcast(companyId, 'whatsapp_phase', { phase: 'auth_failure' });
+      log?.warn({ msg, connectionId }, 'WhatsApp auth_failure');
+      this.broadcast(companyId, 'whatsapp_phase', { phase: 'auth_failure', connectionId });
     });
 
     wa.on('disconnected', (reason) => {
-      this._clearQrMirror(companyId);
+      this._clearQrMirror(connectionId);
       state.phase = 'disconnected';
       state.connectedAt = null;
       state.account = null;
       state.syncPercent = null;
       state.lastError = String(reason);
-      log?.warn({ reason }, 'WhatsApp disconnected');
-      this.broadcast(companyId, 'whatsapp_phase', { phase: 'disconnected' });
-      onStatusUpdate?.(companyId, 'disconnected', null).catch(() => {});
+      log?.warn({ reason, connectionId }, 'WhatsApp disconnected');
+      this.broadcast(companyId, 'whatsapp_phase', { phase: 'disconnected', connectionId });
+      onStatusUpdate?.(companyId, 'disconnected', null, connectionId).catch(() => {});
       setTimeout(async () => {
         try { await entry.client?.destroy().catch(() => {}); } catch { /* ignore */ }
         entry.client = null;
         state.phase = 'starting';
         state.syncPercent = null;
         state.lastError = null;
-        log?.info('WhatsApp restarting after disconnect');
-        this.broadcast(companyId, 'whatsapp_phase', { phase: 'starting' });
-        this._createClient(companyId, clientId, sessionPath, callbacks);
+        log?.info({ connectionId }, 'WhatsApp restarting after disconnect');
+        this.broadcast(companyId, 'whatsapp_phase', { phase: 'starting', connectionId });
+        this._createClient(connectionId, clientId, sessionPath, callbacks);
         entry.client.initialize().catch((error) => {
           state.phase = 'error';
           state.lastError = error.message;
@@ -343,7 +380,7 @@ class WhatsappManager {
     wa.on('message', async (message) => {
       if (message.fromMe || message.from === 'status@broadcast') return;
       try {
-        await onMessage?.(companyId, message);
+        await onMessage?.(companyId, message, connectionId);
       } catch (error) {
         log?.error({ err: error }, 'Inbound message handling failed');
       }
@@ -382,8 +419,8 @@ class WhatsappManager {
    * @param {{ clientId: string, sessionPath: string }} connConfig
    * @param {{ log, onMessage, onStatusUpdate }} callbacks
    */
-  async startFor(companyId, { clientId, sessionPath }, callbacks = {}) {
-    const entry = this._getEntry(companyId);
+  async startFor(connectionId, { companyId, clientId, sessionPath }, callbacks = {}) {
+    const entry = this._getEntry(connectionId, companyId);
     if (entry.client) return; // already running
 
     const { log } = callbacks;
@@ -391,12 +428,12 @@ class WhatsappManager {
 
     let initRetries = 0;
     const initWithRetry = () => {
-      this._createClient(companyId, clientId, sessionPath, callbacks);
+      this._createClient(connectionId, clientId, sessionPath, callbacks);
       entry.client.initialize().catch((error) => {
         entry.state.phase = 'error';
         entry.state.lastError = error.message;
         log?.error({ err: error }, 'WhatsApp initialization failed');
-        this.broadcast(companyId, 'whatsapp_phase', { phase: 'error', error: error.message });
+        this.broadcast(entry.companyId, 'whatsapp_phase', { phase: 'error', error: error.message, connectionId });
         if (initRetries < 2) {
           initRetries += 1;
           const delay = initRetries * 10_000;
@@ -408,7 +445,7 @@ class WhatsappManager {
             stale?.destroy().catch(() => {});
             entry.state.phase = 'starting';
             entry.state.lastError = null;
-            this.broadcast(companyId, 'whatsapp_phase', { phase: 'starting' });
+            this.broadcast(entry.companyId, 'whatsapp_phase', { phase: 'starting', connectionId });
             initWithRetry();
           }, delay);
         }
@@ -445,13 +482,13 @@ class WhatsappManager {
       entry.state.phase = 'starting';
       entry.state.lastError = null;
       entry.state.lastProgressAt = Date.now();
-      this.broadcast(companyId, 'whatsapp_phase', { phase: 'starting' });
-      this._createClient(companyId, clientId, sessionPath, callbacks);
+      this.broadcast(entry.companyId, 'whatsapp_phase', { phase: 'starting', connectionId });
+      this._createClient(connectionId, clientId, sessionPath, callbacks);
       entry.client.initialize().catch((error) => {
         entry.state.phase = 'error';
         entry.state.lastError = error.message;
         log?.error({ err: error }, 'WhatsApp re-initialization failed');
-        this.broadcast(companyId, 'whatsapp_phase', { phase: 'error', error: error.message });
+        this.broadcast(entry.companyId, 'whatsapp_phase', { phase: 'error', error: error.message, connectionId });
       });
     };
 
@@ -460,9 +497,9 @@ class WhatsappManager {
       entry.state.phase = 'error';
       entry.state.syncPercent = null;
       entry.state.lastError = reason;
-      log?.error({ reason }, 'WhatsApp never reached ready; marking connection as failed');
-      this.broadcast(companyId, 'whatsapp_phase', { phase: 'error', error: reason });
-      callbacks.onStatusUpdate?.(companyId, 'error', null)?.catch?.(() => {});
+      log?.error({ reason, connectionId }, 'WhatsApp never reached ready; marking connection as failed');
+      this.broadcast(entry.companyId, 'whatsapp_phase', { phase: 'error', error: reason, connectionId });
+      callbacks.onStatusUpdate?.(entry.companyId, 'error', null, connectionId)?.catch?.(() => {});
     };
 
     /**
@@ -521,7 +558,7 @@ class WhatsappManager {
           if (state.phase === 'syncing' && !stalled) return schedule();
 
           return this._markReady(
-            companyId,
+            connectionId,
             entry.client.info?.wid?._serialized,
             log,
             callbacks.onStatusUpdate,
@@ -544,10 +581,10 @@ class WhatsappManager {
   /**
    * Tear down the WA client for a company (but keep the entry).
    */
-  async stopClient(companyId) {
-    const entry = this._entries.get(companyId);
+  async stopClient(connectionId) {
+    const entry = this._entries.get(connectionId);
     if (!entry) return;
-    this._clearQrMirror(companyId);
+    this._clearQrMirror(connectionId);
     clearTimeout(entry.restoredSessionTimer);
     entry.restoredSessionTimer = null;
     const stale = entry.client;
@@ -559,21 +596,27 @@ class WhatsappManager {
    * Destroy everything for one company (including SSE connections).
    */
   async destroyCompany(companyId) {
-    const entry = this._entries.get(companyId);
-    if (!entry) return;
-    await this.stopClient(companyId);
-    for (const raw of entry.sseClients) {
-      try { raw.end(); } catch { /* ignore */ }
+    for (const connectionId of this.listConnectionIds(companyId)) {
+      await this.stopClient(connectionId).catch(() => {});
+      this._entries.delete(connectionId);
     }
-    entry.sseClients.clear();
-    this._entries.delete(companyId);
+    const listeners = this._sse.get(companyId);
+    if (listeners) {
+      for (const raw of listeners) {
+        try { raw.end(); } catch { /* ignore */ }
+      }
+      listeners.clear();
+      this._sse.delete(companyId);
+    }
   }
 
-  /** Destroy all company clients. */
+  /** Destroy every client of every company. */
   async destroyAll() {
-    for (const companyId of [...this._entries.keys()]) {
+    for (const companyId of new Set([...this._entries.values()].map((e) => e.companyId))) {
       await this.destroyCompany(companyId).catch(() => {});
     }
+    this._entries.clear();
+    this._sse.clear();
   }
 }
 

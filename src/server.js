@@ -3005,6 +3005,93 @@ Aturan:
     return { connectionId: connConfig.id, qrDataUrl: waState.qrDataUrl, qrGeneratedAt: waState.qrGeneratedAt, demoMode: false };
   });
 
+  // ── Export kontak ─────────────────────────────────────────────────────────
+  //
+  // Satu sumber baris untuk semua tujuan export. Tujuan berikutnya (Google
+  // Sheets, OneDrive Excel) menulis baris yang sama; yang berbeda hanya cara
+  // mengirimnya, bukan isinya.
+
+  const EXPORT_COLUMNS = [
+    ['phone', 'Nomor WhatsApp'],
+    ['servedByNumber', 'Dilayani nomor'],
+    ['firstSeenAt', 'Masuk pertama'],
+    ['lastInboundAt', 'Pesan customer terakhir'],
+    ['lastInboundBody', 'Isi pesan terakhir'],
+    ['lastOutboundAt', 'Balasan terakhir'],
+    ['lastOutboundAuthor', 'Dibalas oleh'],
+    ['lastOutboundBody', 'Isi balasan terakhir'],
+    ['summary', 'Ringkasan percakapan'],
+    ['handlingMode', 'Ditangani'],
+    ['picName', 'PIC'],
+    ['picEmail', 'Email PIC'],
+    ['status', 'Status percakapan'],
+    ['leadStage', 'Tahap lead'],
+    ['priority', 'Prioritas'],
+    ['leadScore', 'Skor lead'],
+    ['leadTitle', 'Judul lead'],
+    ['leadDetail', 'Catatan lead'],
+    ['followUpRunning', 'Tindak lanjut berjalan'],
+    ['followUpSent', 'Tindak lanjut terkirim'],
+    ['followUpStopReason', 'Alasan berhenti'],
+    ['inboundCount', 'Jumlah pesan masuk'],
+    ['outboundCount', 'Jumlah balasan'],
+  ];
+
+  /** Nilai apa adanya, dirapikan jadi teks yang enak dibaca di spreadsheet. */
+  function exportCell(key, value) {
+    if (value === null || value === undefined) return '';
+    if (key === 'handlingMode') return value === 'ai' ? 'AI' : 'Manusia';
+    if (key === 'lastOutboundAuthor') return value === 'ai' ? 'AI' : 'Manusia';
+    if (typeof value === 'boolean') return value ? 'Ya' : 'Tidak';
+    // Kolom waktu pesan masuk disimpan sebagai detik epoch.
+    if (key === 'lastInboundAt' && typeof value === 'number') {
+      return new Date(value * 1000).toISOString();
+    }
+    if (value instanceof Date) return value.toISOString();
+    return String(value);
+  }
+
+  async function buildExportRows(companyId) {
+    if (!canCall('listContactExportRows')) return [];
+    const rows = await database.listContactExportRows(companyId).catch(() => []);
+    return rows.map((row) => Object.fromEntries(
+      EXPORT_COLUMNS.map(([key]) => [key, exportCell(key, row[key])]),
+    ));
+  }
+
+  /** RFC 4180: kutip kalau ada koma, kutip, atau baris baru; kutip digandakan. */
+  function toCsv(header, rows) {
+    const escape = (value) => (/[",\n\r]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value);
+    const lines = [header.map(escape).join(',')];
+    for (const row of rows) lines.push(row.map(escape).join(','));
+    return lines.join('\r\n');
+  }
+
+  app.get('/v1/export/contacts', async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengekspor kontak.' });
+    const rows = await buildExportRows(request.agneeSession.companyId);
+    return {
+      columns: EXPORT_COLUMNS.map(([key, label]) => ({ key, label })),
+      rows,
+      generatedAt: new Date().toISOString(),
+    };
+  });
+
+  app.get('/v1/export/contacts.csv', async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengekspor kontak.' });
+    const rows = await buildExportRows(request.agneeSession.companyId);
+    const csv = toCsv(
+      EXPORT_COLUMNS.map(([, label]) => label),
+      rows.map((row) => EXPORT_COLUMNS.map(([key]) => row[key])),
+    );
+    const stamp = new Date().toISOString().slice(0, 10);
+    reply.header('content-type', 'text/csv; charset=utf-8');
+    reply.header('content-disposition', `attachment; filename="agnee-kontak-${stamp}.csv"`);
+    // BOM supaya Excel membaca UTF-8 dengan benar; tanpa ini nama dengan
+    // aksen dan emoji tampil rusak saat file dibuka langsung di Excel.
+    return reply.send(`\uFEFF${csv}`);
+  });
+
   // ── Nomor WhatsApp Web milik satu company (rotator) ───────────────────────
 
   app.get('/v1/whatsapp/numbers', async (request, reply) => {

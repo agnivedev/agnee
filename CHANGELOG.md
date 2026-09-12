@@ -8,6 +8,22 @@ Semua perubahan penting Agnee dicatat di file ini. Format mengikuti prinsip
 
 ### Added
 
+- **Export kontak**: `GET /v1/export/contacts` (JSON) dan
+  `/v1/export/contacts.csv` (unduhan). Satu baris per percakapan, 23 kolom —
+  nomor, nomor kita yang melayani, pesan masuk dan balasan terakhir beserta
+  waktunya, ringkasan percakapan, ditangani AI atau manusia, PIC beserta
+  emailnya, status, tahap lead, prioritas, skor, status tindak lanjut, dan
+  jumlah pesan.
+  Daftar percakapannya digabung dari empat sumber (`inbound_messages`,
+  `outbound_replies`, `lead_states`, `conversation_routing`), bukan satu: lead
+  bisa punya baris routing tanpa pesan tercatat, dan pesan bisa masuk sebelum
+  ada lead state. Mengambil dari satu tabel akan menghilangkan sebagian kontak.
+  Semuanya satu query; versi per-kontak akan menjadi ratusan query tiap
+  sinkronisasi.
+  CSV diawali BOM supaya Excel membaca UTF-8 dengan benar — tanpa itu nama
+  dengan aksen dan emoji tampil rusak saat dibuka langsung di Excel.
+
+
 - **Halaman pengelolaan nomor WhatsApp** di Settings: daftar nomor, tambah
   nomor, keluarkan/masukkan rotasi, hapus, dan tombol "Scan QR" yang membawa
   supervisor ke dialog pairing di inbox untuk nomor itu (`/?connect=<id>`).

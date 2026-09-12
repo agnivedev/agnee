@@ -1453,6 +1453,103 @@ class Database {
     return result.rows;
   }
 
+  // ── Export kontak ────────────────────────────────────────────────────────
+
+  /**
+   * Satu baris per percakapan, siap ditulis ke spreadsheet.
+   *
+   * Daftar percakapannya diambil dari gabungan empat sumber, bukan satu:
+   * sebuah lead bisa punya baris routing tanpa pernah ada pesan tercatat
+   * (dibuat manual), dan sebaliknya pesan bisa masuk sebelum ada lead state.
+   * Mengambil dari satu tabel saja akan menghilangkan sebagian kontak.
+   *
+   * Semua digabung di satu query. Versi per-kontak akan menjadi ratusan query
+   * tiap sinkronisasi, dan export ini dijalankan berulang.
+   */
+  async listContactExportRows(companyId, limit = 5000) {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(`
+      WITH chats AS (
+        SELECT DISTINCT chat_id FROM inbound_messages WHERE company_id = $1
+        UNION SELECT DISTINCT chat_id FROM outbound_replies WHERE company_id = $1
+        UNION SELECT DISTINCT chat_id FROM lead_states WHERE company_id = $1
+        UNION SELECT DISTINCT chat_id FROM conversation_routing WHERE company_id = $1
+      )
+      SELECT
+        c.chat_id AS "chatId",
+        regexp_replace(c.chat_id, '@.*$', '') AS "phone",
+        first_seen.first_at AS "firstSeenAt",
+        inbound.body AS "lastInboundBody",
+        inbound.timestamp AS "lastInboundAt",
+        outbound.body AS "lastOutboundBody",
+        outbound.author AS "lastOutboundAuthor",
+        outbound.created_at AS "lastOutboundAt",
+        summary.summary AS "summary",
+        routing.handling_mode AS "handlingMode",
+        routing.status AS "status",
+        routing.priority AS "priority",
+        pic.display_name AS "picName",
+        pic.email AS "picEmail",
+        lead.stage AS "leadStage",
+        lead.score AS "leadScore",
+        lead.title AS "leadTitle",
+        lead.detail AS "leadDetail",
+        fu.sent_total AS "followUpSent",
+        fu.stopped_at IS NULL AND fu.chat_id IS NOT NULL AS "followUpRunning",
+        fu.stop_reason AS "followUpStopReason",
+        COALESCE(wnum.label, cnum.label, cnum.display_phone_number) AS "servedByNumber",
+        counts.inbound_count AS "inboundCount",
+        counts.outbound_count AS "outboundCount"
+      FROM chats c
+      LEFT JOIN LATERAL (
+        SELECT MIN(t) AS first_at FROM (
+          SELECT MIN(to_timestamp(timestamp)) AS t FROM inbound_messages
+            WHERE company_id = $1 AND chat_id = c.chat_id
+          UNION ALL
+          SELECT MIN(created_at) FROM outbound_replies
+            WHERE company_id = $1 AND chat_id = c.chat_id
+        ) x
+      ) first_seen ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT body, timestamp FROM inbound_messages
+        WHERE company_id = $1 AND chat_id = c.chat_id
+        ORDER BY timestamp DESC, id DESC LIMIT 1
+      ) inbound ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT body, author, created_at FROM outbound_replies
+        WHERE company_id = $1 AND chat_id = c.chat_id
+        ORDER BY created_at DESC LIMIT 1
+      ) outbound ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT summary FROM conversation_summaries
+        WHERE company_id = $1 AND chat_id = c.chat_id AND locale = 'id' LIMIT 1
+      ) summary ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT
+          (SELECT COUNT(*)::int FROM inbound_messages
+             WHERE company_id = $1 AND chat_id = c.chat_id) AS inbound_count,
+          (SELECT COUNT(*)::int FROM outbound_replies
+             WHERE company_id = $1 AND chat_id = c.chat_id) AS outbound_count
+      ) counts ON TRUE
+      LEFT JOIN conversation_routing routing
+        ON routing.company_id = $1 AND routing.chat_id = c.chat_id
+      LEFT JOIN users pic ON pic.id = routing.assignee_user_id
+      LEFT JOIN lead_states lead
+        ON lead.company_id = $1 AND lead.chat_id = c.chat_id
+      LEFT JOIN follow_up_state fu
+        ON fu.company_id = $1 AND fu.chat_id = c.chat_id
+      LEFT JOIN whatsapp_chat_numbers wmap
+        ON wmap.company_id = $1 AND wmap.chat_id = c.chat_id
+      LEFT JOIN whatsapp_connections wnum ON wnum.id = wmap.connection_id
+      LEFT JOIN cloud_chat_numbers cmap
+        ON cmap.company_id = $1 AND cmap.chat_id = c.chat_id
+      LEFT JOIN whatsapp_cloud_connections cnum ON cnum.id = cmap.connection_id
+      ORDER BY COALESCE(inbound.timestamp, 0) DESC
+      LIMIT $2
+    `, [companyId, limit]);
+    return result.rows;
+  }
+
   // ── Catatan pesan masuk (kedua provider) ─────────────────────────────────
 
   /**

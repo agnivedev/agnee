@@ -1122,6 +1122,26 @@ class Database {
    * Replies available to grade. Defaults to human-written ones that nobody has
    * graded yet — the actual review queue a supervisor works through.
    */
+  /**
+   * Balasan terakhir KITA ke satu chat.
+   *
+   * Follow-up butuh ini supaya tahu apa yang sudah disampaikan — terutama
+   * apakah link checkout sudah dikirim. Tanpa konteks ini follow-up hanya bisa
+   * mengulang penawaran umum, tidak bisa menanyakan hal yang konkret seperti
+   * "sudah sempat checkout?".
+   */
+  async listOutboundRepliesForChat(companyId, chatId, limit = 5) {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(`
+      SELECT author, body, created_at AS "createdAt"
+      FROM outbound_replies
+      WHERE company_id = $1 AND chat_id = $2
+      ORDER BY created_at DESC
+      LIMIT $3
+    `, [companyId, chatId, limit]);
+    return result.rows.reverse();
+  }
+
   async listOutboundReplies(companyId, { author = 'human', onlyUnreviewed = true, authorUserId, limit = 25 } = {}) {
     if (!this.enabled) return [];
     const where = ['r.company_id = $1'];

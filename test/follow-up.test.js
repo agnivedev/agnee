@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { FollowUpScheduler, decide, withinSendWindow, buildFollowUpPrompt } = require('../src/follow-up');
+const { FollowUpScheduler, decide, withinSendWindow, buildFollowUpPrompt, checkoutAlreadySent } = require('../src/follow-up');
 
 // Jam 14.00 WIB = 07.00 UTC, aman di dalam jendela kirim default (8-21 WIB).
 const MIDDAY = new Date('2026-09-15T07:00:00Z');
@@ -161,4 +161,36 @@ test('scheduler: tick yang tumpang tindih tidak dijalankan dua kali', async () =
   const { scheduler } = harness({ dueRows: [dueRow] });
   scheduler.running = true;
   assert.equal((await scheduler.tick(MIDDAY)).skipped, 'already_running');
+});
+
+// ── Konteks percakapan untuk follow-up ──────────────────────────────────────
+
+test('link checkout yang sudah dikirim terdeteksi', () => {
+  const link = 'https://tradersmastermind.myr.id/pl/trading-recovery-plan-checkout';
+  assert.equal(checkoutAlreadySent([{ body: `Link checkout: ${link}` }], link), true);
+  assert.equal(checkoutAlreadySent([{ body: 'Silakan bayar di https://contoh.id/x' }], ''), true);
+  assert.equal(checkoutAlreadySent([{ body: 'Halo kak, ada yang bisa dibantu?' }], link), false);
+  // Menyebut "checkout" tanpa link bukan berarti linknya sudah dikirim.
+  assert.equal(checkoutAlreadySent([{ body: 'Nanti aku kirim link checkoutnya ya' }], link), false);
+});
+
+test('prompt follow-up menyuruh tanya checkout kalau linknya sudah dikirim', () => {
+  const prompt = buildFollowUpPrompt({
+    dayIndex: 0, attemptInDay: 1, dayCaps: [2, 1], previousSends: [],
+    playbookMd: '', recentOutbound: [{ body: 'Checkout di https://contoh.id/x' }],
+    checkoutSent: true,
+  });
+  assert.match(prompt, /Link checkout SUDAH dikirim/);
+  assert.match(prompt, /sudah sempat checkout/);
+  assert.match(prompt, /JANGAN mengirim ulang link/);
+  assert.match(prompt, /Checkout di https:\/\/contoh\.id\/x/, 'isi pesan terakhir ikut dibawa');
+});
+
+test('tanpa checkout tertunda, aturan anti-nagging tetap berlaku', () => {
+  const prompt = buildFollowUpPrompt({
+    dayIndex: 0, attemptInDay: 1, dayCaps: [2], previousSends: [],
+    playbookMd: '', recentOutbound: [{ body: 'Halo kak' }], checkoutSent: false,
+  });
+  assert.ok(!prompt.includes('Link checkout SUDAH dikirim'));
+  assert.match(prompt, /masih di sana/, 'larangan basa-basi kosong tetap ada');
 });

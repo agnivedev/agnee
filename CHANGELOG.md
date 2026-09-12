@@ -8,6 +8,21 @@ Semua perubahan penting Agnee dicatat di file ini. Format mengikuti prinsip
 
 ### Added
 
+- **Pembayaran boleh link DAN transfer bank sekaligus** (`payment_method = 'both'`,
+  migration 017). Sebelumnya metodenya eksklusif, jadi company yang menerima
+  keduanya — pola lumrah di Indonesia — harus memilih satu dan yang satunya
+  tidak pernah sampai ke konteks AI. Saat keduanya aktif, AI diminta menawarkan
+  dua-duanya dan membiarkan customer memilih.
+- **Follow-up tahu konteks percakapan.** Sebelumnya `buildFollowUpPrompt()`
+  hanya menerima nomor hari, follow-up sebelumnya, dan playbook — tidak tahu
+  apa pun tentang percakapannya, jadi satu-satunya yang bisa dilakukan adalah
+  mengulang penawaran umum. Sekarang lima balasan terakhir kita ikut dibawa,
+  dan kalau link checkout sudah dikirim tapi belum dibalas, follow-up pertama
+  diminta menanyakan langsung dan singkat ("sudah sempat checkout?", "ada yang
+  masih mengganjal?") alih-alih mengirim ulang penawaran. Aturan anti-nagging
+  tetap berlaku saat tidak ada langkah yang menggantung.
+
+
 - **Kontrak keluaran ditegakkan di kode, bukan cuma di prompt.** Sebelum balasan
   AI dikirim ke customer, `enforceReplyContract()` memeriksanya: kalau melanggar,
   model diminta menulis ulang SEKALI dengan pelanggarannya disebut eksplisit

@@ -126,8 +126,10 @@ async function loadCompanyConfig() {
 }
 
 function updatePaymentFields(method) {
-  ui.paymentLinkFields.hidden = method !== 'link';
-  ui.bankTransferFields.hidden = method !== 'bank_transfer';
+  // 'both' menampilkan kedua kelompok field sekaligus — sebuah company boleh
+  // menerima link checkout dan transfer bank bersamaan.
+  ui.paymentLinkFields.hidden = !(method === 'link' || method === 'both');
+  ui.bankTransferFields.hidden = !(method === 'bank_transfer' || method === 'both');
 }
 
 async function savePaymentConfig() {

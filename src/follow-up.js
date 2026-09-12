@@ -58,14 +58,44 @@ function decide(state, now = new Date()) {
  * sebelumnya (itu yang membuat follow-up terasa seperti nagih), dan jangan
  * menyebut fakta yang tidak ada di playbook.
  */
-function buildFollowUpPrompt({ dayIndex, attemptInDay, dayCaps, previousSends, playbookMd }) {
+/** Apakah kita sudah pernah mengirim link ke chat ini (checkout/pembayaran)? */
+function checkoutAlreadySent(recentOutbound = [], paymentLink = '') {
+  return recentOutbound.some((row) => {
+    const body = String(row?.body || '');
+    if (paymentLink && body.includes(paymentLink)) return true;
+    return /\b(?:checkout|pembayaran|bayar)\b/i.test(body) && /https?:\/\//.test(body);
+  });
+}
+
+function buildFollowUpPrompt({ dayIndex, attemptInDay, dayCaps, previousSends, playbookMd,
+  recentOutbound = [], checkoutSent = false }) {
   const isLast = dayIndex === dayCaps.length - 1
     && attemptInDay === dayCaps[dayIndex];
   const previous = previousSends.length
     ? previousSends.map((s, i) => `${i + 1}. (hari ${s.dayIndex + 1}) ${s.body}`).join('\n')
     : '(belum ada)';
 
+  // Tanpa ini, follow-up tidak tahu apa pun tentang percakapannya dan hanya
+  // bisa mengulang penawaran umum. Dengan konteks, ia bisa menanyakan hal yang
+  // konkret — dan pertanyaan konkret jauh lebih mudah dibalas customer.
+  const lastSaid = recentOutbound.length
+    ? recentOutbound.map((row) => `- ${row.body}`).join('\n')
+    : '(tidak ada catatan)';
+
+  const pendingAction = checkoutSent
+    ? `\nLink checkout SUDAH dikirim ke orang ini dan dia belum membalas. Untuk
+follow-up pertama, cukup tanyakan kabarnya secara langsung dan singkat —
+misalnya menanyakan apakah sudah sempat checkout, atau apakah ada yang masih
+mengganjal sebelum lanjut bayar. Pertanyaan pendek yang konkret lebih mudah
+dibalas daripada penawaran yang diulang. JANGAN mengirim ulang link yang sama
+kecuali dia menanyakannya.\n`
+    : '';
+
   return `Tulis SATU pesan follow-up WhatsApp untuk customer yang belum membalas.
+
+Yang terakhir KAMI sampaikan ke orang ini:
+${lastSaid}
+${pendingAction}
 
 Ini follow-up ke-${previousSends.length + 1} secara keseluruhan, hari ke-${dayIndex + 1} dari ${dayCaps.length}, percobaan ke-${attemptInDay} di hari ini.${isLast ? '\nINI FOLLOW-UP TERAKHIR — tutup dengan hormat, jangan menekan, beri tahu dia boleh chat kapan saja.' : ''}
 
@@ -75,7 +105,8 @@ ${previous}
 ${playbookMd ? `Panduan follow-up dari pemilik bisnis:\n${playbookMd}\n` : ''}
 Aturan wajib:
 - Jangan mengulang isi atau sudut pandang follow-up yang sudah dikirim di atas. Kalau tidak ada lagi yang bernilai untuk disampaikan, balas persis: SKIP
-- Bawa satu hal yang berguna untuk dia (wawasan, pengingat konkret), bukan sekadar "halo kak masih di sana?"
+- Kalau ada langkah yang jelas sedang menggantung (checkout belum selesai, pertanyaan kita belum dijawab), menanyakannya langsung dan singkat sudah cukup bernilai — tidak perlu dibungkus penawaran baru.
+- Kalau tidak ada yang menggantung, bawa satu hal yang berguna untuk dia (wawasan, pengingat konkret), bukan sekadar "halo kak masih di sana?"
 - Jangan menuntut jawaban, jangan membuat rasa bersalah, jangan mendesak.
 - Jangan menyebut angka, harga, atau klaim yang tidak ada di panduan/fakta.
 - Maksimal 45 kata, satu paragraf, bahasa Indonesia sehari-hari.
@@ -166,9 +197,11 @@ class FollowUpScheduler {
       return { ok: false, reason: 'human_takeover', stopped: true };
     }
 
-    const [previousSends, doc] = await Promise.all([
+    const [previousSends, doc, recentOutbound, company] = await Promise.all([
       this.database.listFollowUpSends(row.chatId, row.companyId),
       this.database.getPlaybookDoc('followup', row.companyId).catch(() => null),
+      this.database.listOutboundRepliesForChat?.(row.companyId, row.chatId, 5).catch(() => []) ?? [],
+      this.database.getCompanyConfig?.(row.companyId).catch(() => null) ?? null,
     ]);
 
     const prompt = buildFollowUpPrompt({
@@ -177,6 +210,8 @@ class FollowUpScheduler {
       dayCaps: row.dayCaps,
       previousSends,
       playbookMd: doc?.contentMd || '',
+      recentOutbound,
+      checkoutSent: checkoutAlreadySent(recentOutbound, company?.paymentLink || ''),
     });
 
     const text = await this.deps.generate(row.companyId, row.chatId, prompt);
@@ -206,4 +241,7 @@ class FollowUpScheduler {
   }
 }
 
-module.exports = { FollowUpScheduler, decide, buildFollowUpPrompt, withinSendWindow, BUSINESS_TZ };
+module.exports = {
+  FollowUpScheduler, decide, buildFollowUpPrompt, checkoutAlreadySent,
+  withinSendWindow, BUSINESS_TZ,
+};

@@ -499,17 +499,34 @@ async function buildApp(overrides = {}) {
       dbLive ? database.getCompanyConfig(companyId).catch(() => null) : null,
     ]);
 
+    // Sebuah company boleh punya link checkout DAN rekening bank sekaligus
+    // ('both'). Keduanya disusun terpisah lalu digabung, supaya menambah
+    // metode ketiga nanti tidak perlu menulis ulang cabang ini.
+    const method = companyConfig?.paymentMethod || 'none';
+    const wantsLink = method === 'link' || method === 'both';
+    const wantsBank = method === 'bank_transfer' || method === 'both';
+    const paymentParts = [];
+
+    if (wantsLink && companyConfig.paymentLink) {
+      paymentParts.push(`### Link pembayaran\nLink: ${companyConfig.paymentLink}\nKirim link ini kepada customer saat mereka siap membayar. Jangan mengarang link atau metode lain.`);
+    }
+    if (wantsBank && (companyConfig.bankName || companyConfig.bankAccount)) {
+      const bank = ['### Transfer bank'];
+      if (companyConfig.bankName) bank.push(`Bank: ${companyConfig.bankName}`);
+      if (companyConfig.bankAccount) bank.push(`No. Rekening: ${companyConfig.bankAccount}`);
+      if (companyConfig.bankHolder) bank.push(`Atas nama: ${companyConfig.bankHolder}`);
+      bank.push('Sampaikan detail rekening ini kepada customer saat mereka siap membayar. Minta customer kirim bukti transfer, lalu handoff ke supervisor untuk verifikasi.');
+      paymentParts.push(bank.join('\n'));
+    }
+
     let paymentContext = '';
-    if (companyConfig?.paymentMethod === 'link' && companyConfig.paymentLink) {
-      paymentContext = `## PANDUAN PEMBAYARAN & CLOSING\nMetode: Link pembayaran\nLink: ${companyConfig.paymentLink}${companyConfig.paymentNotes ? `\nCatatan: ${companyConfig.paymentNotes}` : ''}\nKirim link ini kepada customer saat mereka siap membayar. Jangan mengarang link atau metode lain.`;
-    } else if (companyConfig?.paymentMethod === 'bank_transfer') {
-      const parts = ['## PANDUAN PEMBAYARAN & CLOSING\nMetode: Transfer bank'];
-      if (companyConfig.bankName) parts.push(`Bank: ${companyConfig.bankName}`);
-      if (companyConfig.bankAccount) parts.push(`No. Rekening: ${companyConfig.bankAccount}`);
-      if (companyConfig.bankHolder) parts.push(`Atas nama: ${companyConfig.bankHolder}`);
-      if (companyConfig.paymentNotes) parts.push(`Catatan: ${companyConfig.paymentNotes}`);
-      parts.push('Sampaikan detail rekening ini kepada customer saat mereka siap membayar. Minta customer kirim bukti transfer, lalu handoff ke supervisor untuk verifikasi.');
-      paymentContext = parts.join('\n');
+    if (paymentParts.length) {
+      const intro = paymentParts.length > 1
+        ? 'Ada dua cara membayar. Tawarkan keduanya dan biarkan customer memilih; jangan memaksakan salah satu.'
+        : '';
+      paymentContext = ['## PANDUAN PEMBAYARAN & CLOSING', intro, ...paymentParts]
+        .filter(Boolean).join('\n');
+      if (companyConfig.paymentNotes) paymentContext += `\n\nCatatan: ${companyConfig.paymentNotes}`;
     }
 
     const contextSections = [
@@ -1588,7 +1605,7 @@ async function buildApp(overrides = {}) {
       maxUsers: { type: 'integer', minimum: 1 },
       maxPlaybooks: { type: 'integer', minimum: 0 },
       maxWhatsapp: { type: 'integer', minimum: 0 },
-      paymentMethod: { type: 'string', enum: ['none', 'link', 'bank_transfer'] },
+      paymentMethod: { type: 'string', enum: ['none', 'link', 'bank_transfer', 'both'] },
       paymentLink: { type: 'string', maxLength: 500, pattern: '^$|^https?://' },
       bankName: { type: 'string', maxLength: 100 },
       bankAccount: { type: 'string', maxLength: 50 },

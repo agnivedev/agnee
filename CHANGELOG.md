@@ -8,6 +8,29 @@ Semua perubahan penting Agnee dicatat di file ini. Format mengikuti prinsip
 
 ### Added
 
+- **Sinkronisasi kontak ke Google Sheets** (migration 021), sejajar dengan
+  OneDrive. Sebuah company boleh memakai salah satu atau keduanya — barisnya
+  sama, dan sebagian tim memang hidup di dua ekosistem.
+  Google Sheets API v4 langsung, tanpa layanan perantara dan tanpa dependency
+  baru: JWT service account ditandatangani `node:crypto` lalu ditukar jadi
+  access token. Bedanya dengan Microsoft, Google **tidak menuntut persetujuan
+  admin** — pemilik sheet cukup membagikan sheet ke alamat email service
+  account sebagai Editor.
+  Supervisor menempel isi file JSON service account apa adanya; memecahnya jadi
+  beberapa field hanya menambah cara untuk salah. Kredensial diverifikasi ke
+  Google sebelum disimpan, dan tab dibuat otomatis kalau belum ada.
+  Sisa baris lama dihapus pakai endpoint `:clear`, bukan ditimpa string kosong
+  seperti di Excel — selnya benar-benar kosong, jadi `COUNTA` dan filter di
+  sheet tetap benar.
+  Kegagalan yang paling sering (sheet belum dibagikan) dijawab dengan
+  instruksinya, bukan kode HTTP.
+
+### Changed
+
+- Penjadwal ekspor kini satu putaran untuk dua tujuan sekaligus. Satu company
+  atau satu tujuan yang gagal tidak menghentikan sisanya.
+
+
 - **Sinkronisasi kontak ke Excel di OneDrive** (migration 020). Kredensial
   Microsoft disimpan per company dan client secret dienkripsi pgcrypto, sama
   seperti kredensial Cloud API — tenant Microsoft dan workbook tiap company

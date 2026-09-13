@@ -475,6 +475,7 @@ async function init() {
       isAgent ? Promise.resolve() : loadFollowUpSettings(),
       isAgent ? Promise.resolve() : loadWaNumbers(),
       isAgent ? Promise.resolve() : loadExport(),
+      isAgent ? Promise.resolve() : loadGsheets(),
     ]);
   } catch (error) {
     if (error.status === 401) {
@@ -487,6 +488,72 @@ ui.paymentMethodSelect.addEventListener('change', () => updatePaymentFields(ui.p
 ui.savePaymentConfig.addEventListener('click', savePaymentConfig);
 ui.saveFollowUp.addEventListener('click', saveFollowUpSettings);
 waNumbers.add.addEventListener('click', addWaNumber);
+
+gs.form.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  gs.status.textContent = 'Memeriksa ke Google…';
+  const btn = document.querySelector('#gsConnect');
+  btn.disabled = true;
+  try {
+    await api('/v1/export/gsheets', {
+      method: 'POST',
+      body: JSON.stringify({
+        serviceAccountJson: gs.json.value.trim(),
+        sheetUrl: gs.url.value.trim(),
+        ...(gs.sheetName.value.trim() ? { sheetName: gs.sheetName.value.trim() } : {}),
+      }),
+    });
+    gs.status.textContent = '';
+    gs.form.reset();
+    await loadGsheets();
+  } catch (err) {
+    gs.status.textContent = err.message;
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+gs.syncNow.addEventListener('click', async () => {
+  gs.syncNow.disabled = true;
+  const label = gs.syncNow.textContent;
+  gs.syncNow.textContent = 'Menyinkronkan…';
+  try {
+    const out = await api('/v1/export/gsheets/sync', { method: 'POST' });
+    await loadGsheets();
+    await AgneeDialog.alert({
+      title: 'Selesai',
+      message: `${out.rowCount} baris ditulis ke Google Sheets${out.cleared ? `, ${out.cleared} baris lama dihapus` : ''}.`,
+    });
+  } catch (err) {
+    await loadGsheets();
+    await AgneeDialog.error(err);
+  } finally {
+    gs.syncNow.textContent = label;
+    gs.syncNow.disabled = false;
+  }
+});
+
+gs.toggle.addEventListener('click', async () => {
+  gs.toggle.disabled = true;
+  try {
+    await api('/v1/export/gsheets', { method: 'PATCH', body: JSON.stringify({ enabled: !gsEnabled }) });
+    await loadGsheets();
+  } catch (err) { await AgneeDialog.error(err); } finally { gs.toggle.disabled = false; }
+});
+
+gs.disconnect.addEventListener('click', async () => {
+  const ok = await AgneeDialog.confirm({
+    title: 'Putuskan Google Sheet?',
+    message: 'Kunci service account dihapus dan sinkronisasi berhenti. Isi sheet yang sudah tertulis tetap ada.',
+    confirmLabel: 'Putuskan',
+    danger: true,
+  });
+  if (!ok) return;
+  try {
+    await api('/v1/export/gsheets', { method: 'DELETE' });
+    await loadGsheets();
+  } catch (err) { await AgneeDialog.error(err); }
+});
 
 xport.download.addEventListener('click', () => {
   // Unduhan memakai cookie sesi yang sama seperti request lain di halaman ini.
@@ -1136,6 +1203,55 @@ document.querySelectorAll('input[name="coachMode"]').forEach((radio) => {
 });
 
 // ── WhatsApp Cloud API section ─────────────────────────────────────────────
+
+const gs = {
+  badge:      document.querySelector('#gsBadge'),
+  connected:  document.querySelector('#gsConnected'),
+  title:      document.querySelector('#gsTitle'),
+  meta:       document.querySelector('#gsMeta'),
+  error:      document.querySelector('#gsError'),
+  form:       document.querySelector('#gsForm'),
+  status:     document.querySelector('#gsStatus'),
+  syncNow:    document.querySelector('#gsSyncNow'),
+  toggle:     document.querySelector('#gsToggle'),
+  disconnect: document.querySelector('#gsDisconnect'),
+  json:       document.querySelector('#gsJson'),
+  url:        document.querySelector('#gsUrl'),
+  sheetName:  document.querySelector('#gsSheetName'),
+};
+
+let gsEnabled = false;
+
+function renderGsheets(data) {
+  const connected = Boolean(data?.connected);
+  gsEnabled = Boolean(data?.enabled);
+  gs.connected.hidden = !connected;
+  gs.form.hidden = connected;
+  gs.badge.hidden = !connected;
+  gs.badge.textContent = `Sheets: ${gsEnabled ? 'aktif' : 'dimatikan'}`;
+  gs.badge.className = `plan-badge-pill ${gsEnabled ? 'plan-company' : 'plan-personal'}`;
+  if (!connected) return;
+
+  gs.title.textContent = data.spreadsheetTitle || 'Google Sheet';
+  gs.meta.textContent = [
+    `tab ${data.sheetName}`,
+    data.clientEmail,
+    data.lastSyncedAt
+      ? `terakhir ${new Date(data.lastSyncedAt).toLocaleString('id-ID')} (${data.lastRowCount} baris)`
+      : 'belum pernah tersinkron',
+  ].join(' · ');
+  gs.toggle.textContent = gsEnabled ? 'Matikan' : 'Nyalakan';
+  gs.error.hidden = !data.lastError;
+  gs.error.textContent = data.lastError || '';
+}
+
+async function loadGsheets() {
+  try {
+    renderGsheets(await api('/v1/export/gsheets'));
+  } catch {
+    renderGsheets({ connected: false });
+  }
+}
 
 const xport = {
   badge:      document.querySelector('#exportBadge'),

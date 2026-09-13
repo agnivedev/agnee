@@ -1547,6 +1547,90 @@ class Database {
     return result.rowCount > 0;
   }
 
+  // ── Sinkronisasi Google Sheets ───────────────────────────────────────────
+  // private_key dienkripsi pgcrypto, sama seperti kredensial lain.
+
+  async getGsheetsConnection(companyId) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      SELECT id, company_id AS "companyId", client_email AS "clientEmail",
+             pgp_sym_decrypt(private_key_enc, $2) AS "privateKey",
+             spreadsheet_id AS "spreadsheetId", sheet_name AS "sheetName",
+             spreadsheet_title AS "spreadsheetTitle", enabled,
+             last_row_count AS "lastRowCount", last_synced_at AS "lastSyncedAt",
+             last_error AS "lastError"
+      FROM gsheets_connections WHERE company_id = $1
+    `, [companyId, this.credentialsEncryptionKey]);
+    return result.rows[0] || null;
+  }
+
+  async listEnabledGsheetsConnections() {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(`
+      SELECT g.company_id AS "companyId", g.client_email AS "clientEmail",
+             pgp_sym_decrypt(g.private_key_enc, $1) AS "privateKey",
+             g.spreadsheet_id AS "spreadsheetId", g.sheet_name AS "sheetName",
+             g.last_row_count AS "lastRowCount"
+      FROM gsheets_connections g
+      JOIN companies c ON c.id = g.company_id
+      WHERE g.enabled AND COALESCE(c.plan_status, 'beta') <> 'suspended'
+      ORDER BY COALESCE(g.last_synced_at, 'epoch'::timestamptz) ASC
+    `, [this.credentialsEncryptionKey]);
+    return result.rows;
+  }
+
+  async upsertGsheetsConnection(companyId, {
+    clientEmail, privateKey, spreadsheetId, sheetName = 'Kontak', spreadsheetTitle = null,
+  }) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      INSERT INTO gsheets_connections
+        (company_id, client_email, private_key_enc, spreadsheet_id, sheet_name, spreadsheet_title)
+      VALUES ($1, $2, pgp_sym_encrypt($3, $7), $4, $5, $6)
+      ON CONFLICT (company_id) DO UPDATE SET
+        client_email = EXCLUDED.client_email,
+        private_key_enc = EXCLUDED.private_key_enc,
+        spreadsheet_id = EXCLUDED.spreadsheet_id,
+        sheet_name = EXCLUDED.sheet_name,
+        spreadsheet_title = EXCLUDED.spreadsheet_title,
+        enabled = true,
+        last_error = NULL,
+        -- Sheet berganti berarti baris lamanya bukan urusan kita lagi.
+        last_row_count = 0,
+        updated_at = NOW()
+      RETURNING id, sheet_name AS "sheetName", spreadsheet_title AS "spreadsheetTitle"
+    `, [companyId, clientEmail, privateKey, spreadsheetId, sheetName, spreadsheetTitle,
+        this.credentialsEncryptionKey]);
+    return result.rows[0] || null;
+  }
+
+  async recordGsheetsSync(companyId, { rowCount = null, error = null }) {
+    if (!this.enabled) return;
+    await this.pool.query(`
+      UPDATE gsheets_connections SET
+        last_row_count = COALESCE($2, last_row_count),
+        last_synced_at = CASE WHEN $3::text IS NULL THEN NOW() ELSE last_synced_at END,
+        last_error = $3,
+        updated_at = NOW()
+      WHERE company_id = $1
+    `, [companyId, rowCount, error]);
+  }
+
+  async setGsheetsEnabled(companyId, enabled) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(
+      'UPDATE gsheets_connections SET enabled = $2, updated_at = NOW() WHERE company_id = $1 RETURNING enabled',
+      [companyId, enabled],
+    );
+    return result.rows[0] || null;
+  }
+
+  async deleteGsheetsConnection(companyId) {
+    if (!this.enabled) return false;
+    const result = await this.pool.query('DELETE FROM gsheets_connections WHERE company_id = $1', [companyId]);
+    return result.rowCount > 0;
+  }
+
   // ── Export kontak ────────────────────────────────────────────────────────
 
   /**

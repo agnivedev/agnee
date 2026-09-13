@@ -17,6 +17,7 @@ const {
 } = require('./reply-style.js');
 const { FollowUpScheduler, decide: followUpDecide } = require('./follow-up.js');
 const onedrive = require('./onedrive-sync.js');
+const gsheets = require('./gsheets-sync.js');
 const Database = require('./database.js');
 const { extractPlaybookText } = require('./playbook-extractor.js');
 
@@ -3206,6 +3207,129 @@ Aturan:
     return { ok: true };
   });
 
+  // ── Sinkronisasi ke Google Sheets ─────────────────────────────────────────
+
+  async function syncGsheetsFor(conn) {
+    const { accessToken } = await gsheets.fetchAccessToken(conn);
+    const rows = await buildExportRows(conn.companyId);
+    const result = await gsheets.syncRows(accessToken, {
+      spreadsheetId: conn.spreadsheetId,
+      sheetName: conn.sheetName,
+      header: EXPORT_COLUMNS.map(([, label]) => label),
+      rows: rows.map((row) => EXPORT_COLUMNS.map(([key]) => row[key])),
+      previousRowCount: conn.lastRowCount || 0,
+    });
+    await database.recordGsheetsSync(conn.companyId, { rowCount: result.rowCount, error: null });
+    return result;
+  }
+
+  app.get('/v1/export/gsheets', async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengatur ekspor.' });
+    if (!canCall('getGsheetsConnection')) return { connected: false };
+    const conn = await database.getGsheetsConnection(request.agneeSession.companyId);
+    if (!conn) return { connected: false };
+    // privateKey tidak pernah dikembalikan ke browser.
+    return {
+      connected: true,
+      enabled: conn.enabled,
+      clientEmail: conn.clientEmail,
+      spreadsheetId: conn.spreadsheetId,
+      spreadsheetTitle: conn.spreadsheetTitle,
+      sheetName: conn.sheetName,
+      lastSyncedAt: conn.lastSyncedAt,
+      lastRowCount: conn.lastRowCount,
+      lastError: conn.lastError,
+    };
+  });
+
+  app.post('/v1/export/gsheets', {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['serviceAccountJson', 'sheetUrl'],
+        additionalProperties: false,
+        properties: {
+          // Seluruh file JSON service account ditempel apa adanya. Meminta
+          // orang memecahnya jadi dua field hanya menambah cara untuk salah.
+          serviceAccountJson: { type: 'string', minLength: 40, maxLength: 8000 },
+          sheetUrl:  { type: 'string', minLength: 20, maxLength: 2000 },
+          sheetName: { type: 'string', minLength: 1, maxLength: 100 },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengatur ekspor.' });
+    if (!canCall('upsertGsheetsConnection')) return reply.code(503).send({ error: 'Database tidak tersedia.' });
+    const companyId = request.agneeSession.companyId;
+    const sheetName = request.body.sheetName?.trim() || 'Kontak';
+
+    let credentials;
+    try {
+      credentials = JSON.parse(request.body.serviceAccountJson);
+    } catch {
+      return reply.code(422).send({ error: 'File JSON service account tidak dapat dibaca. Tempel isinya utuh.' });
+    }
+    const clientEmail = credentials.client_email;
+    const privateKey = credentials.private_key;
+    if (!clientEmail || !privateKey) {
+      return reply.code(422).send({ error: 'JSON itu tidak memuat client_email dan private_key. Pastikan yang ditempel adalah kunci service account, bukan OAuth client.' });
+    }
+
+    try {
+      const spreadsheetId = gsheets.extractSpreadsheetId(request.body.sheetUrl);
+      // Diverifikasi ke Google SEBELUM disimpan: kredensial atau izin yang
+      // salah lebih baik ditolak sekarang daripada gagal diam tiap putaran.
+      const { accessToken } = await gsheets.fetchAccessToken({ clientEmail, privateKey });
+      const { title } = await gsheets.ensureTab(accessToken, spreadsheetId, sheetName);
+
+      const saved = await database.upsertGsheetsConnection(companyId, {
+        clientEmail, privateKey, spreadsheetId, sheetName, spreadsheetTitle: title,
+      });
+      return reply.code(201).send({
+        ok: true, clientEmail, spreadsheetId,
+        spreadsheetTitle: title, sheetName: saved.sheetName,
+      });
+    } catch (error) {
+      return reply.code(422).send({ error: error.message });
+    }
+  });
+
+  app.post('/v1/export/gsheets/sync', async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengatur ekspor.' });
+    if (!canCall('getGsheetsConnection')) return reply.code(503).send({ error: 'Database tidak tersedia.' });
+    const conn = await database.getGsheetsConnection(request.agneeSession.companyId);
+    if (!conn) return reply.code(409).send({ error: 'Hubungkan Google Sheet dulu.' });
+    try {
+      const result = await syncGsheetsFor({ ...conn, companyId: request.agneeSession.companyId });
+      return { ok: true, rowCount: result.rowCount, cleared: result.cleared };
+    } catch (error) {
+      await database.recordGsheetsSync(request.agneeSession.companyId, { error: error.message }).catch(() => {});
+      return reply.code(502).send({ error: error.message });
+    }
+  });
+
+  app.patch('/v1/export/gsheets', {
+    schema: {
+      body: {
+        type: 'object', required: ['enabled'], additionalProperties: false,
+        properties: { enabled: { type: 'boolean' } },
+      },
+    },
+  }, async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengatur ekspor.' });
+    if (!canCall('setGsheetsEnabled')) return reply.code(503).send({ error: 'Database tidak tersedia.' });
+    const updated = await database.setGsheetsEnabled(request.agneeSession.companyId, request.body.enabled);
+    if (!updated) return reply.code(404).send({ error: 'Belum ada sheet yang terhubung.' });
+    return { ok: true, enabled: updated.enabled };
+  });
+
+  app.delete('/v1/export/gsheets', async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengatur ekspor.' });
+    if (!canCall('deleteGsheetsConnection')) return reply.code(503).send({ error: 'Database tidak tersedia.' });
+    await database.deleteGsheetsConnection(request.agneeSession.companyId);
+    return { ok: true };
+  });
+
   // ── Nomor WhatsApp Web milik satu company (rotator) ───────────────────────
 
   app.get('/v1/whatsapp/numbers', async (request, reply) => {
@@ -3970,16 +4094,32 @@ Aturan:
     if (oneDriveRunning) return;
     oneDriveRunning = true;
     try {
-      const conns = await database.listEnabledOneDriveConnections().catch(() => []);
-      for (const conn of conns) {
-        try {
-          const result = await syncOneDriveFor(conn);
-          app.log.info({ companyId: conn.companyId, rows: result.rowCount }, 'OneDrive sync selesai');
-        } catch (error) {
-          // Satu company yang gagal tidak boleh menghentikan yang lain, dan
-          // alasannya disimpan supaya terlihat di halaman pengaturan.
-          app.log.warn({ err: error, companyId: conn.companyId }, 'OneDrive sync gagal');
-          await database.recordOneDriveSync(conn.companyId, { error: error.message }).catch(() => {});
+      // Satu company yang gagal tidak boleh menghentikan yang lain, dan
+      // alasannya disimpan supaya terlihat di halaman pengaturan.
+      const targets = [
+        {
+          name: 'OneDrive',
+          list: () => database.listEnabledOneDriveConnections(),
+          run: (conn) => syncOneDriveFor(conn),
+          record: (companyId, patch) => database.recordOneDriveSync(companyId, patch),
+        },
+        {
+          name: 'Google Sheets',
+          list: () => database.listEnabledGsheetsConnections(),
+          run: (conn) => syncGsheetsFor(conn),
+          record: (companyId, patch) => database.recordGsheetsSync(companyId, patch),
+        },
+      ];
+      for (const target of targets) {
+        const conns = await target.list().catch(() => []);
+        for (const conn of conns) {
+          try {
+            const result = await target.run(conn);
+            app.log.info({ companyId: conn.companyId, rows: result.rowCount, target: target.name }, 'Sinkronisasi ekspor selesai');
+          } catch (error) {
+            app.log.warn({ err: error, companyId: conn.companyId, target: target.name }, 'Sinkronisasi ekspor gagal');
+            await target.record(conn.companyId, { error: error.message }).catch(() => {});
+          }
         }
       }
     } finally {
@@ -3991,7 +4131,7 @@ Aturan:
     if (oneDriveTimer) return;
     oneDriveTimer = setInterval(() => { runOneDriveSyncRound().catch(() => {}); }, ONEDRIVE_INTERVAL_MS);
     oneDriveTimer.unref?.();
-    app.log.info({ intervalMs: ONEDRIVE_INTERVAL_MS }, 'OneDrive sync scheduler started');
+    app.log.info({ intervalMs: ONEDRIVE_INTERVAL_MS }, 'Export sync scheduler started');
   }
 
   app.decorate('startWhatsapp', async () => {

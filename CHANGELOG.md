@@ -1,5 +1,18 @@
 ## [Unreleased]
 
+### Changed
+
+- **`chart-campaign.md` (TM)**: isi placeholder link akses dengan
+  `https://t.me/bzonesyndicate` — ditambahkan di template balasan otomatis dan
+  FAQ komunitas.
+
+### Fixed
+
+- **Role `hannyfx20@gmail.com` di prod**: diubah dari `agent` ke `supervisor`
+  di company `tradersmastermind` langsung via DB prod.
+- **Email `tony_rahardjo@gmail.com` di prod**: diubah ke `tony.rahardjo@gmail.com`
+  (underscore ke titik) langsung via DB prod.
+
 ### Added
 
 - **Frontend dibangun ulang dengan React + Tailwind** (Vite + TypeScript) —

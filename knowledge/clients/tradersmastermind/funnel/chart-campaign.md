@@ -46,6 +46,9 @@ EA MT5 Coding for Non-IT
 
 Daftar sekarang — link masuk akan di-share 10 menit sebelum webinar dimulai langsung ke WA kamu 🎯
 
+Atau join komunitas Trader's Mastermind di sini:
+https://t.me/bzonesyndicate
+
 Ada pertanyaan? Balas sini ya 😊
 ```
 
@@ -77,6 +80,9 @@ Belum dikonfirmasi. Rekomendasikan hadir langsung agar tidak ketinggalan bonus.
 **Q: Siapa Master Kopingho?**
 Trader dan educator di Trader's Mastermind. Detail profil tidak perlu dijelaskan
 panjang; fokus ke value webinar.
+
+**Q: Di mana komunitas Trader's Mastermind?**
+Bisa join di https://t.me/bzonesyndicate
 
 ---
 

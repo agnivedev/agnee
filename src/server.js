@@ -18,6 +18,7 @@ const {
 const { FollowUpScheduler, decide: followUpDecide } = require('./follow-up.js');
 const onedrive = require('./onedrive-sync.js');
 const gsheets = require('./gsheets-sync.js');
+const { buildXlsx } = require('./xlsx-writer.js');
 const Database = require('./database.js');
 const { extractPlaybookText } = require('./playbook-extractor.js');
 
@@ -1303,7 +1304,7 @@ async function buildApp(overrides = {}) {
   for (const page of publicPages) {
     app.get(`/${page}`, (_req, reply) => reply.sendFile(`${page}.html`));
   }
-  for (const page of ['settings', 'admin']) {
+  for (const page of ['settings', 'admin', 'leads']) {
     app.get(`/${page}`, (request, reply) => {
       const session = verifySession(getCookie(request.headers.cookie, 'agnee_session'), config.sessionSecret);
       if (!session) return reply.redirect('/');
@@ -3045,9 +3046,13 @@ Aturan:
     if (key === 'handlingMode') return value === 'ai' ? 'AI' : 'Manusia';
     if (key === 'lastOutboundAuthor') return value === 'ai' ? 'AI' : 'Manusia';
     if (typeof value === 'boolean') return value ? 'Ya' : 'Tidak';
-    // Kolom waktu pesan masuk disimpan sebagai detik epoch.
-    if (key === 'lastInboundAt' && typeof value === 'number') {
-      return new Date(value * 1000).toISOString();
+    // Kolom waktu pesan masuk disimpan sebagai detik epoch. Driver Postgres
+    // mengembalikan BIGINT sebagai string, bukan number — mengecek typeof
+    // 'number' saja membuat epoch mentah bocor ke tabel dan ke file ekspor.
+    if (key === 'lastInboundAt') {
+      const seconds = Number(value);
+      if (Number.isFinite(seconds) && seconds > 0) return new Date(seconds * 1000).toISOString();
+      return '';
     }
     if (value instanceof Date) return value.toISOString();
     return String(value);
@@ -3077,6 +3082,28 @@ Aturan:
       rows,
       generatedAt: new Date().toISOString(),
     };
+  });
+
+  // Kolom yang isinya benar-benar angka. Nomor telepon sengaja TIDAK termasuk:
+  // ditulis sebagai angka, nol di depannya hilang dan nomornya jadi salah.
+  const NUMERIC_EXPORT_KEYS = new Set(['leadScore', 'followUpSent', 'inboundCount', 'outboundCount']);
+
+  app.get('/v1/export/contacts.xlsx', async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengekspor kontak.' });
+    const rows = await buildExportRows(request.agneeSession.companyId);
+    const numericColumns = new Set(
+      EXPORT_COLUMNS.map(([key], index) => (NUMERIC_EXPORT_KEYS.has(key) ? index : -1))
+        .filter((index) => index >= 0),
+    );
+    const file = buildXlsx(
+      EXPORT_COLUMNS.map(([, label]) => label),
+      rows.map((row) => EXPORT_COLUMNS.map(([key]) => row[key])),
+      { sheetName: 'Lead List', numericColumns },
+    );
+    const stamp = new Date().toISOString().slice(0, 10);
+    reply.header('content-type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    reply.header('content-disposition', `attachment; filename="agnee-lead-${stamp}.xlsx"`);
+    return reply.send(file);
   });
 
   app.get('/v1/export/contacts.csv', async (request, reply) => {

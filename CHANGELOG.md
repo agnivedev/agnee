@@ -6,6 +6,31 @@ Semua perubahan penting Agnee dicatat di file ini. Format mengikuti prinsip
 
 ## [Unreleased]
 
+### Added
+
+- **Halaman Lead List** (`/leads`): tabel semua percakapan beserta statusnya —
+  cari di semua kolom, saring tahap lead dan penanganan (AI atau manusia),
+  urutkan dengan mengeklik judul kolom, dan unduh **XLSX** atau **CSV**.
+  Kolomnya diambil dari metadata API yang sama dengan file ekspor, bukan daftar
+  terpisah, jadi tabel dan file tidak bisa saling menyimpang.
+  Kolom nomor dan baris header menempel saat tabel digulir ke samping; tanpa
+  nomornya, baris di sebelah kanan tidak bisa dikenali lagi.
+- **Penulis .xlsx sendiri** (`src/xlsx-writer.js`) — ZIP + XML lewat `zlib`
+  bawaan, tanpa dependency baru. Menarik pustaka spreadsheet utuh hanya untuk
+  mengekspor satu tabel datar tidak sebanding.
+  Baris header dibekukan dan diberi filter otomatis. Skor dan jumlah pesan
+  ditulis sebagai angka supaya bisa dijumlah dan diurutkan; nomor telepon
+  sengaja tetap teks, karena sebagai angka nol di depannya hilang.
+  Karakter kontrol yang dilarang XML 1.0 dibuang — isi pesan WhatsApp bisa
+  membawanya, dan Excel menolak membuka file yang memuatnya.
+
+### Fixed
+
+- **Kolom "Pesan customer terakhir" menampilkan epoch mentah.** Driver Postgres
+  mengembalikan BIGINT sebagai string, jadi pemeriksaan `typeof value ===
+  'number'` tidak pernah terpenuhi dan angka detik bocor ke tabel dan ke file
+  ekspor.
+
 ### Fixed
 
 - **Dropdown "Metode pembayaran" jauh lebih tinggi daripada seharusnya**

@@ -1,0 +1,112 @@
+/* Tabel Lead List. Melengkapi admin.css, tidak menggantikannya. */
+
+.lead-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.lead-toolbar input[type="search"] {
+  flex: 1 1 240px;
+  min-height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 6px 12px;
+  background: #fff;
+  font: inherit;
+}
+
+.lead-toolbar select {
+  min-height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 6px 10px;
+  background: #fff;
+  font: 600 12px "IBM Plex Mono", monospace;
+  color: #285248;
+}
+
+.lead-count {
+  color: var(--muted);
+  font: 600 12px "IBM Plex Mono", monospace;
+  white-space: nowrap;
+}
+
+.lead-spacer { flex: 1 1 auto; }
+
+/* 23 kolom tidak akan muat di layar mana pun, jadi tabelnya digulir sendiri.
+   Halaman di luar tabel tidak boleh ikut bergeser ke samping. */
+.lead-table-wrap {
+  margin-top: 12px;
+  max-height: 68vh;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.lead-table {
+  border-collapse: separate;
+  border-spacing: 0;
+  width: max-content;
+  min-width: 100%;
+  font-size: 13px;
+}
+
+.lead-table th,
+.lead-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lead-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #eef2ec;
+  color: #285248;
+  font: 600 11px "IBM Plex Mono", monospace;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.lead-table thead th:hover { background: #e2e9df; }
+.lead-table thead th:focus-visible { outline: 2px solid #b7d9c5; outline-offset: -2px; }
+
+.lead-table thead th.sorted::after {
+  content: " ▲";
+  font-size: 9px;
+}
+.lead-table thead th.sorted[data-dir="desc"]::after { content: " ▼"; }
+
+/* Kolom pertama ikut menempel saat digulir ke samping — tanpa nomornya,
+   baris di sebelah kanan tidak bisa dikenali lagi. */
+.lead-table th:first-child,
+.lead-table td:first-child {
+  position: sticky;
+  left: 0;
+  background: #fff;
+  z-index: 1;
+  font: 600 12px "IBM Plex Mono", monospace;
+}
+.lead-table thead th:first-child {
+  z-index: 2;
+  background: #eef2ec;
+}
+
+.lead-table tbody tr:hover td { background: #f6f9f5; }
+.lead-table tbody tr:hover td:first-child { background: #f6f9f5; }
+
+@media (max-width: 720px) {
+  .lead-table-wrap { max-height: 60vh; }
+  .lead-table th, .lead-table td { max-width: 200px; }
+}

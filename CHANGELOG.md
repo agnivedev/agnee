@@ -6,6 +6,20 @@ Semua perubahan penting Agnee dicatat di file ini. Format mengikuti prinsip
 
 ## [Unreleased]
 
+### Fixed
+
+- **Dropdown "Metode pembayaran" jauh lebih tinggi daripada seharusnya**
+  (terukur 104px, seharusnya 42px). `.plan-config` adalah grid dua kolom, dan
+  sel grid meregang setinggi barisnya. Karena `<label>` di dalamnya juga sebuah
+  grid, baris otomatisnya ikut meregang — jadi sebuah `<select>` yang sendirian
+  di kolom kiri menjadi setinggi tiga field di kolom kanan.
+  Diperbaiki dengan `align-items: start` pada `.plan-config` dan
+  `align-content: start` pada labelnya. Hanya muncul di layar lebar; di bawah
+  700px grid-nya sudah satu kolom, sehingga tidak pernah terlihat saat
+  pengujian di pane sempit.
+  Diperiksa ulang ke seluruh halaman pengaturan: dari 44 kontrol form, tidak
+  ada lagi yang tingginya di atas 50px.
+
 ### Added
 
 - **Sinkronisasi kontak ke Google Sheets** (migration 021), sejajar dengan

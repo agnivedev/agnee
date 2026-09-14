@@ -233,8 +233,12 @@ button, select, textarea { font: inherit; }
 .usage-fill { height: 100%; border-radius: 999px; background: #087f4d; transition: width .4s; }
 .usage-fill.warn { background: #d97706; }
 .usage-fill.danger { background: #c00; }
-.plan-config { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 18px; }
-.plan-config label { display: grid; gap: 6px; color: var(--muted); font-size: 12px; font-weight: 700; }
+/* align-items: start supaya tiap sel setinggi isinya sendiri.
+   Tanpa ini, sel grid meregang setinggi baris, dan karena <label> juga sebuah
+   grid, baris otomatisnya ikut meregang — sebuah <select> sendirian di kolom
+   kiri jadi setinggi tiga field di kolom kanan (terukur 104px, seharusnya 42). */
+.plan-config { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 18px; align-items: start; }
+.plan-config label { display: grid; align-content: start; gap: 6px; color: var(--muted); font-size: 12px; font-weight: 700; }
 .plan-config select, .plan-config input { min-height: 42px; border: 1px solid var(--line); border-radius: 10px; padding: 9px 10px; background: #fff; font: inherit; width: 100%; }
 .card-head { display: flex; justify-content: space-between; align-items: flex-start; }
 @media (max-width: 700px) { .plan-config { grid-template-columns: 1fr; } }

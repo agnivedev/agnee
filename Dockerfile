@@ -4,6 +4,10 @@
 # runtime image.
 FROM node:22-bookworm-slim AS web
 
+# This stage installs dev dependencies too, which pulls puppeteer in. Without
+# this it would download a Chromium the build stage never runs.
+ENV PUPPETEER_SKIP_DOWNLOAD=true
+
 WORKDIR /build
 
 COPY package.json package-lock.json ./

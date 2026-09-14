@@ -2,6 +2,40 @@
 
 ### Added
 
+- **Konfirmasi saat menyalakan tindak lanjut otomatis**, menyebut angka yang
+  benar-benar akan berlaku (plafon per hari dan jam kirim). Menyalakan berarti
+  AI mulai mengirim ke customer sungguhan; satu klik yang tidak disengaja
+  pernah berujung insiden. Mematikan tidak ditanya — berhenti mengirim selalu
+  aman.
+
+### Fixed
+
+- **`inbound_messages.connection_id` selalu kosong.** `whatsapp-manager`
+  memanggil `onMessage(companyId, message, connectionId)` dengan string,
+  sementara `handleInboundMessage` membaca `meta.connectionId` dari sebuah
+  objek. Nol dari 61 baris di produksi punya nomor penerima, jadi tidak ada
+  yang tahu nomor mana yang menerima pesan mana. Jalur Cloud API sudah benar.
+- **Media dari nomor kedua tidak bisa diambil.** `/v1/messages/:messageId/media`
+  selalu dilayani nomor utama karena route-nya tidak tahu percakapan mana yang
+  dimaksud, padahal media hidup di dalam browser nomor yang menerimanya.
+  Sekarang route menerima `?chatId=` dan memetakannya ke nomor lewat
+  `whatsapp_chat_numbers`, jalur yang sama dengan operasi per-chat lain. Tanpa
+  parameter itu tetap nomor utama, jadi pemanggil lama tidak berubah.
+- **Sebelas teks penjelas di Settings tidak pernah tampil.** Rewrite React
+  memakai keluarga kunci i18n yang pendek dan meninggalkan yang panjang, jadi
+  `fu.intro`, `fu.enableHint`, `fu.gapHint`, dan `fu.windowHint` yatim.
+  Yang paling merugikan `fu.windowHint`: kolom jam kirim tidak pernah menyebut
+  zona waktunya, padahal servernya memakai WIB.
+- **Kotak centang tindak lanjut berlabel status, bukan aksi** — terbaca
+  "Nonaktif" di sebelah kotak kosong, sehingga mencentangnya seolah berarti
+  mematikan. Sekarang labelnya menyebut apa yang terjadi kalau dicentang;
+  statusnya tetap di badge kartu.
+
+### Changed
+
+- CI: `actions/checkout` dan `actions/setup-node` naik ke `v5`. Keduanya masih
+  memakai runtime Node 20 yang sudah usang dan memicu peringatan tiap jalan.
+
 - **Kirim tindak lanjut manual dari inbox**: section baru di panel lead, hanya
   untuk supervisor dan bukan untuk grup. Dua langkah — server menyusun,
   supervisor membaca teks persisnya di dialog dan boleh menyuntingnya, baru

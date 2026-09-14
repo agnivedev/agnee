@@ -30,6 +30,8 @@ export function FollowUpSection() {
   const { t } = useI18n();
   const confirm = useConfirm();
   const [enabled, setEnabled] = useState(false);
+  /** Nilai yang tersimpan di server, supaya transisi mati-ke-menyala terdeteksi. */
+  const [wasEnabled, setWasEnabled] = useState(false);
   const [dayCaps, setDayCaps] = useState('');
   const [minGap, setMinGap] = useState(120);
   const [fromHour, setFromHour] = useState(8);
@@ -42,6 +44,7 @@ export function FollowUpSection() {
     void api<Settings>('/v1/follow-up/settings')
       .then((data) => {
         setEnabled(Boolean(data.enabled));
+        setWasEnabled(Boolean(data.enabled));
         setDayCaps((data.dayCaps || []).join(','));
         setMinGap(data.minGapMinutes ?? 120);
         setFromHour(data.sendFromHour ?? 8);
@@ -59,6 +62,18 @@ export function FollowUpSection() {
       await confirm.alert({ title: t('fu.capsInvalidTitle'), message: t('fu.capsInvalidCopy') });
       return;
     }
+    // Menyalakan fitur ini mulai mengirim pesan ke customer sungguhan. Satu
+    // klik yang tidak disengaja pernah berujung insiden, jadi tanyakan dulu —
+    // dan sebutkan angkanya, supaya yang disetujui adalah yang benar-benar
+    // berlaku. Mematikan tidak ditanya: berhenti mengirim selalu aman.
+    if (enabled && !wasEnabled) {
+      const ok = await confirm.confirm({
+        title: t('fu.enableConfirmTitle'),
+        message: t('fu.enableConfirmCopy', { caps: caps.join(', '), from: fromHour, to: toHour }),
+        confirmLabel: t('fu.enableConfirmYes'),
+      });
+      if (!ok) return;
+    }
     setSaving(true);
     try {
       const result = await api<Settings>('/v1/follow-up/settings', {
@@ -72,6 +87,7 @@ export function FollowUpSection() {
         },
       });
       setEnabled(Boolean(result.enabled));
+      setWasEnabled(Boolean(result.enabled));
       flash();
     } catch (error) {
       await confirm.error(error);
@@ -88,15 +104,21 @@ export function FollowUpSection() {
       badge={enabled ? t('fu.on') : t('fu.off')}
       badgeTone={enabled ? 'on' : 'off'}
     >
-      <label className="mb-4 flex items-center gap-2.5 text-[13px] font-semibold">
+      <p className="mt-0 mb-4 text-xs text-muted">{t('fu.intro')}</p>
+
+      {/* Label menyebut apa yang terjadi kalau dicentang, bukan status saat ini.
+          Kotak centang berlabel "Nonaktif" tidak terbaca: mencentangnya bisa
+          berarti mematikan. Status sudah ada di badge kartu ini. */}
+      <label className="mb-1.5 flex items-center gap-2.5 text-[13px] font-semibold">
         <input
           type="checkbox"
           checked={enabled}
           onChange={(event) => setEnabled(event.target.checked)}
           className="size-4 accent-green"
         />
-        <span>{enabled ? t('fu.on') : t('fu.off')}</span>
+        <span>{t('fu.enable')}</span>
       </label>
+      <p className="mt-0 mb-4 text-[11px] text-muted">{t('fu.enableHint')}</p>
 
       <FieldGrid>
         <TextField
@@ -109,6 +131,7 @@ export function FollowUpSection() {
         />
         <TextField
           label={t('fu.minGap')}
+          hint={t('fu.gapHint')}
           type="number"
           min={30}
           max={1440}
@@ -118,6 +141,7 @@ export function FollowUpSection() {
         />
         <TextField
           label={t('fu.fromHour')}
+          hint={t('fu.windowHint')}
           type="number"
           min={0}
           max={23}

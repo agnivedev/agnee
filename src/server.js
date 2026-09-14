@@ -4036,14 +4036,21 @@ Aturan:
   });
 
   app.get('/v1/messages/:messageId/media', {
-    schema: { params: { type: 'object', required: ['messageId'], properties: {
-      messageId: { type: 'string', minLength: 1, maxLength: 256 },
-    } } },
+    schema: {
+      params: { type: 'object', required: ['messageId'], properties: {
+        messageId: { type: 'string', minLength: 1, maxLength: 256 },
+      } },
+      querystring: { type: 'object', properties: {
+        chatId: { type: 'string', minLength: 1, maxLength: 128 },
+      } },
+    },
   }, async (request, reply) => {
     const companyId = request.agneeSession.companyId;
-    // Route ini hanya membawa messageId, tanpa chatId untuk dipetakan ke nomor.
-    // Dilayani nomor utama; media dari nomor lain belum bisa diambil lewat sini.
-    const { client: wa, state: waState } = await waFor(companyId);
+    // Media hidup di dalam browser nomor yang menerimanya, jadi nomor yang
+    // salah tidak menemukan pesannya sama sekali. `chatId` menunjuk nomornya
+    // lewat peta percakapan; tanpa itu, nomor utama — pemanggil lama tetap
+    // bekerja, dan company bernomor satu tidak terpengaruh.
+    const { client: wa, state: waState } = await waFor(companyId, request.query.chatId || null);
     if (config.demoMode || waState.phase !== 'ready') return reply.code(404).send();
     try {
       const media = await wa.pupPage.evaluate(async (messageId) => {

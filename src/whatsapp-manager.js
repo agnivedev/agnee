@@ -40,7 +40,7 @@ function resolveBrowserExecutable() {
  *   { client, state, sseClients, qrMirrorTimer, restoredSessionTimer }
  *
  * Callbacks passed to startFor / _createClient:
- *   { log, onMessage(companyId, message), onStatusUpdate(companyId, status, phoneNumber) }
+ *   { log, onMessage(companyId, message, { connectionId }), onStatusUpdate(companyId, status, phoneNumber) }
  */
 class WhatsappManager {
   constructor() {
@@ -380,7 +380,10 @@ class WhatsappManager {
     wa.on('message', async (message) => {
       if (message.fromMe || message.from === 'status@broadcast') return;
       try {
-        await onMessage?.(companyId, message, connectionId);
+        // Objek, bukan string: penerimanya membaca `meta.connectionId`. Selama
+        // ini string yang dikirim, jadi `inbound_messages.connection_id`
+        // selalu kosong dan tidak ada yang tahu nomor mana yang menerima.
+        await onMessage?.(companyId, message, { connectionId });
       } catch (error) {
         log?.error({ err: error }, 'Inbound message handling failed');
       }

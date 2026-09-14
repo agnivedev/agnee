@@ -23,8 +23,15 @@ const MEDIA_FALLBACK: Record<string, string> = {
   document: '▤',
 };
 
+/** Media lives inside the browser of the number that received it, so the URL
+ *  must name the conversation for a company running more than one number. */
+function mediaUrl(messageId: string, chatId: string) {
+  return `/v1/messages/${encodeURIComponent(messageId)}/media?chatId=${encodeURIComponent(chatId)}`;
+}
+
 export function MessageRow({
   message,
+  chatId,
   isGroup,
   position,
   demoMode,
@@ -34,6 +41,7 @@ export function MessageRow({
   onOpenQuoted,
 }: {
   message: Message;
+  chatId: string;
   isGroup: boolean;
   position: RunPosition;
   demoMode: boolean;
@@ -162,7 +170,7 @@ export function MessageRow({
             onClick={() =>
               onOpenMedia({
                 kind: 'video',
-                src: `/v1/messages/${encodeURIComponent(message.id)}/media`,
+                src: mediaUrl(message.id, chatId),
                 title: message.body || t('media.video'),
                 filename: `video-${String(message.id).replace(/[^a-z0-9_-]/gi, '_')}.mp4`,
               })
@@ -177,7 +185,7 @@ export function MessageRow({
             </span>
           </button>
         ) : hasImage ? (
-          <BubbleImage message={message} onOpenMedia={onOpenMedia} />
+          <BubbleImage message={message} chatId={chatId} onOpenMedia={onOpenMedia} />
         ) : null}
 
         {hideBody ? null : (
@@ -199,9 +207,11 @@ export function MessageRow({
 
 function BubbleImage({
   message,
+  chatId,
   onOpenMedia,
 }: {
   message: Message;
+  chatId: string;
   onOpenMedia: (target: MediaTarget) => void;
 }) {
   const { t } = useI18n();
@@ -212,7 +222,7 @@ function BubbleImage({
       kind: 'image',
       // The inline base64 WhatsApp carries is a tiny preview. Always request the
       // decrypted original for the full-screen viewer when there is a message id.
-      src: message.id ? `/v1/messages/${encodeURIComponent(message.id)}/media` : message.inlineImage || '',
+      src: message.id ? mediaUrl(message.id, chatId) : message.inlineImage || '',
       title: alt,
       filename: `${message.type}-${String(message.id).replace(/[^a-z0-9_-]/gi, '_')}.${
         message.inlineImageExtension || (message.type === 'sticker' ? 'webp' : 'jpg')
@@ -221,7 +231,7 @@ function BubbleImage({
 
   return (
     <img
-      src={message.inlineImage || `/v1/messages/${encodeURIComponent(message.id)}/media`}
+      src={message.inlineImage || mediaUrl(message.id, chatId)}
       alt={alt}
       loading="lazy"
       decoding="async"

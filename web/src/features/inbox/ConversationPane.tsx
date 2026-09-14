@@ -188,6 +188,7 @@ export function ConversationPane({
                 ) : null}
                 <MessageRow
                   message={message}
+                  chatId={chat.id}
                   isGroup={Boolean(chat.isGroup)}
                   demoMode={Boolean(inbox.whatsapp?.demoMode)}
                   position={chat.isGroup ? runPosition(previous, message, inbox.messages[index + 1]) : 'single'}

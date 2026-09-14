@@ -492,6 +492,9 @@ export const messages = {
       'fu.nothingToSay': 'AI menilai tidak ada hal baru yang layak disampaikan sekarang.',
       'fu.disabled': 'Aktifkan tindak lanjut otomatis dulu sebelum mengirim manual.',
       'fu.sendFailed': 'Pesan tidak dapat dikirim. Rangkaian tindak lanjut untuk percakapan ini dihentikan.',
+      'fu.enableConfirmTitle': 'Nyalakan tindak lanjut otomatis?',
+      'fu.enableConfirmCopy': 'Mulai sekarang AI mengirim pesan sendiri ke customer yang berhenti membalas, paling banyak {caps} per hari, antara jam {from}.00 dan {to}.00 WIB. Rangkaian yang tertinggal dari periode sebelumnya ditutup dulu, jadi tidak ada antrean lama yang terkirim sekaligus.',
+      'fu.enableConfirmYes': 'Nyalakan',
 
       'pb.navTitle': 'Playbook', 'pb.eyebrow': 'PLAYBOOK TIM CS',
       'pb.title': 'Aturan kerja tim CS kamu',
@@ -997,6 +1000,9 @@ export const messages = {
       'fu.nothingToSay': 'The AI judged there is nothing new worth saying right now.',
       'fu.disabled': 'Turn on automatic follow-up before sending one manually.',
       'fu.sendFailed': 'The message could not be sent. The follow-up sequence for this conversation has been stopped.',
+      'fu.enableConfirmTitle': 'Turn on automatic follow-up?',
+      'fu.enableConfirmCopy': 'From now on the AI sends messages of its own to customers who stopped replying, at most {caps} a day, between {from}:00 and {to}:00 WIB. Sequences left over from an earlier period are closed first, so no old queue goes out at once.',
+      'fu.enableConfirmYes': 'Turn on',
 
       'pb.navTitle': 'Playbooks', 'pb.eyebrow': 'CS TEAM PLAYBOOKS',
       'pb.title': 'How your CS team should work',

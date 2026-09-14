@@ -4,6 +4,13 @@
 // missing English key silently ships Indonesian copy.
 export const messages = {
     id: {
+      'settings.subtitleAgent': 'Akun kamu dan daftar tim yang melayani customer.',
+      'settings.tabsLabel': 'Kategori pengaturan',
+      'settings.tab.paket': 'Paket & Pembayaran',
+      'settings.tab.whatsapp': 'Nomor WhatsApp',
+      'settings.tab.ai': 'AI & Tindak Lanjut',
+      'settings.tab.data': 'Ekspor Data',
+      'settings.tab.tim': 'Tim & Akun',
       'admin.eyebrow': 'PANEL ADMIN',
       'admin.heading': 'Mesin AI dan sumber jawabannya',
       'admin.subtitle': 'Atur urutan model, isi playbook perusahaan, dan uji balasan sebelum customer yang menerimanya.',
@@ -506,6 +513,13 @@ export const messages = {
       'pb.kindHandoff': 'Penyerahan ke manusia'
     },
     en: {
+      'settings.subtitleAgent': 'Your account and the team serving customers.',
+      'settings.tabsLabel': 'Settings categories',
+      'settings.tab.paket': 'Plan & Payment',
+      'settings.tab.whatsapp': 'WhatsApp Numbers',
+      'settings.tab.ai': 'AI & Follow-up',
+      'settings.tab.data': 'Data Export',
+      'settings.tab.tim': 'Team & Account',
       'admin.eyebrow': 'ADMIN PANEL',
       'admin.heading': 'The AI engine and where its answers come from',
       'admin.subtitle': 'Set the model order, fill in the company playbook, and test replies before a customer receives one.',

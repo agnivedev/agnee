@@ -127,14 +127,24 @@ class FollowUpScheduler {
    * @param deps.isHumanHandled async (companyId, chatId) => boolean
    * @param deps.generate async (companyId, chatId, prompt) => string|null
    */
-  constructor({ database, logger, deps, intervalMs = 5 * 60_000, batchSize = 25 }) {
+  constructor({
+    database, logger, deps, intervalMs = 5 * 60_000, batchSize = 25,
+    maxPerCompanyPerTick = 3, sendSpacingMs = 1500,
+  }) {
     this.database = database;
     this.logger = logger || console;
     this.deps = deps;
     this.intervalMs = intervalMs;
     this.batchSize = batchSize;
+    this.maxPerCompanyPerTick = maxPerCompanyPerTick;
+    this.sendSpacingMs = sendSpacingMs;
     this.timer = null;
     this.running = false;
+  }
+
+  /** Overridable so tests do not have to wait out the spacing delay. */
+  sleep(ms) {
+    return new Promise((resolve) => { setTimeout(resolve, ms).unref?.(); });
   }
 
   start() {
@@ -149,24 +159,45 @@ class FollowUpScheduler {
     this.timer = null;
   }
 
-  /** Satu putaran. Dilindungi flag supaya tick yang lambat tidak menumpuk. */
+  /**
+   * Satu putaran. Dilindungi flag supaya tick yang lambat tidak menumpuk.
+   *
+   * Dua rem di sini melindungi NOMOR-nya, bukan tiap chat. `minGapMinutes`
+   * hanya menjaga jarak antar pesan ke satu customer; tanpa rem ini, 25 chat
+   * yang jatuh tempo bersamaan tetap keluar beruntun dalam hitungan detik dari
+   * satu nomor WhatsApp, dan ledakan seperti itulah yang membuat nomor
+   * ditandai. Chat yang kena rem tidak hilang — tick berikutnya mengambilnya
+   * lagi, karena `listDueFollowUps` tetap mengembalikannya.
+   */
   async tick(now = new Date()) {
     if (this.running) return { skipped: 'already_running' };
     this.running = true;
-    const result = { sent: 0, stopped: 0, skipped: 0 };
+    const result = { sent: 0, stopped: 0, skipped: 0, throttled: 0 };
+    const sentPerCompany = new Map();
     try {
       const due = await this.database.listDueFollowUps(this.batchSize);
       for (const row of due) {
+        if ((sentPerCompany.get(row.companyId) || 0) >= this.maxPerCompanyPerTick) {
+          result.throttled += 1;
+          continue;
+        }
         try {
           const outcome = await this.processOne(row, now);
-          if (outcome.sent) result.sent += 1;
-          else if (outcome.stopped) result.stopped += 1;
+          if (outcome.sent) {
+            result.sent += 1;
+            sentPerCompany.set(row.companyId, (sentPerCompany.get(row.companyId) || 0) + 1);
+            if (this.sendSpacingMs > 0) await this.sleep(this.sendSpacingMs);
+          } else if (outcome.stopped) result.stopped += 1;
           else result.skipped += 1;
         } catch (err) {
           result.skipped += 1;
           this.logger.warn?.({ err, chatId: row.chatId, companyId: row.companyId },
             'Follow-up failed for one chat');
         }
+      }
+      if (result.throttled > 0) {
+        this.logger.info?.({ throttled: result.throttled, maxPerCompanyPerTick: this.maxPerCompanyPerTick },
+          'Tindak lanjut direm agar tidak meledak dari satu nomor; sisanya menunggu tick berikutnya');
       }
     } finally {
       this.running = false;

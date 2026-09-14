@@ -95,8 +95,8 @@ test('follow-up: prompt melarang mengulang pesan sebelumnya dan menandai yang te
 
 // ── Scheduler ──────────────────────────────────────────────────────────────
 
-function harness({ dueRows = [], humanHandled = false, generated = 'Pesan follow-up' } = {}) {
-  const calls = { sent: [], recorded: [], stopped: [] };
+function harness({ dueRows = [], humanHandled = false, generated = 'Pesan follow-up', options = {} } = {}) {
+  const calls = { sent: [], recorded: [], stopped: [], slept: [] };
   const database = {
     async listDueFollowUps() { return dueRows; },
     async stopFollowUpSequence(chatId, companyId, reason) { calls.stopped.push({ chatId, reason }); return true; },
@@ -109,7 +109,13 @@ function harness({ dueRows = [], humanHandled = false, generated = 'Pesan follow
     async generate() { return generated; },
     async sendMessage(companyId, chatId, text) { calls.sent.push({ companyId, chatId, text }); },
   };
-  return { calls, scheduler: new FollowUpScheduler({ database, logger: { info() {}, warn() {} }, deps }) };
+  const scheduler = new FollowUpScheduler({
+    database, logger: { info() {}, warn() {} }, deps, sendSpacingMs: 0, ...options,
+  });
+  // Jeda antar kirim dicatat, tidak ditunggu: tes tidak boleh membayar 1,5 detik
+  // per pesan hanya untuk membuktikan jedanya ada.
+  scheduler.sleep = async (ms) => { calls.slept.push(ms); };
+  return { calls, scheduler };
 }
 
 const dueRow = { companyId: 'co-1', chatId: 'c@c.us', ...base };
@@ -164,6 +170,55 @@ test('scheduler: tick yang tumpang tindih tidak dijalankan dua kali', async () =
   const { scheduler } = harness({ dueRows: [dueRow] });
   scheduler.running = true;
   assert.equal((await scheduler.tick(MIDDAY)).skipped, 'already_running');
+});
+
+test('scheduler: satu company tidak boleh meledak dalam satu tick', async () => {
+  const rows = Array.from({ length: 6 }, (_, i) => ({ ...dueRow, chatId: `c${i}@c.us` }));
+  const { calls, scheduler } = harness({ dueRows: rows, options: { maxPerCompanyPerTick: 2 } });
+  const result = await scheduler.tick(MIDDAY);
+  // minGapMinutes menjaga jarak ke SATU customer; rem ini menjaga nomornya.
+  assert.equal(result.sent, 2);
+  assert.equal(result.throttled, 4);
+  assert.deepEqual(calls.sent.map((s) => s.chatId), ['c0@c.us', 'c1@c.us']);
+});
+
+test('scheduler: chat yang direm tidak dihentikan, hanya menunggu tick berikutnya', async () => {
+  const rows = Array.from({ length: 4 }, (_, i) => ({ ...dueRow, chatId: `c${i}@c.us` }));
+  const { calls, scheduler } = harness({ dueRows: rows, options: { maxPerCompanyPerTick: 1 } });
+  await scheduler.tick(MIDDAY);
+  assert.equal(calls.stopped.length, 0, 'direm bukan gagal — rangkaiannya harus tetap hidup');
+  assert.equal(calls.recorded.length, 1, 'yang direm tidak boleh ikut memakan plafon');
+});
+
+test('scheduler: rem dihitung per company, bukan lintas company', async () => {
+  const rows = [
+    { ...dueRow, companyId: 'co-1', chatId: 'a@c.us' },
+    { ...dueRow, companyId: 'co-2', chatId: 'b@c.us' },
+    { ...dueRow, companyId: 'co-1', chatId: 'c@c.us' },
+  ];
+  const { calls, scheduler } = harness({ dueRows: rows, options: { maxPerCompanyPerTick: 1 } });
+  const result = await scheduler.tick(MIDDAY);
+  assert.equal(result.sent, 2);
+  assert.equal(result.throttled, 1);
+  assert.deepEqual(calls.sent.map((s) => s.chatId), ['a@c.us', 'b@c.us']);
+});
+
+test('scheduler: ada jeda antar pesan yang benar-benar terkirim', async () => {
+  const rows = [
+    { ...dueRow, chatId: 'a@c.us' },
+    { ...dueRow, chatId: 'b@c.us' },
+  ];
+  const { calls, scheduler } = harness({ dueRows: rows, options: { sendSpacingMs: 1500 } });
+  await scheduler.tick(MIDDAY);
+  assert.deepEqual(calls.slept, [1500, 1500]);
+});
+
+test('scheduler: chat yang dilewati tidak memicu jeda', async () => {
+  const { calls, scheduler } = harness({
+    dueRows: [dueRow], generated: 'SKIP', options: { sendSpacingMs: 1500 },
+  });
+  await scheduler.tick(MIDDAY);
+  assert.deepEqual(calls.slept, [], 'jeda hanya berlaku sesudah pesan sungguhan keluar');
 });
 
 // ── Konteks percakapan untuk follow-up ──────────────────────────────────────

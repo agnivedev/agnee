@@ -52,6 +52,25 @@
      sesudahnya. Tindak lanjut yang hilang tidak merugikan siapa pun; tindak
      lanjut berulang merugikan customer dan reputasi nomor WhatsApp-nya.
 
+- **Dua pengaman tingkat nomor untuk tindak lanjut.** Pengaman sebelumnya
+  semuanya melindungi satu percakapan. Keduanya di bawah melindungi nomor
+  WhatsApp-nya, yang bisa ditandai walau tiap customer hanya menerima satu
+  pesan.
+  1. **Rem per company per putaran** (bawaan 3) dan **jeda antar pesan**
+     (bawaan 1,5 detik). `minGapMinutes` hanya menjaga jarak ke satu customer;
+     tanpa rem ini, 25 chat yang jatuh tempo bersamaan keluar beruntun dalam
+     hitungan detik dari satu nomor. Chat yang kena rem tidak hilang — putaran
+     berikutnya mengambilnya lagi, dan tidak ada yang dihentikan atau memakan
+     plafon.
+  2. **Menyalakan kembali menutup rangkaian lama** (migration 023, alasan
+     berhenti baru `feature_reenabled`). Rangkaian hanya terpasang saat kita
+     membalas customer, jadi yang masih terpasang dari periode menyala
+     sebelumnya mewakili kesenyapan basi yang tidak ditinjau siapa pun sejak
+     fitur dimatikan. Tanpa ini, satu klik "aktifkan" melepaskan seluruh
+     antrean itu sekaligus ke customer yang mungkin sudah lama beralih.
+     Hanya transisi mati→menyala yang membersihkan; menyimpan pengaturan lain
+     saat fitur sudah menyala tidak menyentuh rangkaian hidup.
+
 - **Halaman Lead List** (`/leads`): tabel semua percakapan beserta statusnya —
   cari di semua kolom, saring tahap lead dan penanganan (AI atau manusia),
   urutkan dengan mengeklik judul kolom, dan unduh **XLSX** atau **CSV**.

@@ -872,6 +872,7 @@ class Database {
     if (!this.enabled) return null;
     const current = await this.getFollowUpSettings(companyId);
     const next = { ...current, ...patch };
+    const switchingOn = next.enabled === true && current?.enabled !== true;
     const result = await this.pool.query(`
       INSERT INTO follow_up_settings
         (company_id, enabled, day_caps, min_gap_minutes, send_from_hour, send_to_hour, updated_by)
@@ -886,7 +887,36 @@ class Database {
                 updated_at AS "updatedAt"
     `, [companyId, next.enabled, next.dayCaps, next.minGapMinutes,
       next.sendFromHour, next.sendToHour, updatedBy || null]);
+
+    // Menyalakan kembali harus mulai dari nol, bukan melepas antrean lama.
+    // `armFollowUp` hanya memasang rangkaian saat kita membalas customer, jadi
+    // rangkaian yang masih terpasang dari periode menyala sebelumnya mewakili
+    // kesenyapan yang sudah basi — tidak ada yang meninjaunya sejak fitur
+    // dimatikan. Tanpa langkah ini, satu klik "aktifkan" melepaskan semuanya
+    // sekaligus ke customer yang mungkin sudah lama beralih.
+    if (switchingOn) {
+      const cleared = await this.stopAllFollowUpSequences(companyId, 'feature_reenabled');
+      if (cleared > 0) {
+        this.logger?.info?.({ companyId, cleared },
+          'Rangkaian tindak lanjut lama ditutup saat fitur dinyalakan lagi');
+      }
+    }
     return result.rows[0];
+  }
+
+  /**
+   * Menutup SEMUA rangkaian yang masih terpasang untuk satu company.
+   *
+   * @returns {Promise<number>} jumlah rangkaian yang ditutup.
+   */
+  async stopAllFollowUpSequences(companyId, reason) {
+    if (!this.enabled) return 0;
+    const result = await this.pool.query(`
+      UPDATE follow_up_state
+      SET stopped_at = NOW(), stop_reason = $2, updated_at = NOW()
+      WHERE company_id = $1 AND stopped_at IS NULL
+    `, [companyId, reason]);
+    return result.rowCount;
   }
 
   /**

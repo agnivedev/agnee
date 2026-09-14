@@ -13,9 +13,9 @@ export function LoginView({ onAuthenticated }: { onAuthenticated: () => void }) 
   const [mode, setMode] = useState<Mode>('login');
 
   return (
-    <main className="grid min-h-dvh bg-ink lg:grid-cols-[minmax(0,1.35fr)_minmax(390px,.65fr)]">
+    <main className="grid min-h-dvh grid-rows-[auto_1fr] bg-ink lg:grid-cols-[minmax(0,1.35fr)_minmax(390px,.65fr)] lg:grid-rows-1">
       <Story />
-      <section className="m-0 grid place-items-center bg-[#ebe9e2] px-6 py-12 sm:px-12 lg:my-[22px] lg:mr-[22px] lg:rounded-l-[38px] lg:rounded-r-[14px] lg:shadow-rail">
+      <section className="m-0 grid place-items-center bg-[#ebe9e2] px-6 py-10 sm:px-12 lg:my-[22px] lg:mr-[22px] lg:py-12 lg:rounded-l-[38px] lg:rounded-r-[14px] lg:shadow-rail">
         {mode === 'login' ? (
           <LoginForm onAuthenticated={onAuthenticated} onSwitch={() => setMode('signup')} />
         ) : (
@@ -32,27 +32,27 @@ function Story() {
   return (
     <section
       aria-label={t('login.intro')}
-      className="relative hidden min-h-[680px] flex-col justify-between overflow-hidden bg-ink bg-[radial-gradient(circle_at_18%_18%,rgba(199,255,53,.26),transparent_28%)] px-[7vw] py-12 text-white lg:flex"
+      className="relative flex min-h-[310px] flex-col justify-between overflow-hidden rounded-b-[36px_12px] bg-ink bg-[radial-gradient(circle_at_18%_18%,rgba(199,255,53,.26),transparent_28%)] px-7 py-7 text-white lg:min-h-[680px] lg:rounded-none lg:px-[7vw] lg:py-12"
     >
       <img
         src="/brand/agnee-logo-primary.svg"
         alt="Agnee by beweix"
-        className="w-52 brightness-0 invert"
+        className="w-40 brightness-0 invert lg:w-52"
       />
       <div className="relative z-10 max-w-[640px]">
         <p className="eyebrow text-lime">{t('login.eyebrow')}</p>
-        <h1 className="m-0 text-[clamp(44px,6vw,86px)] font-semibold leading-[.96] tracking-[-.055em]">
+        <h1 className="m-0 text-[clamp(38px,9vw,86px)] font-semibold leading-[.96] tracking-[-.055em]">
           <Headline />
         </h1>
-        <p className="mt-7 max-w-[520px] text-lg leading-[1.55] text-white/70">{t('login.description')}</p>
+        <p className="mt-7 hidden max-w-[520px] text-lg leading-[1.55] text-white/70 lg:block">{t('login.description')}</p>
       </div>
-      <div className="w-max rounded-full border border-white/15 bg-white/5 px-3.5 py-2.5 text-[13px] backdrop-blur-md">
+      <div className="hidden w-max rounded-full border border-white/15 bg-white/5 px-3.5 py-2.5 text-[13px] backdrop-blur-md lg:block">
         <span className="mr-2 inline-block size-2 rounded-full bg-lime shadow-[0_0_18px_var(--color-lime)]" />
         <b>{t('login.ready')}</b>
       </div>
       <span
         aria-hidden
-        className="absolute -right-20 -bottom-[150px] size-[430px] -rotate-[18deg] rounded-[46%_54%_62%_38%] border border-lime/30"
+        className="absolute -right-20 -bottom-[150px] hidden size-[430px] -rotate-[18deg] rounded-[46%_54%_62%_38%] border border-lime/30 lg:block"
       />
     </section>
   );

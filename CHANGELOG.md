@@ -6,6 +6,31 @@ Semua perubahan penting Agnee dicatat di file ini. Format mengikuti prinsip
 
 ## [Unreleased]
 
+### Known issues — 2026-09-14
+
+- **`WWebJS.sendMessage` melempar di hampir setiap pengiriman, bukan sesekali.**
+  Uji kirim ke nomor sendiri memicu log `receipt dipulihkan dari riwayat chat`
+  padahal pesannya sampai dengan `ack: 3`. Jalur pemulihan di `sendTextForUi`
+  menahannya, tetapi akarnya ada di serialisasi model whatsapp-web.js dan belum
+  dikejar. Selama belum, tidak ada lapis lain di bawah jalur pemulihan itu.
+- **Tindak lanjut otomatis MATI di keempat company** dan belum dinyalakan lagi.
+  Kalau dinyalakan, mulai dari satu percakapan uji, bukan seluruh basis.
+- Kredensial OneDrive dan Google Sheets belum diisi di produksi, jadi kedua
+  sinkronisasi belum pernah berjalan terhadap akun sungguhan.
+- `/v1/messages/:messageId/media` masih dilayani nomor utama; route itu hanya
+  membawa `messageId` tanpa `chatId` untuk dipetakan ke nomor.
+
+### Investigated — bukan bug
+
+- **"Pesan grup semua di kiri."** Seluruh 27 id pesan di grup yang dilaporkan
+  berawalan `false_` — penanda milik WhatsApp sendiri, bukan tafsiran Agnee.
+  Akun yang tersambung belum pernah mengirim apa pun di grup itu; nama yang
+  dikira "kita" ternyata akun pribadi yang berbeda, dan dari sudut pandang
+  akun yang tersambung ia memang peserta lain. Perataan kiri/kanan sudah benar.
+  Jalan keluarnya menyambungkan nomor itu sebagai nomor kedua lewat rotator —
+  bukan memindahkan pesan peserta lain ke kanan, yang akan memalsukan siapa
+  pengirimnya.
+
 ### Added
 
 - **Tiga pengaman tindak lanjut yang tidak saling bergantung**, setelah insiden

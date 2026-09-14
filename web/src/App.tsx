@@ -3,6 +3,7 @@ import { I18nProvider, useI18n } from '@/lib/i18n';
 import { SessionProvider, useSession } from '@/lib/session';
 import { LanguageSwitch } from '@/components/LanguageSwitch';
 import { LoginView } from '@/features/auth/LoginView';
+import { InboxPage } from '@/features/inbox/InboxPage';
 import { LeadsPage } from '@/features/leads/LeadsPage';
 
 export function App() {
@@ -32,6 +33,7 @@ function Shell() {
 
   return (
     <Routes>
+      <Route path="/" element={<InboxPage />} />
       <Route path="/leads" element={<LeadsPage />} />
       {/* Pages still served by the vanilla frontend. Each one moves here as it
           is ported; until then a hard navigation hands the URL back to it. */}
@@ -41,9 +43,5 @@ function Shell() {
 }
 
 function LegacyRedirect() {
-  if (window.location.pathname !== '/') {
-    window.location.href = '/';
-    return null;
-  }
-  return <Navigate to="/leads" replace />;
+  return <Navigate to="/" replace />;
 }

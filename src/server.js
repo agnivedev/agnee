@@ -1399,6 +1399,11 @@ async function buildApp(overrides = {}) {
     app.log.warn('dist/index.html tidak ada — semua halaman dilayani frontend lama. Jalankan: npm run build:web');
   }
   const REACT_PAGES = new Set(['leads']);
+  const sendReactApp = (reply) => reply.type('text/html; charset=utf-8').send(fsSync.readFileSync(reactIndex));
+
+  // The inbox itself. @fastify/static would otherwise answer '/' with the
+  // legacy public/index.html; an explicitly declared route outranks its wildcard.
+  if (reactBuilt) app.get('/', (_request, reply) => sendReactApp(reply));
 
   // Clean URL routing — serve HTML pages without .html extension
   const publicPages = ['landing', 'landing-b', 'landing-c', 'landing-d'];
@@ -1409,9 +1414,7 @@ async function buildApp(overrides = {}) {
     app.get(`/${page}`, (request, reply) => {
       const session = verifySession(getCookie(request.headers.cookie, 'agnee_session'), config.sessionSecret);
       if (!session) return reply.redirect('/');
-      if (reactBuilt && REACT_PAGES.has(page)) {
-        return reply.type('text/html; charset=utf-8').send(fsSync.readFileSync(reactIndex));
-      }
+      if (reactBuilt && REACT_PAGES.has(page)) return sendReactApp(reply);
       return reply.sendFile(`${page}.html`);
     });
   }

@@ -9,7 +9,7 @@
     "mcp": "node src/mcp-stdio.mjs",
     "mcp:http": "node src/mcp-http.mjs",
     "test:mcp": "node scripts/mcp-smoke.mjs",
-    "check": "node --check src/server.js && node --check src/database.js && node --check src/whatsapp-manager.js && node --check src/follow-up.js && node --check src/knowledge-loader.js && node --check src/reply-style.js && node --check src/mcp-server.mjs && node --check src/mcp-http.mjs && node --check scripts/test-auto-reply.js && node --check public/app.js && node --check public/admin.js && tsc --noEmit",
+    "check": "node --check src/server.js && node --check src/database.js && node --check src/whatsapp-manager.js && node --check src/follow-up.js && node --check src/knowledge-loader.js && node --check src/reply-style.js && node --check src/mcp-server.mjs && node --check src/mcp-http.mjs && node --check scripts/test-auto-reply.js && tsc --noEmit",
     "test": "node --test test/*.test.js",
     "test:auto-reply": "node --env-file=.env scripts/test-auto-reply.js",
     "test-openrouter": "node scripts/test-openrouter-models.js",

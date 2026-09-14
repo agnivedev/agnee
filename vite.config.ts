@@ -15,6 +15,9 @@ export default defineConfig({
     outDir: '../dist',
     emptyOutDir: true,
     sourcemap: true,
+    // NOT 'assets': public/assets/ already holds the landing page images, and
+    // serving the bundles there shadows them (they 404).
+    assetsDir: 'app',
   },
   server: {
     port: 5173,

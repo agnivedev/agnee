@@ -1,3 +1,20 @@
+# ── Stage 1: build the frontend ───────────────────────────────────────────────
+# web/ is a Vite build, so the image cannot serve a single page without it.
+# It runs in its own stage so Vite, React and TypeScript never reach the
+# runtime image.
+FROM node:22-bookworm-slim AS web
+
+WORKDIR /build
+
+COPY package.json package-lock.json ./
+RUN npm ci
+
+COPY tsconfig.json vite.config.ts ./
+COPY web ./web
+RUN npm run build:web
+
+
+# ── Stage 2: runtime ──────────────────────────────────────────────────────────
 FROM node:22-bookworm-slim
 
 ENV NODE_ENV=production \
@@ -18,6 +35,7 @@ COPY --chown=node:node public ./public
 COPY --chown=node:node assets ./assets
 COPY --chown=node:node knowledge ./knowledge
 COPY --chown=node:node db ./db
+COPY --from=web --chown=node:node /build/dist ./dist
 
 RUN install -d -o node -g node /data/whatsapp /data/mcp
 

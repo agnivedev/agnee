@@ -1382,40 +1382,43 @@ async function buildApp(overrides = {}) {
     decorateReply: false,
   });
 
-  // Built React frontend (npm run build:web). It is being migrated page by page,
-  // so only the pages listed in REACT_PAGES are served from it; everything else
-  // still comes from public/. Its bundles live under /assets/, a prefix the
-  // vanilla frontend never used, so the two cannot collide.
+  // The frontend (web/) is a Vite build, so `npm run build:web` has to have run
+  // before the server can serve a single page. Its bundles live under /app/ —
+  // NOT /assets/, which public/assets/ already uses for the landing images.
   const reactDist = path.join(__dirname, '..', 'dist');
   const reactIndex = path.join(reactDist, 'index.html');
   const reactBuilt = fsSync.existsSync(reactIndex);
   if (reactBuilt) {
     await app.register(fastifyStatic, {
-      root: path.join(reactDist, 'assets'),
-      prefix: '/assets/',
+      root: path.join(reactDist, 'app'),
+      prefix: '/app/',
       decorateReply: false,
     });
   } else {
-    app.log.warn('dist/index.html tidak ada — semua halaman dilayani frontend lama. Jalankan: npm run build:web');
+    app.log.error('dist/ belum dibangun — jalankan: npm run build:web');
   }
-  const REACT_PAGES = new Set(['leads']);
-  const sendReactApp = (reply) => reply.type('text/html; charset=utf-8').send(fsSync.readFileSync(reactIndex));
 
-  // The inbox itself. @fastify/static would otherwise answer '/' with the
-  // legacy public/index.html; an explicitly declared route outranks its wildcard.
-  if (reactBuilt) app.get('/', (_request, reply) => sendReactApp(reply));
+  // A missing build is answered with the reason rather than a blank 404: every
+  // page comes from dist/ now, so this is the first thing anyone would hit.
+  const MISSING_BUILD_HTML =
+    '<!doctype html><meta charset="utf-8"><title>Agnee</title>'
+    + '<body style="font:16px system-ui;padding:40px"><h1>Frontend belum dibangun</h1>'
+    + '<p>Jalankan <code>npm run build:web</code>, lalu muat ulang halaman ini.</p>';
+  const sendReactApp = (reply) =>
+    (reactBuilt
+      ? reply.type('text/html; charset=utf-8').send(fsSync.readFileSync(reactIndex))
+      : reply.code(503).type('text/html; charset=utf-8').send(MISSING_BUILD_HTML));
 
-  // Clean URL routing — serve HTML pages without .html extension
-  const publicPages = ['landing', 'landing-b', 'landing-c', 'landing-d'];
-  for (const page of publicPages) {
-    app.get(`/${page}`, (_req, reply) => reply.sendFile(`${page}.html`));
-  }
+  // Page routes. The single-page app answers all of them; the server still does
+  // the session check so a signed-out deep link lands on the login view instead
+  // of flashing a workspace it is about to lose.
+  app.get('/', (_request, reply) => sendReactApp(reply));
+  app.get('/landing', (_request, reply) => sendReactApp(reply));
   for (const page of ['settings', 'admin', 'leads']) {
     app.get(`/${page}`, (request, reply) => {
       const session = verifySession(getCookie(request.headers.cookie, 'agnee_session'), config.sessionSecret);
       if (!session) return reply.redirect('/');
-      if (reactBuilt && REACT_PAGES.has(page)) return sendReactApp(reply);
-      return reply.sendFile(`${page}.html`);
+      return sendReactApp(reply);
     });
   }
 

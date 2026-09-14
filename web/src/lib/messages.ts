@@ -1,7 +1,8 @@
-'use strict';
-
-(() => {
-  const messages = {
+// Ported verbatim from the vanilla public/i18n.js dictionary. Keys and copy
+// are unchanged on purpose: the rewrite changes how the UI is built, not what
+// it says. Add new keys to BOTH locales — t() falls back to Indonesian, so a
+// missing English key silently ships Indonesian copy.
+export const messages = {
     id: {
       'common.indonesian': 'Indonesia', 'common.english': 'English', 'common.close': 'Tutup',
       'common.loading': 'Memuat…', 'common.checking': 'Memeriksa…', 'common.back': 'Kembali',
@@ -189,6 +190,18 @@
       'fu.save': 'Simpan pengaturan', 'fu.saved': 'Tersimpan ✓',
       'fu.on': 'Aktif', 'fu.off': 'Nonaktif',
       'leads.title': 'Agnee — Lead List',
+      'leads.eyebrow': 'LEAD LIST', 'leads.heading': 'Semua percakapan dan statusnya',
+      'leads.subtitle': 'Satu baris per percakapan, digabung dari pesan masuk, balasan, lead, dan penugasan.',
+      'leads.searchPlaceholder': 'Cari nomor, nama, isi pesan, PIC…',
+      'leads.filterStage': 'Saring tahap lead', 'leads.filterHandling': 'Saring penanganan',
+      'leads.allStages': 'Semua tahap', 'leads.allHandling': 'AI & manusia',
+      'leads.onlyAi': 'Hanya AI', 'leads.onlyHuman': 'Hanya manusia',
+      'leads.count': '{count} percakapan', 'leads.countFiltered': '{shown} dari {total} percakapan',
+      'leads.downloadXlsx': 'Unduh XLSX', 'leads.downloadCsv': 'Unduh CSV',
+      'leads.empty': 'Belum ada percakapan yang tercatat.',
+      'leads.supervisorOnly': 'Halaman ini hanya untuk supervisor.',
+      'error.loginFailed': 'Gagal masuk. Periksa email dan kata sandi.',
+      'error.signupFailed': 'Gagal membuat akun. Coba lagi.',
       'fu.capsInvalidTitle': 'Batas kirim tidak valid',
       'fu.capsInvalidCopy': 'Isi dengan angka 0–10 dipisah koma, maksimal 7 hari. Contoh: 1,1,1',
       'fu.statsSent': '{count} tindak lanjut terkirim',
@@ -411,6 +424,18 @@
       'fu.save': 'Save settings', 'fu.saved': 'Saved ✓',
       'fu.on': 'On', 'fu.off': 'Off',
       'leads.title': 'Agnee — Lead List',
+      'leads.eyebrow': 'LEAD LIST', 'leads.heading': 'Every conversation and its status',
+      'leads.subtitle': 'One row per conversation, merged from inbound messages, replies, leads, and assignments.',
+      'leads.searchPlaceholder': 'Search number, name, message, owner…',
+      'leads.filterStage': 'Filter lead stage', 'leads.filterHandling': 'Filter handling',
+      'leads.allStages': 'All stages', 'leads.allHandling': 'AI & human',
+      'leads.onlyAi': 'AI only', 'leads.onlyHuman': 'Human only',
+      'leads.count': '{count} conversations', 'leads.countFiltered': '{shown} of {total} conversations',
+      'leads.downloadXlsx': 'Download XLSX', 'leads.downloadCsv': 'Download CSV',
+      'leads.empty': 'No conversations recorded yet.',
+      'leads.supervisorOnly': 'This page is for supervisors only.',
+      'error.loginFailed': 'Sign-in failed. Check your email and password.',
+      'error.signupFailed': 'Could not create the account. Please try again.',
       'fu.capsInvalidTitle': 'Invalid send caps',
       'fu.capsInvalidCopy': 'Use numbers 0-10 separated by commas, at most 7 days. For example: 1,1,1',
       'fu.statsSent': '{count} follow-ups sent',
@@ -452,50 +477,7 @@
       'pb.kindFollowup': 'Follow-up rules',
       'pb.kindHandoff': 'Handing over to a human'
     }
-  };
+  } as const;
 
-  let locale = localStorage.getItem('agnee_locale') || (navigator.language?.toLowerCase().startsWith('en') ? 'en' : 'id');
-  if (!messages[locale]) locale = 'id';
-
-  function t(key, vars = {}) {
-    let value = messages[locale][key] ?? messages.id[key] ?? key;
-    for (const [name, replacement] of Object.entries(vars)) value = value.replaceAll(`{${name}}`, String(replacement));
-    return value;
-  }
-
-  function apply(root = document) {
-    document.documentElement.lang = locale;
-    root.querySelectorAll('[data-i18n]').forEach((node) => { node.textContent = t(node.dataset.i18n); });
-    root.querySelectorAll('[data-i18n-html]').forEach((node) => { node.innerHTML = t(node.dataset.i18nHtml); });
-    root.querySelectorAll('[data-i18n-placeholder]').forEach((node) => { node.placeholder = t(node.dataset.i18nPlaceholder); });
-    root.querySelectorAll('[data-i18n-aria-label]').forEach((node) => { node.setAttribute('aria-label', t(node.dataset.i18nAriaLabel)); });
-    root.querySelectorAll('[data-i18n-title]').forEach((node) => { node.title = t(node.dataset.i18nTitle); });
-    root.querySelectorAll('[data-i18n-label]').forEach((node) => { node.dataset.label = t(node.dataset.i18nLabel); });
-    document.title = t(document.body.dataset.i18nTitle || (location.pathname.includes('admin') ? 'admin.title' : 'login.title'));
-    root.querySelectorAll('[data-locale]').forEach((button) => button.classList.toggle('active', button.dataset.locale === locale));
-  }
-
-  function setLocale(next) {
-    if (!messages[next]) return;
-    locale = next;
-    localStorage.setItem('agnee_locale', locale);
-    apply();
-    window.dispatchEvent(new CustomEvent('agnee:localechange', { detail: { locale } }));
-  }
-
-  function mountSwitcher() {
-    if (document.querySelector('.language-switch')) return;
-    const switcher = document.createElement('div');
-    switcher.className = 'language-switch';
-    switcher.setAttribute('aria-label', 'Language');
-    switcher.innerHTML = '<button type="button" data-locale="id">ID</button><button type="button" data-locale="en">EN</button>';
-    switcher.addEventListener('click', (event) => {
-      const button = event.target.closest('[data-locale]');
-      if (button) setLocale(button.dataset.locale);
-    });
-    document.body.append(switcher);
-  }
-
-  window.AgneeI18n = { t, apply, setLocale, getLocale: () => locale };
-  document.addEventListener('DOMContentLoaded', () => { mountSwitcher(); apply(); });
-})();
+export type Locale = keyof typeof messages;
+export type MessageKey = keyof (typeof messages)['id'];

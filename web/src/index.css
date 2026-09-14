@@ -1,0 +1,91 @@
+@import "tailwindcss";
+
+/*
+ * Agnee design tokens.
+ *
+ * The palette is carried over verbatim from the vanilla stylesheet it replaces
+ * (public/styles.css) so the rewrite looks like the same product, not a new
+ * one. Every value has two names: the Agnee name a designer would use (ink,
+ * lime, paper) and the shadcn/21st.dev semantic name components expect
+ * (background, foreground, primary). One source, two vocabularies.
+ */
+@theme {
+  --color-ink: #14241f;
+  --color-ink-soft: #203a31;
+  --color-muted: #66736e;
+  --color-paper: #f2f0e9;
+  --color-panel: #fcfcf8;
+  --color-line: rgba(20, 36, 31, 0.11);
+  --color-green: #19c666;
+  --color-green-dark: #087d4c;
+  --color-lime: #c7ff35;
+  --color-warm: #f0e8dc;
+  --color-danger: #a23b32;
+
+  --color-background: var(--color-paper);
+  --color-foreground: var(--color-ink);
+  --color-card: var(--color-panel);
+  --color-card-foreground: var(--color-ink);
+  --color-popover: var(--color-panel);
+  --color-popover-foreground: var(--color-ink);
+  --color-primary: var(--color-ink);
+  --color-primary-foreground: #ffffff;
+  --color-secondary: var(--color-warm);
+  --color-secondary-foreground: var(--color-ink);
+  --color-muted-foreground: var(--color-muted);
+  --color-accent: var(--color-lime);
+  --color-accent-foreground: var(--color-ink);
+  --color-destructive: var(--color-danger);
+  --color-destructive-foreground: #ffffff;
+  --color-border: var(--color-line);
+  --color-input: rgba(20, 36, 31, 0.15);
+  --color-ring: var(--color-green);
+
+  --font-sans: "DM Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+
+  --radius-app: 14px;
+  --radius-panel: 18px;
+
+  --shadow-panel: 0 28px 70px rgba(24, 48, 39, 0.16);
+  --shadow-rail: -28px 0 70px rgba(4, 17, 12, 0.16);
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+
+  html,
+  body,
+  #root {
+    min-height: 100%;
+  }
+
+  body {
+    margin: 0;
+    background: #d9d8d0;
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    color-scheme: light;
+  }
+
+  button:disabled {
+    cursor: not-allowed;
+    opacity: 0.42;
+  }
+
+  /* The scrollbars sit inside dark rails and light panels alike; the default
+     chrome-grey ones read as a seam between the two. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(20, 36, 31, 0.22) transparent;
+  }
+}
+
+@utility eyebrow {
+  margin: 0 0 8px;
+  font: 500 11px/1.2 var(--font-mono);
+  letter-spacing: 0.14em;
+  color: var(--color-green-dark);
+}

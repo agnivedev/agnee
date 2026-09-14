@@ -222,7 +222,7 @@ button:disabled { cursor: not-allowed; opacity: .42; transform: none !important;
 .context-panel section p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.55; }
 .lead-card { margin: 20px 0; padding: 16px; display: flex; gap: 12px; align-items: center; border-radius: 18px 18px 6px 18px; background: var(--ink); color: white; }
 .lead-card p { margin: 4px 0 0; color: rgba(255,255,255,.58); font-size: 12px; }
-.lead-score { width: 52px; height: 52px; display: grid; place-content: center; text-align: center; border-radius: 50%; background: var(--lime); color: var(--ink); }
+.lead-score { flex: none; width: 52px; height: 52px; display: grid; place-content: center; text-align: center; border-radius: 50%; background: var(--lime); color: var(--ink); }
 .lead-score span { font-size: 18px; font-weight: 700; line-height: 1; }
 .lead-score small { font: 400 8px "IBM Plex Mono", monospace; }
 .stage-line { display: grid; grid-template-columns: 9px 1fr auto; gap: 9px; align-items: center; font-size: 13px; }

@@ -2,6 +2,7 @@
 
 const crypto = require('node:crypto');
 const fs = require('node:fs/promises');
+const fsSync = require('node:fs');
 const path = require('node:path');
 const Fastify = require('fastify');
 const fastifyStatic = require('@fastify/static');
@@ -1381,6 +1382,24 @@ async function buildApp(overrides = {}) {
     decorateReply: false,
   });
 
+  // Built React frontend (npm run build:web). It is being migrated page by page,
+  // so only the pages listed in REACT_PAGES are served from it; everything else
+  // still comes from public/. Its bundles live under /assets/, a prefix the
+  // vanilla frontend never used, so the two cannot collide.
+  const reactDist = path.join(__dirname, '..', 'dist');
+  const reactIndex = path.join(reactDist, 'index.html');
+  const reactBuilt = fsSync.existsSync(reactIndex);
+  if (reactBuilt) {
+    await app.register(fastifyStatic, {
+      root: path.join(reactDist, 'assets'),
+      prefix: '/assets/',
+      decorateReply: false,
+    });
+  } else {
+    app.log.warn('dist/index.html tidak ada — semua halaman dilayani frontend lama. Jalankan: npm run build:web');
+  }
+  const REACT_PAGES = new Set(['leads']);
+
   // Clean URL routing — serve HTML pages without .html extension
   const publicPages = ['landing', 'landing-b', 'landing-c', 'landing-d'];
   for (const page of publicPages) {
@@ -1390,6 +1409,9 @@ async function buildApp(overrides = {}) {
     app.get(`/${page}`, (request, reply) => {
       const session = verifySession(getCookie(request.headers.cookie, 'agnee_session'), config.sessionSecret);
       if (!session) return reply.redirect('/');
+      if (reactBuilt && REACT_PAGES.has(page)) {
+        return reply.type('text/html; charset=utf-8').send(fsSync.readFileSync(reactIndex));
+      }
       return reply.sendFile(`${page}.html`);
     });
   }

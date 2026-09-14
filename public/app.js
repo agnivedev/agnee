@@ -51,6 +51,7 @@ const ui = {
   funnelButton: document.querySelector('#funnelButton'),
   playgroundButton: document.querySelector('#playgroundButton'),
   playgroundPanel: document.querySelector('#playgroundPanel'),
+  leadsButton: document.querySelector('#leadsButton'),
   adminButton: document.querySelector('#adminButton'),
   settingsButton: document.querySelector('#settingsButton'),
   newConversationButton: document.querySelector('#newConversationButton'),
@@ -237,6 +238,7 @@ async function checkUsageWarning() {
 function showApp(sessionData) {
   if (sessionData?.user) state.currentUser = sessionData.user;
   const isSupervisor = isCurrentUserSupervisor();
+  ui.leadsButton.hidden = !isSupervisor;
   ui.adminButton.hidden = !isSupervisor;
   ui.settingsButton.hidden = !isSupervisor;
   ui.playgroundButton.hidden = !isSupervisor;
@@ -2014,6 +2016,7 @@ ui.inboxButton.addEventListener('click', async () => {
 ui.contactsButton.addEventListener('click', openContacts);
 ui.funnelButton.addEventListener('click', openFunnel);
 ui.playgroundButton.addEventListener('click', openPlayground);
+ui.leadsButton?.addEventListener('click', () => { window.location.href = '/leads'; });
 ui.adminButton.addEventListener('click', () => { window.location.href = '/admin'; });
 ui.settingsButton?.addEventListener('click', () => { window.location.href = '/settings'; });
 ui.conversationMenuButton.addEventListener('click', openConversationMenu);

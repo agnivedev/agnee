@@ -21,7 +21,10 @@ const ENTRIES: Entry[] = [
   { id: 'leads', glyph: '▤', labelKey: 'nav.labelLeads', ariaKey: 'nav.leads', supervisorOnly: true },
   { id: 'playground', glyph: '▷', labelKey: 'nav.labelTraining', ariaKey: 'nav.playground', supervisorOnly: true },
   { id: 'admin', glyph: '⚙', labelKey: 'nav.labelAdmin', ariaKey: 'nav.admin', supervisorOnly: true },
-  { id: 'settings', glyph: '◈', labelKey: 'nav.labelSettings', ariaKey: 'nav.settings', supervisorOnly: true },
+  // Settings is open to every role: the server serves /settings to agents, and
+  // the page gives them their own account plus the team roster. Hiding it here
+  // left agents with no route to it, since the inbox is where they live.
+  { id: 'settings', glyph: '◈', labelKey: 'nav.labelSettings', ariaKey: 'nav.settings' },
 ];
 
 export function Rail({ active, onAction }: { active: RailAction; onAction: (action: RailAction) => void }) {

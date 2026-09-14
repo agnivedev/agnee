@@ -290,6 +290,21 @@
 - **Nav menyembunyikan Settings dari agent** padahal agent boleh membukanya dan
   memang perlu: akun sendiri dan daftar tim ada di sana. Agent berakhir di
   halaman yang navigasinya sendiri menyangkal.
+- **Nav inbox masih menyembunyikan Settings dari agent.** Perbaikan sebelumnya
+  hanya menyentuh sidebar halaman; rail inbox tetap menandainya supervisor-only.
+  Karena agent praktis hidup di inbox, tidak ada satu pun rute ke halaman yang
+  server dengan senang hati melayani untuknya. Kelas cacat yang sama, nav yang
+  berbeda — periksa **setiap** nav, bukan yang pertama ketemu.
+- **Tombol "Percakapan baru" tertutup pil ID/EN di ponsel.** Pil itu `fixed`
+  16px dari tepi layar dan selebar 80px, sedangkan header inbox hanya menyisakan
+  64px, jadi 15×14px pojok tombol tertelan: `elementFromPoint` di sana
+  mengembalikan tombol bahasa. Mengetuk pojok itu mengganti bahasa, bukan
+  membuka percakapan. Clearance jadi 96px, dan dilepas dari `md` ke atas —
+  di sana rail sudah jadi sidebar dan header tidak lagi menempel tepi layar.
+- **Dua tombol nav mengumumkan nama yang sama.** `nav.admin` dan `nav.settings`
+  sama-sama berbunyi "Pengaturan", sisa kamus lama dari sebelum halaman Admin
+  ada. Di ponsel label visualnya disembunyikan, jadi tombol Admin dan Setting
+  sama sekali tak terbedakan oleh pembaca layar. `nav.admin` kini "Panel admin".
 - **Sidebar halaman (Lead List, Settings, Admin) meremas isi di ponsel.** Kolom
   248px tetap terpasang di layar 390px, jadi isi halaman tersisa ~130px dan
   judulnya terpotong. Di bawah `md` sidebar jadi bar horizontal yang membungkus,

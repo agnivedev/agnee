@@ -24,6 +24,17 @@
 - **Pintu masuk Lead List di inbox**: halaman `/leads` sudah ada sejak commit
   `3b9baef`, tapi satu-satunya tautannya ada di sidebar Settings sehingga
   praktis tidak terlihat.
+- **Settings dibagi jadi lima tab**: Paket & Pembayaran, Nomor WhatsApp,
+  AI & Tindak Lanjut, Ekspor Data, Tim & Akun. Sembilan section dalam satu
+  gulungan panjang susah dipindai.
+  Tiap tab memuat section-nya sendiri, jadi tab yang tidak dibuka tidak memakai
+  satu request pun; sebelumnya sembilan section memuat data serentak.
+  Id section lama dipertahankan karena halaman lain menautinya langsung
+  (`/settings#coachSection` dari Admin) — hash yang menyebut section membuka tab
+  pemiliknya lalu menggulir ke sana, setelah menunggu elemennya benar-benar ada.
+  Tab disimpan di hash lewat `replaceState`, bukan penetapan hash: entri riwayat
+  per klik tab akan membuat tombol Back menyusuri tab, bukan meninggalkan
+  halaman.
 
 - **Tiga pengaman tindak lanjut yang tidak saling bergantung**, setelah insiden
   2026-09-14. Perbaikan urutan catat-lalu-kirim menutup penyebab yang diketahui;
@@ -271,6 +282,25 @@
   saat WhatsApp sudah connected.
 
 ### Fixed
+
+- **Halaman Settings menawarkan yang tidak bisa dipakai agent.** Tab
+  Paket & Pembayaran tampil untuk agent padahal `/v1/admin/company` menjawab
+  403 — kartunya kosong dan tombol simpannya pasti gagal. Sekarang
+  supervisor-only. Agent hanya punya satu tab, jadi bar tab-nya disembunyikan.
+- **Nav menyembunyikan Settings dari agent** padahal agent boleh membukanya dan
+  memang perlu: akun sendiri dan daftar tim ada di sana. Agent berakhir di
+  halaman yang navigasinya sendiri menyangkal.
+- **Sidebar halaman (Lead List, Settings, Admin) meremas isi di ponsel.** Kolom
+  248px tetap terpasang di layar 390px, jadi isi halaman tersisa ~130px dan
+  judulnya terpotong. Di bawah `md` sidebar jadi bar horizontal yang membungkus,
+  bukan menggulir ke samping: bar yang menggulir menyembunyikan justru item
+  halaman yang sedang dibuka.
+- **Halaman masuk kehilangan branding di ponsel.** Panel kiri (logo + headline)
+  tersembunyi di bawah `lg`, jadi yang tersisa hanya form di latar kosong.
+  Halaman lama tetap menampilkannya versi pendek; sekarang sama.
+- **Build image mengunduh Chromium yang tidak dipakai.** Stage build frontend
+  memasang devDependencies, jadi puppeteer ikut terpasang dan mengunduh
+  Chromium yang tahap itu tidak pernah menjalankannya.
 
 - **Lingkaran skor lead gepeng** (terukur 41,8 × 52 px, seharusnya 52 × 52).
   `.lead-score` adalah flex item, dan flex item menyusut kalau teks di

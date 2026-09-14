@@ -6,6 +6,24 @@ Semua perubahan penting Agnee dicatat di file ini. Format mengikuti prinsip
 
 ## [Unreleased]
 
+### Added
+
+- **Tiga pengaman tindak lanjut yang tidak saling bergantung**, setelah insiden
+  2026-09-14. Perbaikan urutan catat-lalu-kirim menutup penyebab yang diketahui;
+  ketiganya menutup penyebab yang belum diketahui.
+  1. **Batasan di database** (migration 022): `UNIQUE (company_id, chat_id,
+     day_index, attempt_in_day)` pada `follow_up_sends`. Kalau logika penjadwal
+     salah lagi, percobaan kedua untuk slot yang sama ditolak Postgres, bukan
+     diteruskan ke customer.
+  2. **Plafon absolut dari baris terkirim**, bukan dari penghitung di
+     `follow_up_state`. Penghitung itulah yang kemarin rusak; jumlah baris di
+     `follow_up_sends` tetap benar walau penghitungnya nol.
+  3. **Pengiriman gagal menghentikan rangkaian**, bukan menjadwalkannya ulang.
+     Insiden kemarin terjadi persis karena kegagalan diperlakukan sebagai
+     "coba lagi nanti", padahal pesannya sudah terkirim dan yang gagal langkah
+     sesudahnya. Tindak lanjut yang hilang tidak merugikan siapa pun; tindak
+     lanjut berulang merugikan customer dan reputasi nomor WhatsApp-nya.
+
 ### Fixed
 
 - **Pesan yang sudah terkirim bisa terlihat seperti gagal kirim.**

@@ -1014,6 +1014,22 @@ class Database {
    * these so attempt N does not restate attempt N-1 — repeating yourself is
    * what turns a follow-up into nagging.
    */
+  /**
+   * Berapa tindak lanjut yang BENAR-BENAR tercatat terkirim untuk satu chat.
+   *
+   * Dihitung dari baris, bukan dari penghitung di follow_up_state. Penjadwal
+   * memakainya sebagai plafon absolut: kalau penghitung state rusak lagi,
+   * angka ini tetap benar dan tetap menahan.
+   */
+  async countFollowUpSends(chatId, companyId) {
+    if (!this.enabled) return 0;
+    const result = await this.pool.query(
+      'SELECT COUNT(*)::int AS total FROM follow_up_sends WHERE company_id = $1 AND chat_id = $2',
+      [companyId, chatId],
+    );
+    return result.rows[0]?.total ?? 0;
+  }
+
   async listFollowUpSends(chatId, companyId) {
     if (!this.enabled) return [];
     const result = await this.pool.query(`

@@ -153,7 +153,10 @@ test('scheduler: satu chat gagal tidak menghentikan chat lain di batch yang sama
   };
   const result = await scheduler.tick(MIDDAY);
   assert.equal(result.sent, 1);
-  assert.equal(result.skipped, 1);
+  // Chat yang gagal DIHENTIKAN, bukan dilewati untuk dicoba lagi nanti.
+  // Mengulang pengiriman yang gagal adalah persis mekanisme yang membuat satu
+  // customer menerima pesan sama 20 kali pada 2026-09-14.
+  assert.equal(result.stopped, 1);
   assert.deepEqual(calls.sent.map(s => s.chatId), ['lanjut@c.us']);
 });
 
@@ -247,7 +250,8 @@ test('percobaan tercatat walau pengiriman melempar SETELAH pesan terkirim', asyn
     },
   });
 
-  await assert.rejects(() => scheduler.processOne(state, MIDDAY));
+  const outcome = await scheduler.processOne(state, MIDDAY);
+  assert.equal(outcome.stopped, 'undeliverable', 'rangkaian dihentikan, tidak dijadwalkan ulang');
 
   assert.equal(sendAttempts, 1, 'pesan dikirim sekali');
   assert.equal(database.recorded.length, 1, 'percobaannya tetap tercatat');
@@ -285,4 +289,38 @@ test('urutan: catat dulu, baru kirim', async () => {
 
   await scheduler.processOne(state, MIDDAY);
   assert.deepEqual(order, ['catat', 'kirim']);
+});
+
+test('plafon absolut dihitung dari baris terkirim, bukan dari penghitung state', async () => {
+  // Pengaman terhadap kerusakan yang sama terulang: kalau sent_per_day rusak
+  // dan kembali kosong, jumlah baris di follow_up_sends tetap benar.
+  const state = {
+    chatId: 'c1@c.us', companyId: 'co1', sequenceStartedAt: MIDDAY,
+    sentPerDay: [], dayCaps: [1, 1, 1], minGapMinutes: 120,
+    sendFromHour: 8, sendToHour: 21, lastSentAt: null,
+  };
+  let stopped = null;
+  let generated = 0;
+  const scheduler = new FollowUpScheduler({
+    database: {
+      async countFollowUpSends() { return 3; }, // sudah 3 = total plafon
+      async listFollowUpSends() { return []; },
+      async getPlaybookDoc() { return null; },
+      async listOutboundRepliesForChat() { return []; },
+      async getCompanyConfig() { return null; },
+      async recordFollowUpSend() { throw new Error('tidak boleh dipanggil'); },
+      async stopFollowUpSequence(chatId, companyId, reason) { stopped = reason; },
+    },
+    logger: { info() {}, warn() {}, error() {} },
+    deps: {
+      isHumanHandled: async () => false,
+      generate: async () => { generated += 1; return 'pesan'; },
+      sendMessage: async () => { throw new Error('tidak boleh dipanggil'); },
+    },
+  });
+
+  const outcome = await scheduler.processOne(state, MIDDAY);
+  assert.equal(outcome.stopped, 'exhausted');
+  assert.equal(generated, 0, 'tidak perlu memanggil AI kalau sudah mentok plafon');
+  assert.equal(stopped, 'exhausted');
 });

@@ -197,6 +197,17 @@ class FollowUpScheduler {
       return { ok: false, reason: 'human_takeover', stopped: true };
     }
 
+    // Plafon absolut, dihitung dari baris yang benar-benar ada di
+    // follow_up_sends — bukan dari penghitung di follow_up_state. Kalau
+    // penghitung itu rusak lagi, batas ini tetap berlaku.
+    const alreadySent = await this.database.countFollowUpSends?.(row.chatId, row.companyId)
+      ?? null;
+    const hardCeiling = row.dayCaps.reduce((total, cap) => total + cap, 0);
+    if (alreadySent !== null && alreadySent >= hardCeiling) {
+      await this.database.stopFollowUpSequence(row.chatId, row.companyId, 'exhausted');
+      return { ok: false, reason: 'exhausted', stopped: true };
+    }
+
     const [previousSends, doc, recentOutbound, company] = await Promise.all([
       this.database.listFollowUpSends(row.chatId, row.companyId),
       this.database.getPlaybookDoc('followup', row.companyId).catch(() => null),
@@ -252,7 +263,24 @@ class FollowUpScheduler {
     if (!prepared.ok) {
       return prepared.stopped ? { stopped: prepared.reason } : { skipped: prepared.reason };
     }
-    await this.send(row, prepared);
+
+    try {
+      await this.send(row, prepared);
+    } catch (error) {
+      // Pengiriman yang gagal MENGHENTIKAN rangkaian, bukan menjadwalkan ulang.
+      //
+      // Insiden 2026-09-14 terjadi persis karena kegagalan diperlakukan sebagai
+      // "coba lagi nanti": pesannya sebenarnya terkirim, kegagalannya ada di
+      // langkah sesudahnya, dan percobaan ulang tiap lima menit sampai ke
+      // customer sebagai pesan berulang. Sebuah tindak lanjut yang hilang tidak
+      // merugikan siapa pun; tindak lanjut berulang merugikan customer dan
+      // reputasi nomor WhatsApp-nya. Jadi pada keraguan, berhenti.
+      await this.database.stopFollowUpSequence(row.chatId, row.companyId, 'undeliverable')
+        .catch(() => {});
+      this.logger.warn?.({ err: error, chatId: row.chatId, companyId: row.companyId },
+        'Pengiriman tindak lanjut gagal; rangkaian dihentikan alih-alih diulang');
+      return { stopped: 'undeliverable' };
+    }
     return { sent: true, dayIndex: prepared.dayIndex };
   }
 }

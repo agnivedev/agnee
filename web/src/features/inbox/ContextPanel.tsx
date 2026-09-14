@@ -4,6 +4,7 @@ import { useI18n } from '@/lib/i18n';
 import { useSession } from '@/lib/session';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { FollowUpSection } from './FollowUpDialog';
 import type { Chat, Handoff, Lead, Note, Routing, TeamMember } from './types';
 
 export function ContextPanel({
@@ -367,6 +368,10 @@ export function ContextPanel({
           ))}
         </div>
       </Section>
+
+      {/* Groups are excluded server-side too — a follow-up in a group is seen by
+          everyone in it, which is never what a follow-up is for. */}
+      {chat && !chat.isGroup && isSupervisor ? <FollowUpSection chat={chat} /> : null}
 
       {chat ? (
         <Button

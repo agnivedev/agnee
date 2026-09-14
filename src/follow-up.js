@@ -304,11 +304,32 @@ class FollowUpScheduler {
    * merugikan pesan berulang tanpa batas ke customer sungguhan — dan reputasi
    * nomor WhatsApp-nya. Jadi kalau harus salah, salah ke arah diam.
    */
+  /**
+   * Pengiriman yang gagal MENGHENTIKAN rangkaian, bukan menjadwalkan ulang.
+   *
+   * Insiden 2026-09-14 terjadi persis karena kegagalan diperlakukan sebagai
+   * "coba lagi nanti": pesannya sebenarnya terkirim, kegagalannya ada di
+   * langkah sesudahnya, dan percobaan ulang tiap lima menit sampai ke customer
+   * sebagai pesan berulang. Sebuah tindak lanjut yang hilang tidak merugikan
+   * siapa pun; tindak lanjut berulang merugikan customer dan reputasi nomor
+   * WhatsApp-nya. Jadi pada keraguan, berhenti.
+   *
+   * Aturan ini ada di sini, bukan di pemanggilnya, supaya jalur otomatis dan
+   * jalur kirim manual tidak bisa menyimpang.
+   */
   async send(row, { text, dayIndex, attemptInDay }) {
     await this.database.recordFollowUpSend({
       chatId: row.chatId, dayIndex, attemptInDay, body: text,
     }, row.companyId);
-    await this.deps.sendMessage(row.companyId, row.chatId, text);
+    try {
+      await this.deps.sendMessage(row.companyId, row.chatId, text);
+    } catch (error) {
+      await this.database.stopFollowUpSequence(row.chatId, row.companyId, 'undeliverable')
+        .catch(() => {});
+      this.logger.warn?.({ err: error, chatId: row.chatId, companyId: row.companyId },
+        'Pengiriman tindak lanjut gagal; rangkaian dihentikan alih-alih diulang');
+      throw error;
+    }
   }
 
   async processOne(row, now = new Date()) {
@@ -319,19 +340,8 @@ class FollowUpScheduler {
 
     try {
       await this.send(row, prepared);
-    } catch (error) {
-      // Pengiriman yang gagal MENGHENTIKAN rangkaian, bukan menjadwalkan ulang.
-      //
-      // Insiden 2026-09-14 terjadi persis karena kegagalan diperlakukan sebagai
-      // "coba lagi nanti": pesannya sebenarnya terkirim, kegagalannya ada di
-      // langkah sesudahnya, dan percobaan ulang tiap lima menit sampai ke
-      // customer sebagai pesan berulang. Sebuah tindak lanjut yang hilang tidak
-      // merugikan siapa pun; tindak lanjut berulang merugikan customer dan
-      // reputasi nomor WhatsApp-nya. Jadi pada keraguan, berhenti.
-      await this.database.stopFollowUpSequence(row.chatId, row.companyId, 'undeliverable')
-        .catch(() => {});
-      this.logger.warn?.({ err: error, chatId: row.chatId, companyId: row.companyId },
-        'Pengiriman tindak lanjut gagal; rangkaian dihentikan alih-alih diulang');
+    } catch {
+      // `send` sudah menghentikan rangkaian dan mencatat alasannya.
       return { stopped: 'undeliverable' };
     }
     return { sent: true, dayIndex: prepared.dayIndex };

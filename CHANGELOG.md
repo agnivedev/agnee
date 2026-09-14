@@ -1,5 +1,35 @@
 ## [Unreleased]
 
+### Added
+
+- **Kirim tindak lanjut manual dari inbox**: section baru di panel lead, hanya
+  untuk supervisor dan bukan untuk grup. Dua langkah — server menyusun,
+  supervisor membaca teks persisnya di dialog dan boleh menyuntingnya, baru
+  dikirim. Route `/v1/follow-up/draft` dan `/v1/follow-up/send` sudah ada sejak
+  lama tapi tidak punya satu pun pemanggil di frontend.
+  `ApiError` sekarang membawa badan respons, supaya penolakan yang bernama
+  (`reasonKey` + `vars`) bisa diterjemahkan alih-alih menampilkan pesan mentah.
+
+### Fixed
+
+- **`normalizeChatId` menulis ulang alamat `@lid` menjadi `@c.us`** — alamat
+  yang sama sekali berbeda. LID adalah id buram, bukan nomor telepon, jadi
+  `5197682204772@lid` menjadi `5197682204772@c.us` dan tindak lanjut akan
+  menyasar orang lain. Semua percakapan di produksi berformat `@lid`, jadi
+  jalur kirim manual akan salah sasaran untuk setiap percakapan asli. Sekarang
+  apa pun yang memuat `@` dikembalikan apa adanya; normalisasi digit hanya
+  untuk nomor telepon yang diketik orang.
+- **Kegagalan kirim di jalur manual tidak menghentikan rangkaian.** Aturan
+  "kegagalan kirim = berhenti" hanya ada di `processOne`, yang dipakai jalur
+  otomatis. Rute manual memanggil `send()` langsung sehingga percobaan tercatat,
+  pengiriman gagal, dan rangkaian tetap terpasang — scheduler lalu mengirimnya
+  lagi, mekanisme yang persis menyebabkan insiden spam 2026-09-14. Aturannya
+  dipindah ke `send()` supaya kedua jalur tidak bisa menyimpang.
+- **Id percakapan tidak sah menjawab 500, bukan 400**, dan kegagalan kirim
+  membocorkan pesan error internal WhatsApp (`pupPage`) ke layar supervisor.
+  Sekarang 400 untuk id tidak sah dan 502 dengan `fu.sendFailed` untuk kirim
+  yang gagal.
+
 ### Changed
 
 - **`chart-campaign.md` (TM)**: isi placeholder link akses dengan

@@ -491,6 +491,7 @@ export const messages = {
       'fu.humanHandled': 'Chat ini sedang dipegang agent, tindak lanjut otomatis tidak berlaku.',
       'fu.nothingToSay': 'AI menilai tidak ada hal baru yang layak disampaikan sekarang.',
       'fu.disabled': 'Aktifkan tindak lanjut otomatis dulu sebelum mengirim manual.',
+      'fu.sendFailed': 'Pesan tidak dapat dikirim. Rangkaian tindak lanjut untuk percakapan ini dihentikan.',
 
       'pb.navTitle': 'Playbook', 'pb.eyebrow': 'PLAYBOOK TIM CS',
       'pb.title': 'Aturan kerja tim CS kamu',
@@ -995,6 +996,7 @@ export const messages = {
       'fu.humanHandled': 'An agent is handling this chat, so automatic follow-up does not apply.',
       'fu.nothingToSay': 'The AI judged there is nothing new worth saying right now.',
       'fu.disabled': 'Turn on automatic follow-up before sending one manually.',
+      'fu.sendFailed': 'The message could not be sent. The follow-up sequence for this conversation has been stopped.',
 
       'pb.navTitle': 'Playbooks', 'pb.eyebrow': 'CS TEAM PLAYBOOKS',
       'pb.title': 'How your CS team should work',

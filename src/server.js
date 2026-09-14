@@ -83,7 +83,11 @@ function loadConfig(overrides = {}) {
 function normalizeChatId(value, defaultCountryCode) {
   if (typeof value !== 'string' || value.trim() === '') throw new Error('Recipient is required');
   const input = value.trim();
-  if (input.endsWith('@c.us') || input.endsWith('@g.us')) return input;
+  // Anything carrying an '@' is already a WhatsApp address, so hand it back
+  // untouched. The digit path below is for phone numbers a human typed. It must
+  // never run on an address: a '@lid' is an opaque id, not a phone number, and
+  // rewriting one into '<digits>@c.us' silently names a different recipient.
+  if (input.includes('@')) return input;
   let digits = input.replace(/\D/g, '');
   if (digits.startsWith('0')) digits = `${defaultCountryCode}${digits.slice(1)}`;
   if (digits.length < 8 || digits.length > 15) throw new Error('Recipient must contain 8-15 digits');
@@ -2925,6 +2929,16 @@ Aturan:
    * be on: a supervisor who has not accepted the automatic rules should not
    * get a back door to the same messages.
    */
+  /** Returns null after answering 400 — a malformed id is the caller's mistake, not a crash. */
+  function followUpChatId(request, reply) {
+    try {
+      return normalizeChatId(request.body.chatId, config.defaultCountryCode);
+    } catch {
+      reply.code(400).send({ error: 'Id percakapan tidak valid.' });
+      return null;
+    }
+  }
+
   async function loadFollowUpRow(chatId, companyId, reply) {
     const row = await database.getFollowUpState(chatId, companyId);
     if (!row) {
@@ -2960,7 +2974,8 @@ Aturan:
     if (coachRateLimited(companyId)) {
       return reply.code(429).send({ error: 'Terlalu banyak permintaan. Coba lagi beberapa menit.' });
     }
-    const chatId = normalizeChatId(request.body.chatId);
+    const chatId = followUpChatId(request, reply);
+    if (!chatId) return;
     const row = await loadFollowUpRow(chatId, companyId, reply);
     if (!row) return;
 
@@ -2998,7 +3013,8 @@ Aturan:
     if (!requireCoachSupervisor(request, reply)) return;
     if (!requireCoachDb(reply)) return;
     const companyId = request.agneeSession.companyId;
-    const chatId = normalizeChatId(request.body.chatId);
+    const chatId = followUpChatId(request, reply);
+    if (!chatId) return;
     const row = await loadFollowUpRow(chatId, companyId, reply);
     if (!row) return;
 
@@ -3021,10 +3037,20 @@ Aturan:
       return reply.code(409).send({ error: 'Chat ini sedang dipegang agent.', reasonKey: 'fu.humanHandled' });
     }
 
-    await followUpScheduler.send(
-      { companyId, chatId },
-      { text: request.body.text, dayIndex: verdict.dayIndex, attemptInDay: verdict.attemptInDay },
-    );
+    try {
+      await followUpScheduler.send(
+        { companyId, chatId },
+        { text: request.body.text, dayIndex: verdict.dayIndex, attemptInDay: verdict.attemptInDay },
+      );
+    } catch (error) {
+      // `send` sudah menghentikan rangkaian. Yang tersisa di sini: beri tahu
+      // supervisor tanpa membocorkan pesan error dari dalam WhatsApp.
+      app.log.warn({ err: error, chatId }, 'Kirim tindak lanjut manual gagal');
+      return reply.code(502).send({
+        error: 'Pesan tidak dapat dikirim. Rangkaian dihentikan.',
+        reasonKey: 'fu.sendFailed',
+      });
+    }
     return { ok: true, day: verdict.dayIndex + 1, attemptInDay: verdict.attemptInDay };
   });
 

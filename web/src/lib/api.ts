@@ -9,10 +9,14 @@
 export class ApiError extends Error {
   status: number;
 
-  constructor(message: string, status: number) {
+  /** The parsed error payload. Some routes refuse with a reason the UI must translate. */
+  body: unknown;
+
+  constructor(message: string, status: number, body?: unknown) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
+    this.body = body;
   }
 }
 
@@ -44,7 +48,7 @@ export async function api<T = unknown>(path: string, options: ApiOptions = {}): 
     if (response.status === 401 && !path.startsWith('/v1/auth/')) {
       for (const listener of unauthorizedListeners) listener();
     }
-    throw new ApiError(data?.error || `Permintaan gagal (${response.status})`, response.status);
+    throw new ApiError(data?.error || `Permintaan gagal (${response.status})`, response.status, data);
   }
 
   return data;

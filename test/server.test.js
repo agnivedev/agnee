@@ -15,6 +15,15 @@ test('normalizes Indonesian phone numbers', () => {
   assert.equal(normalizeChatId('0812-3456-7890', '62'), '6281234567890@c.us');
 });
 
+test('leaves WhatsApp addresses alone instead of rewriting them into @c.us', () => {
+  // A @lid is an opaque id, not a phone number. Stripping its suffix and
+  // appending @c.us names a different recipient entirely, so a follow-up would
+  // go to a stranger. Every conversation on production carries this form.
+  assert.equal(normalizeChatId('5197682204772@lid', '62'), '5197682204772@lid');
+  assert.equal(normalizeChatId('628111345938@c.us', '62'), '628111345938@c.us');
+  assert.equal(normalizeChatId('120363369733804176@g.us', '62'), '120363369733804176@g.us');
+});
+
 test('normalizes interactive image payloads without leaking base64 as text', () => {
   const jpeg = `/9j/${'A'.repeat(120)}`;
   assert.equal(inlineImageFromBody(jpeg).extension, 'jpg');

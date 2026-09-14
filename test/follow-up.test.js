@@ -413,3 +413,33 @@ test('plafon absolut dihitung dari baris terkirim, bukan dari penghitung state',
   assert.equal(generated, 0, 'tidak perlu memanggil AI kalau sudah mentok plafon');
   assert.equal(stopped, 'exhausted');
 });
+
+test('kirim manual yang gagal juga menghentikan rangkaian', async () => {
+  // Rute kirim manual memanggil `send` langsung, tanpa lewat `processOne`.
+  // Selama aturan berhenti hanya ada di `processOne`, kegagalan manual
+  // meninggalkan rangkaian tetap terpasang dan scheduler mengirimnya lagi —
+  // mekanisme yang persis menyebabkan insiden spam.
+  const state = {
+    chatId: 'c1@c.us', companyId: 'co1', sequenceStartedAt: MIDDAY,
+    sentPerDay: [], dayCaps: [1, 1, 1], minGapMinutes: 180,
+    sendFromHour: 8, sendToHour: 21, lastSentAt: null,
+  };
+  const database = fakeFollowUpDb(state);
+  const scheduler = new FollowUpScheduler({
+    database,
+    logger: { info() {}, warn() {}, error() {} },
+    deps: {
+      isHumanHandled: async () => false,
+      generate: async () => 'halo',
+      sendMessage: async () => { throw new Error("Cannot read properties of null (reading 'pupPage')"); },
+    },
+  });
+
+  await assert.rejects(
+    () => scheduler.send(state, { text: 'halo', dayIndex: 0, attemptInDay: 1 }),
+    /pupPage/,
+    'kegagalan diteruskan ke pemanggil supaya rute bisa menjawab dengan benar',
+  );
+  assert.equal(state.stopReason, 'undeliverable', 'rangkaian dihentikan walau lewat jalur manual');
+  assert.equal(database.recorded.length, 1, 'percobaannya tetap tercatat');
+});

@@ -16,7 +16,7 @@ const {
   normalizeUsage, styleWarnings, judgeReply, enforceReplyContract,
   isAmbiguousCustomerReply, stripLinks,
 } = require('./reply-style.js');
-const { FollowUpScheduler, decide: followUpDecide } = require('./follow-up.js');
+const { FollowUpScheduler, decide: followUpDecide, withManualGap } = require('./follow-up.js');
 const onedrive = require('./onedrive-sync.js');
 const gsheets = require('./gsheets-sync.js');
 const { buildXlsx } = require('./xlsx-writer.js');
@@ -1748,7 +1748,19 @@ async function buildApp(overrides = {}) {
     if (usage && usage.maxUsers > 0 && usage.currentUsers >= usage.maxUsers) {
       return reply.code(403).send({ error: `Batas anggota tim tercapai (${usage.maxUsers} pengguna). Upgrade plan untuk menambah lebih banyak.` });
     }
-    const member = await database.createTeamMember(request.body, teamCompanyId);
+    let member;
+    try {
+      member = await database.createTeamMember(request.body, teamCompanyId);
+    } catch (error) {
+      // Plafon ditegakkan lagi di dalam transaksi, jadi dua permintaan yang
+      // datang bersamaan tidak bisa sama-sama lolos pemeriksaan di atas.
+      if (error?.code === 'USER_LIMIT') {
+        return reply.code(403).send({
+          error: `Batas anggota tim tercapai (${error.maxUsers} pengguna). Upgrade plan untuk menambah lebih banyak.`,
+        });
+      }
+      throw error;
+    }
     broadcastEvent(teamCompanyId, 'team', { action: 'created', member });
     return reply.code(201).send({ member });
   });
@@ -2892,12 +2904,20 @@ Aturan:
   /** Maps a refusal from the shared cap logic onto an i18n key for the UI. */
   const FOLLOW_UP_REFUSAL = {
     day_cap_reached: 'fu.capReached',
+    gap_not_elapsed: 'fu.gapNotElapsed',
     outside_send_window: 'fu.outsideWindow',
     exhausted: 'fu.exhausted',
     human_takeover: 'fu.humanHandled',
     nothing_worth_sending: 'fu.nothingToSay',
     clock_skew: 'fu.noSequence',
   };
+
+  /** Angka yang dibutuhkan pesan penolakan, per alasan. */
+  function refusalVars(reason, row) {
+    if (reason === 'outside_send_window') return { from: row.sendFromHour, to: row.sendToHour };
+    if (reason === 'gap_not_elapsed') return { minutes: withManualGap(row).minGapMinutes };
+    return undefined;
+  }
 
   /**
    * Loads the chat's state and settings, refusing early with a reason the UI
@@ -2944,17 +2964,15 @@ Aturan:
     const row = await loadFollowUpRow(chatId, companyId, reply);
     if (!row) return;
 
-    // Jarak minimum tidak berlaku untuk kirim manual — supervisor yang
-    // memutuskan waktunya. Plafon harian, jam kirim, dan batas hari tetap
-    // berlaku, karena itu yang melindungi reputasi nomor WhatsApp-nya.
-    const prepared = await followUpScheduler.draft({ ...row, lastSentAt: null });
+    // Kirim manual memakai jarak yang diperpendek, bukan tanpa jarak sama
+    // sekali. Plafon harian, jam kirim, dan batas hari tetap berlaku.
+    const prepared = await followUpScheduler.draft(withManualGap(row));
     if (!prepared.ok) {
       return reply.code(409).send({
         error: 'Tindak lanjut tidak dapat dikirim sekarang.',
         reason: prepared.reason,
         reasonKey: FOLLOW_UP_REFUSAL[prepared.reason] || 'fu.exhausted',
-        vars: prepared.reason === 'outside_send_window'
-          ? { from: row.sendFromHour, to: row.sendToHour } : undefined,
+        vars: refusalVars(prepared.reason, row),
       });
     }
     return {
@@ -2986,7 +3004,7 @@ Aturan:
 
     // Cek plafon ulang di sini: draft yang sudah disetujui bisa saja menganggur
     // di layar sementara scheduler mengirim dan memenuhi plafon hari itu.
-    const verdict = followUpDecide({ ...row, lastSentAt: null });
+    const verdict = followUpDecide(withManualGap(row));
     if (!verdict.send) {
       if (verdict.stop) {
         await database.stopFollowUpSequence(chatId, companyId, verdict.stop).catch(() => {});
@@ -2995,8 +3013,7 @@ Aturan:
         error: 'Tindak lanjut tidak dapat dikirim sekarang.',
         reason: verdict.stop || verdict.skip,
         reasonKey: FOLLOW_UP_REFUSAL[verdict.stop || verdict.skip] || 'fu.exhausted',
-        vars: verdict.skip === 'outside_send_window'
-          ? { from: row.sendFromHour, to: row.sendToHour } : undefined,
+        vars: refusalVars(verdict.stop || verdict.skip, row),
       });
     }
     if (await followUpScheduler.deps.isHumanHandled(companyId, chatId)) {

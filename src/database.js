@@ -185,6 +185,35 @@ class Database {
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
+
+      // Plafon anggota ditegakkan DI DALAM transaksi, dengan baris company
+      // dikunci. Pemeriksaan di route berjalan sebelum transaksi ini, jadi dua
+      // permintaan yang datang bersamaan sama-sama melihat kuota masih sisa dan
+      // sama-sama lolos. Untuk paket personal yang plafonnya 1, balapan itu
+      // menghasilkan dua pemilik pada ruang yang seharusnya milik satu orang.
+      // FOR UPDATE membuat permintaan kedua menunggu sampai yang pertama
+      // selesai, lalu melihat hitungan yang sudah benar.
+      const limitResult = await client.query(
+        'SELECT max_users AS "maxUsers" FROM companies WHERE id = $1 FOR UPDATE',
+        [companyId],
+      );
+      const maxUsers = limitResult.rows[0]?.maxUsers ?? 0;
+      if (maxUsers > 0) {
+        const seatResult = await client.query(`
+          SELECT COUNT(*)::int AS taken FROM company_members
+          WHERE company_id = $1 AND status = 'active'
+            AND user_id <> COALESCE(
+              (SELECT id FROM users WHERE LOWER(email) = LOWER($2)),
+              '00000000-0000-0000-0000-000000000000'::uuid)
+        `, [companyId, email]);
+        if (seatResult.rows[0].taken >= maxUsers) {
+          const error = new Error(`Batas anggota tim tercapai (${maxUsers} pengguna).`);
+          error.code = 'USER_LIMIT';
+          error.maxUsers = maxUsers;
+          throw error;
+        }
+      }
+
       const userResult = await client.query(`
         INSERT INTO users (email, display_name, password_hash, status)
         VALUES (LOWER($1), $2, $3, 'active')

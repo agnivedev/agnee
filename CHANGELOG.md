@@ -309,6 +309,23 @@
 - **Nav menyembunyikan Settings dari agent** padahal agent boleh membukanya dan
   memang perlu: akun sendiri dan daftar tim ada di sana. Agent berakhir di
   halaman yang navigasinya sendiri menyangkal.
+- **Kirim tindak lanjut manual bisa menghabiskan plafon harian beruntun.**
+  Jalur manual mengosongkan `lastSentAt` supaya supervisor tidak perlu menunggu
+  jadwal otomatis. Efek sampingnya jarak minimum hilang sepenuhnya: dengan
+  plafon bawaan 5 di hari pertama, lima pesan bisa keluar ke satu orang dalam
+  hitungan detik. Itu spam, dan tidak berhenti jadi spam karena manusia yang
+  mengekliknya. Jaraknya sekarang diperpendek, bukan dihapus — yang berlaku
+  adalah yang lebih kecil antara setelan company dan 15 menit. Plafon harian,
+  jam kirim, dan batas hari tidak berubah. Aturannya pindah ke `follow-up.js`
+  supaya jalur otomatis dan manual memakai sumber yang sama.
+- **Paket personal bisa berakhir dengan lebih dari satu pemilik.** Plafon
+  anggota diperiksa di route, sebelum transaksi penambahan. Dua permintaan yang
+  datang bersamaan sama-sama melihat kuota masih sisa dan sama-sama lolos —
+  pada paket personal yang plafonnya 1, hasilnya dua pemilik pada ruang yang
+  seharusnya milik satu orang. Plafon kini ditegakkan lagi di dalam transaksi
+  dengan baris company dikunci (`FOR UPDATE`), jadi permintaan kedua menunggu
+  lalu melihat hitungan yang sudah benar. Terverifikasi: lima permintaan
+  serentak pada plafon 2 menghasilkan tepat satu keberhasilan.
 - **Nav inbox masih menyembunyikan Settings dari agent.** Perbaikan sebelumnya
   hanya menyentuh sidebar halaman; rail inbox tetap menandainya supervisor-only.
   Karena agent praktis hidup di inbox, tidak ada satu pun rute ke halaman yang

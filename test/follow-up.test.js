@@ -2,7 +2,8 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { FollowUpScheduler, decide, withinSendWindow, buildFollowUpPrompt, checkoutAlreadySent } = require('../src/follow-up');
+const { FollowUpScheduler, decide, withinSendWindow, buildFollowUpPrompt, checkoutAlreadySent,
+  withManualGap, MANUAL_MIN_GAP_MINUTES } = require('../src/follow-up');
 
 // Jam 14.00 WIB = 07.00 UTC, aman di dalam jendela kirim default (8-21 WIB).
 const MIDDAY = new Date('2026-09-15T07:00:00Z');
@@ -219,6 +220,39 @@ test('scheduler: chat yang dilewati tidak memicu jeda', async () => {
   });
   await scheduler.tick(MIDDAY);
   assert.deepEqual(calls.slept, [], 'jeda hanya berlaku sesudah pesan sungguhan keluar');
+});
+
+// ── Kirim manual ────────────────────────────────────────────────────────────
+
+test('manual: jarak diperpendek, tidak dihapus', () => {
+  assert.equal(withManualGap({ ...base, minGapMinutes: 120 }).minGapMinutes, MANUAL_MIN_GAP_MINUTES);
+  // Setelan yang sudah lebih rapat dari plafon manual dipertahankan apa adanya.
+  assert.equal(withManualGap({ ...base, minGapMinutes: 5 }).minGapMinutes, 5);
+});
+
+test('manual: plafon harian tidak bisa dihabiskan beruntun', () => {
+  // Plafon bawaan hari pertama 5. Tanpa jarak, satu orang menerima lima pesan
+  // dalam hitungan detik — itu yang harus ditolak.
+  const justSent = new Date(MIDDAY.getTime() - 60_000).toISOString();
+  const verdict = decide(withManualGap({ ...base, minGapMinutes: 120, lastSentAt: justSent }), MIDDAY);
+  assert.equal(verdict.send, false);
+  assert.equal(verdict.skip, 'gap_not_elapsed');
+});
+
+test('manual: supervisor tidak perlu menunggu jarak otomatis penuh', () => {
+  // 20 menit sejak pesan terakhir: jadwal otomatis (120 menit) masih menolak,
+  // jalur manual sudah boleh.
+  const twentyMinutesAgo = new Date(MIDDAY.getTime() - 20 * 60_000).toISOString();
+  const row = { ...base, minGapMinutes: 120, lastSentAt: twentyMinutesAgo };
+  assert.equal(decide(row, MIDDAY).skip, 'gap_not_elapsed');
+  assert.equal(decide(withManualGap(row), MIDDAY).send, true);
+});
+
+test('manual: jam kirim dan batas hari tetap berlaku', () => {
+  const night = new Date('2026-09-15T17:00:00Z'); // 00.00 WIB
+  assert.equal(decide(withManualGap({ ...base, lastSentAt: null }), night).skip, 'outside_send_window');
+  const past = { ...base, sequenceStartedAt: new Date(MIDDAY.getTime() - 3 * 24 * 60 * 60_000).toISOString() };
+  assert.equal(decide(withManualGap(past), MIDDAY).stop, 'exhausted');
 });
 
 // ── Konteks percakapan untuk follow-up ──────────────────────────────────────

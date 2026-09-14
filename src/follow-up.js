@@ -20,6 +20,28 @@ function withinSendWindow(fromHour, toHour, now = new Date()) {
 }
 
 /**
+ * Jarak minimum untuk kirim manual, dalam menit.
+ *
+ * Supervisor tidak harus menunggu jadwal otomatis — itu gunanya tombol manual.
+ * Tapi jarak nol berarti plafon harian bisa dihabiskan dalam hitungan detik:
+ * dengan plafon bawaan 5 di hari pertama, satu orang menerima lima pesan
+ * beruntun. Itu spam, dan tidak berhenti jadi spam hanya karena manusia yang
+ * mengekliknya. Jadi jaraknya diperpendek, bukan dihapus.
+ */
+const MANUAL_MIN_GAP_MINUTES = 15;
+
+/**
+ * Setelan company dengan jarak minimum versi manual: yang berlaku adalah yang
+ * lebih kecil antara setelan company dan MANUAL_MIN_GAP_MINUTES.
+ */
+function withManualGap(state) {
+  return {
+    ...state,
+    minGapMinutes: Math.min(state.minGapMinutes ?? MANUAL_MIN_GAP_MINUTES, MANUAL_MIN_GAP_MINUTES),
+  };
+}
+
+/**
  * Memutuskan apakah satu chat boleh dikirimi follow-up sekarang.
  *
  * Angka di dayCaps adalah PLAFON, bukan kuota yang harus dihabiskan: fungsi ini
@@ -318,5 +340,5 @@ class FollowUpScheduler {
 
 module.exports = {
   FollowUpScheduler, decide, buildFollowUpPrompt, checkoutAlreadySent,
-  withinSendWindow, BUSINESS_TZ,
+  withinSendWindow, withManualGap, BUSINESS_TZ, MANUAL_MIN_GAP_MINUTES,
 };

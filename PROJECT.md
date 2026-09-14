@@ -116,7 +116,8 @@ LLM berada di sisi ChatGPT, bukan di dalam MCP gateway.
 ```text
 .
 ├── assets/brand/          Logo dan aset brand Agnee
-├── public/                Frontend HTML, CSS, dan browser JavaScript
+├── web/                   Frontend React + Tailwind (sumber; dibangun ke dist/)
+├── public/                Aset statis yang disajikan apa adanya (gambar landing)
 ├── docs/                  Setup, operations, dan work history
 ├── knowledge/             FAQ, funnel, dan reply policy untuk retrieval
 ├── scripts/               Helper server dan MCP smoke test
@@ -193,6 +194,20 @@ Browser memakai session cookie. Integrasi internal memakai header
 `x-api-key`. MCP publik memakai OAuth 2.1 + PKCE; bearer token terpisah hanya
 untuk Inspector dan smoke test internal.
 
+## Frontend
+
+Sumbernya di `web/` (React + Tailwind, dibangun Vite). Server **tidak** bisa
+melayani satu halaman pun sebelum build-nya ada — kalau `dist/` kosong, setiap
+halaman menjawab 503 beserta instruksinya.
+
+```bash
+npm run build:web   # bangun sekali ke dist/
+npm run dev:web     # dev server Vite di :5173, API diproxy ke :4100
+```
+
+Bundelnya disajikan di bawah `/app/`, bukan `/assets/` — `public/assets/` sudah
+dipakai gambar landing dan akan tertutup kalau keduanya berbagi prefix.
+
 ## Testing
 
 ```bash
@@ -201,7 +216,8 @@ npm test
 npm run test:mcp
 ```
 
-`test:mcp` memerlukan app dan MCP HTTP yang sedang berjalan.
+`check` ikut menjalankan `tsc --noEmit`. `test:mcp` memerlukan app dan MCP HTTP
+yang sedang berjalan.
 
 ## Deployment server
 

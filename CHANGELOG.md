@@ -2,6 +2,29 @@
 
 ### Added
 
+- **Frontend dibangun ulang dengan React + Tailwind** (Vite + TypeScript) —
+  stack yang sama dengan shadcn/ui dan 21st.dev. Sumbernya pindah dari `public/`
+  ke `web/`, dibangun ke `dist/`, dan disajikan Fastify.
+  Dikerjakan bertahap: satu halaman pindah, sisanya tetap dilayani frontend lama
+  sampai gantian, supaya produk yang sedang melayani customer tidak pernah
+  setengah jalan. Inbox, Lead List, Settings, Admin, dan landing sudah pindah;
+  10.500 baris HTML/CSS/JS vanilla dihapus.
+  - Token desain dipindah apa adanya dari `public/styles.css`, dan kamus i18n
+    (kini 693 kunci × 2 bahasa) **diekstrak mekanis**, bukan diketik ulang —
+    salinan yang diketik ulang pasti menyimpang.
+  - Bundel disajikan di bawah **`/app/`**, bukan `/assets/`. `public/assets/`
+    sudah memuat gambar landing, dan sempat tertutup sampai keduanya 404.
+  - `dist/` wajib ada. Tanpa build, setiap halaman menjawab 503 beserta
+    instruksinya — bukan 404 kosong. Dockerfile jadi dua tahap supaya Vite dan
+    React tidak ikut ke image runtime.
+  - Warna nama pengirim di grup jadi kelas Tailwind, bukan inline style: CSP
+    aplikasi melarang atribut `style`, dan halaman lama melanggarnya diam-diam.
+    Halaman React terverifikasi **nol** elemen ber-inline-style.
+  - `landing-b/c/d` dihapus — sisa eksperimen A/B yang sudah tidak dipakai.
+- **Pintu masuk Lead List di inbox**: halaman `/leads` sudah ada sejak commit
+  `3b9baef`, tapi satu-satunya tautannya ada di sidebar Settings sehingga
+  praktis tidak terlihat.
+
 - **Tiga pengaman tindak lanjut yang tidak saling bergantung**, setelah insiden
   2026-09-14. Perbaikan urutan catat-lalu-kirim menutup penyebab yang diketahui;
   ketiganya menutup penyebab yang belum diketahui.
@@ -248,6 +271,12 @@
   saat WhatsApp sudah connected.
 
 ### Fixed
+
+- **Lingkaran skor lead gepeng** (terukur 41,8 × 52 px, seharusnya 52 × 52).
+  `.lead-score` adalah flex item, dan flex item menyusut kalau teks di
+  sebelahnya panjang — terlihat jelas di percakapan grup, yang keterangannya
+  paling panjang. Diperbaiki dengan `flex: none`, lalu ikut terbawa ke
+  panel lead versi React.
 
 - **Pesan yang sudah terkirim bisa terlihat seperti gagal kirim.**
   `window.WWebJS.sendMessage` menserialisasi model hasilnya sendiri, dan

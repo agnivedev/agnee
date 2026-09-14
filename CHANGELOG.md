@@ -8,6 +8,26 @@ Semua perubahan penting Agnee dicatat di file ini. Format mengikuti prinsip
 
 ### Fixed
 
+- **Pesan yang sudah terkirim bisa terlihat seperti gagal kirim.**
+  `window.WWebJS.sendMessage` menserialisasi model hasilnya sendiri, dan
+  membaca model WhatsApp bisa melempar — di produksi ia melempar berulang
+  dengan error `r` yang sama seperti yang sudah lama muncul di jalur baca.
+  `sendTextForUi` membiarkan lemparan itu naik ke pemanggil, sehingga pesan
+  yang sudah sampai ke customer dilaporkan gagal. Itu akar dari insiden tindak
+  lanjut yang mengirim pesan sama 20 kali.
+  Sekarang setiap langkah setelah pengiriman tidak bisa lagi menggagalkan
+  pengiriman itu sendiri: receipt diambil secara defensif (id atau waktu yang
+  tidak terbaca cukup dikosongkan, bukan melempar), `sendSeen` yang gagal
+  diabaikan, dan kalau pengiriman melempar kita periksa dulu riwayat chat —
+  kalau pesan dengan isi persis sama dari kita muncul dalam lima detik
+  terakhir, itu dianggap terkirim dan receipt-nya dipulihkan dari sana.
+  Pemulihan ini dicatat di log; kalau sering terpakai, penyebabnya ada di
+  serialisasi model WhatsApp dan pantas dikejar ke sana.
+  Lampiran sengaja dikecualikan dari pemulihan: isinya tidak dapat dibandingkan
+  dengan teks, jadi kemiripan body bukan bukti yang sah.
+
+### Fixed
+
 - **Follow-up mengirim pesan yang sama berulang setiap lima menit.** Satu
   customer menerima pesan identik 20 kali dalam 13 jam sebelum ini ketahuan.
   Penyebabnya urutan operasi di `FollowUpScheduler.send()`: pesan dikirim

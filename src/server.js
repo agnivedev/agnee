@@ -1134,29 +1134,111 @@ async function buildApp(overrides = {}) {
     }, chatId);
   }
 
+  /**
+   * Kirim satu pesan teks lalu kembalikan receipt-nya.
+   *
+   * Bagian yang paling menentukan di sini bukan pengirimannya, melainkan apa
+   * yang terjadi SESUDAH pesan diterima WhatsApp. `window.WWebJS.sendMessage`
+   * menserialisasi model hasilnya sendiri, dan membaca model WhatsApp bisa
+   * melempar — di produksi ia melempar berulang kali dengan error `r` yang
+   * sama seperti yang sudah lama muncul di jalur baca. Versi lama membiarkan
+   * lemparan itu naik ke pemanggil, sehingga pesan yang SUDAH terkirim
+   * terlihat seperti gagal. Untuk tindak lanjut otomatis, akibatnya satu
+   * customer menerima pesan yang sama 20 kali.
+   *
+   * Jadi setiap langkah setelah pengiriman dibuat tidak bisa menggagalkan
+   * pengiriman itu sendiri: receipt diambil secara defensif, dan kalau
+   * pengiriman melempar kita periksa dulu apakah pesannya benar-benar mendarat
+   * sebelum menyatakannya gagal.
+   */
   async function sendTextForUi(wa, chatId, text, options = {}) {
-    return wa.pupPage.evaluate(async (requestedChatId, content, sendOptions) => {
+    const receipt = await wa.pupPage.evaluate(async (requestedChatId, content, sendOptions) => {
+      const nowSeconds = () => Math.floor(Date.now() / 1000);
+
+      /** Receipt tanpa melempar: tiap akses ke model WhatsApp bisa gagal. */
+      const receiptFrom = (message) => {
+        let messageId = null;
+        let timestamp = nowSeconds();
+        try {
+          messageId = message?.id?._serialized || message?.id?.toString?.() || null;
+        } catch { /* model tidak dapat dibaca; id boleh kosong */ }
+        try {
+          const sentAt = Number(message?.t);
+          if (Number.isFinite(sentAt) && sentAt > 0) timestamp = sentAt;
+        } catch { /* pakai waktu sekarang */ }
+        return { messageId, timestamp };
+      };
+
+      /**
+       * Cari pesan kita sendiri dengan isi persis sama yang dikirim beberapa
+       * detik terakhir. Inilah cara membedakan "gagal terkirim" dari "terkirim
+       * lalu gagal dibaca".
+       */
+      const findRecentOwnMessage = (chat, body, sinceSeconds) => {
+        try {
+          const cached = chat?.msgs?.getModelsArray?.() || [];
+          for (let i = cached.length - 1; i >= 0; i -= 1) {
+            try {
+              const candidate = cached[i];
+              if (!candidate?.id?.fromMe) continue;
+              const sentAt = Number(candidate.t) || 0;
+              if (sentAt && sentAt < sinceSeconds) break;
+              if ((candidate.body || '') === body) return candidate;
+            } catch { /* satu model rusak tidak boleh menghentikan pencarian */ }
+          }
+        } catch { /* cache tidak tersedia */ }
+        return null;
+      };
+
       const chat = await window.WWebJS.getChat(requestedChatId, { getAsModel: false });
       if (!chat) throw new Error('Conversation is unavailable');
-      await window.WWebJS.sendSeen(requestedChatId);
-      const message = await window.WWebJS.sendMessage(chat, content, {
-        linkPreview: true,
-        parseVCards: true,
-        mentionedJidList: [],
-        groupMentions: [],
-        ignoreQuoteErrors: true,
-        waitUntilMsgSent: false,
-        quotedMessageId: sendOptions.quotedMessageId || undefined,
-        media: sendOptions.attachment || undefined,
-        caption: sendOptions.attachment && content ? content : undefined,
-        isCaptionByUser: Boolean(sendOptions.attachment && content),
-      });
-      if (!message) throw new Error('WhatsApp did not accept the message');
-      return {
-        messageId: message.id?._serialized || message.id?.toString?.() || null,
-        timestamp: Number(message.t || Math.floor(Date.now() / 1000)),
-      };
+      // Menandai sudah dibaca hanya kesopanan; kegagalannya tidak boleh
+      // membatalkan pengiriman.
+      try { await window.WWebJS.sendSeen(requestedChatId); } catch { /* abaikan */ }
+
+      const startedAt = nowSeconds();
+      let message = null;
+      let sendError = null;
+      try {
+        message = await window.WWebJS.sendMessage(chat, content, {
+          linkPreview: true,
+          parseVCards: true,
+          mentionedJidList: [],
+          groupMentions: [],
+          ignoreQuoteErrors: true,
+          waitUntilMsgSent: false,
+          quotedMessageId: sendOptions.quotedMessageId || undefined,
+          media: sendOptions.attachment || undefined,
+          caption: sendOptions.attachment && content ? content : undefined,
+          isCaptionByUser: Boolean(sendOptions.attachment && content),
+        });
+      } catch (error) {
+        sendError = error;
+      }
+
+      if (message) return receiptFrom(message);
+
+      // Sampai sini pengiriman melempar atau tidak mengembalikan model. Belum
+      // tentu gagal. Lampiran dikecualikan: isinya tidak dapat dibandingkan
+      // dengan teks, jadi kemiripan body bukan bukti yang sah.
+      if (!sendOptions.attachment) {
+        const landed = findRecentOwnMessage(chat, content, startedAt - 5);
+        if (landed) return { ...receiptFrom(landed), recovered: true };
+      }
+
+      throw new Error(sendError?.message
+        ? `WhatsApp did not accept the message: ${sendError.message}`
+        : 'WhatsApp did not accept the message');
     }, chatId, text, options);
+
+    // Dicatat supaya seberapa sering jalur pemulihan ini terpakai bisa dilihat.
+    // Kalau sering, penyebab sebenarnya ada di serialisasi model WhatsApp dan
+    // pantas dikejar ke sana, bukan ditambal terus di sini.
+    if (receipt?.recovered) {
+      app.log.warn({ chatId },
+        'Pengiriman WhatsApp melempar setelah pesan terkirim; receipt dipulihkan dari riwayat chat');
+    }
+    return receipt;
   }
 
   async function getLeadState(chatId, companyId) {

@@ -19,19 +19,19 @@ export function AppSidebar({ items }: { items?: Item[] }) {
     ...(isSupervisor ? [{ to: '/settings', glyph: '◈', label: t('nav.settings') }] : []),
   ];
 
+  // On a phone this is a horizontal bar across the top; a 248px column there
+  // would squeeze the page it belongs to down to a strip.
   return (
-    <aside className="flex w-[248px] shrink-0 flex-col gap-8 bg-ink px-5 py-7 text-white">
-      <a href="/" className="flex items-center gap-3 no-underline" aria-label="Agnee">
+    <aside className="flex w-full shrink-0 flex-row flex-wrap items-center gap-x-4 gap-y-2 bg-ink py-3 pr-24 pl-4 text-white md:h-dvh md:w-[248px] md:flex-col md:flex-nowrap md:items-stretch md:gap-8 md:px-5 md:py-7 md:pr-5">
+      <a href="/" className="flex shrink-0 items-center gap-3 no-underline" aria-label="Agnee">
         <img src="/brand/agnee-mark.svg" alt="" className="size-8" />
-        <span className="grid leading-tight">
+        <span className="hidden leading-tight sm:grid">
           <strong className="text-[15px] text-white">Agnee</strong>
-          <small className="font-mono text-[10px] tracking-[.12em] text-white/50 uppercase">
-            {t('nav.labelLeads')}
-          </small>
+          <small className="font-mono text-[10px] tracking-[.12em] text-white/50 uppercase">Agnive</small>
         </span>
       </a>
 
-      <nav aria-label={t('nav.main')} className="grid gap-1">
+      <nav aria-label={t('nav.main')} className="flex flex-wrap gap-1 md:grid">
         {navigation.map((item) => (
           <NavLink
             key={item.to}
@@ -39,7 +39,7 @@ export function AppSidebar({ items }: { items?: Item[] }) {
             end={item.to === '/'}
             className={({ isActive }) =>
               cn(
-                'flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm no-underline transition-colors',
+                'flex items-center gap-2 rounded-xl px-3 py-2 text-[13px] whitespace-nowrap no-underline transition-colors md:gap-3 md:py-2.5 md:text-sm',
                 isActive ? 'bg-white/12 text-white' : 'text-white/60 hover:bg-white/6 hover:text-white',
               )
             }
@@ -52,9 +52,9 @@ export function AppSidebar({ items }: { items?: Item[] }) {
         ))}
       </nav>
 
-      <div className="mt-auto flex items-center gap-2.5 border-t border-white/10 pt-4">
+      <div className="ml-auto hidden shrink-0 items-center gap-2.5 md:mt-auto md:ml-0 md:flex md:border-t md:border-white/10 md:pt-4">
         <span className="size-2 rounded-full bg-green shadow-[0_0_12px_var(--color-green)]" />
-        <div className="grid leading-tight">
+        <div className="hidden leading-tight lg:grid">
           <strong className="text-[13px]">{user?.displayName || user?.email || '—'}</strong>
           <small className="font-mono text-[10px] text-white/45">
             {isSupervisor ? 'Supervisor' : 'Agent'}

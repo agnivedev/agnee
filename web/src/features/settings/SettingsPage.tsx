@@ -14,7 +14,7 @@ export function SettingsPage() {
   usePageTitle('settings.title');
 
   return (
-    <div className="flex min-h-dvh bg-background">
+    <div className="flex min-h-dvh flex-col bg-background md:flex-row">
       <AppSidebar />
 
       <main className="min-w-0 flex-1 px-5 py-8 sm:px-10">

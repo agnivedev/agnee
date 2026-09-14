@@ -223,12 +223,28 @@ class FollowUpScheduler {
     return { ok: true, text: text.trim(), dayIndex: verdict.dayIndex, attemptInDay: verdict.attemptInDay };
   }
 
-  /** Mengirim teks yang sudah disetujui dan mencatatnya. */
+  /**
+   * Mengirim teks yang sudah disetujui. Percobaannya dicatat LEBIH DULU.
+   *
+   * Urutan ini bukan selera. `sendTextForUi` mengirim pesan ke WhatsApp lalu
+   * menserialisasi hasilnya di dalam `pupPage.evaluate`; kalau serialisasi itu
+   * gagal — dan di produksi ia memang gagal berulang kali — pesannya SUDAH
+   * terkirim tetapi pemanggilnya melempar. Dengan urutan lama (kirim dulu,
+   * catat kemudian), percobaan itu tidak pernah tercatat, tick berikutnya
+   * melihat plafon masih kosong, dan follow-up yang sama dikirim ulang setiap
+   * lima menit tanpa henti. Itu benar-benar terjadi: satu customer menerima
+   * pesan identik 20 kali.
+   *
+   * Asimetrinya besar. Percobaan yang tercatat tapi gagal terkirim merugikan
+   * satu pesan yang hilang. Percobaan yang terkirim tapi tidak tercatat
+   * merugikan pesan berulang tanpa batas ke customer sungguhan — dan reputasi
+   * nomor WhatsApp-nya. Jadi kalau harus salah, salah ke arah diam.
+   */
   async send(row, { text, dayIndex, attemptInDay }) {
-    await this.deps.sendMessage(row.companyId, row.chatId, text);
     await this.database.recordFollowUpSend({
       chatId: row.chatId, dayIndex, attemptInDay, body: text,
     }, row.companyId);
+    await this.deps.sendMessage(row.companyId, row.chatId, text);
   }
 
   async processOne(row, now = new Date()) {

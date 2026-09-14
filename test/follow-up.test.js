@@ -194,3 +194,95 @@ test('tanpa checkout tertunda, aturan anti-nagging tetap berlaku', () => {
   assert.ok(!prompt.includes('Link checkout SUDAH dikirim'));
   assert.match(prompt, /masih di sana/, 'larangan basa-basi kosong tetap ada');
 });
+
+// ── Percobaan dicatat sebelum dikirim ───────────────────────────────────────
+
+/**
+ * Database palsu yang meniru perilaku nyata: recordFollowUpSend menaikkan
+ * sentPerDay dan lastSentAt, persis seperti transaksi aslinya.
+ */
+function fakeFollowUpDb(state) {
+  return {
+    recorded: [],
+    async listFollowUpSends() { return []; },
+    async getPlaybookDoc() { return null; },
+    async listOutboundRepliesForChat() { return []; },
+    async getCompanyConfig() { return null; },
+    async stopFollowUpSequence(chatId, companyId, reason) { state.stopReason = reason; },
+    async recordFollowUpSend({ dayIndex, attemptInDay, body }) {
+      this.recorded.push({ dayIndex, attemptInDay, body });
+      state.sentPerDay[dayIndex] = (state.sentPerDay[dayIndex] || 0) + 1;
+      state.lastSentAt = new Date();
+    },
+  };
+}
+
+test('percobaan tercatat walau pengiriman melempar SETELAH pesan terkirim', async () => {
+  // Ini kegagalan yang benar-benar terjadi di produksi: WhatsApp menerima
+  // pesannya, lalu serialisasi hasil di dalam pupPage.evaluate melempar.
+  const state = {
+    chatId: 'c1@c.us',
+    companyId: 'co1',
+    sequenceStartedAt: MIDDAY,
+    sentPerDay: [],
+    dayCaps: [1, 1, 1],
+    minGapMinutes: 180,
+    sendFromHour: 8,
+    sendToHour: 21,
+    lastSentAt: null,
+  };
+  const database = fakeFollowUpDb(state);
+  let sendAttempts = 0;
+
+  const scheduler = new FollowUpScheduler({
+    database,
+    logger: { info() {}, warn() {}, error() {} },
+    deps: {
+      isHumanHandled: async () => false,
+      generate: async () => 'Halo kak, ada yang bisa dibantu?',
+      sendMessage: async () => {
+        sendAttempts += 1;
+        throw new Error('Evaluation failed: r');
+      },
+    },
+  });
+
+  await assert.rejects(() => scheduler.processOne(state, MIDDAY));
+
+  assert.equal(sendAttempts, 1, 'pesan dikirim sekali');
+  assert.equal(database.recorded.length, 1, 'percobaannya tetap tercatat');
+  assert.equal(state.sentPerDay[0], 1, 'plafon hari itu ikut terpakai');
+
+  // Tick berikutnya harus menolak: inilah yang dulu gagal dan membuat pesan
+  // yang sama terkirim berulang setiap lima menit.
+  const verdict = decide(state, MIDDAY);
+  assert.equal(verdict.send, false, 'tick berikutnya tidak boleh mengirim lagi');
+  // Alasannya boleh plafon harian atau jarak minimum — keduanya sama-sama
+  // menahan. Yang diuji di sini adalah bahwa ada yang menahan sama sekali.
+  assert.ok(['day_cap_reached', 'gap_not_elapsed'].includes(verdict.skip), verdict.skip);
+});
+
+test('urutan: catat dulu, baru kirim', async () => {
+  const order = [];
+  const state = {
+    chatId: 'c1@c.us', companyId: 'co1', sequenceStartedAt: MIDDAY,
+    sentPerDay: [], dayCaps: [1], minGapMinutes: 120,
+    sendFromHour: 8, sendToHour: 21, lastSentAt: null,
+  };
+  const database = fakeFollowUpDb(state);
+  const realRecord = database.recordFollowUpSend.bind(database);
+  database.recordFollowUpSend = async (...args) => { order.push('catat'); return realRecord(...args); };
+
+  const scheduler = new FollowUpScheduler({
+    database,
+    logger: { info() {}, warn() {}, error() {} },
+    deps: {
+      isHumanHandled: async () => false,
+      generate: async () => 'pesan',
+      sendMessage: async () => { order.push('kirim'); },
+    },
+  });
+
+  await scheduler.processOne(state, MIDDAY);
+  assert.deepEqual(order, ['catat', 'kirim']);
+});

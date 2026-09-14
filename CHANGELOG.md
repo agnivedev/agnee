@@ -6,6 +6,25 @@ Semua perubahan penting Agnee dicatat di file ini. Format mengikuti prinsip
 
 ## [Unreleased]
 
+### Fixed
+
+- **Follow-up mengirim pesan yang sama berulang setiap lima menit.** Satu
+  customer menerima pesan identik 20 kali dalam 13 jam sebelum ini ketahuan.
+  Penyebabnya urutan operasi di `FollowUpScheduler.send()`: pesan dikirim
+  dulu, percobaannya dicatat kemudian. `sendTextForUi` mengirim ke WhatsApp
+  lalu menserialisasi hasilnya di dalam `pupPage.evaluate`, dan ketika
+  serialisasi itu gagal — di produksi ia gagal berulang kali dengan error `r`
+  yang sama seperti pada jalur baca — pesannya SUDAH terkirim tetapi
+  pemanggilnya melempar sebelum sempat mencatat. Tick berikutnya melihat
+  plafon harian masih kosong dan mengirim lagi.
+  Plafon `[1,1,1]` dan jarak minimum 180 menit sama sekali tidak menahannya,
+  karena keduanya dihitung dari catatan yang tidak pernah ditulis.
+  Sekarang percobaannya dicatat **sebelum** dikirim. Asimetrinya besar:
+  percobaan yang tercatat tapi gagal terkirim merugikan satu pesan yang
+  hilang, sedangkan percobaan yang terkirim tapi tidak tercatat merugikan
+  pesan berulang tanpa batas ke customer sungguhan — dan reputasi nomor
+  WhatsApp-nya. Kalau harus salah, salah ke arah diam.
+
 ### Added
 
 - **Halaman Lead List** (`/leads`): tabel semua percakapan beserta statusnya —

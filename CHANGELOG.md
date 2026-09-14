@@ -1,35 +1,4 @@
-# Changelog
-
-Semua perubahan penting Agnee dicatat di file ini. Format mengikuti prinsip
-[Keep a Changelog](https://keepachangelog.com/en/1.1.0/) dan versi mengikuti
-[Semantic Versioning](https://semver.org/).
-
 ## [Unreleased]
-
-### Known issues — 2026-09-14
-
-- **`WWebJS.sendMessage` melempar di hampir setiap pengiriman, bukan sesekali.**
-  Uji kirim ke nomor sendiri memicu log `receipt dipulihkan dari riwayat chat`
-  padahal pesannya sampai dengan `ack: 3`. Jalur pemulihan di `sendTextForUi`
-  menahannya, tetapi akarnya ada di serialisasi model whatsapp-web.js dan belum
-  dikejar. Selama belum, tidak ada lapis lain di bawah jalur pemulihan itu.
-- **Tindak lanjut otomatis MATI di keempat company** dan belum dinyalakan lagi.
-  Kalau dinyalakan, mulai dari satu percakapan uji, bukan seluruh basis.
-- Kredensial OneDrive dan Google Sheets belum diisi di produksi, jadi kedua
-  sinkronisasi belum pernah berjalan terhadap akun sungguhan.
-- `/v1/messages/:messageId/media` masih dilayani nomor utama; route itu hanya
-  membawa `messageId` tanpa `chatId` untuk dipetakan ke nomor.
-
-### Investigated — bukan bug
-
-- **"Pesan grup semua di kiri."** Seluruh 27 id pesan di grup yang dilaporkan
-  berawalan `false_` — penanda milik WhatsApp sendiri, bukan tafsiran Agnee.
-  Akun yang tersambung belum pernah mengirim apa pun di grup itu; nama yang
-  dikira "kita" ternyata akun pribadi yang berbeda, dan dari sudut pandang
-  akun yang tersambung ia memang peserta lain. Perataan kiri/kanan sudah benar.
-  Jalan keluarnya menyambungkan nomor itu sebagai nomor kedua lewat rotator —
-  bukan memindahkan pesan peserta lain ke kanan, yang akan memalsukan siapa
-  pengirimnya.
 
 ### Added
 
@@ -48,6 +17,235 @@ Semua perubahan penting Agnee dicatat di file ini. Format mengikuti prinsip
      "coba lagi nanti", padahal pesannya sudah terkirim dan yang gagal langkah
      sesudahnya. Tindak lanjut yang hilang tidak merugikan siapa pun; tindak
      lanjut berulang merugikan customer dan reputasi nomor WhatsApp-nya.
+
+- **Halaman Lead List** (`/leads`): tabel semua percakapan beserta statusnya —
+  cari di semua kolom, saring tahap lead dan penanganan (AI atau manusia),
+  urutkan dengan mengeklik judul kolom, dan unduh **XLSX** atau **CSV**.
+  Kolomnya diambil dari metadata API yang sama dengan file ekspor, bukan daftar
+  terpisah, jadi tabel dan file tidak bisa saling menyimpang.
+  Kolom nomor dan baris header menempel saat tabel digulir ke samping; tanpa
+  nomornya, baris di sebelah kanan tidak bisa dikenali lagi.
+- **Penulis .xlsx sendiri** (`src/xlsx-writer.js`) — ZIP + XML lewat `zlib`
+  bawaan, tanpa dependency baru. Menarik pustaka spreadsheet utuh hanya untuk
+  mengekspor satu tabel datar tidak sebanding.
+  Baris header dibekukan dan diberi filter otomatis. Skor dan jumlah pesan
+  ditulis sebagai angka supaya bisa dijumlah dan diurutkan; nomor telepon
+  sengaja tetap teks, karena sebagai angka nol di depannya hilang.
+  Karakter kontrol yang dilarang XML 1.0 dibuang — isi pesan WhatsApp bisa
+  membawanya, dan Excel menolak membuka file yang memuatnya.
+
+- **Sinkronisasi kontak ke Google Sheets** (migration 021), sejajar dengan
+  OneDrive. Sebuah company boleh memakai salah satu atau keduanya — barisnya
+  sama, dan sebagian tim memang hidup di dua ekosistem.
+  Google Sheets API v4 langsung, tanpa layanan perantara dan tanpa dependency
+  baru: JWT service account ditandatangani `node:crypto` lalu ditukar jadi
+  access token. Bedanya dengan Microsoft, Google **tidak menuntut persetujuan
+  admin** — pemilik sheet cukup membagikan sheet ke alamat email service
+  account sebagai Editor.
+  Supervisor menempel isi file JSON service account apa adanya; memecahnya jadi
+  beberapa field hanya menambah cara untuk salah. Kredensial diverifikasi ke
+  Google sebelum disimpan, dan tab dibuat otomatis kalau belum ada.
+  Sisa baris lama dihapus pakai endpoint `:clear`, bukan ditimpa string kosong
+  seperti di Excel — selnya benar-benar kosong, jadi `COUNTA` dan filter di
+  sheet tetap benar.
+  Kegagalan yang paling sering (sheet belum dibagikan) dijawab dengan
+  instruksinya, bukan kode HTTP.
+
+- **Route pengelolaan nomor**: `GET/POST /v1/whatsapp/numbers`,
+  `PATCH/DELETE /v1/whatsapp/numbers/:id`. Nomor utama tidak dapat dihapus —
+  menghapusnya membuat company kehilangan identitas WhatsApp sekaligus profil
+  Chromium-nya. Plafon `max_whatsapp` dihitung dari gabungan nomor WhatsApp Web
+  dan Cloud API. Nomor baru tidak langsung dinyalakan: Chromium yang belum
+  tentu dipakai hanya memakan ~400 MB.
+- `/v1/whatsapp/qr`, `/v1/whatsapp/qr-refresh`, dan `/v1/whatsapp/logout`
+  menerima `connectionId` untuk memilih nomor; tanpa itu, nomor utama.
+
+- **Tindak lanjut lead yang diam.** Kalau customer berhenti membalas, AI
+  menyapa kembali dengan **plafon per hari** (default 5 di hari pertama, 3 di
+  hari kedua, 2 di hari ketiga, lalu berhenti permanen). Angka itu batas atas,
+  bukan kuota: mesin hanya mengirim kalau ada yang layak disampaikan, dan
+  generatornya boleh menjawab `SKIP` tanpa memakai kuota hari itu.
+  Pengamanannya: jarak minimum antar pesan (default 120 menit), jam kirim
+  8–21 WIB, berhenti begitu customer membalas atau agent mengambil alih chat,
+  dan kuota AI paket tetap dihitung supaya tindak lanjut bukan celah untuk
+  melewatinya. Plafon disimpan **per company**, jadi tenant yang funnel-nya
+  hanya mengizinkan 3 kali bisa diset `[1,1,1]`.
+  Fitur ini **mati secara default** — deploy tidak akan mengirim apa pun
+  sampai supervisor menyalakannya, karena menyalakan tindak lanjut otomatis ke
+  seluruh basis chat lama adalah cara tercepat kena laporan spam.
+- **Kirim tindak lanjut manual** lewat dua langkah: `POST /v1/follow-up/draft`
+  menyusun pesannya, supervisor membaca teks persisnya di dialog konfirmasi,
+  lalu `POST /v1/follow-up/send` mengirimnya. Plafon diperiksa **ulang** saat
+  kirim, supaya draft yang sempat menganggur di layar tidak lolos melewati
+  batas yang sudah dipenuhi scheduler. Jarak minimum sengaja tidak berlaku di
+  jalur manual — supervisor yang memutuskan waktunya.
+- **Playbook per company sebagai dokumen Markdown**, disusun lewat percakapan
+  dengan asisten admin (bukan mengisi formulir): supervisor menjelaskan cara
+  kerja CS-nya, asisten menanyakan yang masih kurang, lalu percakapan itu
+  dijadikan satu dokumen `.md` yang dibaca AI saat membalas customer.
+  Delapan jenis: persona, compliance, qna, discovery, objection, closing,
+  followup, handoff. Ada riwayat versi, dan dokumen bisa juga disunting
+  langsung. Disimpan di DB, bukan di `knowledge/clients/` — file repo sama
+  untuk semua tenant dan tidak bisa ditulis dari UI.
+  Urutan bacanya tetap: persona dan compliance lebih dulu, supaya aturan yang
+  melarang sesuatu terbaca sebelum materi jualan yang bisa menggodanya.
+- **Komponen dialog aplikasi** (`public/ui-dialog.js`) untuk konfirmasi,
+  pemberitahuan, dan input.
+
+- **Knowledge base TM lengkap**: `funnel/sales-funnel.md` untuk Trader's Mastermind
+  — produk Recovery Plan (Rp99k) dan Bundle Mentorship (Rp188k), Copy Trade
+  Master vs Copy Trade EA, alur funnel 6 stage, FAQ, objection handling, link
+  checkout, dan panduan onboarding. AI kini punya sumber fakta yang jelas
+  dan tidak perlu mengarang detail produk.
+
+- FAQ Trader's Mastermind dipecah jadi 25 entri terindeks di `faq/`
+  (produk, harga, EA & copy trade, akun & broker) sehingga hanya jawaban yang
+  relevan disuntik ke konteks AI per pesan, bukan seluruh dokumen funnel.
+
+- Panel pengaturan **Pembayaran & Closing** (link pembayaran atau transfer
+  bank) — instruksi ini otomatis disisipkan ke konteks AI saat pelanggan
+  siap closing, sehingga AI tahu cara menutup transaksi tanpa mengarang.
+- Header `x-agnee-company` untuk pemanggil berbasis API key (termasuk MCP
+  server, lewat env `AGNEE_COMPANY`) — wajib diisi karena tidak ada lagi
+  tenant default yang bisa dijadikan fallback diam-diam.
+
+- Endpoint `POST /v1/chats/:chatId/mark-read` yang menandai chat sebagai
+  terbaca (mengirim `sendSeen` ke WhatsApp) begitu chat tersebut dibuka;
+  badge unread langsung hilang di UI tanpa menunggu refresh.
+- Tab Inbox dan Archived terpisah di daftar percakapan, dengan filter
+  `inbox`/`archived` di endpoint `GET /v1/chats` dan properti `archived`
+  pada setiap chat.
+
+### Changed
+
+- Penjadwal ekspor kini satu putaran untuk dua tujuan sekaligus. Satu company
+  atau satu tujuan yang gagal tidak menghentikan sisanya.
+
+- **Sinkronisasi kontak ke Excel di OneDrive** (migration 020). Kredensial
+  Microsoft disimpan per company dan client secret dienkripsi pgcrypto, sama
+  seperti kredensial Cloud API — tenant Microsoft dan workbook tiap company
+  berbeda, jadi ini tidak pernah boleh jadi konfigurasi global.
+  Memakai alur client credentials (app-only), bukan OAuth delegasi: sinkronisasi
+  berjalan di server tanpa ada orang yang login, dan token delegasi akan
+  kedaluwarsa lalu menuntut seseorang masuk kembali. Konsekuensinya, app-nya
+  butuh persetujuan admin tenant.
+  Kredensial diverifikasi ke Microsoft **sebelum** disimpan, dan tautan berbagi
+  diterjemahkan jadi `driveId`/`itemId` — tautan bisa dicabut, id tetap.
+  Sinkronisasi menulis header, baris, lalu **mengosongkan sisa baris lama**:
+  Excel tidak menghapus baris hanya karena kita menulis lebih sedikit, jadi
+  tanpa itu kontak yang sudah hilang tetap terlihat ada.
+  Berjalan tiap 10 menit, satu interval sederhana — menulis tiap ada pesan
+  masuk akan menembus batas laju Graph dan mengunci file bagi orang yang sedang
+  membukanya. Satu company yang gagal tidak menghentikan yang lain, dan
+  alasannya ditampilkan di halaman pengaturan.
+- Tombol **Unduh CSV** di Settings untuk ekspor langsung tanpa setup apa pun.
+
+- **Export kontak**: `GET /v1/export/contacts` (JSON) dan
+  `/v1/export/contacts.csv` (unduhan). Satu baris per percakapan, 23 kolom —
+  nomor, nomor kita yang melayani, pesan masuk dan balasan terakhir beserta
+  waktunya, ringkasan percakapan, ditangani AI atau manusia, PIC beserta
+  emailnya, status, tahap lead, prioritas, skor, status tindak lanjut, dan
+  jumlah pesan.
+  Daftar percakapannya digabung dari empat sumber (`inbound_messages`,
+  `outbound_replies`, `lead_states`, `conversation_routing`), bukan satu: lead
+  bisa punya baris routing tanpa pesan tercatat, dan pesan bisa masuk sebelum
+  ada lead state. Mengambil dari satu tabel akan menghilangkan sebagian kontak.
+  Semuanya satu query; versi per-kontak akan menjadi ratusan query tiap
+  sinkronisasi.
+  CSV diawali BOM supaya Excel membaca UTF-8 dengan benar — tanpa itu nama
+  dengan aksen dan emoji tampil rusak saat dibuka langsung di Excel.
+
+- **Halaman pengelolaan nomor WhatsApp** di Settings: daftar nomor, tambah
+  nomor, keluarkan/masukkan rotasi, hapus, dan tombol "Scan QR" yang membawa
+  supervisor ke dialog pairing di inbox untuk nomor itu (`/?connect=<id>`).
+  Tanpa ini rotator tidak bisa dipakai sama sekali — API-nya ada tapi tidak
+  ada cara menambah nomor dari aplikasi.
+  Halamannya menyebut batas kapasitas apa adanya: tiap nomor menjalankan
+  browser sendiri dan memakai sekitar 400 MB memori server.
+- Dialog pairing di inbox menerima `connectionId`, dan mengabaikan event fase
+  dari nomor lain selagi memasang satu nomor — kalau tidak, QR nomor kedua bisa
+  tertimpa perubahan fase nomor pertama.
+
+- **`WhatsappManager` kini di-key `connectionId`, bukan `companyId`.** Ini
+  syarat agar satu company boleh punya beberapa nomor WhatsApp Web, masing-masing
+  dengan profil Chromium sendiri. Menyentuh 48 titik panggil di `server.js`.
+  Pendengar SSE dipindah ke map terpisah yang tetap **per company** —
+  antarmukanya memang company-scoped, supervisor melihat satu inbox, bukan satu
+  inbox per nomor. `activeCompanyCount()` menghitung company, bukan koneksi.
+  Fase `ready` sekarang hanya ditetapkan lewat `_markReady()`, dan setiap
+  siaran `whatsapp_phase` membawa `connectionId`.
+- **Inbox menggabungkan percakapan dari semua nomor yang hidup.** Kalau hanya
+  nomor utama yang dibaca, percakapan yang masuk lewat nomor kedua tidak
+  terlihat sama sekali — itu menghapus gunanya punya beberapa nomor. Percakapan
+  yang sama tidak dimunculkan dua kali; pemetaan sticky yang menentukan siapa
+  yang membalas.
+- **Operasi per-percakapan memakai nomor pemilik percakapan itu** (riwayat,
+  pinned, arsip, tandai dibaca, avatar, ringkasan, kirim). Pengiriman ke
+  percakapan baru memilih nomor aktif dengan beban paling ringan lalu
+  menempelkannya.
+
+- `npm run check` kini ikut memeriksa `whatsapp-manager.js`, `follow-up.js`,
+  dan `knowledge-loader.js` — tiga file inti yang selama ini lolos dari syntax
+  check di CI.
+
+- **Semua dialog bawaan browser diganti.** 14 pemakaian `confirm()`/`alert()`
+  di `admin.js` dan `settings.js` dihapus: dialog OS tidak bisa digaya, tidak
+  ikut bahasa yang dipilih user, dan memblokir thread. Penggantinya memakai
+  `<dialog>` dengan gaya yang sama seperti `.workspace-dialog` di inbox.
+  Konfirmasi yang menghapus sesuatu kini menjelaskan akibatnya, bukan hanya
+  menanyakan "yakin?".
+- `settings.js` sebelumnya **tidak memakai i18n sama sekali** — seluruh
+  teksnya Indonesia dan tidak berubah walau user memilih English. Sekarang
+  helper `tr()` tersedia di sana, dan seluruh string baru punya pasangan
+  ID/EN (389 kunci, seimbang di kedua bahasa).
+
+- **Model AI default: `qwen-2.5-72b-instruct` → `google/gemini-2.5-flash`.**
+  Alasannya bukan harga (biayanya setara karena balasan WhatsApp pendek,
+  sehingga biaya didominasi token masuk), tapi kecepatan: 0,9–1,3 detik
+  dibanding 3–7 detik. Funnel sendiri menargetkan balasan di bawah 5 menit.
+  Gemini juga lebih patuh pada kontrak keluaran (8/8 vs 2/3 pada uji yang sama)
+  dan mengikuti tahap discovery playbook, bukan langsung menawarkan harga.
+- Daftar model di panel admin dirapikan: 4 dari 7 pilihan sebelumnya sudah
+  tidak ada di OpenRouter (`mistralai/mistral-7b-instruct`,
+  `google/gemini-2.0-flash-exp`, `anthropic/claude-3.5-haiku`,
+  `anthropic/claude-opus-4-1`) — memilihnya membuat balasan gagal tanpa
+  pesan yang jelas. Semua ID sekarang sudah diverifikasi aktif, dan labelnya
+  menampilkan harga masuk dan keluar terpisah karena keduanya bisa berbeda
+  jauh (Gemini Flash: masuk $0,30 tapi keluar $2,50).
+- Harga acuan Trader's Mastermind dibakukan jadi **normal Rp1.900.000 → promo
+  Rp99.000**. Sebelumnya dokumen memuat tiga angka (Rp4.900.000, Rp1.900.000,
+  Rp99.000) tanpa aturan pemakaian, sehingga AI kadang menyebut harga normal
+  Rp1,9jt dan kadang Rp4,9jt ke customer. Angka Rp4.900.000 sekarang hanya
+  dipakai saat customer mempertanyakan kenapa harganya murah.
+
+- Semua istilah teknis data-science di UI (`token`, `MODEL`, `STORAGE`,
+  `training`, dsb.) diganti dengan bahasa bisnis/marketing (`kredit`,
+  `MESIN AI`, `DATA`, `Latih AI`, dsb.) di kedua locale (ID/EN).
+- Inbox membedakan "WhatsApp sedang tersambung..." dari "Belum ada
+  percakapan" — sebelumnya keduanya tampil sebagai kotak masuk kosong yang
+  sama meski API sudah mengembalikan `phase` untuk kasus WhatsApp belum
+  siap.
+- Setiap perusahaan sekarang punya identitas WhatsApp sendiri
+  (`agnee-<companyId>`) alih-alih fallback ke client ID bersama — 4 dari 5
+  tenant sebelumnya berbagi satu profil Chromium dan saling merusak sesi
+  satu sama lain (kunci Singleton saling terhapus, QR tidak pernah muncul).
+- Perusahaan "default" bootstrap dihapus konsepnya sepenuhnya: 41 titik
+  fallback `database.companyId` di server.js dan ~30 default implisit di
+  database.js dihapus. Setiap sesi dan pemanggil API key sekarang wajib
+  menyebutkan company secara eksplisit. Perusahaan default lama di-rename
+  menjadi Agnive (identitas aslinya) alih-alih dihapus.
+- Notifikasi status WhatsApp (`whatsapp_phase`) kini didorong secara
+  real-time lewat SSE ke UI alih-alih menunggu polling; polling hanya
+  dipakai sebagai fallback setiap 30 detik.
+- Workflow deploy GitHub Actions sekarang benar-benar menjalankan
+  `docker-compose build` + `up -d` di server, bukan sekadar `git pull` dan
+  me-restart systemd service lama yang sudah tidak dipakai.
+
+- Tombol rail, menu percakapan, attachment, connection status, dan handoff kini
+  menjalankan aksi nyata; kontrol yang sebelumnya placeholder sudah diaktifkan.
+- Composer dapat menampilkan konteks reply/lampiran tanpa menggeser area chat.
+- Dialog connection menampilkan status sesi aktif dan tidak meminta QR ulang
+  saat WhatsApp sudah connected.
 
 ### Fixed
 
@@ -69,8 +267,6 @@ Semua perubahan penting Agnee dicatat di file ini. Format mengikuti prinsip
   Lampiran sengaja dikecualikan dari pemulihan: isinya tidak dapat dibandingkan
   dengan teks, jadi kemiripan body bukan bukti yang sah.
 
-### Fixed
-
 - **Follow-up mengirim pesan yang sama berulang setiap lima menit.** Satu
   customer menerima pesan identik 20 kali dalam 13 jam sebelum ini ketahuan.
   Penyebabnya urutan operasi di `FollowUpScheduler.send()`: pesan dikirim
@@ -88,32 +284,10 @@ Semua perubahan penting Agnee dicatat di file ini. Format mengikuti prinsip
   pesan berulang tanpa batas ke customer sungguhan — dan reputasi nomor
   WhatsApp-nya. Kalau harus salah, salah ke arah diam.
 
-### Added
-
-- **Halaman Lead List** (`/leads`): tabel semua percakapan beserta statusnya —
-  cari di semua kolom, saring tahap lead dan penanganan (AI atau manusia),
-  urutkan dengan mengeklik judul kolom, dan unduh **XLSX** atau **CSV**.
-  Kolomnya diambil dari metadata API yang sama dengan file ekspor, bukan daftar
-  terpisah, jadi tabel dan file tidak bisa saling menyimpang.
-  Kolom nomor dan baris header menempel saat tabel digulir ke samping; tanpa
-  nomornya, baris di sebelah kanan tidak bisa dikenali lagi.
-- **Penulis .xlsx sendiri** (`src/xlsx-writer.js`) — ZIP + XML lewat `zlib`
-  bawaan, tanpa dependency baru. Menarik pustaka spreadsheet utuh hanya untuk
-  mengekspor satu tabel datar tidak sebanding.
-  Baris header dibekukan dan diberi filter otomatis. Skor dan jumlah pesan
-  ditulis sebagai angka supaya bisa dijumlah dan diurutkan; nomor telepon
-  sengaja tetap teks, karena sebagai angka nol di depannya hilang.
-  Karakter kontrol yang dilarang XML 1.0 dibuang — isi pesan WhatsApp bisa
-  membawanya, dan Excel menolak membuka file yang memuatnya.
-
-### Fixed
-
 - **Kolom "Pesan customer terakhir" menampilkan epoch mentah.** Driver Postgres
   mengembalikan BIGINT sebagai string, jadi pemeriksaan `typeof value ===
   'number'` tidak pernah terpenuhi dan angka detik bocor ke tabel dan ke file
   ekspor.
-
-### Fixed
 
 - **Dropdown "Metode pembayaran" jauh lebih tinggi daripada seharusnya**
   (terukur 104px, seharusnya 42px). `.plan-config` adalah grid dua kolom, dan
@@ -127,116 +301,10 @@ Semua perubahan penting Agnee dicatat di file ini. Format mengikuti prinsip
   Diperiksa ulang ke seluruh halaman pengaturan: dari 44 kontrol form, tidak
   ada lagi yang tingginya di atas 50px.
 
-### Added
-
-- **Sinkronisasi kontak ke Google Sheets** (migration 021), sejajar dengan
-  OneDrive. Sebuah company boleh memakai salah satu atau keduanya — barisnya
-  sama, dan sebagian tim memang hidup di dua ekosistem.
-  Google Sheets API v4 langsung, tanpa layanan perantara dan tanpa dependency
-  baru: JWT service account ditandatangani `node:crypto` lalu ditukar jadi
-  access token. Bedanya dengan Microsoft, Google **tidak menuntut persetujuan
-  admin** — pemilik sheet cukup membagikan sheet ke alamat email service
-  account sebagai Editor.
-  Supervisor menempel isi file JSON service account apa adanya; memecahnya jadi
-  beberapa field hanya menambah cara untuk salah. Kredensial diverifikasi ke
-  Google sebelum disimpan, dan tab dibuat otomatis kalau belum ada.
-  Sisa baris lama dihapus pakai endpoint `:clear`, bukan ditimpa string kosong
-  seperti di Excel — selnya benar-benar kosong, jadi `COUNTA` dan filter di
-  sheet tetap benar.
-  Kegagalan yang paling sering (sheet belum dibagikan) dijawab dengan
-  instruksinya, bukan kode HTTP.
-
-### Changed
-
-- Penjadwal ekspor kini satu putaran untuk dua tujuan sekaligus. Satu company
-  atau satu tujuan yang gagal tidak menghentikan sisanya.
-
-
-- **Sinkronisasi kontak ke Excel di OneDrive** (migration 020). Kredensial
-  Microsoft disimpan per company dan client secret dienkripsi pgcrypto, sama
-  seperti kredensial Cloud API — tenant Microsoft dan workbook tiap company
-  berbeda, jadi ini tidak pernah boleh jadi konfigurasi global.
-  Memakai alur client credentials (app-only), bukan OAuth delegasi: sinkronisasi
-  berjalan di server tanpa ada orang yang login, dan token delegasi akan
-  kedaluwarsa lalu menuntut seseorang masuk kembali. Konsekuensinya, app-nya
-  butuh persetujuan admin tenant.
-  Kredensial diverifikasi ke Microsoft **sebelum** disimpan, dan tautan berbagi
-  diterjemahkan jadi `driveId`/`itemId` — tautan bisa dicabut, id tetap.
-  Sinkronisasi menulis header, baris, lalu **mengosongkan sisa baris lama**:
-  Excel tidak menghapus baris hanya karena kita menulis lebih sedikit, jadi
-  tanpa itu kontak yang sudah hilang tetap terlihat ada.
-  Berjalan tiap 10 menit, satu interval sederhana — menulis tiap ada pesan
-  masuk akan menembus batas laju Graph dan mengunci file bagi orang yang sedang
-  membukanya. Satu company yang gagal tidak menghentikan yang lain, dan
-  alasannya ditampilkan di halaman pengaturan.
-- Tombol **Unduh CSV** di Settings untuk ekspor langsung tanpa setup apa pun.
-
-
-- **Export kontak**: `GET /v1/export/contacts` (JSON) dan
-  `/v1/export/contacts.csv` (unduhan). Satu baris per percakapan, 23 kolom —
-  nomor, nomor kita yang melayani, pesan masuk dan balasan terakhir beserta
-  waktunya, ringkasan percakapan, ditangani AI atau manusia, PIC beserta
-  emailnya, status, tahap lead, prioritas, skor, status tindak lanjut, dan
-  jumlah pesan.
-  Daftar percakapannya digabung dari empat sumber (`inbound_messages`,
-  `outbound_replies`, `lead_states`, `conversation_routing`), bukan satu: lead
-  bisa punya baris routing tanpa pesan tercatat, dan pesan bisa masuk sebelum
-  ada lead state. Mengambil dari satu tabel akan menghilangkan sebagian kontak.
-  Semuanya satu query; versi per-kontak akan menjadi ratusan query tiap
-  sinkronisasi.
-  CSV diawali BOM supaya Excel membaca UTF-8 dengan benar — tanpa itu nama
-  dengan aksen dan emoji tampil rusak saat dibuka langsung di Excel.
-
-
-- **Halaman pengelolaan nomor WhatsApp** di Settings: daftar nomor, tambah
-  nomor, keluarkan/masukkan rotasi, hapus, dan tombol "Scan QR" yang membawa
-  supervisor ke dialog pairing di inbox untuk nomor itu (`/?connect=<id>`).
-  Tanpa ini rotator tidak bisa dipakai sama sekali — API-nya ada tapi tidak
-  ada cara menambah nomor dari aplikasi.
-  Halamannya menyebut batas kapasitas apa adanya: tiap nomor menjalankan
-  browser sendiri dan memakai sekitar 400 MB memori server.
-- Dialog pairing di inbox menerima `connectionId`, dan mengabaikan event fase
-  dari nomor lain selagi memasang satu nomor — kalau tidak, QR nomor kedua bisa
-  tertimpa perubahan fase nomor pertama.
-
-### Changed
-
-- **`WhatsappManager` kini di-key `connectionId`, bukan `companyId`.** Ini
-  syarat agar satu company boleh punya beberapa nomor WhatsApp Web, masing-masing
-  dengan profil Chromium sendiri. Menyentuh 48 titik panggil di `server.js`.
-  Pendengar SSE dipindah ke map terpisah yang tetap **per company** —
-  antarmukanya memang company-scoped, supervisor melihat satu inbox, bukan satu
-  inbox per nomor. `activeCompanyCount()` menghitung company, bukan koneksi.
-  Fase `ready` sekarang hanya ditetapkan lewat `_markReady()`, dan setiap
-  siaran `whatsapp_phase` membawa `connectionId`.
-- **Inbox menggabungkan percakapan dari semua nomor yang hidup.** Kalau hanya
-  nomor utama yang dibaca, percakapan yang masuk lewat nomor kedua tidak
-  terlihat sama sekali — itu menghapus gunanya punya beberapa nomor. Percakapan
-  yang sama tidak dimunculkan dua kali; pemetaan sticky yang menentukan siapa
-  yang membalas.
-- **Operasi per-percakapan memakai nomor pemilik percakapan itu** (riwayat,
-  pinned, arsip, tandai dibaca, avatar, ringkasan, kirim). Pengiriman ke
-  percakapan baru memilih nomor aktif dengan beban paling ringan lalu
-  menempelkannya.
-
-### Added
-
-- **Route pengelolaan nomor**: `GET/POST /v1/whatsapp/numbers`,
-  `PATCH/DELETE /v1/whatsapp/numbers/:id`. Nomor utama tidak dapat dihapus —
-  menghapusnya membuat company kehilangan identitas WhatsApp sekaligus profil
-  Chromium-nya. Plafon `max_whatsapp` dihitung dari gabungan nomor WhatsApp Web
-  dan Cloud API. Nomor baru tidak langsung dinyalakan: Chromium yang belum
-  tentu dipakai hanya memakan ~400 MB.
-- `/v1/whatsapp/qr`, `/v1/whatsapp/qr-refresh`, dan `/v1/whatsapp/logout`
-  menerima `connectionId` untuk memilih nomor; tanpa itu, nomor utama.
-
-### Fixed
-
 - **Pemanggilan database baru dijaga `canCall()`.** `.catch()` tidak menangkap
   TypeError dari method yang tidak ada, dan driver pengganti (test, demo) tidak
   memiliki semuanya — itu sempat membuat route ringkasan percakapan menjawab
   500 tanpa jejak begitu ia mulai memanggil `getConnConfig()`.
-
 
 - **Catatan pesan masuk (`inbound_messages`, migration 019).** Untuk jalur
   whatsapp-web.js, database sebelumnya hanya menyimpan balasan KITA
@@ -254,7 +322,6 @@ Semua perubahan penting Agnee dicatat di file ini. Format mengikuti prinsip
   satu nomor — cerminan `cloud_chat_numbers` di jalur Cloud API, dengan alasan
   yang sama. Kolom `connection_id` di `inbound_messages` mencatat nomor mana
   yang menerima tiap pesan.
-
 
 - **Rotator nomor WhatsApp lewat Cloud API** (migration 018). Satu company kini
   boleh punya banyak nomor: `UNIQUE (company_id)` dilepas dan diganti
@@ -276,7 +343,6 @@ Semua perubahan penting Agnee dicatat di file ini. Format mengikuti prinsip
   keluarkan/masukkan ke rotasi, dan hapus. Token dan app secret tidak pernah
   dikirim balik ke browser.
 
-
 - **Halaman pengaturan tindak lanjut** di Settings. Mesinnya, API-nya, dan
   kunci terjemahannya sudah ada sejak rilis follow-up, tapi tidak pernah ada
   antarmukanya — supervisor tidak punya cara menyalakan atau mengatur plafon
@@ -287,14 +353,11 @@ Semua perubahan penting Agnee dicatat di file ini. Format mengikuti prinsip
   angkanya batas atas, bukan target, dan menyalakannya TIDAK menyasar
   percakapan lama — rangkaian hanya dimulai untuk chat baru sesudahnya.
 
-### Fixed
-
 - **Memilih "Link pembayaran + transfer bank" justru menyimpan dua-duanya
   kosong.** `savePaymentConfig()` membandingkan metode persis ke `'link'` /
   `'bank_transfer'`, jadi nilai `'both'` yang baru tidak cocok dengan keduanya
   dan semua field dikirim sebagai string kosong. Ditemukan saat menelusuri
   jalur simpan setelah menambahkan opsinya.
-
 
 - **Pembayaran boleh link DAN transfer bank sekaligus** (`payment_method = 'both'`,
   migration 017). Sebelumnya metodenya eksklusif, jadi company yang menerima
@@ -309,7 +372,6 @@ Semua perubahan penting Agnee dicatat di file ini. Format mengikuti prinsip
   diminta menanyakan langsung dan singkat ("sudah sempat checkout?", "ada yang
   masih mengganjal?") alih-alih mengirim ulang penawaran. Aturan anti-nagging
   tetap berlaku saat tidak ada langkah yang menggantung.
-
 
 - **Kontrak keluaran ditegakkan di kode, bukan cuma di prompt.** Sebelum balasan
   AI dikirim ke customer, `enforceReplyContract()` memeriksanya: kalau melanggar,
@@ -332,8 +394,6 @@ Semua perubahan penting Agnee dicatat di file ini. Format mengikuti prinsip
   daftar bernomor, AI menanyakan maksudnya alih-alih menebak. Pembedanya
   deterministik (`isAmbiguousCustomerReply()`), tidak bergantung kepatuhan model,
   dan link dibuang paksa dari kalimat klarifikasi.
-
-### Fixed
 
 - **WhatsApp macet selamanya di "Syncing messages 100%".** Watchdog pemulihan
   sesi hanya berjalan selama fase `starting` dan `authenticated`. Begitu
@@ -377,150 +437,8 @@ Semua perubahan penting Agnee dicatat di file ini. Format mengikuti prinsip
   `syncing` hanya menulis ke console sehingga terasa mati total. Keduanya kini
   menampilkan alasan sebenarnya.
 
-### Changed
-
-- `npm run check` kini ikut memeriksa `whatsapp-manager.js`, `follow-up.js`,
-  dan `knowledge-loader.js` — tiga file inti yang selama ini lolos dari syntax
-  check di CI.
-
-### Added
-
-- **Tindak lanjut lead yang diam.** Kalau customer berhenti membalas, AI
-  menyapa kembali dengan **plafon per hari** (default 5 di hari pertama, 3 di
-  hari kedua, 2 di hari ketiga, lalu berhenti permanen). Angka itu batas atas,
-  bukan kuota: mesin hanya mengirim kalau ada yang layak disampaikan, dan
-  generatornya boleh menjawab `SKIP` tanpa memakai kuota hari itu.
-  Pengamanannya: jarak minimum antar pesan (default 120 menit), jam kirim
-  8–21 WIB, berhenti begitu customer membalas atau agent mengambil alih chat,
-  dan kuota AI paket tetap dihitung supaya tindak lanjut bukan celah untuk
-  melewatinya. Plafon disimpan **per company**, jadi tenant yang funnel-nya
-  hanya mengizinkan 3 kali bisa diset `[1,1,1]`.
-  Fitur ini **mati secara default** — deploy tidak akan mengirim apa pun
-  sampai supervisor menyalakannya, karena menyalakan tindak lanjut otomatis ke
-  seluruh basis chat lama adalah cara tercepat kena laporan spam.
-- **Kirim tindak lanjut manual** lewat dua langkah: `POST /v1/follow-up/draft`
-  menyusun pesannya, supervisor membaca teks persisnya di dialog konfirmasi,
-  lalu `POST /v1/follow-up/send` mengirimnya. Plafon diperiksa **ulang** saat
-  kirim, supaya draft yang sempat menganggur di layar tidak lolos melewati
-  batas yang sudah dipenuhi scheduler. Jarak minimum sengaja tidak berlaku di
-  jalur manual — supervisor yang memutuskan waktunya.
-- **Playbook per company sebagai dokumen Markdown**, disusun lewat percakapan
-  dengan asisten admin (bukan mengisi formulir): supervisor menjelaskan cara
-  kerja CS-nya, asisten menanyakan yang masih kurang, lalu percakapan itu
-  dijadikan satu dokumen `.md` yang dibaca AI saat membalas customer.
-  Delapan jenis: persona, compliance, qna, discovery, objection, closing,
-  followup, handoff. Ada riwayat versi, dan dokumen bisa juga disunting
-  langsung. Disimpan di DB, bukan di `knowledge/clients/` — file repo sama
-  untuk semua tenant dan tidak bisa ditulis dari UI.
-  Urutan bacanya tetap: persona dan compliance lebih dulu, supaya aturan yang
-  melarang sesuatu terbaca sebelum materi jualan yang bisa menggodanya.
-- **Komponen dialog aplikasi** (`public/ui-dialog.js`) untuk konfirmasi,
-  pemberitahuan, dan input.
-
-### Changed
-
-- **Semua dialog bawaan browser diganti.** 14 pemakaian `confirm()`/`alert()`
-  di `admin.js` dan `settings.js` dihapus: dialog OS tidak bisa digaya, tidak
-  ikut bahasa yang dipilih user, dan memblokir thread. Penggantinya memakai
-  `<dialog>` dengan gaya yang sama seperti `.workspace-dialog` di inbox.
-  Konfirmasi yang menghapus sesuatu kini menjelaskan akibatnya, bukan hanya
-  menanyakan "yakin?".
-- `settings.js` sebelumnya **tidak memakai i18n sama sekali** — seluruh
-  teksnya Indonesia dan tidak berubah walau user memilih English. Sekarang
-  helper `tr()` tersedia di sana, dan seluruh string baru punya pasangan
-  ID/EN (389 kunci, seimbang di kedua bahasa).
-
-### Fixed
-
 - **Hapus dokumen playbook tidak punya konfirmasi apa pun** — sekali klik
   langsung terhapus, padahal isinya dipakai AI sebagai sumber jawaban.
-
-### Belum dikerjakan — antrean per 2026-09-12
-
-1. **Rotator nomor WhatsApp** — jalur belum dipilih. Skema `whatsapp_connections`
-   sudah mendukung banyak nomor (`UNIQUE (company_id, connection_key)`), tapi
-   kodenya mengunci `connection_key = 'whatsapp-main'` dan `WhatsappManager`
-   di-key `companyId` saja. Biaya terukur: satu nomor lewat WhatsApp Web =
-   ~400 MB + ~118 pid; lewat Cloud API ~0.
-2. **Export Google Sheets** — belum mulai. Diblokir kredensial service account
-   per company.
-3. **Tabel pesan masuk** — belum ada. Untuk WhatsApp Web, DB hanya menyimpan
-   balasan kita (`outbound_replies`); isi chat customer hanya hidup di browser.
-   Ini memblokir kolom "chat terakhir" pada nomor 2.
-4. **UI kirim tindak lanjut manual** — route `/v1/follow-up/draft` dan `/send`
-   plus kunci i18n `fu.manual*` sudah ada, tapi belum punya antarmuka di mana
-   pun. Tempatnya di inbox, per percakapan.
-5. **Konfigurasi produksi yang belum diisi** — pembayaran keempat company masih
-   `none`; tindak lanjut belum dinyalakan untuk siapa pun; `[LINK_AKSES]` masih
-   placeholder di `chart-campaign.md`.
-6. **Kecil** — balasan "yakinin aku" masih ~163 kata setelah satu kali tulis
-   ulang (batas 150; panjang sengaja diperlakukan sebagai pelanggaran lunak).
-   `/v1/admin/playground/auto-reply` masih satu pesan tanpa history, jadi kasus
-   multi-turn tidak bisa diuji dari sana.
-
-### Known issues — status per 2026-09-12
-
-Poin 1 dan 3 sudah diperbaiki (lihat Added di atas). Poin 2 **sengaja tidak
-dikerjakan**: gerbang "tahan harga sampai nama + broker tercatat" dibatalkan
-oleh funnel Recovery Package, yang memang menyebut harga sejak balasan pertama.
-Mengembalikannya akan merusak funnel yang berlaku.
-
-Catatan lama, ditemukan lewat test 8-turn di production (2026-09-10) terhadap Anya/tradersmastermind,
-setelah fix conversation history dan model swap ke Gemini. Cek otomatis (kontrak
-output, klaim hasil trading) lulus 0 pelanggaran, tapi transkrip menunjukkan
-tiga masalah funnel yang cek otomatis tidak tangkap:
-
-1. **Balasan singkat ambigu ("1", "ya", "oke") ditebak, bukan diklarifikasi.**
-   Kalau history tidak memuat opsi bernomor eksplisit, AI tetap mencoba
-   menjawab seolah tahu maksudnya — dalam satu kasus uji, dia malah membahas
-   onboarding pasca-bayar padahal customer belum memutuskan beli.
-2. **Gerbang capture nama + broker (Stage WL di sales-funnel.md) bisa
-   terlewat.** Kalau customer tidak menjawab saat ditanya nama/broker dan
-   melanjutkan topik lain, AI tidak menanyakan ulang dan tetap lanjut memberi
-   harga di stage berikutnya — lead masuk ke harga tanpa data untuk follow-up.
-3. **Bahasa hasil yang menjurus ke janji tanpa angka** ("modalmu bisa tumbuh
-   lagi dengan aman") lolos filter kata terlarang (yang berbasis
-   pola/angka) karena tidak menyebut figur, tapi mengarah ke arah yang sama.
-
-Perbaikan yang diusulkan: tambah aturan eksplisit di system prompt/funnel —
-(a) pesan ambigu tanpa rujukan jelas → klarifikasi dulu, jangan menebak;
-(b) jangan bahas onboarding/pasca-bayar sebelum keputusan beli; (c) block
-harga sampai nama+broker tercatat. Belum dikerjakan — menunggu keputusan user.
-
-### Added
-
-- **Knowledge base TM lengkap**: `funnel/sales-funnel.md` untuk Trader's Mastermind
-  — produk Recovery Plan (Rp99k) dan Bundle Mentorship (Rp188k), Copy Trade
-  Master vs Copy Trade EA, alur funnel 6 stage, FAQ, objection handling, link
-  checkout, dan panduan onboarding. AI kini punya sumber fakta yang jelas
-  dan tidak perlu mengarang detail produk.
-
-- FAQ Trader's Mastermind dipecah jadi 25 entri terindeks di `faq/`
-  (produk, harga, EA & copy trade, akun & broker) sehingga hanya jawaban yang
-  relevan disuntik ke konteks AI per pesan, bukan seluruh dokumen funnel.
-
-### Changed
-
-- **Model AI default: `qwen-2.5-72b-instruct` → `google/gemini-2.5-flash`.**
-  Alasannya bukan harga (biayanya setara karena balasan WhatsApp pendek,
-  sehingga biaya didominasi token masuk), tapi kecepatan: 0,9–1,3 detik
-  dibanding 3–7 detik. Funnel sendiri menargetkan balasan di bawah 5 menit.
-  Gemini juga lebih patuh pada kontrak keluaran (8/8 vs 2/3 pada uji yang sama)
-  dan mengikuti tahap discovery playbook, bukan langsung menawarkan harga.
-- Daftar model di panel admin dirapikan: 4 dari 7 pilihan sebelumnya sudah
-  tidak ada di OpenRouter (`mistralai/mistral-7b-instruct`,
-  `google/gemini-2.0-flash-exp`, `anthropic/claude-3.5-haiku`,
-  `anthropic/claude-opus-4-1`) — memilihnya membuat balasan gagal tanpa
-  pesan yang jelas. Semua ID sekarang sudah diverifikasi aktif, dan labelnya
-  menampilkan harga masuk dan keluar terpisah karena keduanya bisa berbeda
-  jauh (Gemini Flash: masuk $0,30 tapi keluar $2,50).
-- Harga acuan Trader's Mastermind dibakukan jadi **normal Rp1.900.000 → promo
-  Rp99.000**. Sebelumnya dokumen memuat tiga angka (Rp4.900.000, Rp1.900.000,
-  Rp99.000) tanpa aturan pemakaian, sehingga AI kadang menyebut harga normal
-  Rp1,9jt dan kadang Rp4,9jt ke customer. Angka Rp4.900.000 sekarang hanya
-  dipakai saat customer mempertanyakan kenapa harganya murah.
-
-### Fixed
 
 - **Playground auto-reply balas HTTP 500** kalau driver database tidak
   menyediakan `getPlaybookContext` — `.catch()` hanya menangkap promise yang
@@ -534,49 +452,6 @@ harga sampai nama+broker tercatat. Belum dikerjakan — menunggu keputusan user.
 - **Nama persona TM salah** — `tenant.json` sebelumnya menyebutkan
   `assistantName: "Admin"` padahal persona customer-facing-nya adalah
   **Anya**. Dikoreksi, juga di `reply-policy.md`.
-
-### Added
-
-- Panel pengaturan **Pembayaran & Closing** (link pembayaran atau transfer
-  bank) — instruksi ini otomatis disisipkan ke konteks AI saat pelanggan
-  siap closing, sehingga AI tahu cara menutup transaksi tanpa mengarang.
-- Header `x-agnee-company` untuk pemanggil berbasis API key (termasuk MCP
-  server, lewat env `AGNEE_COMPANY`) — wajib diisi karena tidak ada lagi
-  tenant default yang bisa dijadikan fallback diam-diam.
-
-- Endpoint `POST /v1/chats/:chatId/mark-read` yang menandai chat sebagai
-  terbaca (mengirim `sendSeen` ke WhatsApp) begitu chat tersebut dibuka;
-  badge unread langsung hilang di UI tanpa menunggu refresh.
-- Tab Inbox dan Archived terpisah di daftar percakapan, dengan filter
-  `inbox`/`archived` di endpoint `GET /v1/chats` dan properti `archived`
-  pada setiap chat.
-
-### Changed
-
-- Semua istilah teknis data-science di UI (`token`, `MODEL`, `STORAGE`,
-  `training`, dsb.) diganti dengan bahasa bisnis/marketing (`kredit`,
-  `MESIN AI`, `DATA`, `Latih AI`, dsb.) di kedua locale (ID/EN).
-- Inbox membedakan "WhatsApp sedang tersambung..." dari "Belum ada
-  percakapan" — sebelumnya keduanya tampil sebagai kotak masuk kosong yang
-  sama meski API sudah mengembalikan `phase` untuk kasus WhatsApp belum
-  siap.
-- Setiap perusahaan sekarang punya identitas WhatsApp sendiri
-  (`agnee-<companyId>`) alih-alih fallback ke client ID bersama — 4 dari 5
-  tenant sebelumnya berbagi satu profil Chromium dan saling merusak sesi
-  satu sama lain (kunci Singleton saling terhapus, QR tidak pernah muncul).
-- Perusahaan "default" bootstrap dihapus konsepnya sepenuhnya: 41 titik
-  fallback `database.companyId` di server.js dan ~30 default implisit di
-  database.js dihapus. Setiap sesi dan pemanggil API key sekarang wajib
-  menyebutkan company secara eksplisit. Perusahaan default lama di-rename
-  menjadi Agnive (identitas aslinya) alih-alih dihapus.
-- Notifikasi status WhatsApp (`whatsapp_phase`) kini didorong secara
-  real-time lewat SSE ke UI alih-alih menunggu polling; polling hanya
-  dipakai sebagai fallback setiap 30 detik.
-- Workflow deploy GitHub Actions sekarang benar-benar menjalankan
-  `docker-compose build` + `up -d` di server, bukan sekadar `git pull` dan
-  me-restart systemd service lama yang sudah tidak dipakai.
-
-### Fixed
 
 - Tombol koneksi WhatsApp, panel admin, dan playground kini disembunyikan
   untuk agent non-supervisor; agent yang login sebelum WhatsApp perusahaan
@@ -626,6 +501,101 @@ harga sampai nama+broker tercatat. Belum dikerjakan — menunggu keputusan user.
   WhatsApp merotasi QR (~setiap 20 detik), didukung polling fallback 15
   detik yang tetap jalan meski SSE terputus sejenak — sehingga QR di
   layar tidak expired sebelum sempat di-scan.
+
+- MCP smoke test sekarang gagal dengan jelas ketika API key backend salah,
+  alih-alih mencetak respons `Unauthorized` sebagai status yang terlihat sukses.
+- Volume state OAuth sekarang dimiliki user non-root container sehingga dynamic
+  client registration dapat dipersist tanpa gagal sebagai metadata invalid.
+- Stale Chromium `Singleton*` lock dari hostname container lama dibersihkan
+  sebelum session restore, sehingga redeploy tidak mengunci profil WhatsApp.
+
+- Payload thumbnail JPEG Base64 pada pesan WhatsApp `interactive` tidak lagi
+  bocor sebagai teks ke bubble, preview inbox, atau ringkasan lead; thumbnail
+  kini dirender sebagai gambar dan tetap dapat dibuka di image viewer.
+- Recovery sesi tersimpan kini melanjutkan sinkronisasi baik dari fase
+  `starting` maupun `authenticated`, sehingga restart tidak berhenti di tengah.
+- Preview thumbnail Base64 kini mempertahankan tipe asli (`Video`, `Foto`, atau
+  `Dokumen`) dan caption, bukan menyamaratakan semuanya sebagai pesan interaktif.
+- Video WhatsApp sekarang memiliki preview dengan tombol play dan terbuka dalam
+  player modal berukuran nyaman, lengkap dengan controls dan download.
+
+### Known issues — 2026-09-14
+
+- **`WWebJS.sendMessage` melempar di hampir setiap pengiriman, bukan sesekali.**
+  Uji kirim ke nomor sendiri memicu log `receipt dipulihkan dari riwayat chat`
+  padahal pesannya sampai dengan `ack: 3`. Jalur pemulihan di `sendTextForUi`
+  menahannya, tetapi akarnya ada di serialisasi model whatsapp-web.js dan belum
+  dikejar. Selama belum, tidak ada lapis lain di bawah jalur pemulihan itu.
+- **Tindak lanjut otomatis MATI di keempat company** dan belum dinyalakan lagi.
+  Kalau dinyalakan, mulai dari satu percakapan uji, bukan seluruh basis.
+- Kredensial OneDrive dan Google Sheets belum diisi di produksi, jadi kedua
+  sinkronisasi belum pernah berjalan terhadap akun sungguhan.
+- `/v1/messages/:messageId/media` masih dilayani nomor utama; route itu hanya
+  membawa `messageId` tanpa `chatId` untuk dipetakan ke nomor.
+
+### Investigated — bukan bug
+
+- **"Pesan grup semua di kiri."** Seluruh 27 id pesan di grup yang dilaporkan
+  berawalan `false_` — penanda milik WhatsApp sendiri, bukan tafsiran Agnee.
+  Akun yang tersambung belum pernah mengirim apa pun di grup itu; nama yang
+  dikira "kita" ternyata akun pribadi yang berbeda, dan dari sudut pandang
+  akun yang tersambung ia memang peserta lain. Perataan kiri/kanan sudah benar.
+  Jalan keluarnya menyambungkan nomor itu sebagai nomor kedua lewat rotator —
+  bukan memindahkan pesan peserta lain ke kanan, yang akan memalsukan siapa
+  pengirimnya.
+
+### Belum dikerjakan — antrean per 2026-09-14
+
+Poin 1–3 antrean sebelumnya (rotator, export, tabel pesan masuk) sudah selesai
+dan pindah ke bagian Added di atas. Sisanya:
+
+1. **Follow-up mati di semua company** setelah insiden spam 2026-09-14, dan
+   sengaja dibiarkan mati sampai ada keputusan. Kalau dinyalakan lagi: bertahap,
+   satu chat uji dulu, bukan seluruh basis.
+2. **Kredensial ekspor cloud belum diisi** — `onedrive_connections` dan
+   `gsheets_connections` keduanya nol baris di produksi, jadi sinkronisasi belum
+   pernah berjalan terhadap akun asli. Unduhan XLSX/CSV tidak terpengaruh.
+3. **UI kirim tindak lanjut manual** — route `/v1/follow-up/draft` dan `/send`
+   plus kunci i18n `fu.manual*` sudah ada, tapi belum punya antarmuka di mana
+   pun. Tempatnya di inbox, per percakapan.
+4. **Media dari nomor kedua belum bisa diambil** —
+   `/v1/messages/:messageId/media` hanya membawa `messageId`, tanpa `chatId`
+   untuk dipetakan ke nomor, jadi selalu dilayani nomor utama.
+5. **Konfigurasi produksi yang belum diisi** — pembayaran keempat company masih
+   `none`; `[LINK_AKSES]` masih placeholder di `chart-campaign.md`.
+6. **Kecil** — balasan "yakinin aku" masih ~163 kata setelah satu kali tulis
+   ulang (batas 150; panjang sengaja diperlakukan sebagai pelanggaran lunak).
+   `/v1/admin/playground/auto-reply` masih satu pesan tanpa history, jadi kasus
+   multi-turn tidak bisa diuji dari sana.
+
+### Known issues — status per 2026-09-12
+
+Poin 1 dan 3 sudah diperbaiki (lihat Added di atas). Poin 2 **sengaja tidak
+dikerjakan**: gerbang "tahan harga sampai nama + broker tercatat" dibatalkan
+oleh funnel Recovery Package, yang memang menyebut harga sejak balasan pertama.
+Mengembalikannya akan merusak funnel yang berlaku.
+
+Catatan lama, ditemukan lewat test 8-turn di production (2026-09-10) terhadap Anya/tradersmastermind,
+setelah fix conversation history dan model swap ke Gemini. Cek otomatis (kontrak
+output, klaim hasil trading) lulus 0 pelanggaran, tapi transkrip menunjukkan
+tiga masalah funnel yang cek otomatis tidak tangkap:
+
+1. **Balasan singkat ambigu ("1", "ya", "oke") ditebak, bukan diklarifikasi.**
+   Kalau history tidak memuat opsi bernomor eksplisit, AI tetap mencoba
+   menjawab seolah tahu maksudnya — dalam satu kasus uji, dia malah membahas
+   onboarding pasca-bayar padahal customer belum memutuskan beli.
+2. **Gerbang capture nama + broker (Stage WL di sales-funnel.md) bisa
+   terlewat.** Kalau customer tidak menjawab saat ditanya nama/broker dan
+   melanjutkan topik lain, AI tidak menanyakan ulang dan tetap lanjut memberi
+   harga di stage berikutnya — lead masuk ke harga tanpa data untuk follow-up.
+3. **Bahasa hasil yang menjurus ke janji tanpa angka** ("modalmu bisa tumbuh
+   lagi dengan aman") lolos filter kata terlarang (yang berbasis
+   pola/angka) karena tidak menyebut figur, tapi mengarah ke arah yang sama.
+
+Perbaikan yang diusulkan: tambah aturan eksplisit di system prompt/funnel —
+(a) pesan ambigu tanpa rujukan jelas → klarifikasi dulu, jangan menebak;
+(b) jangan bahas onboarding/pasca-bayar sebelum keputusan beli; (c) block
+harga sampai nama+broker tercatat. Belum dikerjakan — menunggu keputusan user.
 
 ### Security
 
@@ -678,33 +648,6 @@ harga sampai nama+broker tercatat. Belum dikerjakan — menunggu keputusan user.
   dan ditandai dengan ikon pin seperti WhatsApp Desktop.
 - Quoted-message embed dapat diklik untuk memuat histori, scroll halus, dan
   menyorot pesan asli yang sedang dibalas.
-
-### Changed
-
-- Tombol rail, menu percakapan, attachment, connection status, dan handoff kini
-  menjalankan aksi nyata; kontrol yang sebelumnya placeholder sudah diaktifkan.
-- Composer dapat menampilkan konteks reply/lampiran tanpa menggeser area chat.
-- Dialog connection menampilkan status sesi aktif dan tidak meminta QR ulang
-  saat WhatsApp sudah connected.
-
-### Fixed
-
-- MCP smoke test sekarang gagal dengan jelas ketika API key backend salah,
-  alih-alih mencetak respons `Unauthorized` sebagai status yang terlihat sukses.
-- Volume state OAuth sekarang dimiliki user non-root container sehingga dynamic
-  client registration dapat dipersist tanpa gagal sebagai metadata invalid.
-- Stale Chromium `Singleton*` lock dari hostname container lama dibersihkan
-  sebelum session restore, sehingga redeploy tidak mengunci profil WhatsApp.
-
-- Payload thumbnail JPEG Base64 pada pesan WhatsApp `interactive` tidak lagi
-  bocor sebagai teks ke bubble, preview inbox, atau ringkasan lead; thumbnail
-  kini dirender sebagai gambar dan tetap dapat dibuka di image viewer.
-- Recovery sesi tersimpan kini melanjutkan sinkronisasi baik dari fase
-  `starting` maupun `authenticated`, sehingga restart tidak berhenti di tengah.
-- Preview thumbnail Base64 kini mempertahankan tipe asli (`Video`, `Foto`, atau
-  `Dokumen`) dan caption, bukan menyamaratakan semuanya sebagai pesan interaktif.
-- Video WhatsApp sekarang memiliki preview dengan tombol play dan terbuka dalam
-  player modal berukuran nyaman, lengkap dengan controls dan download.
 
 ### Planned
 

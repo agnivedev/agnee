@@ -437,3 +437,26 @@ test('menyusun ulang id pesan masuk yang dibuang getMessageModel', () => {
   assert.equal(inboundMessageId({}), null);
   assert.equal(inboundMessageId({ id: { fromMe: false } }), null);
 });
+
+test('riwayat percakapan tidak ikut tersaring habis saat _serialized hilang', () => {
+  // Penyaring riwayat membandingkan id pesan berjalan dengan tiap pesan lama.
+  // Dulu perbandingannya `m.id._serialized !== message.id._serialized`. Karena
+  // `fetchMessages` memetakan lewat `getMessageModel` yang membuang getter itu
+  // untuk chat `@lid`, kedua sisi undefined, `undefined !== undefined` bernilai
+  // false, dan SETIAP pesan tersaring keluar — riwayat selalu kosong.
+  //
+  // Yang dijamin di sini: id turunan tetap membedakan pesan satu sama lain,
+  // sehingga hanya pesan berjalan yang tersingkir.
+  const lama = { id: { fromMe: false, remote: '628@c.us', id: 'AAA' } };
+  const balasan = { id: { fromMe: true, remote: '628@c.us', id: 'BBB' } };
+  const berjalan = { id: { fromMe: false, remote: '628@c.us', id: 'CCC' } };
+
+  const ids = [lama, balasan, berjalan].map(inboundMessageId);
+  assert.equal(new Set(ids).size, 3, 'tiga pesan berbeda harus punya tiga id berbeda');
+
+  const currentId = inboundMessageId(berjalan);
+  const tersisa = [lama, balasan, berjalan]
+    .filter((m) => !currentId || inboundMessageId(m) !== currentId);
+  assert.equal(tersisa.length, 2, 'hanya pesan berjalan yang tersingkir');
+  assert.equal(inboundMessageId(tersisa[0]), inboundMessageId(lama));
+});

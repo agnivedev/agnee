@@ -745,8 +745,21 @@ async function buildApp(overrides = {}) {
       const chat = await message.getChat();
       const hiddenTypes = new Set(['e2e_notification', 'protocol', 'notification_template', 'gp2', 'call_log']);
       const recent = await chat.fetchMessages({ limit: 20 });
+      // Id dibandingkan lewat `inboundMessageId`, BUKAN `m.id._serialized`.
+      //
+      // `fetchMessages` memetakan tiap pesan lewat `getMessageModel`, yang
+      // membuang getter `_serialized` untuk chat `@lid` — yaitu semua
+      // percakapan kita. Dengan `_serialized` undefined di kedua sisi,
+      // perbandingan `undefined !== undefined` bernilai false dan SETIAP pesan
+      // tersaring keluar: riwayatnya selalu kosong.
+      //
+      // Akibatnya AI membalas tiap pesan seolah kontak pertama — memperkenalkan
+      // diri berulang kali dan menanyakan hal yang baru saja dijawab. Ini
+      // penyebab tunggal kekacauan percakapan yang terlihat di produksi.
+      const currentId = inboundMessageId(message);
       conversationHistory = recent
-        .filter(m => !hiddenTypes.has(m.type) && m.body && m.id?._serialized !== message.id?._serialized)
+        .filter(m => !hiddenTypes.has(m.type) && m.body
+          && (!currentId || inboundMessageId(m) !== currentId))
         .slice(-10)
         .map(m => ({ role: m.fromMe ? 'assistant' : 'user', content: m.body }));
     } catch { /* Cloud API or unavailable — proceed without history */ }

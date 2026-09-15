@@ -2,6 +2,20 @@
 
 ### Fixed
 
+- **AI tidak pernah melihat riwayat percakapan. Sama sekali, sejak awal.**
+  Penyaring riwayat membandingkan `m.id._serialized !== message.id._serialized`.
+  `chat.fetchMessages()` memetakan tiap pesan lewat `getMessageModel`, yang
+  membuang getter itu untuk chat `@lid` — semua percakapan produksi. Dengan
+  kedua sisi `undefined`, perbandingannya bernilai false dan SETIAP pesan
+  tersaring keluar: `conversationHistory` selalu array kosong.
+  Akibatnya tiap balasan disusun seolah kontak pertama. Di produksi terlihat
+  sebagai AI yang memperkenalkan diri berulang kali di tengah percakapan,
+  menanyakan nama broker yang baru saja dijawab, dan salah membaca "100%"
+  sebagai rujukan ke garansi. Bukan masalah prompt — konteksnya memang tidak
+  pernah ada.
+- **Perkenalan diri dihapus dari template balasan** Trader's Mastermind, di
+  `knowledge/` dan di playbook `discovery` pada produksi.
+
 - **Akar id pesan masuk yang hilang: `getMessageModel` milik whatsapp-web.js
   yang membuangnya.** Selama ini dicatat sebagai "bug serialisasi"; ternyata
   lebih sempit dan bisa ditunjuk barisnya. `_serialized` adalah getter di

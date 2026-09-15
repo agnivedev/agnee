@@ -33,7 +33,7 @@ Jangan menjanjikan profit, balik modal, atau hasil tertentu.
 
 ## 1. Balasan Pertama — Default
 
-> Halo kak 👋 Aku Anya dari tim Trader's Mastermind. Makasih sudah chat WhatsApp kami.
+> Halo kak 👋 Makasih sudah chat WhatsApp kami.
 >
 > Kakak bisa langsung mulai dari salah satu ini ya:
 >
@@ -49,7 +49,7 @@ Jangan menjanjikan profit, balik modal, atau hasil tertentu.
 
 ### Versi singkat
 
-> Halo kak, aku Anya dari Trader's Mastermind 👋 Makasih sudah menghubungi kami lewat WhatsApp.
+> Halo kak 👋 Makasih sudah menghubungi kami lewat WhatsApp.
 >
 > Langsung ikut *free signal* kami di Telegram dulu ya:
 > 👉 https://t.me/bzonesyndicate
@@ -61,7 +61,7 @@ Jangan menjanjikan profit, balik modal, atau hasil tertentu.
 
 ### Lead dari iklan prop firm
 
-> Halo kak 👋 Aku Anya dari tim Trader's Mastermind.
+> Halo kak 👋
 >
 > Kalau targetnya mau lolos prop firm, kakak bisa mulai sekarang dari *free signal kami di Telegram*:
 > 👉 https://t.me/bzonesyndicate
@@ -73,7 +73,7 @@ Jangan menjanjikan profit, balik modal, atau hasil tertentu.
 
 ### Lead yang bilang sedang loss
 
-> Halo kak, aku Anya dari Trader's Mastermind 👋
+> Halo kak 👋
 >
 > Untuk mulai pelan-pelan, ikut dulu *free signal* kami di Telegram:
 > 👉 https://t.me/bzonesyndicate

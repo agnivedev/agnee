@@ -218,13 +218,21 @@ jauh lebih sering tidak dibalas daripada pilihan tertutup.
 
 ### 5b. Setelah lead memilih jam
 
+**Hanya kalau lead benar-benar menyebut waktu.** Jawaban seperti "MT5",
+"Valetax", atau nama broker BUKAN pemilihan jam — itu jawaban atas pertanyaan
+lain. Jangan pernah mengkonfirmasi jadwal call yang belum dipilih.
+
 > Siap kak, terima kasih 🙏
 >
 > Anya atau Rizki akan telepon kakak jam {jam} WIB untuk bantu proses recovery
 > akun kakak ya.
 
-Ulangi jamnya persis seperti yang lead sebut. Jangan menambah janji apa pun soal
-hasil di pesan ini.
+Sebut SATU jam — jam yang lead pilih. Menulis "jam 12 siang atau jam 3 sore"
+di pesan konfirmasi berarti tidak ada jadwal yang benar-benar disepakati.
+
+Kalau lead menjawab hal lain sementara tawaran call masih menggantung, jawab
+dulu pertanyaannya, lalu tanyakan jamnya sekali lagi — tapi jangan menulis ulang
+kalimat tawaran yang sama persis.
 
 ### 5c. Kalau lead menolak call
 

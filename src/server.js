@@ -2583,7 +2583,27 @@ Aturan:
       if (!generated?.text && mode === 'ai') {
         return reply.code(502).send({ error: 'AI tidak menghasilkan balasan.' });
       }
-      aiReply = generated?.text || null;
+
+      // Simulator harus menampilkan apa yang BENAR-BENAR diterima customer,
+      // bukan keluaran mentah model. Sebelum ini kontrak keluaran dan aturan
+      // satu-link tidak dijalankan di sini, jadi hasil simulasi berbeda dari
+      // produksi — dan setiap audit yang memakai halaman ini menilai teks yang
+      // tidak pernah dikirim. Rantainya sengaja sama persis dengan
+      // generateAutoReply.
+      let teks = generated?.text || null;
+      if (teks) {
+        const enforcedSim = await enforceReplyContract(llmService, {
+          text: teks,
+          systemPrompt: ctx.systemPrompt,
+          userMessage: customerMessage,
+          history,
+        });
+        teks = enforcedSim ? keepSingleLink(enforcedSim.text).text : null;
+      }
+      if (!teks && mode === 'ai') {
+        return reply.code(502).send({ error: 'Balasan AI dibuang karena melanggar kontrak keluaran.' });
+      }
+      aiReply = teks;
       aiModel = generated?.model || null;
     }
 

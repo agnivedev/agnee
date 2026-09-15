@@ -137,6 +137,18 @@ export function MessageRow({
           <strong className={cn('mb-[5px] block text-[11px]', senderClass)}>{message.senderName}</strong>
         ) : null}
 
+        {/* Siapa yang menulis pesan keluar ini. WhatsApp tidak menyimpannya —
+            dari sisinya semua berasal dari nomor yang sama — jadi tanpa label
+            ini supervisor tidak bisa membedakan kalimat agent dari kalimat AI,
+            padahal keduanya bercampur di percakapan yang sama. */}
+        {mine && message.authorKind ? (
+          <strong className="mb-[5px] block text-[10px] font-semibold tracking-wide text-ink/45 uppercase">
+            {message.authorKind === 'human'
+              ? (message.authorName || t('message.byAgent'))
+              : t('message.byAi')}
+          </strong>
+        ) : null}
+
         {message.quoted ? (
           <button
             type="button"

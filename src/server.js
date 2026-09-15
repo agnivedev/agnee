@@ -4005,6 +4005,32 @@ Aturan:
     };
   });
 
+  /**
+   * Menandai tiap pesan keluar dengan penulisnya: AI atau anggota tim yang mana.
+   *
+   * WhatsApp tidak menyimpan siapa yang mengetik — dari sisinya semua pesan
+   * keluar berasal dari nomor yang sama. Jadi asalnya dicocokkan ke
+   * `outbound_replies` lewat id pesan.
+   *
+   * Tanpa ini, supervisor tidak bisa membedakan kalimat yang ditulis agent dari
+   * kalimat yang disusun AI — padahal keduanya bercampur di percakapan yang
+   * sama, dan yang satu bisa menjanjikan hal yang tidak diketahui yang lain.
+   */
+  async function withReplyAuthors(companyId, chatId, messages) {
+    if (!Array.isArray(messages) || !messages.length) return messages || [];
+    if (!canCall('listOutboundAuthors')) return messages;
+    const ids = messages.filter((m) => m.fromMe && m.id).map((m) => m.id);
+    if (!ids.length) return messages;
+    const byId = await database.listOutboundAuthors(companyId, chatId, ids).catch(() => new Map());
+    return messages.map((m) => {
+      if (!m.fromMe) return m;
+      const row = byId.get(m.id);
+      // Tidak ketemu berarti AI: jalur manusia selalu mencatat id-nya.
+      if (!row || row.author === 'ai') return { ...m, authorKind: 'ai', authorName: null };
+      return { ...m, authorKind: 'human', authorName: row.authorName || null };
+    });
+  }
+
   app.get('/v1/chats/:chatId/messages', {
     schema: {
       params: { type: 'object', required: ['chatId'], properties: { chatId: { type: 'string', minLength: 1, maxLength: 128 } } },
@@ -4022,7 +4048,8 @@ Aturan:
       return { messages: all.slice(-limit), hasMore: all.length > limit };
     }
     if (waState.phase !== 'ready') return reply.code(503).send({ error: 'WhatsApp is not ready', phase: waState.phase });
-    return getMessagesForUi(wa, chatId, limit);
+    const hasil = await getMessagesForUi(wa, chatId, limit);
+    return { ...hasil, messages: await withReplyAuthors(companyId, chatId, hasil.messages) };
   });
 
   app.get('/v1/chats/:chatId/info', {

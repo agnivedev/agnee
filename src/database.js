@@ -1925,6 +1925,28 @@ class Database {
     return result.rowCount > 0;
   }
 
+  /**
+   * Siapa yang menulis tiap balasan keluar: AI atau anggota tim yang mana.
+   *
+   * Dicocokkan lewat `message_id` — id WhatsApp yang sama dengan yang dipakai
+   * inbox, jadi pemetaannya tepat, bukan tebakan berdasar isi dan waktu.
+   *
+   * Balasan AI tidak menyimpan `message_id`, jadi pesan keluar yang tidak
+   * ketemu di sini dianggap AI. Itu benar secara bawaan: satu-satunya penulis
+   * lain adalah manusia, dan jalur manusia selalu mencatat id-nya.
+   */
+  async listOutboundAuthors(companyId, chatId, messageIds) {
+    if (!this.enabled || !messageIds?.length) return new Map();
+    const result = await this.pool.query(`
+      SELECT o.message_id AS "messageId", o.author,
+             COALESCE(u.display_name, u.email) AS "authorName"
+      FROM outbound_replies o
+      LEFT JOIN users u ON u.id = o.author_user_id
+      WHERE o.company_id = $1 AND o.chat_id = $2 AND o.message_id = ANY($3::TEXT[])
+    `, [companyId, chatId, messageIds]);
+    return new Map(result.rows.map((row) => [row.messageId, row]));
+  }
+
   /** Pesan masuk terakhir untuk satu percakapan. */
   async getLastInboundMessage(companyId, chatId) {
     if (!this.enabled) return null;

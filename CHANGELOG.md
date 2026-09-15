@@ -2,6 +2,25 @@
 
 ### Fixed
 
+- **Akar id pesan masuk yang hilang: `getMessageModel` milik whatsapp-web.js
+  yang membuangnya.** Selama ini dicatat sebagai "bug serialisasi"; ternyata
+  lebih sempit dan bisa ditunjuk barisnya. `_serialized` adalah getter di
+  prototype MsgKey, dan library menjalankan
+  `Object.assign({}, msg.id, { remote: ... })` setiap kali `msg.id.remote`
+  bertipe object. `Object.assign` hanya menyalin own property, jadi getter-nya
+  hilang di baris itu. Syaratnya berlaku untuk chat `@lid` — yaitu SEMUA
+  percakapan di produksi, yang menjelaskan 80 dari 80 baris kosong.
+  Id-nya sekarang dirakit ulang dari bagian yang selamat, dengan format yang
+  sama seperti aslinya: `fromMe_remote_id[_participant]`.
+- **Log jalur kirim tidak membedakan dua kegagalan yang sangat berbeda.**
+  `WWebJS.sendMessage` diakhiri `Msg.get(newMsgKey._serialized)` SETELAH
+  `addAndSendMsgToChat` menembak, dan `Msg.get` yang tidak menemukan
+  mengembalikan undefined, bukan melempar. Jadi "pesan terkirim tapi pemanggil
+  menganggap gagal" kemungkinan besar bukan lemparan sama sekali, melainkan
+  pencarian model balik yang meleset — balapan, bukan serialisasi. Log sekarang
+  mencatat `failureKind` (`threw` atau `empty`) supaya dugaan itu bisa
+  dibuktikan pada kiriman berikutnya.
+
 - **Penjaga pesan masuk ganda tidak pernah bekerja.** `UNIQUE (company_id,
   wa_message_id)` hanya menahan kalau kolomnya terisi — Postgres menganggap tiap
   NULL berbeda. Di produksi id WhatsApp tidak pernah sampai ke sana: 80 dari 80

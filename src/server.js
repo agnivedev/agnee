@@ -80,6 +80,35 @@ function loadConfig(overrides = {}) {
   return config;
 }
 
+/**
+ * Id WhatsApp sebuah pesan masuk, disusun ulang kalau perlu.
+ *
+ * `_serialized` adalah getter di prototype MsgKey. `getMessageModel` milik
+ * whatsapp-web.js menjalankan `Object.assign({}, msg.id, {...})` setiap kali
+ * `msg.id.remote` bertipe object — dan itu berlaku untuk chat `@lid`, yaitu
+ * semua percakapan kita. `Object.assign` hanya menyalin own property, jadi
+ * getter-nya hilang di sana; sisa perjalanannya lewat `exposeFunction` yang
+ * mem-JSON-kan argumen juga tidak akan memulihkannya.
+ *
+ * Bagian penyusunnya tetap selamat, jadi id-nya dirakit ulang dengan format
+ * yang sama seperti `_serialized`: fromMe_remote_id[_participant].
+ */
+function inboundMessageId(message) {
+  const id = message?.id;
+  if (!id) return null;
+  if (typeof id === 'string') return id;
+  if (id._serialized) return id._serialized;
+  if (!id.remote || !id.id) return null;
+  const remote = typeof id.remote === 'string' ? id.remote : id.remote?._serialized;
+  if (!remote) return null;
+  const participant = typeof id.participant === 'string'
+    ? id.participant
+    : id.participant?._serialized;
+  return [id.fromMe ? 'true' : 'false', remote, id.id, participant]
+    .filter(Boolean)
+    .join('_');
+}
+
 function normalizeChatId(value, defaultCountryCode) {
   if (typeof value !== 'string' || value.trim() === '') throw new Error('Recipient is required');
   const input = value.trim();
@@ -495,7 +524,7 @@ async function buildApp(overrides = {}) {
         chatId: message.from,
         connectionId: meta.connectionId || null,
         provider: meta.provider || 'whatsapp_web',
-        waMessageId: message.id?._serialized || null,
+        waMessageId: inboundMessageId(message),
         body: message.body || null,
         messageType: message.type || 'text',
         timestamp: message.timestamp || Math.floor(Date.now() / 1000),
@@ -1223,12 +1252,27 @@ async function buildApp(overrides = {}) {
 
       if (message) return receiptFrom(message);
 
-      // Sampai sini pengiriman melempar atau tidak mengembalikan model. Belum
-      // tentu gagal. Lampiran dikecualikan: isinya tidak dapat dibandingkan
-      // dengan teks, jadi kemiripan body bukan bukti yang sah.
+      // Sampai sini pengiriman melempar ATAU mengembalikan model kosong. Dua
+      // hal yang sangat berbeda, dan selama ini tidak dibedakan sama sekali:
+      //
+      //   melempar        sesuatu di jalur kirim gagal
+      //   kosong          kirim jalan, hanya pencarian model balik yang meleset
+      //
+      // `WWebJS.sendMessage` diakhiri `Msg.get(newMsgKey._serialized)` setelah
+      // `addAndSendMsgToChat` sudah menembak. `Msg.get` yang tidak menemukan
+      // mengembalikan undefined, bukan melempar. Jadi "pesan terkirim tapi
+      // pemanggil menganggap gagal" paling mungkin kasus KEDUA — dan itu balapan
+      // pencarian, bukan serialisasi. Dicatat supaya bisa dibuktikan, bukan
+      // ditebak.
+      const failure = sendError
+        ? { kind: 'threw', detail: String(sendError?.message || sendError).slice(0, 120) }
+        : { kind: 'empty', detail: 'sendMessage mengembalikan model kosong' };
+
+      // Belum tentu gagal. Lampiran dikecualikan: isinya tidak dapat
+      // dibandingkan dengan teks, jadi kemiripan body bukan bukti yang sah.
       if (!sendOptions.attachment) {
         const landed = findRecentOwnMessage(chat, content, startedAt - 5);
-        if (landed) return { ...receiptFrom(landed), recovered: true };
+        if (landed) return { ...receiptFrom(landed), recovered: true, failure };
       }
 
       throw new Error(sendError?.message
@@ -1240,8 +1284,8 @@ async function buildApp(overrides = {}) {
     // Kalau sering, penyebab sebenarnya ada di serialisasi model WhatsApp dan
     // pantas dikejar ke sana, bukan ditambal terus di sini.
     if (receipt?.recovered) {
-      app.log.warn({ chatId },
-        'Pengiriman WhatsApp melempar setelah pesan terkirim; receipt dipulihkan dari riwayat chat');
+      app.log.warn({ chatId, failureKind: receipt.failure?.kind, failureDetail: receipt.failure?.detail },
+        'Pesan terkirim tapi pemanggil tidak menerima modelnya; receipt dipulihkan dari riwayat chat');
     }
     return receipt;
   }
@@ -4517,4 +4561,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { buildApp, loadConfig, normalizeChatId, inlineImageFromBody, messagePreviewForUi, normalizeMessageForUi, isConversationMessageForUi, isConversationForUi, requestsHumanAgent, parseConversationInsight };
+module.exports = { buildApp, loadConfig, normalizeChatId, inboundMessageId, inlineImageFromBody, messagePreviewForUi, normalizeMessageForUi, isConversationMessageForUi, isConversationForUi, requestsHumanAgent, parseConversationInsight };

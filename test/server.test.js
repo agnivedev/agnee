@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { buildApp, normalizeChatId, inlineImageFromBody, messagePreviewForUi, normalizeMessageForUi, isConversationMessageForUi, isConversationForUi, requestsHumanAgent, parseConversationInsight } = require('../src/server');
+const { buildApp, normalizeChatId, inboundMessageId, inlineImageFromBody, messagePreviewForUi, normalizeMessageForUi, isConversationMessageForUi, isConversationForUi, requestsHumanAgent, parseConversationInsight } = require('../src/server');
 
 test('parses structured AI summary and qualification safely', () => {
   const insight = parseConversationInsight('```json\n{"summary":"Pelanggan meminta demo.","stage":"qualified","score":82,"title":"Siap demo","detail":"Permintaan demo sudah konkret.","labels":["Demo","Produk","Demo"]}\n```');
@@ -407,4 +407,33 @@ test('agent can claim an unheld chat but cannot take over another agent chat', a
   assert.equal(peek.statusCode, 403);
   const release = await app.inject({ method: 'POST', url: '/v1/chats/6281200000001@c.us/routing', headers: { cookie: cookieTwo }, payload: { mode: 'ai' } });
   assert.equal(release.statusCode, 403);
+});
+
+test('menyusun ulang id pesan masuk yang dibuang getMessageModel', () => {
+  // `_serialized` adalah getter di prototype MsgKey. whatsapp-web.js
+  // menjalankan `Object.assign({}, msg.id, {...})` setiap kali `msg.id.remote`
+  // bertipe object — dan itu berlaku untuk chat `@lid`, yaitu semua percakapan
+  // di produksi. `Object.assign` hanya menyalin own property, jadi getter-nya
+  // hilang di sana dan tidak ada yang memulihkannya setelah itu. Akibatnya
+  // 80 dari 80 baris `inbound_messages` punya `wa_message_id` kosong, dan
+  // `UNIQUE (company_id, wa_message_id)` tidak menahan apa pun.
+  assert.equal(
+    inboundMessageId({ id: { fromMe: false, remote: '56818256609469@lid', id: '3EB0F1' } }),
+    'false_56818256609469@lid_3EB0F1',
+  );
+  // Grup membawa participant, dan itu bagian dari identitasnya.
+  assert.equal(
+    inboundMessageId({ id: { fromMe: false, remote: '1203@g.us', id: '3EB0', participant: '276@lid' } }),
+    'false_1203@g.us_3EB0_276@lid',
+  );
+  // Kalau getter-nya selamat, pakai apa adanya — jangan menyusun ulang.
+  assert.equal(inboundMessageId({ id: { _serialized: 'false_628@c.us_ABC' } }), 'false_628@c.us_ABC');
+  // `remote` yang masih berupa model tetap bisa dibaca.
+  assert.equal(
+    inboundMessageId({ id: { fromMe: true, remote: { _serialized: '628@c.us' }, id: 'XYZ' } }),
+    'true_628@c.us_XYZ',
+  );
+  // Tanpa bahan yang cukup, jangan mengarang id.
+  assert.equal(inboundMessageId({}), null);
+  assert.equal(inboundMessageId({ id: { fromMe: false } }), null);
 });

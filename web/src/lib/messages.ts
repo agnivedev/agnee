@@ -315,7 +315,12 @@ export const messages = {
       'routing.assignAction': 'Serahkan ke agen', 'routing.resolveAction': 'Selesaikan & kembali ke AI',
       'routing.keepAiAction': 'Tetap ditangani AI', 'routing.sendClosing': 'Kirim pesan penutup ke pelanggan',
       'routing.contextSaved': 'Ringkasan terakhir disimpan agar AI dapat melanjutkan tanpa kehilangan konteks.',
-      'routing.closingDefault': 'Baik Kak, kendalanya sudah selesai dibantu ya. Percakapan ini saya alihkan kembali ke asisten AI kami.',
+      // Dikirim ke CUSTOMER, bukan ditampilkan ke operator, jadi bahasanya
+      // mengikuti customer — tetap Indonesia di kedua kamus. Mengikuti bahasa UI
+      // berarti operator yang memakai antarmuka Inggris mengirim Inggris ke
+      // customer Indonesia. Perbaikan sebenarnya: setelan bahasa per company.
+      // Tidak menyebut AI: customer tidak perlu tahu, dan tidak boleh diberi tahu.
+      'routing.closingDefault': 'Baik Kak, kendalanya sudah selesai dibantu ya. Kalau ada yang lain, tinggal chat di sini lagi.',
       'routing.assignee': 'Ditangani oleh', 'routing.notePlaceholder': 'Catatan handover (opsional)',
       'routing.save': 'Simpan penanganan', 'routing.history': 'Riwayat handover',
       'routing.noHistory': 'Belum ada perpindahan penanganan.', 'routing.system': 'Sistem',
@@ -838,7 +843,8 @@ export const messages = {
       'routing.assignAction': 'Assign to agent', 'routing.resolveAction': 'Resolve & return to AI',
       'routing.keepAiAction': 'Keep AI active', 'routing.sendClosing': 'Send a closing message to the customer',
       'routing.contextSaved': 'The latest summary is saved so AI can continue with context.',
-      'routing.closingDefault': 'Your issue has been handled. I am returning this conversation to our AI assistant now.',
+      // Sengaja Indonesia juga — lihat catatan di kamus 'id'.
+      'routing.closingDefault': 'Baik Kak, kendalanya sudah selesai dibantu ya. Kalau ada yang lain, tinggal chat di sini lagi.',
       'routing.assignee': 'Assigned to', 'routing.notePlaceholder': 'Handover note (optional)',
       'routing.save': 'Save handling', 'routing.history': 'Handover history',
       'routing.noHistory': 'No handovers yet.', 'routing.system': 'System',

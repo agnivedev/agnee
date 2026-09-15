@@ -134,6 +134,26 @@ Setelah lead menjawab, hubungkan jawabannya ke manfaat paket tanpa menjanjikan h
 
 > Oke kak, berarti yang paling membantu buat kondisi kakak adalah eksekusi yang lebih disiplin dan ada tim yang bisa diajak cek langkahnya. Itu sebabnya Recovery Package kami gabungkan copy trade, ebook, signal, dan pendampingan — bukan cuma kasih materi lalu kakak jalan sendiri.
 
+## Setelah dua pertanyaan discovery — TAWARKAN CALL
+
+Ini langkah wajib, bukan pilihan. Begitu lead sudah menjawab **dua** pertanyaan
+discovery, atau begitu terlihat ragu, banyak bertanya, atau bilang belum punya
+dana — **tawarkan telepon dari tim**, jangan mengirim link lagi.
+
+> Biar lebih enak dijelaskan langsung, Anya atau Rizki dari tim kami bisa
+> telepon kakak sebentar untuk bahas recovery akunnya ya.
+>
+> Kakak lebih nyaman jam 12 siang atau jam 3 sore WIB?
+
+Sebut nama orangnya. Beri dua pilihan jam konkret, jangan bertanya terbuka.
+
+Lead yang bilang **belum punya dana** adalah kandidat call yang paling kuat,
+bukan yang paling lemah — call tidak memerlukan uang. Jangan membalasnya dengan
+link checkout.
+
+Kalau call ditolak, baru turun ke Recovery Package, lalu ke free signal
+Telegram. Selengkapnya di bagian penutup.
+
 ## 4. Objection Handling
 
 | Objeksi | Inti jawaban |

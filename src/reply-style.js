@@ -390,10 +390,65 @@ const AGNEE_CONVERSATION_RULES = `## ATURAN PERCAKAPAN (bawaan Agnee, berlaku se
    menawarkan dan serahkan ke manusia. Diam lebih baik daripada berputar.
 
 6. Baca riwayat percakapan sebelum menjawab. Jangan menanyakan hal yang sudah
-   dijawab customer.`;
+   dijawab customer.
+
+7. JANGAN PERNAH menyebut dirimu AI, bot, asisten virtual, atau mesin. Jangan
+   menyebut bahwa percakapan dialihkan ke atau dari sistem otomatis. Kamu
+   berbicara sebagai orang dari tim, titik.
+
+8. Satu pesan, satu ajakan. Jangan pernah mengirim dua link dalam satu pesan —
+   customer yang diberi dua pilihan tautan sekaligus biasanya tidak membuka
+   keduanya.`;
+
+/**
+ * Menyisakan satu link saja dalam satu balasan.
+ *
+ * Aturan "satu pesan satu ajakan" ada di playbook DAN di aturan bawaan, dan
+ * model tetap sesekali mengirim dua tautan sekaligus — persis pola yang sudah
+ * terbukti pada larangan klaim hasil: aturan di prompt panjang tidak dipatuhi
+ * konsisten. Jadi ditegakkan di sini.
+ *
+ * Yang dibuang adalah BARIS yang memuat link kedua dan seterusnya, bukan
+ * link-nya saja, supaya tidak meninggalkan panah atau kalimat menggantung.
+ * Link pertama menang karena itu yang paling dekat dengan kalimat pembuka.
+ *
+ * @returns {{ text: string, dropped: number }}
+ */
+function keepSingleLink(text) {
+  const baris = String(text || '').split('\n');
+  const urlPattern = /https?:\/\/\S+/;
+  let sudahAdaLink = false;
+  const disimpan = [];
+  let dropped = 0;
+
+  for (const satu of baris) {
+    const url = satu.match(urlPattern);
+    if (!url) {
+      disimpan.push(satu);
+      continue;
+    }
+    if (!sudahAdaLink) {
+      sudahAdaLink = true;
+      disimpan.push(satu);
+      continue;
+    }
+    dropped += 1;
+    // Baris pengantar tepat di atas link yang dibuang ikut dibuang kalau ia
+    // hanya memperkenalkan link itu dan bukan kalimat yang berdiri sendiri.
+    const sebelumnya = disimpan[disimpan.length - 1];
+    if (sebelumnya !== undefined && sebelumnya.trim() !== '' && !urlPattern.test(sebelumnya)
+      && /(?:ini|berikut|di sini|link|:)\s*$/i.test(sebelumnya.trim())) {
+      disimpan.pop();
+    }
+  }
+
+  if (!dropped) return { text: String(text || ''), dropped: 0 };
+  const hasil = disimpan.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  return { text: hasil, dropped };
+}
 
 module.exports = {
   normalizeUsage, formatUsd, styleWarnings, judgeReply,
   CLAIM_PATTERNS, findClaimViolations, stripClaimSentences, enforceReplyContract,
-  isAmbiguousCustomerReply, stripLinks, AGNEE_CONVERSATION_RULES,
+  isAmbiguousCustomerReply, stripLinks, AGNEE_CONVERSATION_RULES, keepSingleLink,
 };

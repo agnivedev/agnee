@@ -114,3 +114,32 @@ test('klarifikasi tidak boleh membawa link', () => {
   assert.ok(!out.includes('http'));
   assert.ok(out.startsWith('Maksudnya yang mana kak?'));
 });
+
+test('menyisakan satu link saja dalam satu balasan', () => {
+  const { keepSingleLink } = require('../src/reply-style');
+  const dua = [
+    'Oke kak, sudah aku catat.',
+    '',
+    'Sementara itu, kakak bisa coba free signal kami di Telegram dulu:',
+    '👉 https://t.me/bzonesyndicate',
+    '',
+    'Atau kalau mau langsung dibantu lebih lengkap, ada Recovery Package Rp99.000:',
+    '👉 https://tradersmastermind.myr.id/pl/checkout',
+    '',
+    'Kakak lebih nyaman mulai dari mana dulu?',
+  ].join('\n');
+
+  const hasil = keepSingleLink(dua);
+  assert.equal(hasil.dropped, 1);
+  assert.ok(hasil.text.includes('t.me/bzonesyndicate'), 'link pertama bertahan');
+  assert.ok(!hasil.text.includes('myr.id'), 'link kedua dibuang');
+  // Kalimat pengantar link kedua ikut dibuang supaya tidak menggantung.
+  assert.ok(!hasil.text.includes('Atau kalau mau langsung dibantu'), 'pengantarnya ikut dibuang');
+  assert.ok(hasil.text.includes('Kakak lebih nyaman mulai dari mana'), 'kalimat penutup bertahan');
+
+  // Satu link saja tidak disentuh sama sekali.
+  const satu = 'Ini linknya kak:\n👉 https://t.me/bzonesyndicate';
+  assert.deepEqual(keepSingleLink(satu), { text: satu, dropped: 0 });
+  // Tanpa link juga tidak disentuh.
+  assert.deepEqual(keepSingleLink('Halo kak'), { text: 'Halo kak', dropped: 0 });
+});

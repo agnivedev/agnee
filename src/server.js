@@ -14,7 +14,7 @@ const KnowledgeBase = require('./knowledge-loader.js');
 const LlmService = require('./llm-service.js');
 const {
   normalizeUsage, styleWarnings, judgeReply, enforceReplyContract,
-  isAmbiguousCustomerReply, stripLinks, AGNEE_CONVERSATION_RULES,
+  isAmbiguousCustomerReply, stripLinks, AGNEE_CONVERSATION_RULES, keepSingleLink,
 } = require('./reply-style.js');
 const { FollowUpScheduler, decide: followUpDecide, withManualGap } = require('./follow-up.js');
 const onedrive = require('./onedrive-sync.js');
@@ -819,7 +819,15 @@ async function buildApp(overrides = {}) {
         warnings: enforced.warnings,
       }, 'Balasan AI diperbaiki sebelum dikirim');
     }
-    return enforced.text;
+    // Satu pesan, satu ajakan. Aturannya ada di playbook DAN di aturan bawaan,
+    // dan model tetap sesekali mengirim dua tautan — pola yang sama dengan
+    // larangan klaim hasil, jadi ditegakkan di sini juga.
+    const tunggal = keepSingleLink(enforced.text);
+    if (tunggal.dropped) {
+      app.log.warn({ companyId, chatId: message.from, dropped: tunggal.dropped },
+        'Link berlebih dibuang dari balasan sebelum dikirim');
+    }
+    return tunggal.text;
   }
 
   // quarantineWhatsappProfile and createWhatsappClient moved to WhatsappManager

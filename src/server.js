@@ -4016,6 +4016,45 @@ Aturan:
    * kalimat yang disusun AI — padahal keduanya bercampur di percakapan yang
    * sama, dan yang satu bisa menjanjikan hal yang tidak diketahui yang lain.
    */
+  /**
+   * Berapa lama percakapan yang diambil alih otomatis boleh diam sebelum
+   * kembali dijawab AI.
+   *
+   * Cukup panjang supaya agent yang sedang mengetik jawaban panjang atau
+   * menunggu customer tidak kehilangan percakapannya di tengah jalan; cukup
+   * pendek supaya customer tidak menunggu orang yang sudah pergi.
+   */
+  const AUTO_ASSIGN_IDLE_MINUTES = 30;
+
+  /**
+   * Agent mengetik di percakapan bermode AI: dia mengambil alih.
+   *
+   * Tanpa ini, dua penulis menjawab customer yang sama tanpa saling tahu.
+   * Agent bisa menjanjikan telepon jam 3 sementara AI, yang tidak melihat
+   * janji itu, membalas pertanyaan yang sama dengan link checkout. Customer
+   * tidak tahu mana yang berlaku.
+   *
+   * Ditandai `autoAssigned` supaya penyapu boleh mengembalikannya sendiri
+   * nanti — berbeda dari penugasan yang dipilih supervisor lewat panel, yang
+   * tidak boleh kedaluwarsa.
+   */
+  async function claimChatForSender(companyId, chatId, session) {
+    if (!database.enabled || !database.connected) return;
+    const userId = session?.userId;
+    if (!userId) return;
+    const routing = await getRouting(chatId, companyId).catch(() => null);
+    if (!routing || routing.mode === 'human') return;
+    await saveRouting({
+      chatId,
+      mode: 'human',
+      assigneeUserId: userId,
+      actorUserId: userId,
+      note: 'Diambil alih otomatis karena agent membalas.',
+      autoAssigned: true,
+    }, companyId).catch((error) => app.log.warn({ err: error, chatId },
+      'Gagal mengambil alih percakapan untuk pengirim'));
+  }
+
   async function withReplyAuthors(companyId, chatId, messages) {
     if (!Array.isArray(messages) || !messages.length) return messages || [];
     if (!canCall('listOutboundAuthors')) return messages;
@@ -4470,6 +4509,7 @@ Aturan:
         inReplyTo: lastInboundText.get(`${companyId}:${chatId}`) || null,
       }, companyId).catch((error) => app.log.warn({ err: error }, 'Could not record human reply'));
       await armFollowUp(companyId, chatId);
+      await claimChatForSender(companyId, chatId, request.agneeSession);
     }
     if (requestId) {
       sendReceipts.set(requestId, result);
@@ -4585,6 +4625,37 @@ Aturan:
     app.log.info({ intervalMs: ONEDRIVE_INTERVAL_MS }, 'Export sync scheduler started');
   }
 
+  /**
+   * Mengembalikan ke AI percakapan yang diambil alih otomatis lalu ditinggalkan.
+   *
+   * Tanpa penyapu ini, agent yang menyapa sekali lalu pergi membekukan
+   * percakapan selamanya: mode 'human' berarti AI diam, jadi customer menunggu
+   * orang yang sudah tidak ada. Hanya baris `auto_assigned` yang tersentuh —
+   * penugasan yang dipilih supervisor tetap berlaku sampai dia sendiri
+   * melepasnya.
+   */
+  function startAutoAssignSweeper() {
+    const jalankan = async () => {
+      const kembali = await database.returnIdleAutoAssignedToAi(AUTO_ASSIGN_IDLE_MINUTES)
+        .catch((error) => {
+          app.log.warn({ err: error }, 'Penyapu pengambilalihan otomatis gagal');
+          return [];
+        });
+      for (const row of kembali) {
+        // Cache routing di memori harus ikut dibuang, kalau tidak permintaan
+        // berikutnya masih melihat mode 'human' yang sudah tidak berlaku.
+        conversationRouting.delete(`${row.companyId}:${row.chatId}`);
+        broadcastEvent(row.companyId, 'routing', { chatId: row.chatId, mode: 'ai' });
+      }
+      if (kembali.length) {
+        app.log.info({ count: kembali.length, idleMinutes: AUTO_ASSIGN_IDLE_MINUTES },
+          'Percakapan dikembalikan ke AI setelah agent-nya diam');
+      }
+    };
+    const timer = setInterval(() => { jalankan().catch(() => {}); }, 5 * 60_000);
+    timer.unref?.();
+  }
+
   app.decorate('startWhatsapp', async () => {
     if (!config.startupEnabled || config.demoMode) return;
 
@@ -4592,6 +4663,7 @@ Aturan:
     // must not get a live timer sending WhatsApp messages.
     if (database.enabled && database.connected) followUpScheduler.start();
     if (database.enabled && database.connected) startOneDriveSyncLoop();
+    if (database.enabled && database.connected) startAutoAssignSweeper();
 
     // No default company to boot: resume exactly those companies whose last
     // known session was live. Everyone else starts on demand when a supervisor

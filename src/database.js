@@ -1926,6 +1926,40 @@ class Database {
   }
 
   /**
+   * Mengembalikan ke AI percakapan yang diambil alih OTOMATIS lalu ditinggalkan.
+   *
+   * Hanya baris `auto_assigned` yang tersentuh. Penugasan yang dipilih
+   * supervisor lewat panel adalah keputusan orang dan tidak boleh kedaluwarsa
+   * sendiri — kalau ikut disapu, chat yang sengaja dipegang seseorang akan
+   * diam-diam kembali dijawab mesin.
+   *
+   * Diam diukur dari balasan manusia terakhir di percakapan itu, bukan dari
+   * `updated_at` baris routing: agent yang masih aktif membalas tidak boleh
+   * kehilangan percakapannya di tengah jalan.
+   *
+   * @returns {Promise<Array<{companyId:string, chatId:string}>>}
+   */
+  async returnIdleAutoAssignedToAi(idleMinutes) {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(`
+      UPDATE conversation_routing r
+      SET handling_mode = 'ai', assignee_user_id = NULL, auto_assigned = false,
+          assigned_at = NULL, updated_at = NOW()
+      WHERE r.handling_mode = 'human'
+        AND r.auto_assigned
+        AND r.updated_at < NOW() - ($1 || ' minutes')::INTERVAL
+        AND NOT EXISTS (
+          SELECT 1 FROM outbound_replies o
+          WHERE o.company_id = r.company_id AND o.chat_id = r.chat_id
+            AND o.author = 'human'
+            AND o.created_at > NOW() - ($1 || ' minutes')::INTERVAL
+        )
+      RETURNING company_id AS "companyId", chat_id AS "chatId"
+    `, [String(idleMinutes)]);
+    return result.rows;
+  }
+
+  /**
    * Siapa yang menulis tiap balasan keluar: AI atau anggota tim yang mana.
    *
    * Dicocokkan lewat `message_id` — id WhatsApp yang sama dengan yang dipakai

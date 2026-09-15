@@ -334,6 +334,22 @@ async function buildApp(overrides = {}) {
     model: config.openrouterModel,
     maxTokens: config.llmMaxTokens,
     enabled: config.llmEnabled,
+    // Tiap panggilan model dicatat ke company yang memintanya. Dipasang di
+    // sini, bukan di tiap titik panggil: sembilan titik panggil berarti sembilan
+    // kesempatan lupa mencatat, dan pemakaian yang tidak tercatat adalah biaya
+    // yang kita tanggung tanpa tahu.
+    onUsage: ({ model, usage, context }) => {
+      const companyId = context?.companyId;
+      if (!companyId || !database.enabled || !database.connected) return;
+      const normalized = normalizeUsage({ usage });
+      void database.recordAiUsage({
+        purpose: context?.purpose || 'unknown',
+        model,
+        inputTokens: normalized.inputTokens,
+        outputTokens: normalized.outputTokens,
+        costUsd: normalized.costUsd,
+      }, companyId).catch(() => { /* pencatatan tidak boleh menjatuhkan balasan */ });
+    },
   });
   // Runtime AI settings — survive without restart, reset on next deploy
   const aiSettings = {
@@ -777,7 +793,7 @@ async function buildApp(overrides = {}) {
     if (isAmbiguousCustomerReply(message.body, conversationHistory)) {
       const clarification = await llmService.generateReply(
         `Customer membalas "${message.body}". Maksudnya tidak jelas karena percakapan sebelumnya tidak memuat pilihan bernomor atau pertanyaan yang dirujuk balasan itu.\n\nTulis SATU kalimat pendek dengan persona kamu yang menanyakan maksudnya. Jangan menawarkan produk, jangan menyebut harga, jangan mengirim link, jangan menebak. Keluarkan HANYA kalimatnya.`,
-        { systemPrompt: ctx.systemPrompt, history: conversationHistory },
+        { systemPrompt: ctx.systemPrompt, history: conversationHistory, companyId, purpose: 'auto_reply' },
       ).catch(() => null);
       const asked = stripLinks(clarification?.text || '');
       if (asked) return asked;
@@ -789,6 +805,8 @@ async function buildApp(overrides = {}) {
       relevantFaqs: ctx.relevantFaqs,
       leadState: ctx.leadState,
       history: conversationHistory,
+      companyId,
+      purpose: 'auto_reply',
     });
     if (!result?.text) return null;
 
@@ -1101,7 +1119,7 @@ async function buildApp(overrides = {}) {
             sebelumnya.labelsEditedAt ? '\nLabel di atas ditetapkan manusia. Pertahankan; tambah label baru hanya kalau jelas diperlukan.' : ''}`)
         : '';
 
-      const result = await llmService.generateReply(transcript, { systemPrompt: systemPrompt + konteksLama });
+      const result = await llmService.generateReply(transcript, { systemPrompt: systemPrompt + konteksLama, companyId: cid, purpose: 'summary' });
       if (!result?.text) throw new Error('AI did not return a summary');
       const usage = normalizeUsage(result);
       const insight = parseConversationInsight(result.text, normalizedLocale);
@@ -2242,6 +2260,8 @@ async function buildApp(overrides = {}) {
     const result = await llmService.generateReply(message, {
       systemPrompt,
       relevantFaqs,
+      companyId: request.agneeSession.companyId,
+      purpose: 'playground',
     });
     if (!result) return reply.code(502).send({ error: 'OpenRouter tidak menghasilkan balasan.' });
 
@@ -2443,7 +2463,7 @@ Aturan:
 - priority 1 = tanpa ini AI tidak bisa jual, 2 = penting, 3 = pelengkap.
 - Tanyakan hal spesifik bisnis (nama produk, harga, cara bayar, syarat), bukan hal umum.`;
 
-    const result = await llmService.generateReply('Apa lagi yang perlu Anda ketahui?', { systemPrompt }).catch(() => null);
+    const result = await llmService.generateReply('Apa lagi yang perlu Anda ketahui?', { systemPrompt, companyId: request.agneeSession.companyId, purpose: 'coach' }).catch(() => null);
     if (!result?.text) return reply.code(502).send({ error: 'AI tidak menghasilkan pertanyaan.' });
 
     const raw = String(result.text).replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
@@ -2596,6 +2616,8 @@ Aturan:
         relevantFaqs: ctx.relevantFaqs,
         leadState: ctx.leadState,
         history,
+        companyId,
+        purpose: 'simulate',
       }).catch(() => null);
       if (!generated?.text && mode === 'ai') {
         return reply.code(502).send({ error: 'AI tidak menghasilkan balasan.' });
@@ -2879,6 +2901,8 @@ Cara kerjamu:
     const result = await llmService.generateReply(request.body.message, {
       systemPrompt: playbookInterviewPrompt(kind, doc?.contentMd || ''),
       history: interview,
+      companyId,
+      purpose: 'playbook_chat',
     });
     if (!result) return reply.code(502).send({ error: 'Mesin AI tidak memberi jawaban.' });
 
@@ -2929,6 +2953,8 @@ Aturan:
 - Pakai heading dan poin. Bahasa Indonesia.
 - Kalau ada hal penting yang belum dia jawab, tulis di bagian terakhir dengan heading "## Belum ditentukan" sebagai daftar, supaya jelas apa yang masih kosong.
 - Keluarkan Markdown-nya saja, tanpa pembuka atau penutup.`,
+        companyId,
+        purpose: 'playbook_compile',
       },
     );
     if (!result) return reply.code(502).send({ error: 'Mesin AI tidak dapat menyusun playbook.' });
@@ -4607,6 +4633,8 @@ Aturan:
         const result = await llmService.generateReply(prompt, {
           systemPrompt: ctx.systemPrompt,
           leadState: ctx.leadState,
+          companyId,
+          purpose: 'follow_up',
         });
         return result?.text || null;
       },

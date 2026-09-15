@@ -9,6 +9,14 @@ class LlmService {
     this.contextWindow = config.contextWindow || 8000;
     this.maxTokens = config.maxTokens || 512;
     this.enabled = config.enabled !== false && !!this.apiKey;
+    /**
+     * Dipanggil sekali per panggilan model yang berhasil.
+     *
+     * Dipasang dari luar supaya modul ini tetap tidak tahu apa-apa soal
+     * database. Kegagalan pencatatan tidak boleh menggagalkan balasan ke
+     * customer — pemanggilnya yang menelan errornya.
+     */
+    this.onUsage = config.onUsage || null;
   }
 
   async _callModel(model, userMessage, context) {
@@ -33,6 +41,10 @@ class LlmService {
         temperature: 0.7,
         max_tokens: this.maxTokens,
         top_p: 0.95,
+        // Tanpa ini OpenRouter hanya mengembalikan jumlah token, tanpa biaya.
+        // `normalizeUsage` sudah lama membaca `usage.cost` — field yang tidak
+        // pernah datang, jadi biaya tercatat nol untuk semua pemakaian.
+        usage: { include: true },
       }),
     });
 
@@ -45,6 +57,11 @@ class LlmService {
     const reply = data.choices?.[0]?.message?.content;
     if (!reply) throw new Error(`No reply content from ${model}`);
 
+    if (this.onUsage) {
+      try {
+        this.onUsage({ model, usage: data.usage, context });
+      } catch { /* pencatatan tidak boleh menjatuhkan balasan */ }
+    }
     return { text: reply.trim(), model, usage: data.usage };
   }
 

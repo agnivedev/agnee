@@ -2022,6 +2022,46 @@ class Database {
     return new Map(result.rows.map((row) => [row.messageId, row]));
   }
 
+  /**
+   * Mencatat satu panggilan model: token dan biaya yang DILAPORKAN penyedia.
+   *
+   * Biayanya tidak dihitung sendiri. Harga per model berubah dan token masuk
+   * tidak sama harganya dengan token keluar; menghitung sendiri berarti angka
+   * kita menyimpang diam-diam setiap kali penyedia mengubah harga, dan
+   * penyimpangan itu baru ketahuan saat menagih.
+   */
+  async recordAiUsage({ purpose, model, inputTokens = 0, outputTokens = 0, costUsd = 0 }, companyId) {
+    if (!this.enabled || !companyId) return;
+    await this.pool.query(`
+      INSERT INTO ai_usage_logs (company_id, purpose, model, input_tokens, output_tokens, cost_usd)
+      VALUES ($1, $2, $3, $4, $5, $6)
+    `, [companyId, purpose || 'unknown', model || 'unknown',
+      Math.max(0, Number(inputTokens) || 0), Math.max(0, Number(outputTokens) || 0),
+      Math.max(0, Number(costUsd) || 0)]);
+  }
+
+  /** Ringkasan pemakaian satu company dalam rentang hari terakhir. */
+  async getAiUsageSummary(companyId, days = 30) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      SELECT COUNT(*)::int AS calls,
+             COALESCE(SUM(input_tokens), 0)::bigint AS "inputTokens",
+             COALESCE(SUM(output_tokens), 0)::bigint AS "outputTokens",
+             COALESCE(SUM(cost_usd), 0) AS "costUsd"
+      FROM ai_usage_logs
+      WHERE company_id = $1 AND created_at > NOW() - ($2 || ' days')::INTERVAL
+    `, [companyId, String(days)]);
+    const perPurpose = await this.pool.query(`
+      SELECT purpose, COUNT(*)::int AS calls,
+             COALESCE(SUM(input_tokens + output_tokens), 0)::bigint AS tokens,
+             COALESCE(SUM(cost_usd), 0) AS "costUsd"
+      FROM ai_usage_logs
+      WHERE company_id = $1 AND created_at > NOW() - ($2 || ' days')::INTERVAL
+      GROUP BY purpose ORDER BY 4 DESC
+    `, [companyId, String(days)]);
+    return { ...result.rows[0], days, perPurpose: perPurpose.rows };
+  }
+
   /** Pesan masuk terakhir untuk satu percakapan. */
   async getLastInboundMessage(companyId, chatId) {
     if (!this.enabled) return null;

@@ -1,5 +1,21 @@
 ## [Unreleased]
 
+### Added
+
+- **Aturan percakapan bawaan Agnee**, berlaku untuk semua tenant, di
+  `src/reply-style.js` dan disisipkan ke setiap prompt: dokumen adalah sumber
+  fakta bukan naskah; jangan mengulang tawaran yang sama dua kali; jangan
+  memperkenalkan diri lagi di tengah percakapan; setiap percakapan harus menuju
+  satu ujung; tiga giliran tanpa kemajuan berarti serahkan ke manusia.
+  Bentuk percakapan milik Agnee dan seragam lintas company; APA ujungnya tetap
+  milik playbook tiap company. Ditaruh di akhir prompt karena instruksi di ujung
+  lebih konsisten dipatuhi daripada yang terkubur di tengah.
+- **Penutup Trader's Mastermind diubah jadi menjadwalkan call**, bukan mengirim
+  link. Tiga ujung yang sah: checkout Rp99.000, janji call dengan Anya atau
+  Rizki dengan dua pilihan jam konkret, atau minimal join free signal Telegram.
+  Call tetap terbuka untuk lead yang bilang belum punya dana — call tidak
+  memerlukan uang. Berlaku di `knowledge/` dan di playbook `closing` produksi.
+
 ### Fixed
 
 - **AI tidak pernah melihat riwayat percakapan. Sama sekali, sejak awal.**

@@ -14,7 +14,7 @@ const KnowledgeBase = require('./knowledge-loader.js');
 const LlmService = require('./llm-service.js');
 const {
   normalizeUsage, styleWarnings, judgeReply, enforceReplyContract,
-  isAmbiguousCustomerReply, stripLinks,
+  isAmbiguousCustomerReply, stripLinks, AGNEE_CONVERSATION_RULES,
 } = require('./reply-style.js');
 const { FollowUpScheduler, decide: followUpDecide, withManualGap } = require('./follow-up.js');
 const onedrive = require('./onedrive-sync.js');
@@ -669,6 +669,11 @@ async function buildApp(overrides = {}) {
     const contextSections = [
       playbookContext ? `## PLAYBOOK PERUSAHAAN INI (SUMBER UTAMA — prioritaskan di atas knowledge umum di atas)\n${playbookContext}` : '',
       paymentContext,
+      // Bentuk percakapannya milik Agnee dan sama untuk semua tenant; isinya
+      // milik playbook di atas. Ditaruh paling akhir supaya paling dekat dengan
+      // pesan customer — instruksi di ujung prompt lebih konsisten dipatuhi
+      // daripada yang terkubur di tengah.
+      AGNEE_CONVERSATION_RULES,
     ].filter(Boolean).join('\n\n');
 
     return {

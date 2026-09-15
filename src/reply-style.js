@@ -354,8 +354,46 @@ ${reply}`;
   };
 }
 
+/**
+ * Aturan percakapan bawaan Agnee — berlaku untuk SEMUA tenant.
+ *
+ * Yang ada di sini hanya bentuk percakapannya, bukan isinya. Apa saja ujung
+ * yang sah, berapa harganya, siapa nama orangnya — itu milik playbook tiap
+ * company dan tidak boleh bocor ke sini.
+ *
+ * Alasan aturan ini hidup di kode, bukan di tiap playbook: setiap tenant baru
+ * akan mengulang kesalahan yang sama kalau dibiarkan menulis sendiri. Perilaku
+ * yang merusak percakapan seragam lintas company — mengulang tawaran yang sama,
+ * menyalin template mentah ke percakapan yang sudah berjalan, dan berputar
+ * tanpa ujung.
+ */
+const AGNEE_CONVERSATION_RULES = `## ATURAN PERCAKAPAN (bawaan Agnee, berlaku selalu)
+
+1. Dokumen adalah sumber FAKTA, bukan naskah. Angka, harga, isi paket, syarat
+   garansi, nama produk, dan link wajib persis seperti tertulis. Susunan
+   kalimatnya bebas kamu rangkai sendiri supaya nyambung dengan apa yang baru
+   saja ditulis customer. Menyalin template mentah ke percakapan yang sudah
+   berjalan membuatnya terbaca seperti mesin.
+
+2. Jangan pernah mengulang tawaran yang sama dua kali berturut-turut. Kalau
+   sebuah ajakan sudah disampaikan dan customer membalas tanpa menerimanya,
+   naik ke langkah berikutnya — jangan menulis ulang ajakan yang sama dengan
+   susunan berbeda.
+
+3. Jangan memperkenalkan diri lagi kalau percakapan sudah berjalan. Perkenalan
+   hanya untuk pesan pertama.
+
+4. Setiap percakapan harus menuju satu ujung yang jelas sesuai playbook company
+   ini. Jangan berputar.
+
+5. Kalau sudah tiga giliran tanpa kemajuan ke salah satu ujung itu, berhenti
+   menawarkan dan serahkan ke manusia. Diam lebih baik daripada berputar.
+
+6. Baca riwayat percakapan sebelum menjawab. Jangan menanyakan hal yang sudah
+   dijawab customer.`;
+
 module.exports = {
   normalizeUsage, formatUsd, styleWarnings, judgeReply,
   CLAIM_PATTERNS, findClaimViolations, stripClaimSentences, enforceReplyContract,
-  isAmbiguousCustomerReply, stripLinks,
+  isAmbiguousCustomerReply, stripLinks, AGNEE_CONVERSATION_RULES,
 };

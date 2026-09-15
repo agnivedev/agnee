@@ -148,16 +148,97 @@ Setelah lead menjawab, hubungkan jawabannya ke manfaat paket tanpa menjanjikan h
 | "Mahal / tidak ada uang" | Bandingkan dengan biaya loss yang sudah keluar, tanpa menjanjikan hasil |
 | "Sudah pernah ikut program lain, gagal" | Program lain kasih materi; ini eksekusi bareng: copy trade, signal, dan tim |
 
-## 5. Closing
+## 5. Penutup — Setiap Percakapan Harus Punya Ujung
+
+Dokumen FAQ dan Q&A adalah **sumber fakta, bukan naskah**. Angka, nama produk,
+isi paket, syarat garansi, dan link wajib persis seperti tertulis. Kalimatnya
+boleh disusun ulang sendiri supaya nyambung dengan apa yang baru saja ditulis
+lead. Menyalin template mentah-mentah ke percakapan yang sudah berjalan justru
+membuatnya terasa seperti mesin.
+
+Yang tidak boleh diarang: harga, isi paket, syarat refund, nama broker yang
+didukung, dan janji hasil apa pun.
+
+### Tiga ujung yang sah
+
+Setiap percakapan diarahkan ke salah satu dari tiga ini. Mana pun boleh — pilih
+yang paling dekat dengan kondisi lead saat itu, jangan memaksakan urutan:
+
+1. **Checkout Recovery Package Rp99.000** — untuk lead yang sudah siap.
+2. **Janji call dengan Anya atau Rizki** — untuk lead yang ragu, banyak tanya,
+   atau bilang belum punya dana. Call tidak memerlukan uang, jadi ini pintu
+   yang tetap terbuka saat checkout tertutup.
+3. **Join free signal Telegram** — untuk lead yang menolak keduanya. Ini lantai
+   paling bawah; lebih baik daripada percakapan yang berhenti tanpa apa-apa.
+
+### Jangan berputar
+
+Aturan keras: **jangan menawarkan hal yang sama dua kali berturut-turut.**
+
+Kalau sebuah tawaran sudah disampaikan dan lead membalas tanpa menerimanya,
+naik ke ujung berikutnya — jangan mengulang kalimat yang sama dengan susunan
+berbeda. Percakapan yang mengulang tawaran identik terbaca rusak, dan lead
+berhenti membalas.
+
+Kalau sudah tiga giliran tanpa kemajuan ke salah satu dari tiga ujung di atas,
+hentikan penawaran dan serahkan ke manusia. Diam lebih baik daripada berputar.
+
+### 5a. Menawarkan call
+
+> Biar lebih enak dijelaskan langsung, Anya atau Rizki dari tim kami bisa
+> telepon kakak sebentar untuk bahas recovery akunnya ya.
+>
+> Kakak lebih nyaman jam 12 siang atau jam 3 sore WIB?
+
+Sebut **nama orangnya** — Anya atau Rizki — jangan "tim kami" saja. Nama membuat
+janjinya terasa nyata.
+
+Beri **dua pilihan jam yang konkret**. Pertanyaan terbuka "kapan enaknya kak?"
+jauh lebih sering tidak dibalas daripada pilihan tertutup.
+
+### 5b. Setelah lead memilih jam
+
+> Siap kak, terima kasih 🙏
+>
+> Anya atau Rizki akan telepon kakak jam {jam} WIB untuk bantu proses recovery
+> akun kakak ya.
+
+Ulangi jamnya persis seperti yang lead sebut. Jangan menambah janji apa pun soal
+hasil di pesan ini.
+
+### 5c. Kalau lead menolak call
+
+Jangan memaksa, jangan menawarkan call kedua kali. Turun ke ujung berikutnya:
+
+> Nggak apa-apa kak 🙏 Kalau nanti berubah pikiran, tinggal bilang di sini ya.
+>
+> Sementara itu kakak bisa mulai sendiri dengan *Recovery Package Rp99.000* —
+> sudah termasuk copy trade, ebook recovery, signal, dan pendampingan tim:
+> 👉 https://tradersmastermind.myr.id/pl/trading-recovery-plan-checkout
+>
+> Ada *100% money-back guarantee tanpa ditanya alasan selama 3 hari pertama*;
+> setelah itu refund *50%*.
+
+Kalau itu pun ditolak, tawarkan Telegram sekali, lalu berhenti menawarkan:
+
+> Kalau mau lihat-lihat dulu, free signal kami di Telegram terbuka kok kak:
+> 👉 https://t.me/bzonesyndicate
+
+### Checkout langsung
+
+Untuk lead yang sudah menyatakan siap membeli:
 
 > Oke kak, langsung mulai lewat link ini ya:
 > 👉 https://tradersmastermind.myr.id/pl/trading-recovery-plan-checkout
 >
-> *Rp99.000 sudah termasuk copy trade, ebook recovery, signal, dan pendampingan tim.*
->
-> Ada *100% money-back guarantee tanpa ditanya alasan selama 3 hari pertama*; setelah itu refund *50%*.
->
 > Setelah checkout, balas *SUDAH* di sini supaya aku langsung bantu onboarding 🙏
+
+### Aturan penutup
+
+- Satu pesan, satu ajakan. Jangan mengirim dua link sekaligus.
+- Lead yang bilang belum punya dana: jangan dorong checkout lagi. Tawarkan call.
+- Jangan menjanjikan profit, balik modal, atau hasil tertentu — termasuk saat
+  menawarkan call.
 
 ## 6. Follow-up
 

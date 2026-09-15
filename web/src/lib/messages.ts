@@ -320,7 +320,10 @@ export const messages = {
       // berarti operator yang memakai antarmuka Inggris mengirim Inggris ke
       // customer Indonesia. Perbaikan sebenarnya: setelan bahasa per company.
       // Tidak menyebut AI: customer tidak perlu tahu, dan tidak boleh diberi tahu.
-      'routing.closingDefault': 'Baik Kak, kendalanya sudah selesai dibantu ya. Kalau ada yang lain, tinggal chat di sini lagi.',
+      // Netral soal alasannya: agent mengambil alih percakapan bukan hanya saat
+      // ada keluhan — bisa juga karena lead mau membeli, minta dijelaskan, atau
+      // minta ditelepon. Menyebut 'kendala' mengandaikan masalah yang belum tentu ada.
+      'routing.closingDefault': 'Siap Kak, terima kasih ya. Kalau ada yang mau ditanyakan lagi, tinggal chat di sini.',
       'routing.assignee': 'Ditangani oleh', 'routing.notePlaceholder': 'Catatan handover (opsional)',
       'routing.save': 'Simpan penanganan', 'routing.history': 'Riwayat handover',
       'routing.noHistory': 'Belum ada perpindahan penanganan.', 'routing.system': 'Sistem',
@@ -844,7 +847,7 @@ export const messages = {
       'routing.keepAiAction': 'Keep AI active', 'routing.sendClosing': 'Send a closing message to the customer',
       'routing.contextSaved': 'The latest summary is saved so AI can continue with context.',
       // Sengaja Indonesia juga — lihat catatan di kamus 'id'.
-      'routing.closingDefault': 'Baik Kak, kendalanya sudah selesai dibantu ya. Kalau ada yang lain, tinggal chat di sini lagi.',
+      'routing.closingDefault': 'Siap Kak, terima kasih ya. Kalau ada yang mau ditanyakan lagi, tinggal chat di sini.',
       'routing.assignee': 'Assigned to', 'routing.notePlaceholder': 'Handover note (optional)',
       'routing.save': 'Save handling', 'routing.history': 'Handover history',
       'routing.noHistory': 'No handovers yet.', 'routing.system': 'System',

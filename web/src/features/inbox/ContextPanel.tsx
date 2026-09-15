@@ -25,6 +25,10 @@ export function ContextPanel({
   const [lead, setLead] = useState<Lead | null>(null);
   const [summary, setSummary] = useState('');
   const [labels, setLabels] = useState<string[]>([]);
+  const [editing, setEditing] = useState<'summary' | 'labels' | null>(null);
+  const [draftSummary, setDraftSummary] = useState('');
+  const [draftLabels, setDraftLabels] = useState('');
+  const [editedBy, setEditedBy] = useState<{ summary?: string | null; labels?: string | null }>({});
   const [routing, setRouting] = useState<Routing | null>(null);
   const [handoffs, setHandoffs] = useState<Handoff[]>([]);
   const [notes, setNotes] = useState<Note[]>([]);
@@ -75,6 +79,8 @@ export function ContextPanel({
     void api<{
       summary?: string;
       labels?: string[];
+      summaryEditedByName?: string | null;
+      labelsEditedByName?: string | null;
       qualificationStage?: string;
       qualificationScore?: number;
       qualificationTitle?: string;
@@ -83,6 +89,7 @@ export function ContextPanel({
       .then((data) => {
         setSummary(data.summary || t('lead.summaryUnavailable'));
         setLabels(data.labels || []);
+        setEditedBy({ summary: data.summaryEditedByName || null, labels: data.labelsEditedByName || null });
         if (data.qualificationTitle) {
           setLead((current) =>
             current?.stage === 'assigned'
@@ -180,6 +187,30 @@ export function ContextPanel({
   const stageLabel =
     lead?.stage === 'assigned' ? t('lead.assigned') : lead?.stage === 'qualified' ? t('lead.qualified') : t('inbox.tabInbox');
   const dateLocale = locale === 'en' ? 'en-US' : 'id-ID';
+
+  /**
+   * Menyimpan suntingan ringkasan atau label.
+   *
+   * AI tetap boleh memperbarui field ini nanti — yang disimpan di sini hanya
+   * menandai bahwa orang pernah menyentuhnya, dan penanda itu dibawa ke prompt
+   * analisis berikutnya supaya faktanya dipertahankan.
+   */
+  async function simpanSuntingan(field: 'summary' | 'labels') {
+    if (!chatId) return;
+    const body: Record<string, unknown> = { locale };
+    if (field === 'summary') body.summary = draftSummary.trim();
+    else body.labels = draftLabels.split(',').map((x) => x.trim()).filter(Boolean).slice(0, 5);
+    try {
+      await api(`/v1/chats/${encodeURIComponent(chatId)}/summary`, { method: 'PATCH', body });
+      if (field === 'summary') setSummary(String(body.summary));
+      else setLabels(body.labels as string[]);
+      setEditedBy((current) => ({ ...current, [field]: user?.displayName || t('lead.editedByYou') }));
+      setEditing(null);
+      setStatus('');
+    } catch (error) {
+      setStatus(messageFromError(error, t('lead.editFailed')));
+    }
+  }
 
   return (
     <aside className="h-full min-h-0 overflow-y-auto border-l border-border bg-white/52 px-5 py-7 overscroll-contain">
@@ -302,8 +333,43 @@ export function ContextPanel({
         </div>
       </Section>
 
-      <Section title={t('lead.summary')}>
-        <p className="m-0 text-[13px] leading-[1.55] text-muted">{chat ? summary : t('lead.choose')}</p>
+      <Section title={t('lead.summary')} badge={editedBy.summary ? t('lead.editedBadge') : undefined}>
+        {editing === 'summary' ? (
+          <div className="grid gap-2">
+            <textarea
+              value={draftSummary}
+              onChange={(event) => setDraftSummary(event.target.value)}
+              rows={4}
+              maxLength={2000}
+              className="w-full rounded-[10px] border border-border bg-white p-2 text-xs"
+            />
+            <div className="flex gap-2">
+              <Button size="sm" variant="outline" onClick={() => setEditing(null)} className="flex-1">
+                {t('common.cancel')}
+              </Button>
+              <Button size="sm" onClick={() => void simpanSuntingan('summary')} className="flex-1">
+                {t('common.save')}
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <p className="m-0 text-[13px] leading-[1.55] text-muted">{chat ? summary : t('lead.choose')}</p>
+            {editedBy.summary ? (
+              <p className="mt-1.5 mb-0 text-[10px] text-muted">{t('lead.editedBy', { name: editedBy.summary })}</p>
+            ) : null}
+            {chat ? (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="mt-2 px-0"
+                onClick={() => { setDraftSummary(summary); setEditing('summary'); }}
+              >
+                {t('lead.editSummary')}
+              </Button>
+            ) : null}
+          </>
+        )}
       </Section>
 
       <Section title={t('notes.title')}>
@@ -359,14 +425,48 @@ export function ContextPanel({
         )}
       </Section>
 
-      <Section title={t('lead.labels')}>
-        <div className="flex flex-wrap gap-1.5">
-          {[...new Set(['WhatsApp', t('lead.inbound'), ...labels].filter(Boolean))].map((label) => (
-            <span key={label} className="rounded-[7px] bg-warm px-2 py-1.5 font-mono text-[10px]">
-              {label}
-            </span>
-          ))}
-        </div>
+      <Section title={t('lead.labels')} badge={editedBy.labels ? t('lead.editedBadge') : undefined}>
+        {editing === 'labels' ? (
+          <div className="grid gap-2">
+            <input
+              value={draftLabels}
+              onChange={(event) => setDraftLabels(event.target.value)}
+              className="w-full rounded-[10px] border border-border bg-white p-2 text-xs"
+            />
+            <small className="text-[10px] text-muted">{t('lead.labelsHint')}</small>
+            <div className="flex gap-2">
+              <Button size="sm" variant="outline" onClick={() => setEditing(null)} className="flex-1">
+                {t('common.cancel')}
+              </Button>
+              <Button size="sm" onClick={() => void simpanSuntingan('labels')} className="flex-1">
+                {t('common.save')}
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="flex flex-wrap gap-1.5">
+              {[...new Set(['WhatsApp', t('lead.inbound'), ...labels].filter(Boolean))].map((label) => (
+                <span key={label} className="rounded-[7px] bg-warm px-2 py-1.5 font-mono text-[10px]">
+                  {label}
+                </span>
+              ))}
+            </div>
+            {editedBy.labels ? (
+              <p className="mt-1.5 mb-0 text-[10px] text-muted">{t('lead.editedBy', { name: editedBy.labels })}</p>
+            ) : null}
+            {chat ? (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="mt-2 px-0"
+                onClick={() => { setDraftLabels(labels.join(', ')); setEditing('labels'); }}
+              >
+                {t('lead.editLabels')}
+              </Button>
+            ) : null}
+          </>
+        )}
       </Section>
 
       {/* Groups are excluded server-side too — a follow-up in a group is seen by

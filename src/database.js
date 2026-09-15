@@ -113,6 +113,43 @@ class Database {
     return result.rows[0] || null;
   }
 
+  /**
+   * Menyunting ringkasan atau label sebuah percakapan dengan tangan.
+   *
+   * Tidak mengunci AI. Yang dicatat hanya SIAPA yang terakhir menyentuh field
+   * itu; penanda tersebut dibawa ke prompt analisis berikutnya supaya AI tahu
+   * ada fakta yang ditulis orang dan tidak boleh dibuang begitu saja.
+   *
+   * Mengunci akan membuat ringkasan berhenti mengikuti percakapan; menimpa
+   * tanpa memberi tahu akan menghapus koreksi orang diam-diam. Keduanya buruk,
+   * jadi yang dipilih adalah memberi tahu.
+   */
+  async editConversationInsight({ chatId, locale = 'id', summary, labels }, userId, companyId) {
+    if (!this.enabled) return null;
+    const sets = [];
+    const params = [companyId, chatId, locale];
+    if (typeof summary === 'string') {
+      params.push(summary);
+      sets.push(`summary = $${params.length}`);
+      params.push(userId || null);
+      sets.push(`summary_edited_by = $${params.length}`, 'summary_edited_at = NOW()');
+    }
+    if (Array.isArray(labels)) {
+      params.push(JSON.stringify(labels));
+      sets.push(`labels = $${params.length}::jsonb`);
+      params.push(userId || null);
+      sets.push(`labels_edited_by = $${params.length}`, 'labels_edited_at = NOW()');
+    }
+    if (!sets.length) return null;
+    const result = await this.pool.query(`
+      UPDATE conversation_summaries SET ${sets.join(', ')}, updated_at = NOW()
+      WHERE company_id = $1 AND chat_id = $2 AND locale = $3
+      RETURNING chat_id AS "chatId", summary, labels,
+                summary_edited_at AS "summaryEditedAt", labels_edited_at AS "labelsEditedAt"
+    `, params);
+    return result.rows[0] || null;
+  }
+
   async getConversationSummary(chatId, locale = 'id', companyId) {
     if (!this.enabled) return null;
     const result = await this.pool.query(`
@@ -124,7 +161,11 @@ class Database {
              source_message_id AS "sourceMessageId", source_timestamp AS "sourceTimestamp",
              source_count AS "sourceCount", model,
              input_tokens AS "inputTokens", output_tokens AS "outputTokens",
-             generated_at AS "generatedAt"
+             generated_at AS "generatedAt",
+             summary_edited_by AS "summaryEditedBy", summary_edited_at AS "summaryEditedAt",
+             labels_edited_by AS "labelsEditedBy", labels_edited_at AS "labelsEditedAt",
+             (SELECT COALESCE(u.display_name, u.email) FROM users u WHERE u.id = summary_edited_by) AS "summaryEditedByName",
+             (SELECT COALESCE(u.display_name, u.email) FROM users u WHERE u.id = labels_edited_by) AS "labelsEditedByName"
       FROM conversation_summaries
       WHERE company_id = $1 AND chat_id = $2 AND locale = $3
     `, [companyId, chatId, locale]);

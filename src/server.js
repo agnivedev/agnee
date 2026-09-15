@@ -1700,19 +1700,27 @@ async function buildApp(overrides = {}) {
     const userId = request.agneeSession?.userId;
     if (routing.mode === 'human' && routing.assigneeUserId === userId) return; // own chat
 
-    // An agent must still be able to CLAIM a chat nobody else holds — that is
-    // the normal "take this conversation" flow, and blocking it here left
-    // agents unable to pick up any chat at all. The routing route enforces
-    // that they may only assign it to themselves; a chat already held by a
-    // different agent stays off-limits so claims cannot be stolen.
+    // Percakapan yang dipegang agent lain tertutup sepenuhnya — klaim tidak
+    // boleh dicuri, dan isinya bukan urusan agent ini.
     const heldByOtherAgent = routing.mode === 'human'
       && routing.assigneeUserId
       && routing.assigneeUserId !== userId;
-    if (!heldByOtherAgent
-      && request.method === 'POST'
-      && request.routeOptions?.url === '/v1/chats/:chatId/routing') return;
+    if (heldByOtherAgent) {
+      return reply.code(403).send({ error: 'Chat ini ditangani oleh agent lain.' });
+    }
 
-    return reply.code(403).send({ error: 'Chat ini ditangani oleh agent lain.' });
+    // Sisanya: percakapan yang belum dipegang siapa pun.
+    //
+    // MEMBACA boleh. Agent melihat percakapan ini di daftar inbox, jadi
+    // menolak isinya hanya menghasilkan layar kosong tanpa penjelasan — dan
+    // dia tidak bisa memutuskan mau mengambil alih atau tidak tanpa membacanya
+    // lebih dulu. Aturan baca di sini sengaja sama dengan aturan daftar chat.
+    if (request.method === 'GET') return;
+
+    // MENULIS harus mengambil alih dulu. Satu pengecualian: klaim itu sendiri.
+    if (request.method === 'POST' && request.routeOptions?.url === '/v1/chats/:chatId/routing') return;
+
+    return reply.code(403).send({ error: 'Ambil alih chat ini sebelum membalas.' });
   });
 
   app.get('/v1/auth/session', async (request) => ({ authenticated: true, user: request.agneeSession }));

@@ -236,8 +236,18 @@ test('agent can only take chats for self and cannot open supervisor settings', a
   assert.equal(forbiddenAdmin.statusCode, 403);
   const forbiddenOther = await app.inject({ method: 'POST', url: '/v1/chats/6281200000001@c.us/routing', headers: { cookie }, payload: { mode: 'human', assigneeUserId: supervisor.id } });
   assert.equal(forbiddenOther.statusCode, 403);
-  const hiddenBeforeAssignment = await app.inject({ method: 'GET', url: '/v1/chats/6281200000001@c.us/messages', headers: { cookie } });
-  assert.equal(hiddenBeforeAssignment.statusCode, 403);
+  // Percakapan yang belum dipegang siapa pun BOLEH dibaca. Agent melihatnya di
+  // daftar inbox; menolak isinya hanya memberi layar kosong, dan dia tidak bisa
+  // memutuskan mau mengambil alih tanpa membacanya lebih dulu.
+  const readableBeforeAssignment = await app.inject({ method: 'GET', url: '/v1/chats/6281200000001@c.us/messages', headers: { cookie } });
+  assert.equal(readableBeforeAssignment.statusCode, 200);
+  // Menulis tetap harus mengambil alih dulu.
+  const writeBeforeAssignment = await app.inject({ method: 'POST', url: '/v1/chats/6281200000001@c.us/notes', headers: { cookie }, payload: { body: 'catatan' } });
+  assert.equal(writeBeforeAssignment.statusCode, 403);
+  // Yang dipegang orang lain tertutup rapat, termasuk untuk dibaca.
+  routes.set('6281200000004@c.us', { chatId: '6281200000004@c.us', mode: 'human', assigneeUserId: supervisor.id, assigneeName: 'Supervisor', status: 'open', priority: 'normal' });
+  const heldByOther = await app.inject({ method: 'GET', url: '/v1/chats/6281200000004@c.us/messages', headers: { cookie } });
+  assert.equal(heldByOther.statusCode, 403);
   const takeSelf = await app.inject({ method: 'POST', url: '/v1/chats/6281200000001@c.us/routing', headers: { cookie }, payload: { mode: 'human', assigneeUserId: agent.id } });
   assert.equal(takeSelf.statusCode, 200);
   const visibleAfterAssignment = await app.inject({ method: 'GET', url: '/v1/chats/6281200000001@c.us/messages', headers: { cookie } });

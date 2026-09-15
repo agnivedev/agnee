@@ -1,5 +1,16 @@
 ## [Unreleased]
 
+### Fixed
+
+- **Agent membuka percakapan, isinya kosong.** Hook cakupan agent menolak SEMUA
+  permintaan ke percakapan yang belum dipegang siapa pun, termasuk membaca
+  pesannya — jadi percakapan itu muncul di daftar inbox tapi kolom kanannya
+  kosong, dengan alasan yang salah pula: "Chat ini ditangani oleh agent lain"
+  padahal tidak ada yang memegangnya. Sekarang membaca boleh untuk percakapan
+  yang tidak dipegang orang lain (aturan yang sama dengan daftar inbox), dan
+  menulis tetap menuntut ambil alih dulu. Percakapan yang dipegang agent lain
+  tetap tertutup, termasuk untuk dibaca.
+
 ### Added
 
 - **Lead List terbuka untuk agent**, dengan baris yang tersaring memakai aturan

@@ -1,5 +1,17 @@
 ## [Unreleased]
 
+### Verified
+
+- **Simulasi ulang percakapan yang rusak, 2026-09-16.** Sepuluh giliran yang
+  sama diputar lewat `/v1/coach/simulate` di produksi setelah perbaikan riwayat.
+  Perkenalan diri sekali saja, bukan lima kali. "100%" dibaca benar sebagai loss
+  100% dan dijawab soal margin call, bukan soal garansi. "Mt5" dan "Valetax"
+  dicatat lalu percakapan maju, tidak ditanyakan ulang. "Setelah ada dana saya
+  akan ikuti" tidak lagi dibalas link checkout.
+  **Yang masih meleset:** call dengan Anya atau Rizki tidak pernah ditawarkan
+  walau playbook penutupnya sudah memuatnya, dan satu giliran mengirim dua link
+  sekaligus — melanggar aturan satu pesan satu ajakan.
+
 ### Added
 
 - **Aturan percakapan bawaan Agnee**, berlaku untuk semua tenant, di

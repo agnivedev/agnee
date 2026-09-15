@@ -1,5 +1,21 @@
 ## [Unreleased]
 
+### Fixed
+
+- **Inbox agent selalu kosong, dan tidak ada jalan keluar.** Daftar percakapan
+  menyaring agent dengan syarat `mode === 'human' && assignee === saya`, padahal
+  tiap percakapan bermula di mode `ai` tanpa assignee. Tidak satu pun lolos,
+  dan agent tidak bisa mengambil alih apa pun karena tidak ada yang terlihat
+  untuk diambil. Syaratnya bertentangan dengan aturan klaim di hook preHandler,
+  yang justru mengizinkan agent mengambil percakapan yang belum dipegang.
+  Sekarang agent melihat percakapannya sendiri dan yang belum dipegang siapa
+  pun; yang dipegang agent lain tetap tersembunyi. Satu aturan, dua tempat.
+- **Menonaktifkan anggota tidak melepas percakapan yang dia pegang.** Percakapan
+  itu tersangkut di mode `human` dengan pemilik yang tidak bisa login lagi:
+  agent lain tidak melihatnya karena dianggap milik orang lain, dan AI juga
+  tidak membalas. Customer-nya diam tanpa ada yang tahu. Sekarang percakapannya
+  kembali ke AI dalam transaksi yang sama.
+
 ### Added
 
 - **Kursor langsung siap di kolom balasan saat percakapan dibuka.** Tidak

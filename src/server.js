@@ -3854,10 +3854,23 @@ Aturan:
         chats.push(chat);
       }
     }
+    // Agent melihat percakapannya sendiri DAN percakapan yang belum dipegang
+    // siapa pun. Yang dipegang agent lain disembunyikan.
+    //
+    // Sebelumnya syaratnya `mode === 'human' && assignee === saya`, yang berarti
+    // agent baru melihat inbox KOSONG selamanya: tiap percakapan bermula di
+    // mode 'ai' tanpa assignee, jadi tidak ada satu pun yang lolos, dan tidak
+    // ada yang bisa diklaim karena tidak ada yang terlihat untuk diklaim.
+    // Aturan di sini sengaja sama persis dengan aturan klaim di hook
+    // preHandler — dua tempat, satu aturan.
     if (!isSupervisor(request.agneeSession)) {
+      const userId = request.agneeSession?.userId;
       const routing = await Promise.all(chats.map((chat) => getRouting(chat.id, companyId)));
-      chats = chats.filter((_chat, index) => routing[index].mode === 'human'
-        && routing[index].assigneeUserId === request.agneeSession?.userId);
+      chats = chats.filter((_chat, index) => {
+        const row = routing[index];
+        const heldByOtherAgent = row.mode === 'human' && row.assigneeUserId && row.assigneeUserId !== userId;
+        return !heldByOtherAgent;
+      });
     }
     if (filter === 'inbox') chats = chats.filter((chat) => !chat.archived);
     if (filter === 'archived') chats = chats.filter((chat) => chat.archived);

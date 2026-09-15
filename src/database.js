@@ -1409,12 +1409,36 @@ class Database {
     return result.rows[0] || null;
   }
 
+  /**
+   * Menonaktifkan anggota, dan mengembalikan percakapan yang dia pegang ke AI.
+   *
+   * Tanpa langkah kedua, percakapan itu tersangkut: mode-nya tetap 'human'
+   * dengan pemilik yang tidak bisa login lagi, jadi agent lain tidak melihatnya
+   * (dianggap dipegang orang lain) dan AI juga tidak membalas. Customer-nya
+   * diam tanpa ada yang tahu. AI membalas lebih baik daripada tidak ada yang
+   * membalas, dan supervisor tetap bisa menugaskannya ulang.
+   */
   async deactivateTeamMember(userId, companyId) {
     if (!this.enabled) return;
-    await this.pool.query(`
-      UPDATE company_members SET status = 'inactive', updated_at = NOW()
-      WHERE company_id = $1 AND user_id = $2 AND role != 'owner'
-    `, [companyId, userId]);
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query(`
+        UPDATE company_members SET status = 'inactive', updated_at = NOW()
+        WHERE company_id = $1 AND user_id = $2 AND role != 'owner'
+      `, [companyId, userId]);
+      await client.query(`
+        UPDATE conversation_routing
+        SET handling_mode = 'ai', assignee_user_id = NULL, updated_at = NOW()
+        WHERE company_id = $1 AND assignee_user_id = $2
+      `, [companyId, userId]);
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   async markOnboarded(userId) {

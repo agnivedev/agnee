@@ -1,4 +1,4 @@
-import { useRef, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { api } from '@/lib/api';
 import { useI18n } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
@@ -47,10 +47,21 @@ export function Composer({
   const [status, setStatus] = useState<Status>({ tone: 'idle', text: '' });
   const [sending, setSending] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
+  const textarea = useRef<HTMLTextAreaElement>(null);
   // Kept across retries so a resend of the same text is the same request to the
   // server, not a second message.
   const requestId = useRef<string | null>(null);
   const requestText = useRef<string | null>(null);
+
+  // Opening a conversation leaves the cursor ready to type.
+  //
+  // Skipped on touch screens: focusing there raises the on-screen keyboard over
+  // the messages the person opened the chat to read, and they have to dismiss
+  // it before they can see anything.
+  useEffect(() => {
+    if (!window.matchMedia('(hover: hover) and (pointer: fine)').matches) return;
+    textarea.current?.focus();
+  }, [chat.id]);
 
   function resetAttachment() {
     setAttachment(null);
@@ -235,6 +246,7 @@ export function Composer({
         ＋
       </button>
       <textarea
+        ref={textarea}
         rows={1}
         maxLength={4096}
         value={text}

@@ -1,5 +1,20 @@
 ## [Unreleased]
 
+### Added
+
+- **Kursor langsung siap di kolom balasan saat percakapan dibuka.** Tidak
+  berlaku di layar sentuh: memfokuskan di sana menaikkan keyboard layar menutupi
+  pesan yang justru baru saja dibuka orangnya.
+
+### Fixed
+
+- **Draf balasan terbawa antar percakapan.** Composer tidak pernah di-reset saat
+  chat berganti, jadi teks yang diketik untuk satu orang duduk di composer orang
+  berikutnya — satu Enter dari terkirim ke alamat yang salah. Kutipan "balas
+  pesan ini" ikut terbawa dengan cara yang sama. Ditemukan saat menguji fokus
+  otomatis, yang memperburuknya: kursor mendarat di kolom yang sudah berisi
+  pesan untuk orang lain.
+
 ### Changed
 
 - **Bundel dipecah per route.** Settings, Admin, Lead List, dan landing dimuat

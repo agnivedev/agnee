@@ -40,6 +40,14 @@ export function ConversationPane({
   const listRef = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
 
+  // Nothing from the previous conversation may follow us into this one. A
+  // quote left over from another chat would be sent to the wrong person, and
+  // the composer is focused on open, so it is one Enter away.
+  useEffect(() => {
+    setReplyingTo(null);
+    setHighlighted(null);
+  }, [chat?.id]);
+
   // Group header: who is in the room. Falls back to a plain count when the
   // participant names cannot be read.
   useEffect(() => {
@@ -205,8 +213,12 @@ export function ConversationPane({
         <EmptyState whatsapp={inbox.whatsapp} isSupervisor={isSupervisor} />
       )}
 
+      {/* Composer di-key per percakapan supaya teks, lampiran, dan status
+          pengiriman tidak ikut berpindah. Tanpa ini, draf untuk satu orang
+          duduk di composer orang lain. */}
       {chat ? (
         <Composer
+          key={chat.id}
           chat={chat}
           replyingTo={replyingTo}
           onCancelReply={() => setReplyingTo(null)}

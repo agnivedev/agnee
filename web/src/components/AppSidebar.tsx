@@ -24,7 +24,10 @@ export function AppSidebar({ items }: { items?: Item[] }) {
   // On a phone this is a horizontal bar across the top; a 248px column there
   // would squeeze the page it belongs to down to a strip.
   return (
-    <aside className="flex w-full shrink-0 flex-row flex-wrap items-center gap-x-4 gap-y-2 bg-ink py-3 pr-24 pl-4 text-white md:h-dvh md:w-[248px] md:flex-col md:flex-nowrap md:items-stretch md:gap-8 md:px-5 md:py-7 md:pr-5">
+    // Sticky di layar lebar: sidebar setinggi layar yang ikut menggulung
+    // membuat menunya menggantung di tengah halaman panjang seperti Admin.
+    // self-start supaya tinggi h-dvh tidak diregangkan flex parent.
+    <aside className="flex w-full shrink-0 flex-row flex-wrap items-center gap-x-4 gap-y-2 bg-ink py-3 pr-24 pl-4 text-white md:sticky md:top-0 md:h-dvh md:self-start md:overflow-y-auto md:w-[248px] md:flex-col md:flex-nowrap md:items-stretch md:gap-8 md:px-5 md:py-7 md:pr-5">
       <a href="/" className="flex shrink-0 items-center gap-3 no-underline" aria-label="Agnee">
         <img src="/brand/agnee-mark.svg" alt="" className="size-8" />
         <span className="hidden leading-tight sm:grid">

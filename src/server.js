@@ -1488,7 +1488,7 @@ async function buildApp(overrides = {}) {
   // of flashing a workspace it is about to lose.
   app.get('/', (_request, reply) => sendReactApp(reply));
   app.get('/landing', (_request, reply) => sendReactApp(reply));
-  for (const page of ['settings', 'admin', 'leads']) {
+  for (const page of ['settings', 'admin', 'leads', 'knowledge']) {
     app.get(`/${page}`, (request, reply) => {
       const session = verifySession(getCookie(request.headers.cookie, 'agnee_session'), config.sessionSecret);
       if (!session) return reply.redirect('/');

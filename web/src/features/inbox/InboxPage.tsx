@@ -207,7 +207,11 @@ export function InboxPage() {
       case 'leads':
         navigate('/leads');
         break;
+      // Train AI dan Admin dulu sama-sama membuka /admin, jadi menekan Train AI
+      // saat sudah di sana terasa tidak melakukan apa-apa.
       case 'playground':
+        window.location.href = '/knowledge';
+        break;
       case 'admin':
         window.location.href = '/admin';
         break;

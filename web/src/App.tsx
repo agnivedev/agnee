@@ -12,6 +12,7 @@ import { InboxPage } from '@/features/inbox/InboxPage';
 // must feel instant. The rest load when someone actually opens them.
 const LeadsPage = lazy(() => import('@/features/leads/LeadsPage').then((m) => ({ default: m.LeadsPage })));
 const SettingsPage = lazy(() => import('@/features/settings/SettingsPage').then((m) => ({ default: m.SettingsPage })));
+const KnowledgePage = lazy(() => import('@/features/knowledge/KnowledgePage').then((m) => ({ default: m.KnowledgePage })));
 const AdminPage = lazy(() => import('@/features/admin/AdminPage').then((m) => ({ default: m.AdminPage })));
 const LandingPage = lazy(() => import('@/features/landing/LandingPage').then((m) => ({ default: m.LandingPage })));
 
@@ -74,6 +75,7 @@ function Shell() {
         <Route path="/" element={<InboxPage />} />
         <Route path="/leads" element={<LeadsPage />} />
         <Route path="/settings" element={<SettingsPage />} />
+        <Route path="/knowledge" element={<KnowledgePage />} />
         <Route path="/admin" element={<AdminPage />} />
         {/* Pages still served by the vanilla frontend. Each one moves here as it
             is ported; until then a hard navigation hands the URL back to it. */}

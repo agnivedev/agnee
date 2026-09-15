@@ -443,3 +443,65 @@ test('kirim manual yang gagal juga menghentikan rangkaian', async () => {
   assert.equal(state.stopReason, 'undeliverable', 'rangkaian dihentikan walau lewat jalur manual');
   assert.equal(database.recorded.length, 1, 'percobaannya tetap tercatat');
 });
+
+test('rangkaian yang dimulai ulang mendapat plafonnya sendiri', async () => {
+  // Plafon absolut dulu menghitung SEMUA baris follow_up_sends untuk satu
+  // chat, sepanjang masa. Percakapan yang plafonnya sudah habis karena itu
+  // habis lagi seketika setelah dimulai ulang — tombolnya tidak berguna.
+  // Sekarang hitungannya per rangkaian; `countFollowUpSends` hanya melihat
+  // rangkaian yang berjalan.
+  const state = {
+    chatId: 'c1@c.us', companyId: 'co1', sequenceStartedAt: MIDDAY,
+    sentPerDay: [], dayCaps: [1, 1, 1], minGapMinutes: 180,
+    sendFromHour: 8, sendToHour: 21, lastSentAt: null,
+  };
+  const database = fakeFollowUpDb(state);
+  // Tiga kiriman dari rangkaian SEBELUMNYA. Jumlahnya persis plafon absolut.
+  database.countFollowUpSends = async () => 0; // rangkaian berjalan: masih kosong
+  database.listFollowUpSends = async () => [
+    { dayIndex: 0, body: 'rangkaian lama 1' },
+    { dayIndex: 1, body: 'rangkaian lama 2' },
+    { dayIndex: 2, body: 'rangkaian lama 3' },
+  ];
+
+  const scheduler = new FollowUpScheduler({
+    database,
+    logger: { info() {}, warn() {}, error() {} },
+    deps: {
+      isHumanHandled: async () => false,
+      generate: async () => 'halo lagi',
+      sendMessage: async () => {},
+    },
+  });
+
+  const prepared = await scheduler.draft(state, MIDDAY);
+  assert.equal(prepared.ok, true, 'rangkaian baru boleh mengirim walau rangkaian lama sudah habis');
+  assert.equal(prepared.dayIndex, 0);
+  assert.equal(state.stopReason, undefined, 'tidak ditandai habis');
+});
+
+test('plafon absolut tetap menahan di dalam satu rangkaian', async () => {
+  const state = {
+    chatId: 'c1@c.us', companyId: 'co1', sequenceStartedAt: MIDDAY,
+    sentPerDay: [], dayCaps: [1, 1, 1], minGapMinutes: 180,
+    sendFromHour: 8, sendToHour: 21, lastSentAt: null,
+  };
+  const database = fakeFollowUpDb(state);
+  // Rangkaian BERJALAN sudah memakai ketiga jatahnya.
+  database.countFollowUpSends = async () => 3;
+
+  const scheduler = new FollowUpScheduler({
+    database,
+    logger: { info() {}, warn() {}, error() {} },
+    deps: {
+      isHumanHandled: async () => false,
+      generate: async () => { throw new Error('AI tidak boleh dipanggil setelah plafon habis'); },
+      sendMessage: async () => { throw new Error('tidak boleh mengirim'); },
+    },
+  });
+
+  const prepared = await scheduler.draft(state, MIDDAY);
+  assert.equal(prepared.ok, false);
+  assert.equal(prepared.reason, 'exhausted');
+  assert.equal(state.stopReason, 'exhausted');
+});

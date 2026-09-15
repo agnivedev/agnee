@@ -2,6 +2,22 @@
 
 ### Added
 
+- **Mulai rangkaian tindak lanjut baru** untuk percakapan yang rangkaiannya
+  sudah habis. Sebelum ini, sekali sebuah percakapan memakai seluruh plafonnya,
+  tidak ada jalan kembali kecuali customer bicara duluan.
+  Tiga penjaga: hanya rangkaian yang berhenti karena `exhausted` yang boleh
+  (bukan `opted_out`, `replied`, `undeliverable`, atau `human_takeover`), harus
+  lewat jeda hari yang disetel supervisor (`restartAfterDays`, 0 = tidak boleh
+  sama sekali), dan tombolnya minta konfirmasi. Pita kuning muncul di percakapan
+  yang sudah dimulai ulang dua kali atau lebih — memperingatkan, tidak
+  menghalangi.
+  Membuatnya menyingkap bahwa **dua pengaman lama menolak rangkaian baru
+  sebelum satu pesan pun keluar**: plafon absolut menghitung semua baris
+  `follow_up_sends` sepanjang masa, dan `UNIQUE (company_id, chat_id,
+  day_index, attempt_in_day)` bertabrakan karena rangkaian baru memakai hari
+  ke-0 percobaan ke-1 lagi. Migration 024 menambah `sequence_no`; hitungan dan
+  kunci unik sekarang per rangkaian, riwayat lama tetap tersimpan.
+
 - **Konfirmasi saat menyalakan tindak lanjut otomatis**, menyebut angka yang
   benar-benar akan berlaku (plafon per hari dan jam kirim). Menyalakan berarti
   AI mulai mengirim ke customer sungguhan; satu klik yang tidak disengaja

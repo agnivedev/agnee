@@ -2886,6 +2886,10 @@ Aturan:
           minGapMinutes: { type: 'integer', minimum: 30, maximum: 1440 },
           sendFromHour: { type: 'integer', minimum: 0, maximum: 23 },
           sendToHour: { type: 'integer', minimum: 0, maximum: 23 },
+          // Masa tunggu sebelum rangkaian yang sudah selesai boleh dimulai
+          // lagi. 0 berarti tidak boleh sama sekali — pilihan yang sah untuk
+          // company yang tidak mau ada pengulangan dengan alasan apa pun.
+          restartAfterDays: { type: 'integer', minimum: 0, maximum: 90 },
         },
       },
     },
@@ -2939,6 +2943,40 @@ Aturan:
     }
   }
 
+  /**
+   * Hanya rangkaian yang HABIS yang boleh dimulai lagi.
+   *
+   * Alasan berhenti yang lain sengaja tidak masuk. `opted_out` jelas: orangnya
+   * minta berhenti. `replied` dan `feature_reenabled` tidak perlu, karena
+   * rangkaian terpasang sendiri begitu kita membalas lagi. `undeliverable`
+   * berarti pengiriman gagal — memulai lagi hanya mengulang kegagalan yang
+   * sama. `human_takeover` berarti ada agent yang memegangnya.
+   */
+  const RESTARTABLE_STOP_REASONS = ['exhausted'];
+
+  /** Sejak kapan rangkaian yang berhenti ini boleh dimulai lagi, kalau boleh. */
+  function restartInfo(row) {
+    const afterDays = row.restartAfterDays ?? 2;
+    const restartCount = row.restartCount ?? 0;
+    const dayCaps = row.dayCaps || [];
+    // Dibedakan dari "belum waktunya": alasan berhenti yang tidak boleh
+    // dimulai lagi TIDAK akan berubah karena menunggu. Menyuruh supervisor
+    // menunggu dua hari untuk sesuatu yang tidak akan pernah boleh hanya
+    // membuatnya mencoba lagi nanti.
+    if (!row.stoppedAt || !RESTARTABLE_STOP_REASONS.includes(row.stopReason)) {
+      return { eligible: false, notAllowed: true, restartCount, afterDays, dayCaps };
+    }
+    if (afterDays === 0) return { eligible: false, disabled: true, restartCount, afterDays, dayCaps };
+    const availableAt = new Date(new Date(row.stoppedAt).getTime() + afterDays * 86_400_000);
+    return {
+      eligible: availableAt <= new Date(),
+      availableAt: availableAt.toISOString(),
+      restartCount,
+      afterDays,
+      dayCaps,
+    };
+  }
+
   async function loadFollowUpRow(chatId, companyId, reply) {
     const row = await database.getFollowUpState(chatId, companyId);
     if (!row) {
@@ -2950,9 +2988,12 @@ Aturan:
       return null;
     }
     if (row.stoppedAt) {
+      // Antarmuka menawarkan tombol "mulai rangkaian baru" dari penolakan ini,
+      // jadi jawabannya harus cukup untuk memutuskan tanpa permintaan kedua.
       reply.code(409).send({
         error: 'Rangkaian tindak lanjut untuk percakapan ini sudah selesai.',
         reasonKey: FOLLOW_UP_REFUSAL[row.stopReason] || 'fu.exhausted',
+        restart: restartInfo(row),
       });
       return null;
     }
@@ -3052,6 +3093,65 @@ Aturan:
       });
     }
     return { ok: true, day: verdict.dayIndex + 1, attemptInDay: verdict.attemptInDay };
+  });
+
+  /**
+   * Memulai rangkaian tindak lanjut baru untuk percakapan yang sudah habis.
+   *
+   * Tidak mengirim apa pun sendiri — hanya memasang rangkaiannya kembali dari
+   * hari ke-1. Pengirimannya tetap lewat scheduler atau tombol kirim manual,
+   * jadi plafon harian, jarak minimum, dan jam kirim semuanya tetap berlaku.
+   */
+  app.post('/v1/follow-up/restart', {
+    schema: {
+      body: {
+        type: 'object', additionalProperties: false, required: ['chatId'],
+        properties: { chatId: { type: 'string', minLength: 1, maxLength: 128 } },
+      },
+    },
+  }, async (request, reply) => {
+    if (!requireCoachSupervisor(request, reply)) return;
+    if (!requireCoachDb(reply)) return;
+    const companyId = request.agneeSession.companyId;
+    const chatId = followUpChatId(request, reply);
+    if (!chatId) return;
+
+    const row = await database.getFollowUpState(chatId, companyId);
+    if (!row) {
+      return reply.code(409).send({ error: 'Percakapan ini belum masuk rangkaian tindak lanjut.', reasonKey: 'fu.noSequence' });
+    }
+    if (!row.enabled) {
+      return reply.code(409).send({ error: 'Aktifkan tindak lanjut otomatis dulu.', reasonKey: 'fu.disabled' });
+    }
+    const info = restartInfo(row);
+    if (!info.eligible) {
+      return reply.code(409).send({
+        error: 'Rangkaian ini belum boleh dimulai lagi.',
+        reasonKey: info.notAllowed
+          ? 'fu.restartNotAllowed'
+          : info.disabled ? 'fu.restartDisabled' : 'fu.restartTooSoon',
+        restart: info,
+        vars: { days: info.afterDays, date: info.availableAt || '' },
+      });
+    }
+
+    // Syaratnya dicek ulang di dalam UPDATE, bukan dipercayakan ke pengecekan
+    // di atas: dua supervisor yang menekan tombolnya bersamaan hanya boleh
+    // menghasilkan satu rangkaian.
+    const restarted = await database.restartFollowUpSequence(chatId, companyId, {
+      afterDays: info.afterDays,
+      allowedReasons: RESTARTABLE_STOP_REASONS,
+    });
+    if (!restarted) {
+      return reply.code(409).send({
+        error: 'Rangkaian ini belum boleh dimulai lagi.',
+        reasonKey: 'fu.restartTooSoon',
+        vars: { days: info.afterDays, date: info.availableAt || '' },
+      });
+    }
+    app.log.info({ chatId, companyId, restartCount: restarted.restartCount },
+      'Rangkaian tindak lanjut dimulai lagi oleh supervisor');
+    return { ok: true, restartCount: restarted.restartCount };
   });
 
   app.get('/v1/whatsapp/status', async (request) => {

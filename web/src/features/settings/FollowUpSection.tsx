@@ -11,6 +11,7 @@ type Settings = {
   minGapMinutes?: number;
   sendFromHour?: number;
   sendToHour?: number;
+  restartAfterDays?: number;
   stats?: { sent?: number; replied?: number; active?: number };
 };
 
@@ -36,6 +37,7 @@ export function FollowUpSection() {
   const [minGap, setMinGap] = useState(120);
   const [fromHour, setFromHour] = useState(8);
   const [toHour, setToHour] = useState(21);
+  const [restartAfterDays, setRestartAfterDays] = useState(2);
   const [stats, setStats] = useState<Settings['stats']>();
   const [saving, setSaving] = useState(false);
   const { saved, flash } = useSavedFlag();
@@ -49,6 +51,7 @@ export function FollowUpSection() {
         setMinGap(data.minGapMinutes ?? 120);
         setFromHour(data.sendFromHour ?? 8);
         setToHour(data.sendToHour ?? 21);
+        setRestartAfterDays(data.restartAfterDays ?? 2);
         setStats(data.stats);
       })
       .catch(() => {
@@ -84,6 +87,7 @@ export function FollowUpSection() {
           minGapMinutes: Number(minGap) || 120,
           sendFromHour: Number(fromHour),
           sendToHour: Number(toHour),
+          restartAfterDays: Number(restartAfterDays),
         },
       });
       setEnabled(Boolean(result.enabled));
@@ -155,6 +159,15 @@ export function FollowUpSection() {
           max={23}
           value={toHour}
           onChange={(event) => setToHour(Number(event.target.value))}
+        />
+        <TextField
+          label={t('fu.restartAfterDays')}
+          hint={t('fu.restartAfterDaysHint')}
+          type="number"
+          min={0}
+          max={90}
+          value={restartAfterDays}
+          onChange={(event) => setRestartAfterDays(Number(event.target.value))}
         />
       </FieldGrid>
 

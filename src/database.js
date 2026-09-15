@@ -885,7 +885,7 @@ class Database {
     const result = await this.pool.query(`
       SELECT enabled, day_caps AS "dayCaps", min_gap_minutes AS "minGapMinutes",
              send_from_hour AS "sendFromHour", send_to_hour AS "sendToHour",
-             updated_at AS "updatedAt"
+             restart_after_days AS "restartAfterDays", updated_at AS "updatedAt"
       FROM follow_up_settings
       WHERE company_id = $1
     `, [companyId]);
@@ -893,7 +893,7 @@ class Database {
     // defaults the migration documents.
     return result.rows[0] || {
       enabled: false, dayCaps: [5, 3, 2], minGapMinutes: 120,
-      sendFromHour: 8, sendToHour: 21, updatedAt: null,
+      sendFromHour: 8, sendToHour: 21, restartAfterDays: 2, updatedAt: null,
     };
   }
 
@@ -904,18 +904,20 @@ class Database {
     const switchingOn = next.enabled === true && current?.enabled !== true;
     const result = await this.pool.query(`
       INSERT INTO follow_up_settings
-        (company_id, enabled, day_caps, min_gap_minutes, send_from_hour, send_to_hour, updated_by)
-      VALUES ($1, $2, $3, $4, $5, $6, $7)
+        (company_id, enabled, day_caps, min_gap_minutes, send_from_hour, send_to_hour,
+         restart_after_days, updated_by)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
       ON CONFLICT (company_id) DO UPDATE
         SET enabled = EXCLUDED.enabled, day_caps = EXCLUDED.day_caps,
             min_gap_minutes = EXCLUDED.min_gap_minutes,
             send_from_hour = EXCLUDED.send_from_hour, send_to_hour = EXCLUDED.send_to_hour,
+            restart_after_days = EXCLUDED.restart_after_days,
             updated_by = EXCLUDED.updated_by, updated_at = NOW()
       RETURNING enabled, day_caps AS "dayCaps", min_gap_minutes AS "minGapMinutes",
                 send_from_hour AS "sendFromHour", send_to_hour AS "sendToHour",
-                updated_at AS "updatedAt"
+                restart_after_days AS "restartAfterDays", updated_at AS "updatedAt"
     `, [companyId, next.enabled, next.dayCaps, next.minGapMinutes,
-      next.sendFromHour, next.sendToHour, updatedBy || null]);
+      next.sendFromHour, next.sendToHour, next.restartAfterDays ?? 2, updatedBy || null]);
 
     // Menyalakan kembali harus mulai dari nol, bukan melepas antrean lama.
     // `armFollowUp` hanya memasang rangkaian saat kita membalas customer, jadi
@@ -964,6 +966,36 @@ class Database {
       RETURNING company_id AS "companyId", chat_id AS "chatId"
     `, [companyId, chatId]);
     return result.rows[0];
+  }
+
+  /**
+   * Memulai rangkaian baru untuk percakapan yang rangkaiannya sudah berhenti.
+   *
+   * Bukan "membatalkan" penghentian: rangkaian lama tetap tercatat di
+   * `follow_up_sends`, dan yang dibuat di sini rangkaian baru dari hari ke-1.
+   * Plafon harian karena itu tetap berlaku penuh.
+   *
+   * Masa tunggu dan syarat alasan berhenti dicek di dalam satu UPDATE, bukan
+   * dibaca dulu lalu ditulis. Dua supervisor yang menekan tombolnya bersamaan
+   * hanya menghasilkan satu rangkaian; yang kalah mendapat rowCount 0.
+   *
+   * @returns {Promise<{restartCount:number}|null>} null kalau syaratnya tidak terpenuhi.
+   */
+  async restartFollowUpSequence(chatId, companyId, { afterDays, allowedReasons }) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      UPDATE follow_up_state
+      SET sequence_started_at = NOW(), last_sent_at = NULL, sent_total = 0,
+          sent_per_day = ARRAY[]::INTEGER[],
+          stopped_at = NULL, stop_reason = NULL,
+          restart_count = restart_count + 1, updated_at = NOW()
+      WHERE company_id = $1 AND chat_id = $2
+        AND stopped_at IS NOT NULL
+        AND stop_reason = ANY($3::TEXT[])
+        AND stopped_at <= NOW() - ($4 || ' days')::INTERVAL
+      RETURNING restart_count AS "restartCount"
+    `, [companyId, chatId, allowedReasons, String(afterDays)]);
+    return result.rows[0] || null;
   }
 
   /** The customer spoke (or a human took over): the sequence is over. */
@@ -1019,8 +1051,10 @@ class Database {
              s.sequence_started_at AS "sequenceStartedAt", s.last_sent_at AS "lastSentAt",
              s.sent_total AS "sentTotal", s.sent_per_day AS "sentPerDay",
              s.stopped_at AS "stoppedAt", s.stop_reason AS "stopReason",
+             s.restart_count AS "restartCount",
              f.enabled, f.day_caps AS "dayCaps", f.min_gap_minutes AS "minGapMinutes",
-             f.send_from_hour AS "sendFromHour", f.send_to_hour AS "sendToHour"
+             f.send_from_hour AS "sendFromHour", f.send_to_hour AS "sendToHour",
+             f.restart_after_days AS "restartAfterDays"
       FROM follow_up_state s
       LEFT JOIN follow_up_settings f ON f.company_id = s.company_id
       WHERE s.company_id = $1 AND s.chat_id = $2
@@ -1034,9 +1068,14 @@ class Database {
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
+      // `sequence_no` diambil dari rangkaian yang berjalan, bukan dari
+      // pemanggil: satu-satunya kebenaran ada di follow_up_state.
       await client.query(
-        `INSERT INTO follow_up_sends (company_id, chat_id, day_index, attempt_in_day, body)
-         VALUES ($1, $2, $3, $4, $5)`,
+        `INSERT INTO follow_up_sends (company_id, chat_id, sequence_no, day_index, attempt_in_day, body)
+         VALUES ($1, $2,
+                 COALESCE((SELECT restart_count FROM follow_up_state
+                           WHERE company_id = $1 AND chat_id = $2), 0),
+                 $3, $4, $5)`,
         [companyId, chatId, dayIndex, attemptInDay, body],
       );
       // Pad sent_per_day up to dayIndex (Postgres arrays are 1-based, so the
@@ -1080,12 +1119,24 @@ class Database {
    * memakainya sebagai plafon absolut: kalau penghitung state rusak lagi,
    * angka ini tetap benar dan tetap menahan.
    */
+  /**
+   * Berapa pesan yang sudah keluar pada rangkaian yang BERJALAN.
+   *
+   * Dihitung per rangkaian, bukan sepanjang masa: percakapan yang dimulai
+   * ulang harus mendapat plafonnya sendiri, kalau tidak rangkaian barunya
+   * habis sebelum satu pesan pun keluar. Baris rangkaian lama tetap tersimpan
+   * dan tetap terbaca lewat `listFollowUpSends`.
+   */
   async countFollowUpSends(chatId, companyId) {
     if (!this.enabled) return 0;
-    const result = await this.pool.query(
-      'SELECT COUNT(*)::int AS total FROM follow_up_sends WHERE company_id = $1 AND chat_id = $2',
-      [companyId, chatId],
-    );
+    const result = await this.pool.query(`
+      SELECT COUNT(*)::int AS total
+      FROM follow_up_sends
+      WHERE company_id = $1 AND chat_id = $2
+        AND sequence_no = COALESCE(
+          (SELECT restart_count FROM follow_up_state
+           WHERE company_id = $1 AND chat_id = $2), 0)
+    `, [companyId, chatId]);
     return result.rows[0]?.total ?? 0;
   }
 

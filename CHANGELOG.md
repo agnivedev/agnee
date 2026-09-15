@@ -1,6 +1,21 @@
 ## [Unreleased]
 
-### Added
+### Changed
+
+- **Bundel dipecah per route.** Settings, Admin, Lead List, dan landing dimuat
+  saat dibuka, bukan di muat pertama; inbox sengaja tetap di bundel awal karena
+  itu halaman yang dituju semua orang setelah masuk.
+  Dependency dipisah ke chunk `vendor` sendiri **berdasarkan path node_modules,
+  bukan nama paket**: aplikasi mengimpor `react-dom/client`, dan entri
+  `manualChunks` bernama `'react-dom'` tidak menangkapnya — react-dom ikut
+  masuk ke chunk aplikasi, dan itu sebagian besar bobotnya.
+  Hasilnya: satu berkas 518 kB (gzip 156 kB) jadi aplikasi 146 kB (gzip 46 kB)
+  + vendor 289 kB (gzip 92 kB) + enam chunk sesuai kebutuhan. Peringatan ukuran
+  dari Vite hilang.
+  **Yang benar-benar membaik adalah kunjungan setelah deploy**, bukan muat
+  pertama: total gzip muat dingin 150 kB, hampir sama dengan sebelumnya karena
+  vendor tetap ikut. Tapi deploy berikutnya hanya mengubah chunk aplikasi 46 kB;
+  vendor tetap di cache.
 
 - **Mulai rangkaian tindak lanjut baru** untuk percakapan yang rangkaiannya
   sudah habis. Sebelum ini, sekali sebuah percakapan memakai seluruh plafonnya,

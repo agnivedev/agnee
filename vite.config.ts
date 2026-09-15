@@ -18,6 +18,22 @@ export default defineConfig({
     // NOT 'assets': public/assets/ already holds the landing page images, and
     // serving the bundles there shadows them (they 404).
     assetsDir: 'app',
+    rollupOptions: {
+      output: {
+        // Dependencies change only when we upgrade them, while app code
+        // changes every deploy. Keeping them apart means a deploy does not
+        // re-download the framework someone already has cached.
+        //
+        // Matched by path, not by package name: the app imports
+        // 'react-dom/client', and a bare 'react-dom' entry does not catch
+        // that — react-dom then lands in the app chunk, which is most of its
+        // weight.
+        manualChunks(id) {
+          if (id.includes('node_modules')) return 'vendor';
+          return undefined;
+        },
+      },
+    },
   },
   server: {
     port: 5173,

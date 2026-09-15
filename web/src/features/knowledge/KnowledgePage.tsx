@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { api, messageFromError } from '@/lib/api';
 import { useI18n, usePageTitle } from '@/lib/i18n';
 import { AppSidebar } from '@/components/AppSidebar';
@@ -13,10 +13,13 @@ type Kind = {
   updatedAt: string | null;
 };
 
+type Turn = { role: 'user' | 'assistant'; content: string };
+
 type Doc = {
   kind: string;
   brief: string;
   contentMd: string;
+  interview?: Turn[];
   version: number;
   updatedAt: string | null;
 };
@@ -104,12 +107,126 @@ function Inline({ text }: { text: string }) {
   );
 }
 
+/**
+ * Menyusun dokumen lewat obrolan.
+ *
+ * Mesinnya sudah lama ada di server — `/chat` menyimpan tiap giliran, `/compile`
+ * mengubah seluruh obrolan jadi markdown — tapi tidak pernah punya tombol.
+ * Supervisor yang ingin menambah aturan harus menulis markdown sendiri.
+ *
+ * Menyusun TIDAK otomatis: setiap kali obrolan bertambah, tombolnya muncul dan
+ * menunggu. Menimpa dokumen yang dibaca AI ke semua customer adalah hal yang
+ * harus diputuskan orang, bukan efek samping dari mengetik.
+ */
+function ChatPanel({ kind, interview, onCompiled }: {
+  kind: string;
+  interview: Turn[];
+  onCompiled: () => void;
+}) {
+  const { t } = useI18n();
+  const [turns, setTurns] = useState<Turn[]>(interview);
+  const [draft, setDraft] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState('');
+  const listRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => { setTurns(interview); setStatus(''); }, [interview, kind]);
+  useEffect(() => {
+    const el = listRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [turns]);
+
+  async function kirim(event: FormEvent) {
+    event.preventDefault();
+    const pesan = draft.trim();
+    if (!pesan || busy) return;
+    setBusy(true);
+    setStatus('');
+    setDraft('');
+    setTurns((current) => [...current, { role: 'user', content: pesan }]);
+    try {
+      const hasil = await api<{ reply: string; interview: Turn[] }>(
+        `/v1/playbooks/${encodeURIComponent(kind)}/chat`, { method: 'POST', body: { message: pesan } },
+      );
+      setTurns(hasil.interview || []);
+    } catch (error) {
+      setStatus(messageFromError(error, t('knowledge.chatFailed')));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function susun() {
+    setBusy(true);
+    setStatus('');
+    try {
+      await api(`/v1/playbooks/${encodeURIComponent(kind)}/compile`, { method: 'POST' });
+      setStatus(t('knowledge.compiled'));
+      onCompiled();
+    } catch (error) {
+      setStatus(messageFromError(error, t('knowledge.compileFailed')));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="grid gap-3">
+      <p className="m-0 text-[11px] text-muted">{t('knowledge.chatIntro')}</p>
+
+      <div ref={listRef} className="grid max-h-[46vh] gap-2 overflow-y-auto rounded-xl bg-warm/50 p-3">
+        {!turns.length ? (
+          <p className="m-0 py-6 text-center text-[13px] text-muted">{t('knowledge.chatEmpty')}</p>
+        ) : turns.map((turn, index) => (
+          <div
+            key={`${index}-${turn.content.slice(0, 10)}`}
+            className={cn(
+              'max-w-[85%] rounded-[14px] px-3 py-2 text-[13px] whitespace-pre-wrap',
+              turn.role === 'user' ? 'justify-self-end bg-[#d9ffd6]' : 'justify-self-start bg-white',
+            )}
+          >
+            {turn.content}
+          </div>
+        ))}
+      </div>
+
+      <form onSubmit={kirim} className="flex gap-2">
+        <input
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          placeholder={t('knowledge.chatPlaceholder')}
+          maxLength={4000}
+          className="min-w-0 flex-1 rounded-xl border border-border bg-white px-3 py-2 text-[13px]"
+        />
+        <Button type="submit" size="sm" disabled={busy || !draft.trim()}>
+          {busy ? t('common.loading') : t('common.send')}
+        </Button>
+      </form>
+
+      {turns.length ? (
+        <div className="grid gap-1.5 rounded-xl border border-amber-400/50 bg-amber-50 p-3">
+          <strong className="text-[12px] text-amber-900">{t('knowledge.compileAsk')}</strong>
+          <p className="m-0 text-[11px] text-amber-900/80">{t('knowledge.compileWarn')}</p>
+          <div>
+            <Button size="sm" variant="outline" disabled={busy} onClick={() => void susun()}>
+              {t('knowledge.compile')}
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
+      {status ? <p className="m-0 text-[11px] text-muted">{status}</p> : null}
+    </div>
+  );
+}
+
 export function KnowledgePage() {
   const { t, locale } = useI18n();
   usePageTitle(t('knowledge.title'));
   const [kinds, setKinds] = useState<Kind[]>([]);
   const [active, setActive] = useState<string | null>(null);
   const [doc, setDoc] = useState<Doc | null>(null);
+  const [tab, setTab] = useState<'isi' | 'obrolan'>('isi');
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState('');
 
@@ -128,6 +245,7 @@ export function KnowledgePage() {
   const openDoc = useCallback(async (kind: string) => {
     setActive(kind);
     setDoc(null);
+    setTab('isi');
     try {
       setDoc(await api<Doc>(`/v1/playbooks/${encodeURIComponent(kind)}`));
     } catch (error) {
@@ -188,26 +306,51 @@ export function KnowledgePage() {
             <section className="min-w-0 rounded-[18px] border border-border bg-white/70 p-5">
               {!doc ? (
                 <p className="font-mono text-sm text-muted">{t('common.loading')}</p>
-              ) : doc.contentMd.trim() ? (
+              ) : (
                 <>
                   <header className="mb-4 flex flex-wrap items-baseline justify-between gap-2 border-b border-border pb-3">
                     <h2 className="m-0 text-[17px]">{t(`playbook.kind.${doc.kind}`)}</h2>
                     <span className="font-mono text-[11px] text-muted">
-                      {t('knowledge.version', { version: doc.version })}
+                      {doc.contentMd.trim() ? t('knowledge.version', { version: doc.version }) : t('knowledge.empty')}
                       {doc.updatedAt ? ` · ${new Date(doc.updatedAt).toLocaleString(dateLocale)}` : ''}
                     </span>
                   </header>
-                  <Markdown source={doc.contentMd} />
-                </>
-              ) : (
-                <div className="grid gap-3 py-6 text-center">
-                  <p className="m-0 text-sm text-muted">{t('knowledge.emptyBody')}</p>
-                  <div>
-                    <Button size="sm" variant="outline" onClick={() => { window.location.href = '/admin'; }}>
-                      {t('knowledge.fillIt')}
-                    </Button>
+
+                  <div className="mb-4 flex gap-1.5">
+                    {(['isi', 'obrolan'] as const).map((id) => (
+                      <button
+                        key={id}
+                        type="button"
+                        onClick={() => setTab(id)}
+                        className={cn(
+                          'cursor-pointer rounded-full border px-3 py-1 text-[12px] transition',
+                          tab === id ? 'border-green bg-green/10 font-semibold' : 'border-border bg-white/60 hover:border-green/40',
+                        )}
+                      >
+                        {t(id === 'isi' ? 'knowledge.tabContent' : 'knowledge.tabChat')}
+                      </button>
+                    ))}
                   </div>
-                </div>
+
+                  {tab === 'obrolan' ? (
+                    <ChatPanel
+                      kind={doc.kind}
+                      interview={doc.interview || []}
+                      onCompiled={() => void openDoc(doc.kind)}
+                    />
+                  ) : doc.contentMd.trim() ? (
+                    <Markdown source={doc.contentMd} />
+                  ) : (
+                    <div className="grid gap-3 py-6 text-center">
+                      <p className="m-0 text-sm text-muted">{t('knowledge.emptyBody')}</p>
+                      <div>
+                        <Button size="sm" variant="outline" onClick={() => setTab('obrolan')}>
+                          {t('knowledge.startChat')}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </>
               )}
             </section>
           </div>

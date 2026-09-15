@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api, messageFromError, ApiError } from '@/lib/api';
 import { useI18n, usePageTitle } from '@/lib/i18n';
+import { useSession } from '@/lib/session';
 import { AppSidebar } from '@/components/AppSidebar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -24,6 +25,7 @@ function compareValues(a: string, b: string) {
 
 export function LeadsPage() {
   const { t } = useI18n();
+  const { isSupervisor } = useSession();
   usePageTitle('leads.title');
 
   const [columns, setColumns] = useState<Column[]>([]);
@@ -131,13 +133,20 @@ export function LeadsPage() {
                 : t('leads.countFiltered', { shown: visibleRows.length, total: rows.length })}
             </span>
             <span className="flex-1" />
-            {/* Downloads ride the same session cookie as every other request here. */}
-            <Button size="sm" onClick={() => { window.location.href = '/v1/export/contacts.xlsx'; }}>
-              {t('leads.downloadXlsx')}
-            </Button>
-            <Button size="sm" variant="outline" onClick={() => { window.location.href = '/v1/export/contacts.csv'; }}>
-              {t('leads.downloadCsv')}
-            </Button>
+            {/* Downloads ride the same session cookie as every other request here.
+                Hanya supervisor: satu berkas berisi seluruh daftar customer
+                adalah hal yang berbeda dari melihat percakapan sendiri, dan
+                server menolak agent di kedua rute itu. */}
+            {isSupervisor ? (
+              <>
+                <Button size="sm" onClick={() => { window.location.href = '/v1/export/contacts.xlsx'; }}>
+                  {t('leads.downloadXlsx')}
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => { window.location.href = '/v1/export/contacts.csv'; }}>
+                  {t('leads.downloadCsv')}
+                </Button>
+              </>
+            ) : null}
             <Button size="sm" variant="outline" onClick={() => void load()}>
               {t('common.refresh')}
             </Button>

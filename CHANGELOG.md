@@ -1,5 +1,24 @@
 ## [Unreleased]
 
+### Added
+
+- **Lead List terbuka untuk agent**, dengan baris yang tersaring memakai aturan
+  yang sama dengan inbox: percakapannya sendiri dan yang belum dipegang siapa
+  pun. Tanpa penyaringan itu halaman ini jadi pintu belakang — daftar lengkap
+  nomor dan isi pesan seluruh customer, termasuk yang dipegang agent lain.
+  Unduhan XLSX dan CSV tetap supervisor saja: satu berkas berisi seluruh daftar
+  customer adalah hal yang berbeda dari melihat percakapan sendiri.
+
+### Changed
+
+- **Mode demo memakai id WhatsApp yang sah** (`6281200000001@c.us` dan
+  seterusnya), bukan `demo-raka`. Id lama bukan alamat WhatsApp, jadi
+  `normalizeChatId` menolaknya 400 sebelum permintaan sampai ke fitur yang
+  sedang diuji. Tiga verifikasi terhalang karenanya dalam satu hari.
+- **Penjagaan kepemilikan di rute kirim dipindah ke atas cabang mode demo.**
+  Selama pengecekannya di bawah, mode demo memintasnya dan aturan "ambil alih
+  dulu sebelum membalas" tidak pernah bisa diuji tanpa WhatsApp sungguhan.
+
 ### Fixed
 
 - **Inbox agent selalu kosong, dan tidak ada jalan keluar.** Daftar percakapan

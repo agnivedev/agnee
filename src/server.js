@@ -235,24 +235,24 @@ function demoDataset() {
   const now = Math.floor(Date.now() / 1000);
   return {
     chats: [
-      { id: 'demo-nadia', name: 'Nadia — Kopi Pagi', preview: 'Bisa bantu paket untuk 3 cabang?', timestamp: now - 120, unreadCount: 2, isGroup: false, pinned: false, archived: false },
-      { id: 'demo-raka', name: 'Raka Studio', preview: 'Oke, saya cek proposalnya dulu.', timestamp: now - 1860, unreadCount: 0, isGroup: false, pinned: true, archived: false },
-      { id: 'demo-maya', name: 'Maya Retail', preview: 'Ada integrasi ke CRM kami?', timestamp: now - 7200, unreadCount: 1, isGroup: false, archived: false },
-      { id: 'demo-old', name: 'Old Client', preview: 'Terima kasih sudah menggunakan Agnee', timestamp: now - 86400, unreadCount: 0, isGroup: false, pinned: false, archived: true },
+      { id: '6281200000001@c.us', name: 'Nadia — Kopi Pagi', preview: 'Bisa bantu paket untuk 3 cabang?', timestamp: now - 120, unreadCount: 2, isGroup: false, pinned: false, archived: false },
+      { id: '6281200000002@c.us', name: 'Raka Studio', preview: 'Oke, saya cek proposalnya dulu.', timestamp: now - 1860, unreadCount: 0, isGroup: false, pinned: true, archived: false },
+      { id: '6281200000003@c.us', name: 'Maya Retail', preview: 'Ada integrasi ke CRM kami?', timestamp: now - 7200, unreadCount: 1, isGroup: false, archived: false },
+      { id: '6281200000004@c.us', name: 'Old Client', preview: 'Terima kasih sudah menggunakan Agnee', timestamp: now - 86400, unreadCount: 0, isGroup: false, pinned: false, archived: true },
     ],
     messages: {
-      'demo-nadia': [
+      '6281200000001@c.us': [
         { id: 'd1', body: 'Halo, saya lihat Agnee bisa bantu balas WhatsApp otomatis?', fromMe: false, timestamp: now - 480 },
         { id: 'd2', body: 'Betul. Agnee bisa menjawab FAQ, kualifikasi lead, lalu handoff ke tim sales.', fromMe: true, timestamp: now - 390 },
         { id: 'd3', body: 'Bisa bantu paket untuk 3 cabang?', fromMe: false, timestamp: now - 120 },
       ],
-      'demo-raka': [
+      '6281200000002@c.us': [
         { id: 'd4', body: 'Proposal dan estimasi implementasi sudah saya kirim ya.', fromMe: true, timestamp: now - 2100 },
         { id: 'd5', body: 'Oke, saya cek proposalnya dulu.', fromMe: false, timestamp: now - 1860 },
       ],
-      'demo-maya': [{ id: 'd6', body: 'Ada integrasi ke CRM kami?', fromMe: false, timestamp: now - 7200 }],
+      '6281200000003@c.us': [{ id: 'd6', body: 'Ada integrasi ke CRM kami?', fromMe: false, timestamp: now - 7200 }],
     },
-    pinned: { 'demo-nadia': ['d2'] },
+    pinned: { '6281200000001@c.us': ['d2'] },
   };
 }
 
@@ -3311,9 +3311,26 @@ Aturan:
     return String(value);
   }
 
-  async function buildExportRows(companyId) {
+  /**
+   * Baris Lead List.
+   *
+   * Supervisor melihat seluruh company. Agent melihat percakapannya sendiri dan
+   * yang belum dipegang siapa pun — aturan yang sama persis dengan inbox. Tanpa
+   * penyaringan ini, halaman Lead List menjadi pintu belakang: daftar lengkap
+   * nomor dan isi pesan seluruh customer, termasuk yang dipegang agent lain.
+   */
+  async function buildExportRows(companyId, session = null) {
     if (!canCall('listContactExportRows')) return [];
-    const rows = await database.listContactExportRows(companyId).catch(() => []);
+    let rows = await database.listContactExportRows(companyId).catch(() => []);
+    if (session && !isSupervisor(session)) {
+      const routing = await Promise.all(rows.map((row) => getRouting(row.chatId, companyId)));
+      rows = rows.filter((_row, index) => {
+        const entry = routing[index];
+        const heldByOtherAgent = entry.mode === 'human'
+          && entry.assigneeUserId && entry.assigneeUserId !== session.userId;
+        return !heldByOtherAgent;
+      });
+    }
     return rows.map((row) => Object.fromEntries(
       EXPORT_COLUMNS.map(([key]) => [key, exportCell(key, row[key])]),
     ));
@@ -3327,9 +3344,11 @@ Aturan:
     return lines.join('\r\n');
   }
 
-  app.get('/v1/export/contacts', async (request, reply) => {
-    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengekspor kontak.' });
-    const rows = await buildExportRows(request.agneeSession.companyId);
+  // Tabel Lead List. Terbuka untuk agent, tapi barisnya tersaring per peran.
+  // Unduhan massal di bawah tetap supervisor saja: satu berkas berisi seluruh
+  // daftar customer adalah hal yang berbeda dari melihat percakapan sendiri.
+  app.get('/v1/export/contacts', async (request) => {
+    const rows = await buildExportRows(request.agneeSession.companyId, request.agneeSession);
     return {
       columns: EXPORT_COLUMNS.map(([key, label]) => ({ key, label })),
       rows,
@@ -4245,6 +4264,18 @@ Aturan:
     }
     const requestId = request.body.clientRequestId || null;
     if (requestId && sendReceipts.has(requestId)) return sendReceipts.get(requestId);
+
+    // Siapa boleh membalas percakapan ini — dicek SEBELUM cabang demo, bukan
+    // sesudahnya. Selama pengecekannya di bawah, mode demo memintasnya dan
+    // aturan kepemilikan tidak pernah bisa diuji tanpa WhatsApp sungguhan.
+    const chatIdForGuard = request.body.chatId || request.body.to;
+    if (!isSupervisor(request.agneeSession) && chatIdForGuard) {
+      const guardRouting = await getRouting(chatIdForGuard, request.agneeSession.companyId);
+      if (guardRouting.mode !== 'human' || guardRouting.assigneeUserId !== request.agneeSession?.userId) {
+        return reply.code(403).send({ error: 'Ambil alih chat ini sebelum membalas.' });
+      }
+    }
+
     if (config.demoMode) {
       const chatId = request.body.chatId || request.body.to;
       demo.messages[chatId] ||= [];
@@ -4273,11 +4304,6 @@ Aturan:
       chatId = request.body.chatId || normalizeChatId(request.body.to, config.defaultCountryCode);
     } catch (error) {
       return reply.code(400).send({ error: error.message });
-    }
-    const routing = await getRouting(chatId, companyId);
-    if (!isSupervisor(request.agneeSession)
-      && (routing.mode !== 'human' || routing.assigneeUserId !== request.agneeSession?.userId)) {
-      return reply.code(403).send({ error: 'Ambil alih chat ini sebelum membalas.' });
     }
     if (provider === 'cloud_api') {
       if (!text) return reply.code(400).send({ error: 'Cloud API hanya mendukung pesan teks.' });

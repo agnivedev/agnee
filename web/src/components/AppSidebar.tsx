@@ -15,7 +15,7 @@ export function AppSidebar({ items }: { items?: Item[] }) {
 
   const navigation: Item[] = items ?? [
     { to: '/', glyph: '◇', label: t('nav.labelInbox') },
-    ...(isSupervisor ? [{ to: '/leads', glyph: '▤', label: t('nav.labelLeads') }] : []),
+    { to: '/leads', glyph: '▤', label: t('nav.labelLeads') },
     // Settings is open to agents too — their own account and the team roster
     // live there. Hiding it left an agent on a page its own nav denied.
     { to: '/settings', glyph: '◈', label: t('nav.settings') },

@@ -18,7 +18,7 @@ const ENTRIES: Entry[] = [
   { id: 'inbox', glyph: '⌁', labelKey: 'nav.labelInbox', ariaKey: 'nav.inbox' },
   { id: 'contacts', glyph: '◎', labelKey: 'nav.labelContacts', ariaKey: 'nav.contacts' },
   { id: 'funnel', glyph: '↗', labelKey: 'nav.labelFunnel', ariaKey: 'nav.funnel' },
-  { id: 'leads', glyph: '▤', labelKey: 'nav.labelLeads', ariaKey: 'nav.leads', supervisorOnly: true },
+  { id: 'leads', glyph: '▤', labelKey: 'nav.labelLeads', ariaKey: 'nav.leads' },
   { id: 'playground', glyph: '▷', labelKey: 'nav.labelTraining', ariaKey: 'nav.playground', supervisorOnly: true },
   { id: 'admin', glyph: '⚙', labelKey: 'nav.labelAdmin', ariaKey: 'nav.admin', supervisorOnly: true },
   // Settings is open to every role: the server serves /settings to agents, and

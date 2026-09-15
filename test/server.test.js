@@ -97,7 +97,7 @@ test('login, list chats, read and send in demo mode', async (t) => {
   const chats = await app.inject({ method: 'GET', url: '/v1/chats', headers: { cookie } });
   assert.equal(chats.statusCode, 200);
   assert.ok(chats.json().chats.length >= 3);
-  assert.equal(chats.json().chats[0].id, 'demo-raka');
+  assert.equal(chats.json().chats[0].id, '6281200000002@c.us');
   assert.equal(chats.json().chats[0].pinned, true);
 
   const search = await app.inject({ method: 'GET', url: '/v1/chats?q=nadia', headers: { cookie } });
@@ -108,7 +108,7 @@ test('login, list chats, read and send in demo mode', async (t) => {
   assert.ok(unread.json().chats.every((chat) => chat.unreadCount > 0));
   const qualified = await app.inject({ method: 'GET', url: '/v1/chats?filter=qualified', headers: { cookie } });
   assert.equal(qualified.json().chats.length, 0);
-  const pinned = await app.inject({ method: 'GET', url: '/v1/chats/demo-nadia/pinned', headers: { cookie } });
+  const pinned = await app.inject({ method: 'GET', url: '/v1/chats/6281200000001@c.us/pinned', headers: { cookie } });
   assert.equal(pinned.statusCode, 200);
   assert.deepEqual(pinned.json().messages.map((message) => message.id), ['d2']);
 
@@ -116,7 +116,7 @@ test('login, list chats, read and send in demo mode', async (t) => {
     method: 'POST',
     url: '/v1/messages/send',
     headers: { cookie },
-    payload: { chatId: 'demo-nadia', text: 'Boleh, saya bantu hitungkan.', clientRequestId: 'request-demo-123' },
+    payload: { chatId: '6281200000001@c.us', text: 'Boleh, saya bantu hitungkan.', clientRequestId: 'request-demo-123' },
   });
   assert.equal(send.statusCode, 200);
 
@@ -124,11 +124,11 @@ test('login, list chats, read and send in demo mode', async (t) => {
     method: 'POST',
     url: '/v1/messages/send',
     headers: { cookie },
-    payload: { chatId: 'demo-nadia', text: 'Boleh, saya bantu hitungkan.', clientRequestId: 'request-demo-123' },
+    payload: { chatId: '6281200000001@c.us', text: 'Boleh, saya bantu hitungkan.', clientRequestId: 'request-demo-123' },
   });
   assert.equal(duplicateRetry.json().messageId, send.json().messageId);
 
-  const messages = await app.inject({ method: 'GET', url: '/v1/chats/demo-nadia/messages', headers: { cookie } });
+  const messages = await app.inject({ method: 'GET', url: '/v1/chats/6281200000001@c.us/messages', headers: { cookie } });
   assert.equal(messages.json().messages.at(-1).body, 'Boleh, saya bantu hitungkan.');
   assert.equal(messages.json().messages.filter((message) => message.body === 'Boleh, saya bantu hitungkan.').length, 1);
 
@@ -137,14 +137,14 @@ test('login, list chats, read and send in demo mode', async (t) => {
     url: '/v1/messages/send',
     headers: { cookie },
     payload: {
-      chatId: 'demo-nadia',
+      chatId: '6281200000001@c.us',
       text: 'Ini balasan terkutip.',
       quotedMessageId: messages.json().messages[0].id,
       clientRequestId: 'request-demo-reply-123',
     },
   });
   assert.equal(reply.statusCode, 200);
-  const afterReply = await app.inject({ method: 'GET', url: '/v1/chats/demo-nadia/messages', headers: { cookie } });
+  const afterReply = await app.inject({ method: 'GET', url: '/v1/chats/6281200000001@c.us/messages', headers: { cookie } });
   assert.equal(afterReply.json().messages.at(-1).quoted.body, 'Pesan dibalas');
   assert.equal(afterReply.json().messages.at(-1).quoted.id, messages.json().messages[0].id);
 
@@ -153,7 +153,7 @@ test('login, list chats, read and send in demo mode', async (t) => {
     url: '/v1/messages/send',
     headers: { cookie },
     payload: {
-      chatId: 'demo-nadia',
+      chatId: '6281200000001@c.us',
       text: '',
       attachment: { data: 'aGVsbG8=', mimetype: 'image/png', filename: 'contoh.png', filesize: 5 },
       clientRequestId: 'request-demo-media-123',
@@ -163,21 +163,21 @@ test('login, list chats, read and send in demo mode', async (t) => {
 
   const assigned = await app.inject({
     method: 'POST',
-    url: '/v1/chats/demo-nadia/assign',
+    url: '/v1/chats/6281200000001@c.us/assign',
     headers: { cookie },
     payload: { assignee: 'Sales team' },
   });
   assert.equal(assigned.statusCode, 200);
   assert.equal(assigned.json().stage, 'assigned');
   const qualifiedAfterAssign = await app.inject({ method: 'GET', url: '/v1/chats?filter=qualified', headers: { cookie } });
-  assert.ok(qualifiedAfterAssign.json().chats.some((chat) => chat.id === 'demo-nadia'));
+  assert.ok(qualifiedAfterAssign.json().chats.some((chat) => chat.id === '6281200000001@c.us'));
 
   const team = await app.inject({ method: 'GET', url: '/v1/team/members', headers: { cookie } });
   assert.equal(team.statusCode, 200);
   assert.equal(team.json().members[0].role, 'supervisor');
 
   const toHuman = await app.inject({
-    method: 'POST', url: '/v1/chats/demo-nadia/routing', headers: { cookie },
+    method: 'POST', url: '/v1/chats/6281200000001@c.us/routing', headers: { cookie },
     payload: { mode: 'human', assigneeUserId: 'local-supervisor', note: 'Perlu bantuan manusia' },
   });
   assert.equal(toHuman.statusCode, 200);
@@ -185,24 +185,24 @@ test('login, list chats, read and send in demo mode', async (t) => {
   assert.equal(toHuman.json().routing.assigneeName, 'Supervisor');
 
   const note = await app.inject({
-    method: 'POST', url: '/v1/chats/demo-nadia/notes', headers: { cookie },
+    method: 'POST', url: '/v1/chats/6281200000001@c.us/notes', headers: { cookie },
     payload: { body: 'Pelanggan menunggu penawaran.' },
   });
   assert.equal(note.statusCode, 201);
-  const notes = await app.inject({ method: 'GET', url: '/v1/chats/demo-nadia/notes', headers: { cookie } });
+  const notes = await app.inject({ method: 'GET', url: '/v1/chats/6281200000001@c.us/notes', headers: { cookie } });
   assert.equal(notes.json().notes[0].body, 'Pelanggan menunggu penawaran.');
 
   const toAi = await app.inject({
-    method: 'POST', url: '/v1/chats/demo-nadia/routing', headers: { cookie },
+    method: 'POST', url: '/v1/chats/6281200000001@c.us/routing', headers: { cookie },
     payload: {
       mode: 'ai', note: 'Lanjutkan otomatis', sendClosingMessage: true,
       closingMessage: 'Kendalanya sudah selesai. Percakapan dilanjutkan oleh AI.',
     },
   });
   assert.equal(toAi.json().routing.mode, 'ai');
-  const afterHandover = await app.inject({ method: 'GET', url: '/v1/chats/demo-nadia/messages', headers: { cookie } });
+  const afterHandover = await app.inject({ method: 'GET', url: '/v1/chats/6281200000001@c.us/messages', headers: { cookie } });
   assert.equal(afterHandover.json().messages.at(-1).body, 'Kendalanya sudah selesai. Percakapan dilanjutkan oleh AI.');
-  const routingHistory = await app.inject({ method: 'GET', url: '/v1/chats/demo-nadia/routing', headers: { cookie } });
+  const routingHistory = await app.inject({ method: 'GET', url: '/v1/chats/6281200000001@c.us/routing', headers: { cookie } });
   assert.equal(routingHistory.json().handoffs.length, 2);
 });
 
@@ -234,15 +234,15 @@ test('agent can only take chats for self and cannot open supervisor settings', a
 
   const forbiddenAdmin = await app.inject({ method: 'GET', url: '/v1/admin/config', headers: { cookie } });
   assert.equal(forbiddenAdmin.statusCode, 403);
-  const forbiddenOther = await app.inject({ method: 'POST', url: '/v1/chats/demo-nadia/routing', headers: { cookie }, payload: { mode: 'human', assigneeUserId: supervisor.id } });
+  const forbiddenOther = await app.inject({ method: 'POST', url: '/v1/chats/6281200000001@c.us/routing', headers: { cookie }, payload: { mode: 'human', assigneeUserId: supervisor.id } });
   assert.equal(forbiddenOther.statusCode, 403);
-  const hiddenBeforeAssignment = await app.inject({ method: 'GET', url: '/v1/chats/demo-nadia/messages', headers: { cookie } });
+  const hiddenBeforeAssignment = await app.inject({ method: 'GET', url: '/v1/chats/6281200000001@c.us/messages', headers: { cookie } });
   assert.equal(hiddenBeforeAssignment.statusCode, 403);
-  const takeSelf = await app.inject({ method: 'POST', url: '/v1/chats/demo-nadia/routing', headers: { cookie }, payload: { mode: 'human', assigneeUserId: agent.id } });
+  const takeSelf = await app.inject({ method: 'POST', url: '/v1/chats/6281200000001@c.us/routing', headers: { cookie }, payload: { mode: 'human', assigneeUserId: agent.id } });
   assert.equal(takeSelf.statusCode, 200);
-  const visibleAfterAssignment = await app.inject({ method: 'GET', url: '/v1/chats/demo-nadia/messages', headers: { cookie } });
+  const visibleAfterAssignment = await app.inject({ method: 'GET', url: '/v1/chats/6281200000001@c.us/messages', headers: { cookie } });
   assert.equal(visibleAfterAssignment.statusCode, 200);
-  const backToAi = await app.inject({ method: 'POST', url: '/v1/chats/demo-nadia/routing', headers: { cookie }, payload: { mode: 'ai' } });
+  const backToAi = await app.inject({ method: 'POST', url: '/v1/chats/6281200000001@c.us/routing', headers: { cookie }, payload: { mode: 'ai' } });
   assert.equal(backToAi.statusCode, 200);
   assert.equal(backToAi.json().routing.mode, 'ai');
 });
@@ -309,12 +309,12 @@ test('admin auto-reply playground previews usage without sending WhatsApp', asyn
   assert.equal(config.json().model, 'test/model');
   assert.equal(config.json().llmEnabled, true);
 
-  const summary = await app.inject({ method: 'GET', url: '/v1/chats/demo-nadia/summary?locale=id', headers });
+  const summary = await app.inject({ method: 'GET', url: '/v1/chats/6281200000001@c.us/summary?locale=id', headers });
   assert.equal(summary.statusCode, 200);
   assert.equal(summary.json().summary, 'Pelanggan meminta informasi paket untuk tiga cabang.');
   assert.equal(summary.json().qualificationStage, 'qualified');
   assert.equal(summary.json().cached, false);
-  const cachedSummary = await app.inject({ method: 'GET', url: '/v1/chats/demo-nadia/summary?locale=id', headers });
+  const cachedSummary = await app.inject({ method: 'GET', url: '/v1/chats/6281200000001@c.us/summary?locale=id', headers });
   assert.equal(cachedSummary.json().cached, true);
   assert.equal(llmCalls, 1);
 
@@ -339,12 +339,12 @@ test('admin auto-reply playground previews usage without sending WhatsApp', asyn
 
   const assigned = await app.inject({
     method: 'POST',
-    url: '/v1/chats/demo-nadia/assign',
+    url: '/v1/chats/6281200000001@c.us/assign',
     headers,
     payload: { assignee: 'Sales database' },
   });
   assert.equal(assigned.statusCode, 200);
-  assert.equal(persistedLeads.get('demo-nadia').assignee, 'Sales database');
+  assert.equal(persistedLeads.get('6281200000001@c.us').assignee, 'Sales database');
 
   const invalidTenant = await app.inject({
     method: 'POST',
@@ -388,13 +388,13 @@ test('agent can claim an unheld chat but cannot take over another agent chat', a
   const cookieOne = await signIn(agentOne);
   const cookieTwo = await signIn(agentTwo);
 
-  const claim = await app.inject({ method: 'POST', url: '/v1/chats/demo-nadia/routing', headers: { cookie: cookieOne }, payload: { mode: 'human', assigneeUserId: agentOne.id } });
+  const claim = await app.inject({ method: 'POST', url: '/v1/chats/6281200000001@c.us/routing', headers: { cookie: cookieOne }, payload: { mode: 'human', assigneeUserId: agentOne.id } });
   assert.equal(claim.statusCode, 200);
 
-  const steal = await app.inject({ method: 'POST', url: '/v1/chats/demo-nadia/routing', headers: { cookie: cookieTwo }, payload: { mode: 'human', assigneeUserId: agentTwo.id } });
+  const steal = await app.inject({ method: 'POST', url: '/v1/chats/6281200000001@c.us/routing', headers: { cookie: cookieTwo }, payload: { mode: 'human', assigneeUserId: agentTwo.id } });
   assert.equal(steal.statusCode, 403);
-  const peek = await app.inject({ method: 'GET', url: '/v1/chats/demo-nadia/messages', headers: { cookie: cookieTwo } });
+  const peek = await app.inject({ method: 'GET', url: '/v1/chats/6281200000001@c.us/messages', headers: { cookie: cookieTwo } });
   assert.equal(peek.statusCode, 403);
-  const release = await app.inject({ method: 'POST', url: '/v1/chats/demo-nadia/routing', headers: { cookie: cookieTwo }, payload: { mode: 'ai' } });
+  const release = await app.inject({ method: 'POST', url: '/v1/chats/6281200000001@c.us/routing', headers: { cookie: cookieTwo }, payload: { mode: 'ai' } });
   assert.equal(release.statusCode, 403);
 });

@@ -2,6 +2,15 @@
 
 ### Fixed
 
+- **Penjaga pesan masuk ganda tidak pernah bekerja.** `UNIQUE (company_id,
+  wa_message_id)` hanya menahan kalau kolomnya terisi — Postgres menganggap tiap
+  NULL berbeda. Di produksi id WhatsApp tidak pernah sampai ke sana: 80 dari 80
+  baris kosong, padahal `connection_id` di baris yang sama terisi setelah
+  perbaikan kemarin. Baris ganda memang sudah muncul, lima pasang. Sekarang
+  kalau id aslinya tidak ada, kunci diturunkan dari percakapan, detik, tipe, dan
+  isi pesan — cukup untuk menahan tembakan ulang setelah reconnect, yang memang
+  satu-satunya tugas penjaga ini.
+
 - **Agent membuka percakapan, isinya kosong.** Hook cakupan agent menolak SEMUA
   permintaan ke percakapan yang belum dipegang siapa pun, termasuk membaca
   pesannya — jadi percakapan itu muncul di daftar inbox tapi kolom kanannya

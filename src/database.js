@@ -1889,11 +1889,33 @@ class Database {
    *
    * @returns {Promise<boolean>} true kalau baris baru benar-benar ditulis.
    */
+  /**
+   * Mencatat satu pesan masuk, sekali saja.
+   *
+   * `UNIQUE (company_id, wa_message_id)` hanya menahan kalau kolomnya terisi —
+   * Postgres menganggap tiap NULL berbeda, jadi NULL berarti tidak ada penjaga
+   * sama sekali. Di produksi id WhatsApp TIDAK PERNAH sampai ke sini (80 dari
+   * 80 baris kosong, sementara `connection_id` di baris yang sama terisi), dan
+   * baris ganda memang muncul. Dugaan terkuat: objek `id` tidak selamat
+   * menyeberangi batas Puppeteer, keluarga masalah yang sama dengan bug
+   * serialisasi di jalur kirim.
+   *
+   * Jadi kalau id aslinya tidak ada, kunci dibuat dari percakapan, detik, dan
+   * isinya. Itu cukup untuk menahan tembakan ulang setelah reconnect — yang
+   * memang satu-satunya tugas penjaga ini.
+   */
   async recordInboundMessage(companyId, {
     chatId, connectionId = null, provider, waMessageId = null,
     body = null, messageType = 'text', timestamp,
   }) {
     if (!this.enabled) return false;
+    if (!waMessageId) {
+      const digest = crypto.createHash('sha1')
+        .update(`${chatId}|${timestamp}|${messageType}|${body ?? ''}`)
+        .digest('hex')
+        .slice(0, 24);
+      waMessageId = `derived:${digest}`;
+    }
     const result = await this.pool.query(`
       INSERT INTO inbound_messages
         (company_id, chat_id, connection_id, provider, wa_message_id, body, message_type, timestamp)

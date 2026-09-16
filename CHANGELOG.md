@@ -15,6 +15,18 @@
 
 ### Added
 
+- **Ikon nyata (lucide-react) di seluruh navigasi**, menggantikan karakter
+  unicode (◇ ▤ ◈ dst) yang terlihat seperti teks biasa di layar kecil. Dipakai
+  di `AppSidebar` (Inbox/Lead List/Settings), `Rail` inbox (delapan aksi), tab
+  Settings (Paket, WhatsApp, AI & Follow-up, Data, Tim), dan tiap kartu dokumen
+  di halaman Knowledge — satu ikon per jenis dokumen (persona, larangan,
+  qna, discovery, objection, closing, follow-up, handoff).
+- **Daftar dokumen Knowledge sekarang sticky + scroll sendiri** di layar lebar
+  (`lg:sticky lg:top-7 lg:max-h-[calc(100dvh-3.5rem)] lg:overflow-y-auto`).
+  Delapan dokumen muat hari ini, tapi daftar yang bertambah tidak lagi
+  mendorong panel isi dokumen ke bawah — ia bergulir di dalam kontainernya
+  sendiri sementara halaman tetap diam.
+
 - **Ebook CS "Balas Chat Tanpa Kehabisan Diri Sendiri"** — 38 halaman A5, delapan
   bab, untuk orang yang membalas chat setiap hari dan bukan untuk pemilik bisnis:
   beban keputusan, dua belas template, menghadapi orang marah, membaca sinyal

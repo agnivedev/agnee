@@ -1,9 +1,10 @@
 import { NavLink } from 'react-router-dom';
+import { Inbox, ListChecks, Settings2, type LucideIcon } from 'lucide-react';
 import { useI18n } from '@/lib/i18n';
 import { useSession } from '@/lib/session';
 import { cn } from '@/lib/utils';
 
-type Item = { to: string; glyph: string; label: string };
+type Item = { to: string; icon: LucideIcon; label: string };
 
 /**
  * Sidebar for the full-page tools (Lead List, Settings, Admin). The inbox keeps
@@ -14,11 +15,11 @@ export function AppSidebar({ items }: { items?: Item[] }) {
   const { user, isSupervisor } = useSession();
 
   const navigation: Item[] = items ?? [
-    { to: '/', glyph: '◇', label: t('nav.labelInbox') },
-    { to: '/leads', glyph: '▤', label: t('nav.labelLeads') },
+    { to: '/', icon: Inbox, label: t('nav.labelInbox') },
+    { to: '/leads', icon: ListChecks, label: t('nav.labelLeads') },
     // Settings is open to agents too — their own account and the team roster
     // live there. Hiding it left an agent on a page its own nav denied.
-    { to: '/settings', glyph: '◈', label: t('nav.settings') },
+    { to: '/settings', icon: Settings2, label: t('nav.settings') },
   ];
 
   // On a phone this is a horizontal bar across the top; a 248px column there
@@ -49,9 +50,7 @@ export function AppSidebar({ items }: { items?: Item[] }) {
               )
             }
           >
-            <span aria-hidden className="w-4 text-center">
-              {item.glyph}
-            </span>
+            <item.icon aria-hidden className="size-[18px] shrink-0" strokeWidth={2} />
             <b className="font-semibold">{item.label}</b>
           </NavLink>
         ))}

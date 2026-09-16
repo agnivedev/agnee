@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { CreditCard, MessageCircle, Sparkles, Database, Users, type LucideIcon } from 'lucide-react';
 import { useI18n, usePageTitle } from '@/lib/i18n';
 import { useSession } from '@/lib/session';
 import { AppSidebar } from '@/components/AppSidebar';
@@ -30,6 +31,13 @@ const SECTION_TAB: Record<string, TabId> = {
 };
 
 const TAB_IDS: TabId[] = ['paket', 'whatsapp', 'ai', 'data', 'tim'];
+const TAB_ICON: Record<TabId, LucideIcon> = {
+  paket: CreditCard,
+  whatsapp: MessageCircle,
+  ai: Sparkles,
+  data: Database,
+  tim: Users,
+};
 // 'paket' is supervisor-only too: /v1/admin/company answers 403 to an agent, so
 // showing the tab would only offer an empty card and a save button that fails.
 const SUPERVISOR_ONLY: TabId[] = ['paket', 'whatsapp', 'ai', 'data'];
@@ -112,21 +120,25 @@ export function SettingsPage() {
             aria-label={t('settings.tabsLabel')}
             className={cn('mt-7 flex-wrap gap-1 border-b border-border', tabs.length > 1 ? 'flex' : 'hidden')}
           >
-            {tabs.map((id) => (
-              <button
-                key={id}
-                type="button"
-                role="tab"
-                aria-selected={activeTab === id}
-                onClick={() => selectTab(id)}
-                className={cn(
-                  'cursor-pointer border-0 border-b-2 bg-transparent px-4 py-3 text-[13px] font-medium transition-colors',
-                  activeTab === id ? 'border-b-green text-ink' : 'border-b-transparent text-muted hover:text-ink',
-                )}
-              >
-                {t(`settings.tab.${id}`)}
-              </button>
-            ))}
+            {tabs.map((id) => {
+              const Icon = TAB_ICON[id];
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  role="tab"
+                  aria-selected={activeTab === id}
+                  onClick={() => selectTab(id)}
+                  className={cn(
+                    'flex cursor-pointer items-center gap-1.5 border-0 border-b-2 bg-transparent px-4 py-3 text-[13px] font-medium transition-colors',
+                    activeTab === id ? 'border-b-green text-ink' : 'border-b-transparent text-muted hover:text-ink',
+                  )}
+                >
+                  <Icon aria-hidden className="size-4" strokeWidth={2} />
+                  {t(`settings.tab.${id}`)}
+                </button>
+              );
+            })}
           </div>
 
           {/* Each tab mounts its own sections, so a tab nobody opens costs no

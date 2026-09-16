@@ -1,9 +1,32 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import {
+  UserRound,
+  ShieldAlert,
+  MessagesSquare,
+  Search,
+  ShieldQuestion,
+  BadgeCheck,
+  Repeat,
+  ArrowRightLeft,
+  type LucideIcon,
+} from 'lucide-react';
 import { api, messageFromError } from '@/lib/api';
 import { useI18n, usePageTitle } from '@/lib/i18n';
 import { AppSidebar } from '@/components/AppSidebar';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+
+/** One icon per document kind, so the list reads at a glance, not just by label text. */
+const KIND_ICON: Record<string, LucideIcon> = {
+  persona: UserRound,
+  compliance: ShieldAlert,
+  qna: MessagesSquare,
+  discovery: Search,
+  objection: ShieldQuestion,
+  closing: BadgeCheck,
+  followup: Repeat,
+  handoff: ArrowRightLeft,
+};
 
 type Kind = {
   kind: string;
@@ -275,32 +298,45 @@ export function KnowledgePage() {
 
         {!loading && kinds.length ? (
           <div className="grid gap-5 lg:grid-cols-[260px_minmax(0,1fr)]">
-            <nav className="grid content-start gap-1.5" aria-label={t('knowledge.title')}>
-              {kinds.map((k) => (
-                <button
-                  key={k.kind}
-                  type="button"
-                  onClick={() => void openDoc(k.kind)}
-                  className={cn(
-                    'grid w-full cursor-pointer gap-0.5 rounded-xl border px-3 py-2.5 text-left transition',
-                    active === k.kind ? 'border-green bg-green/8' : 'border-border bg-white/60 hover:border-green/40',
-                  )}
-                >
-                  <span className="flex items-center justify-between gap-2">
-                    <strong className="text-[13px]">{t(`playbook.kind.${k.kind}`)}</strong>
-                    {k.filled ? (
-                      <span className="rounded-full bg-green/15 px-2 py-0.5 font-mono text-[9px] text-green-dark uppercase">
-                        v{k.version}
-                      </span>
-                    ) : (
-                      <span className="rounded-full bg-ink/8 px-2 py-0.5 font-mono text-[9px] text-muted uppercase">
-                        {t('knowledge.empty')}
-                      </span>
+            {/* Sticky under the page header on wide screens, with its own scroll
+                once the list outgrows the viewport — eight kinds fit today, but
+                the list should not push the document panel down if it grows. */}
+            <nav
+              className="grid content-start gap-1.5 self-start lg:sticky lg:top-7 lg:max-h-[calc(100dvh-3.5rem)] lg:overflow-y-auto lg:pr-1"
+              aria-label={t('knowledge.title')}
+            >
+              {kinds.map((k) => {
+                const Icon = KIND_ICON[k.kind] ?? MessagesSquare;
+                return (
+                  <button
+                    key={k.kind}
+                    type="button"
+                    onClick={() => void openDoc(k.kind)}
+                    className={cn(
+                      'grid w-full cursor-pointer grid-cols-[auto_1fr] items-start gap-x-2.5 gap-y-0.5 rounded-xl border px-3 py-2.5 text-left transition',
+                      active === k.kind ? 'border-green bg-green/8' : 'border-border bg-white/60 hover:border-green/40',
                     )}
-                  </span>
-                  <span className="text-[11px] text-muted">{k.brief}</span>
-                </button>
-              ))}
+                  >
+                    <Icon
+                      aria-hidden
+                      className={cn('mt-0.5 size-4 shrink-0', active === k.kind ? 'text-green-dark' : 'text-muted')}
+                    />
+                    <span className="flex items-center justify-between gap-2">
+                      <strong className="text-[13px]">{t(`playbook.kind.${k.kind}`)}</strong>
+                      {k.filled ? (
+                        <span className="rounded-full bg-green/15 px-2 py-0.5 font-mono text-[9px] text-green-dark uppercase">
+                          v{k.version}
+                        </span>
+                      ) : (
+                        <span className="rounded-full bg-ink/8 px-2 py-0.5 font-mono text-[9px] text-muted uppercase">
+                          {t('knowledge.empty')}
+                        </span>
+                      )}
+                    </span>
+                    <span className="col-start-2 text-[11px] text-muted">{k.brief}</span>
+                  </button>
+                );
+              })}
             </nav>
 
             <section className="min-w-0 rounded-[18px] border border-border bg-white/70 p-5">

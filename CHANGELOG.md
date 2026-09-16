@@ -1,5 +1,34 @@
 ## [Unreleased]
 
+### Fixed
+
+- **Penawaran Rp99.000 terkirim tanpa cara mengambilnya.** Dua percakapan
+  produksi 2026-09-16 berakhir identik: AI menyebut paketnya, customer membalas
+  "Caranya kak?", agent manusia yang menutup. Batas satu link per balasan
+  membuang link paket dari balasan pembuka yang memang menawarkan dua jalan
+  bernomor, sambil membiarkan kalimat penawarannya tetap tinggal. Batasnya
+  dinaikkan menjadi dua (`MAX_LINKS_PER_REPLY`); link ketiga dan seterusnya
+  tetap dibuang, sekarang bersama kalimat yang memperkenalkannya.
+- **Link Rp99.000 salah sasaran.** Sebagian besar lead datang dari iklan
+  WhatsApp Meta yang membuka percakapan langsung dan belum pernah melewati
+  halaman penawaran, sehingga yang mereka terima adalah formulir bayar untuk
+  sesuatu yang belum pernah mereka baca. `/lp/trading-recovery-plan` kini
+  bawaan setiap kali paket diperkenalkan; `/pl/...-checkout` hanya untuk lead
+  yang sudah menyatakan siap. Keduanya diperiksa masih melayani 200.
+- **Template balasan pertama dipakai di tengah percakapan.** Lead menjawab
+  "Recovery", tidak ada blok playbook yang cocok dengan jawaban kondisi, dan
+  model jatuh kembali ke varian pembuka — menyapa ulang dan menanyakan yang
+  baru saja dijawab. Bagian itu sekarang ditandai khusus pesan pertama,
+  ditambahi blok untuk jawaban kondisi, dan kalimat "kirim apa adanya" dicabut
+  karena terbaca sebagai perintah menyalin template mentah-mentah.
+
+### Added
+
+- **Panjang riwayat percakapan dicatat per balasan otomatis** (`riwayat` di log
+  `Riwayat percakapan untuk balasan otomatis`). Gejala menyapa ulang bisa
+  berarti riwayat kosong atau template disalin mentah, dan dua kali sudah salah
+  tebak dari teks balasannya saja.
+
 ### Verified
 
 - **Simulasi ulang percakapan yang rusak, 2026-09-16.** Sepuluh giliran yang

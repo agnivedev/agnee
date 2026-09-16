@@ -2,6 +2,22 @@
 
 ### Added
 
+- **Stage CRM (pipeline) terpisah dari flag kualifikasi AI**: field baru
+  `pipeline_stage` di `lead_states` (cold/warm/hot/closing/lost/on_hold),
+  sengaja terpisah dari `stage` lama (inbox/qualified/assigned) yang murni
+  penanda kualifikasi otomatis. AI HANYA boleh mengusulkan — setiap kali
+  `summarizeConversation()` jalan, prompt LLM yang sama (tidak ada panggilan
+  tambahan) diminta juga menaksir `pipelineStage` + alasan singkat; hasilnya
+  disimpan sebagai *usulan* (`pipeline_stage_suggested`), bukan langsung
+  menimpa stage aktif. Panel lead menampilkan pita usulan dengan alasannya
+  dan tombol Terima/Abaikan; klik Terima baru memindahkan `pipeline_stage`
+  yang aktif. Selain itu tersedia 6 tombol pill untuk pindah stage manual
+  kapan saja. Endpoint baru: `PATCH /v1/chats/:chatId/pipeline-stage` (manual
+  atau terima usulan) dan `DELETE /v1/chats/:chatId/pipeline-stage/suggestion`
+  (abaikan usulan). Board kanban drag-drop terpisah menyusul — ini baru
+  fondasi data model + alur usul/konfirmasi dari panel lead.
+  Migrasi: `db/migrations/028_crm_pipeline_stage.sql`.
+
 - **Edit dan hapus pesan langsung dari inbox** (icon di samping bubble saat
   hover, bukan klik kanan): pensil untuk edit (hanya pesan teks milik kita
   sendiri), tempat sampah untuk hapus untuk saya (semua pesan), dan tempat

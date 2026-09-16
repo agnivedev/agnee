@@ -77,6 +77,8 @@ export type TeamMember = {
   presence?: string;
 };
 
+export type PipelineStage = 'cold' | 'warm' | 'hot' | 'closing' | 'lost' | 'on_hold';
+
 export type Lead = {
   chatId: string;
   stage?: string | null;
@@ -84,6 +86,9 @@ export type Lead = {
   title?: string | null;
   detail?: string | null;
   assignee?: string | null;
+  pipelineStage?: PipelineStage | null;
+  pipelineStageSuggested?: PipelineStage | null;
+  pipelineStageSuggestedReason?: string | null;
 };
 
 export type Attachment = {

@@ -5,10 +5,12 @@ import { useSession } from '@/lib/session';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { FollowUpSection } from './FollowUpDialog';
-import type { Chat, Handoff, Lead, Note, Routing, TeamMember } from './types';
+import type { Chat, Handoff, Lead, Note, PipelineStage, Routing, TeamMember } from './types';
 
 /** Batasnya juga ditegakkan server-side saat menyimpan ringkasan. */
 const MAX_LABELS = 5;
+
+const PIPELINE_STAGES: PipelineStage[] = ['cold', 'warm', 'hot', 'closing', 'lost', 'on_hold'];
 
 export function ContextPanel({
   chat,
@@ -99,6 +101,7 @@ export function ContextPanel({
             current?.stage === 'assigned'
               ? current
               : {
+                  ...current,
                   chatId,
                   stage: data.qualificationStage,
                   score: data.qualificationScore,
@@ -178,6 +181,31 @@ export function ContextPanel({
       setLead(refreshed);
     } catch {
       /* the button re-enables itself on the next render */
+    }
+  }
+
+  async function setPipelineStage(stage: PipelineStage, accepted: boolean) {
+    if (!chatId) return;
+    try {
+      const refreshed = await api<Lead>(`/v1/chats/${encodeURIComponent(chatId)}/pipeline-stage`, {
+        method: 'PATCH',
+        body: { stage, accepted },
+      });
+      setLead(refreshed);
+    } catch (error) {
+      setStatus(messageFromError(error, t('lead.pipelineUpdateFailed')));
+    }
+  }
+
+  async function dismissPipelineSuggestion() {
+    if (!chatId) return;
+    try {
+      const refreshed = await api<Lead>(`/v1/chats/${encodeURIComponent(chatId)}/pipeline-stage/suggestion`, {
+        method: 'DELETE',
+      });
+      setLead(refreshed);
+    } catch (error) {
+      setStatus(messageFromError(error, t('lead.pipelineUpdateFailed')));
     }
   }
 
@@ -351,6 +379,48 @@ export function ContextPanel({
           <i className="size-[9px] rounded-full bg-green shadow-[0_0_0_4px_rgba(25,198,102,.12)]" />
           <span>{stageLabel}</span>
           <small className="text-muted">{t('lead.automatic')}</small>
+        </div>
+      </Section>
+
+      <Section title={t('lead.pipeline')}>
+        <div className="grid gap-2.5">
+          <div className="flex flex-wrap gap-1.5">
+            {PIPELINE_STAGES.map((stage) => (
+              <button
+                key={stage}
+                type="button"
+                onClick={() => setPipelineStage(stage, false)}
+                className={cn(
+                  'rounded-full border px-2.5 py-1 text-[11px] transition-colors',
+                  lead?.pipelineStage === stage
+                    ? 'border-ink bg-ink text-white'
+                    : 'border-border text-muted hover:border-ink/40 hover:text-ink',
+                )}
+              >
+                {t(`lead.pipeline.${stage}`)}
+              </button>
+            ))}
+          </div>
+          {lead?.pipelineStageSuggested && lead.pipelineStageSuggested !== lead.pipelineStage ? (
+            <div className="grid gap-1.5 rounded-lg border border-amber-400/40 bg-amber-400/10 p-2.5 text-[12px]">
+              <strong>{t('lead.pipelineSuggestion', { stage: t(`lead.pipeline.${lead.pipelineStageSuggested}`) })}</strong>
+              {lead.pipelineStageSuggestedReason ? (
+                <span className="text-muted">{t('lead.pipelineSuggestionReason', { reason: lead.pipelineStageSuggestedReason })}</span>
+              ) : null}
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={() => setPipelineStage(lead.pipelineStageSuggested as PipelineStage, true)}
+                >
+                  {t('lead.pipelineAccept')}
+                </Button>
+                <Button type="button" size="sm" variant="ghost" onClick={dismissPipelineSuggestion}>
+                  {t('lead.pipelineDismiss')}
+                </Button>
+              </div>
+            </div>
+          ) : null}
         </div>
       </Section>
 

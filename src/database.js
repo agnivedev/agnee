@@ -106,9 +106,63 @@ class Database {
   async getLeadState(chatId, companyId) {
     if (!this.enabled) return null;
     const result = await this.pool.query(`
-      SELECT chat_id AS "chatId", stage, score, title, detail, assignee
+      SELECT chat_id AS "chatId", stage, score, title, detail, assignee,
+        pipeline_stage AS "pipelineStage",
+        pipeline_stage_suggested AS "pipelineStageSuggested",
+        pipeline_stage_suggested_reason AS "pipelineStageSuggestedReason",
+        pipeline_stage_suggested_at AS "pipelineStageSuggestedAt",
+        pipeline_stage_updated_at AS "pipelineStageUpdatedAt",
+        pipeline_stage_updated_by AS "pipelineStageUpdatedBy"
       FROM lead_states
       WHERE company_id = $1 AND chat_id = $2
+    `, [companyId, chatId]);
+    return result.rows[0] || null;
+  }
+
+  async setPipelineStage(chatId, stage, updatedBy, companyId) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      INSERT INTO lead_states (company_id, chat_id, stage, title, detail, pipeline_stage, pipeline_stage_updated_at, pipeline_stage_updated_by)
+      VALUES ($1, $2, 'inbox', 'Belum dikualifikasi', 'Belum dianalisis oleh AI.', $3, NOW(), $4)
+      ON CONFLICT (company_id, chat_id) DO UPDATE SET
+        pipeline_stage = EXCLUDED.pipeline_stage,
+        pipeline_stage_updated_at = NOW(),
+        pipeline_stage_updated_by = EXCLUDED.pipeline_stage_updated_by,
+        pipeline_stage_suggested = NULL,
+        pipeline_stage_suggested_reason = NULL,
+        pipeline_stage_suggested_at = NULL,
+        updated_at = NOW()
+      RETURNING chat_id AS "chatId", pipeline_stage AS "pipelineStage",
+        pipeline_stage_suggested AS "pipelineStageSuggested",
+        pipeline_stage_suggested_reason AS "pipelineStageSuggestedReason"
+    `, [companyId, chatId, stage, updatedBy]);
+    return result.rows[0] || null;
+  }
+
+  async suggestPipelineStage(chatId, stage, reason, companyId) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      UPDATE lead_states SET
+        pipeline_stage_suggested = $3,
+        pipeline_stage_suggested_reason = $4,
+        pipeline_stage_suggested_at = NOW()
+      WHERE company_id = $1 AND chat_id = $2 AND pipeline_stage IS DISTINCT FROM $3
+      RETURNING chat_id AS "chatId", pipeline_stage AS "pipelineStage",
+        pipeline_stage_suggested AS "pipelineStageSuggested",
+        pipeline_stage_suggested_reason AS "pipelineStageSuggestedReason"
+    `, [companyId, chatId, stage, reason || null]);
+    return result.rows[0] || null;
+  }
+
+  async dismissPipelineStageSuggestion(chatId, companyId) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      UPDATE lead_states SET
+        pipeline_stage_suggested = NULL,
+        pipeline_stage_suggested_reason = NULL,
+        pipeline_stage_suggested_at = NULL
+      WHERE company_id = $1 AND chat_id = $2
+      RETURNING chat_id AS "chatId", pipeline_stage AS "pipelineStage"
     `, [companyId, chatId]);
     return result.rows[0] || null;
   }

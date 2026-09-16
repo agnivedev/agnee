@@ -1,5 +1,22 @@
 ## [Unreleased]
 
+### Added
+
+- **Edit dan hapus pesan langsung dari inbox** (icon di samping bubble saat
+  hover, bukan klik kanan): pensil untuk edit (hanya pesan teks milik kita
+  sendiri), tempat sampah untuk hapus untuk saya (semua pesan), dan tempat
+  sampah merah untuk hapus untuk semua orang (hanya pesan milik kita).
+  WhatsApp sendiri yang menentukan jendela waktu dan siapa yang boleh — kita
+  hanya meneruskan aksinya dan menampilkan pesan yang jelas kalau ditolak.
+  Implementasinya SENGAJA tidak lewat `wa.getMessageById()` bawaan
+  whatsapp-web.js: method itu memakai `getMessageModel()`, fungsi yang sama
+  yang membuang getter `_serialized` untuk chat `@lid` (akar dua bug riwayat
+  percakapan yang sudah diperbaiki hari ini). Edit/delete di sini menyalin
+  logic `Message.prototype.edit()`/`.delete()` persis, tapi dijalankan dalam
+  satu `pupPage.evaluate` yang menerima id pesan sebagai string dari luar dan
+  mengembalikan status sederhana — tidak pernah mencoba serialize objek
+  Message kembali ke Node.
+
 ### Fixed
 
 - **Balasan otomatis kehilangan riwayat percakapan lewat jalur yang berbeda

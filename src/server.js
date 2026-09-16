@@ -4493,6 +4493,129 @@ Aturan:
     }
   });
 
+  /**
+   * Edit/hapus pesan lewat evaluate murni — TIDAK melewati
+   * `wa.getMessageById()`. Method itu memakai `window.WWebJS.getMessageModel`,
+   * fungsi yang sama yang membuang getter `_serialized` untuk chat `@lid`
+   * (lihat `inboundMessageId`). Objek Message yang dihasilkan dari situ tidak
+   * bisa dipakai memanggil `.edit()`/`.delete()` bawaan whatsapp-web.js,
+   * karena method itu sendiri butuh `this.id._serialized` yang sudah hilang.
+   *
+   * Jadi `messageId` (string) diteruskan dari luar, lookup-nya dilakukan di
+   * DALAM browser context — persis logic `Message.prototype.edit`/`.delete`
+   * di whatsapp-web.js, disalin di sini karena kita butuh memanggilnya lewat
+   * id mentah, bukan lewat instance yang sudah (mungkin) rusak. Hasilnya
+   * HANYA status sederhana; tidak pernah mencoba serialize objek Message
+   * kembali ke Node.
+   *
+   * Ini menyentuh API internal WhatsApp Web yang tidak didokumentasikan
+   * (`WAWebMsgActionCapability`, `WAWebCmd`) — bisa berhenti bekerja kalau
+   * WhatsApp mengubah strukturnya, sama seperti risiko yang sudah diterima
+   * jalur pemulihan pengiriman dan snapshot riwayat di file ini.
+   */
+  async function editWaMessage(wa, messageId, text) {
+    return wa.pupPage.evaluate(async (msgId, content) => {
+      const Msg = window.require('WAWebCollections').Msg;
+      const msg = Msg.get(msgId) || (await Msg.getMessagesById([msgId]))?.messages?.[0];
+      if (!msg) return { ok: false, reason: 'not_found' };
+      if (!msg.id?.fromMe) return { ok: false, reason: 'not_mine' };
+      const cap = window.require('WAWebMsgActionCapability');
+      const canEdit = cap.canEditText(msg) || cap.canEditCaption(msg);
+      if (!canEdit) return { ok: false, reason: 'window_closed' };
+      await window.WWebJS.editMessage(msg, content, {});
+      return { ok: true };
+    }, messageId, text);
+  }
+
+  async function deleteWaMessage(wa, messageId, everyone) {
+    return wa.pupPage.evaluate(async (msgId, wantsEveryone) => {
+      const Msg = window.require('WAWebCollections').Msg;
+      const msg = Msg.get(msgId) || (await Msg.getMessagesById([msgId]))?.messages?.[0];
+      if (!msg) return { ok: false, reason: 'not_found' };
+      const Chat = window.require('WAWebCollections').Chat;
+      const chat = Chat.get(msg.id.remote) || (await Chat.find(msg.id.remote));
+      const cap = window.require('WAWebMsgActionCapability');
+      const canRevoke = cap.canSenderRevokeMsg(msg) || cap.canAdminRevokeMsg(msg);
+      const { Cmd } = window.require('WAWebCmd');
+      const newApi = window.WWebJS.compareWwebVersions(window.Debug.VERSION, '>=', '2.3000.0');
+      if (wantsEveryone && canRevoke) {
+        await (newApi
+          ? Cmd.sendRevokeMsgs(chat, { list: [msg], type: 'message' }, { clearMedia: true })
+          : Cmd.sendRevokeMsgs(chat, [msg], { clearMedia: true, type: msg.id.fromMe ? 'Sender' : 'Admin' }));
+        return { ok: true, revoked: true };
+      }
+      if (wantsEveryone && !canRevoke) return { ok: false, reason: 'window_closed' };
+      await (newApi
+        ? Cmd.sendDeleteMsgs(chat, { list: [msg], type: 'message' }, true)
+        : Cmd.sendDeleteMsgs(chat, [msg], true));
+      return { ok: true, revoked: false };
+    }, messageId, Boolean(everyone));
+  }
+
+  const MESSAGE_ACTION_ERRORS = {
+    not_found: 'Pesan tidak ditemukan — mungkin sudah dihapus atau riwayatnya belum dimuat.',
+    not_mine: 'Hanya pesan yang kita kirim sendiri yang bisa diedit.',
+    window_closed: 'WhatsApp membatasi waktu untuk aksi ini, dan waktunya sudah lewat.',
+    error: 'Aksi gagal. Coba lagi sebentar lagi.',
+  };
+
+  app.patch('/v1/messages/:messageId', {
+    schema: {
+      params: { type: 'object', required: ['messageId'], properties: {
+        messageId: { type: 'string', minLength: 1, maxLength: 256 },
+      } },
+      body: {
+        type: 'object', required: ['chatId', 'text'], additionalProperties: false,
+        properties: {
+          chatId: { type: 'string', minLength: 1, maxLength: 128 },
+          text: { type: 'string', minLength: 1, maxLength: 4096 },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    const companyId = request.agneeSession.companyId;
+    if (config.demoMode) return reply.code(409).send({ error: 'Tidak bisa mengedit pesan di mode demo.' });
+    const { client: wa, state: waState } = await waFor(companyId, request.body.chatId);
+    if (!wa || waState.phase !== 'ready') return reply.code(503).send({ error: 'WhatsApp belum siap.' });
+    const result = await editWaMessage(wa, request.params.messageId, request.body.text)
+      .catch((error) => { app.log.warn({ err: error }, 'Edit pesan gagal'); return { ok: false, reason: 'error' }; });
+    if (!result?.ok) {
+      return reply.code(422).send({ error: MESSAGE_ACTION_ERRORS[result?.reason] || MESSAGE_ACTION_ERRORS.error });
+    }
+    broadcastEvent(companyId, 'message', { chatId: request.body.chatId, edited: true });
+    return { ok: true };
+  });
+
+  app.delete('/v1/messages/:messageId', {
+    schema: {
+      params: { type: 'object', required: ['messageId'], properties: {
+        messageId: { type: 'string', minLength: 1, maxLength: 256 },
+      } },
+      body: {
+        type: 'object', required: ['chatId'], additionalProperties: false,
+        properties: {
+          chatId: { type: 'string', minLength: 1, maxLength: 128 },
+          // Tanpa ini, "hapus" berarti hapus untuk semua orang — kebalikan
+          // dari default WhatsApp sendiri, dan salah satu kali klik yang tidak
+          // bisa dibatalkan. Harus diminta eksplisit.
+          everyone: { type: 'boolean', default: false },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    const companyId = request.agneeSession.companyId;
+    if (config.demoMode) return reply.code(409).send({ error: 'Tidak bisa menghapus pesan di mode demo.' });
+    const { client: wa, state: waState } = await waFor(companyId, request.body.chatId);
+    if (!wa || waState.phase !== 'ready') return reply.code(503).send({ error: 'WhatsApp belum siap.' });
+    const result = await deleteWaMessage(wa, request.params.messageId, request.body.everyone)
+      .catch((error) => { app.log.warn({ err: error }, 'Hapus pesan gagal'); return { ok: false, reason: 'error' }; });
+    if (!result?.ok) {
+      return reply.code(422).send({ error: MESSAGE_ACTION_ERRORS[result?.reason] || MESSAGE_ACTION_ERRORS.error });
+    }
+    broadcastEvent(companyId, 'message', { chatId: request.body.chatId, deleted: true });
+    return { ok: true, revoked: Boolean(result.revoked) };
+  });
+
   app.get('/v1/messages/:messageId/media', {
     schema: {
       params: { type: 'object', required: ['messageId'], properties: {

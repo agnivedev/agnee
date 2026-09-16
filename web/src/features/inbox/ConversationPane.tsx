@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { api } from '@/lib/api';
 import { useI18n } from '@/lib/i18n';
 import { useSession } from '@/lib/session';
+import { useConfirm } from '@/components/ui/confirm';
 import { cn } from '@/lib/utils';
 import { Avatar } from './Avatar';
 import { Composer } from './Composer';
@@ -33,8 +34,49 @@ export function ConversationPane({
 }) {
   const { t } = useI18n();
   const { isSupervisor } = useSession();
+  const confirm = useConfirm();
   const chat = inbox.activeChat;
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+
+  /**
+   * Edit dan hapus lewat evaluate murni di server — tidak ada API "diff
+   * lokal" untuk membatalkannya kalau gagal, jadi setelah sukses kita muat
+   * ulang seluruh riwayat alih-alih menambal state di sini. Riwayatnya sudah
+   * dibaca dari `getMessagesForUi()` yang sama dengan balasan otomatis, jadi
+   * satu sumber kebenaran untuk keduanya.
+   */
+  async function editMessage(message: Message, text: string) {
+    if (!chat) return;
+    try {
+      await api(`/v1/messages/${encodeURIComponent(message.id)}`, {
+        method: 'PATCH', body: { chatId: chat.id, text },
+      });
+      setEditingId(null);
+      await inbox.loadMessages(chat.id);
+    } catch (error) {
+      await confirm.error(error, t('message.editFailed'));
+    }
+  }
+
+  async function deleteMessage(message: Message, everyone: boolean) {
+    if (!chat) return;
+    const ok = await confirm.confirm({
+      title: everyone ? t('message.deleteEveryoneTitle') : t('message.deleteMeTitle'),
+      message: everyone ? t('message.deleteEveryoneCopy') : t('message.deleteMeCopy'),
+      confirmLabel: t('message.deleteConfirm'),
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await api(`/v1/messages/${encodeURIComponent(message.id)}`, {
+        method: 'DELETE', body: { chatId: chat.id, everyone },
+      });
+      await inbox.loadMessages(chat.id);
+    } catch (error) {
+      await confirm.error(error, t('message.deleteFailed'));
+    }
+  }
   const [groupMeta, setGroupMeta] = useState<string>('');
   const [highlighted, setHighlighted] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -201,6 +243,12 @@ export function ConversationPane({
                   demoMode={Boolean(inbox.whatsapp?.demoMode)}
                   position={chat.isGroup ? runPosition(previous, message, inbox.messages[index + 1]) : 'single'}
                   highlighted={highlighted === message.id}
+                  editing={editingId === message.id}
+                  onStartEdit={() => setEditingId(message.id)}
+                  onCancelEdit={() => setEditingId(null)}
+                  onSaveEdit={(text) => void editMessage(message, text)}
+                  onDeleteForMe={() => void deleteMessage(message, false)}
+                  onDeleteForEveryone={() => void deleteMessage(message, true)}
                   onReply={setReplyingTo}
                   onOpenMedia={onOpenMedia}
                   onOpenQuoted={(id) => void focusMessage(id)}

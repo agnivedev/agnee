@@ -1,3 +1,5 @@
+import { useState } from 'react';
+import { Pencil, Trash2, Check, X } from 'lucide-react';
 import { useI18n } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { InlineMarkdown } from './InlineMarkdown';
@@ -36,6 +38,12 @@ export function MessageRow({
   position,
   demoMode,
   highlighted,
+  editing,
+  onStartEdit,
+  onCancelEdit,
+  onSaveEdit,
+  onDeleteForMe,
+  onDeleteForEveryone,
   onReply,
   onOpenMedia,
   onOpenQuoted,
@@ -46,6 +54,12 @@ export function MessageRow({
   position: RunPosition;
   demoMode: boolean;
   highlighted: boolean;
+  editing: boolean;
+  onStartEdit: () => void;
+  onCancelEdit: () => void;
+  onSaveEdit: (text: string) => void;
+  onDeleteForMe: () => void;
+  onDeleteForEveryone: () => void;
   onReply: (message: Message) => void;
   onOpenMedia: (target: MediaTarget) => void;
   onOpenQuoted: (messageId: string) => void;
@@ -85,6 +99,12 @@ export function MessageRow({
   const hasImage = Boolean(message.inlineImage || (message.id && ['image', 'sticker'].includes(message.type)));
   const hasVideo = message.type === 'video' && message.id;
   const hideBody = (hasImage || hasVideo) && !message.body;
+  // WhatsApp hanya mengizinkan edit pesan TEKS milik kita sendiri, dan hanya
+  // dalam jendela waktu singkat — server yang menegakkan jendelanya (WhatsApp
+  // sendiri yang tahu persis batasnya); tombolnya ditampilkan berdasarkan
+  // syarat yang bisa kita ketahui dari sini saja.
+  const canEdit = mine && Boolean(message.body) && !hasImage && !hasVideo;
+  const canDeleteForEveryone = mine;
 
   return (
     <div
@@ -200,7 +220,9 @@ export function MessageRow({
           <BubbleImage message={message} chatId={chatId} onOpenMedia={onOpenMedia} />
         ) : null}
 
-        {hideBody ? null : (
+        {editing ? (
+          <EditBox initial={message.body} onSave={onSaveEdit} onCancel={onCancelEdit} />
+        ) : hideBody ? null : (
           <p className="m-0 text-sm leading-[1.45] whitespace-pre-wrap">
             <InlineMarkdown text={body} />
           </p>
@@ -212,7 +234,119 @@ export function MessageRow({
         </time>
       </div>
 
+      {editing ? null : (
+        <MessageActions
+          canEdit={canEdit}
+          canDeleteForEveryone={canDeleteForEveryone}
+          onEdit={onStartEdit}
+          onDeleteForMe={onDeleteForMe}
+          onDeleteForEveryone={onDeleteForEveryone}
+          className={mine ? 'order-first' : undefined}
+        />
+      )}
       {mine ? null : <QuickReply onClick={() => onReply(message)} />}
+    </div>
+  );
+}
+
+/**
+ * Tombol aksi sebagai ikon di samping bubble — bukan menu klik kanan. Muncul
+ * saat baris di-hover, sama seperti tombol balas yang sudah ada, supaya
+ * polanya konsisten dan tidak menyembunyikan aksi di balik interaksi yang
+ * tidak terlihat.
+ */
+function MessageActions({
+  canEdit,
+  canDeleteForEveryone,
+  onEdit,
+  onDeleteForMe,
+  onDeleteForEveryone,
+  className,
+}: {
+  canEdit: boolean;
+  canDeleteForEveryone: boolean;
+  onEdit: () => void;
+  onDeleteForMe: () => void;
+  onDeleteForEveryone: () => void;
+  className?: string;
+}) {
+  const { t } = useI18n();
+  const iconButton = 'grid size-[30px] shrink-0 place-items-center rounded-[10px] border-0 bg-white/80 opacity-0 transition hover:bg-white focus-visible:opacity-100 group-hover:opacity-100';
+  return (
+    <div className={cn('flex shrink-0 gap-1', className)}>
+      {canEdit ? (
+        <button
+          type="button"
+          aria-label={t('message.edit')}
+          title={t('message.edit')}
+          onClick={(event) => { event.stopPropagation(); onEdit(); }}
+          className={cn(iconButton, 'text-green-dark')}
+        >
+          <Pencil aria-hidden className="size-[15px]" strokeWidth={2} />
+        </button>
+      ) : null}
+      <button
+        type="button"
+        aria-label={t('message.deleteForMe')}
+        title={t('message.deleteForMe')}
+        onClick={(event) => { event.stopPropagation(); onDeleteForMe(); }}
+        className={cn(iconButton, 'text-ink/55')}
+      >
+        <Trash2 aria-hidden className="size-[15px]" strokeWidth={2} />
+      </button>
+      {canDeleteForEveryone ? (
+        <button
+          type="button"
+          aria-label={t('message.deleteForEveryone')}
+          title={t('message.deleteForEveryone')}
+          onClick={(event) => { event.stopPropagation(); onDeleteForEveryone(); }}
+          className={cn(iconButton, 'text-danger')}
+        >
+          <Trash2 aria-hidden className="size-[15px]" strokeWidth={2.5} />
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+function EditBox({ initial, onSave, onCancel }: { initial: string; onSave: (text: string) => void; onCancel: () => void }) {
+  const { t } = useI18n();
+  const [value, setValue] = useState(initial);
+  const trimmed = value.trim();
+
+  return (
+    <div className="grid gap-1.5">
+      <textarea
+        autoFocus
+        value={value}
+        onChange={(event) => setValue(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); if (trimmed) onSave(trimmed); }
+          if (event.key === 'Escape') onCancel();
+        }}
+        rows={Math.min(6, Math.max(2, value.split('\n').length))}
+        maxLength={4096}
+        className="w-full resize-none rounded-[10px] border border-ink/15 bg-white px-2.5 py-2 text-sm leading-[1.45]"
+      />
+      <div className="flex justify-end gap-1.5">
+        <button
+          type="button"
+          aria-label={t('common.cancel')}
+          onClick={onCancel}
+          className="grid size-7 place-items-center rounded-lg border border-ink/15 bg-white text-ink/60 hover:bg-ink/5"
+        >
+          <X aria-hidden className="size-[14px]" />
+        </button>
+        <button
+          type="button"
+          aria-label={t('common.save')}
+          disabled={!trimmed}
+          onClick={() => trimmed && onSave(trimmed)}
+          className="grid size-7 place-items-center rounded-lg border-0 bg-green text-white disabled:opacity-40"
+        >
+          <Check aria-hidden className="size-[14px]" />
+        </button>
+      </div>
     </div>
   );
 }

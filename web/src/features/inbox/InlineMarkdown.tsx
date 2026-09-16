@@ -8,15 +8,19 @@ import { Fragment, type ReactNode } from 'react';
  * customer types — the escaping step is not something we have to remember.
  */
 
-type Rule = { pattern: RegExp; render: (inner: ReactNode, key: string, raw: string) => ReactNode };
+type Rule = { pattern: RegExp; noRecurse?: boolean; render: (inner: ReactNode, key: string, raw: string) => ReactNode };
 
 // Trailing `.,!?)]"'` excluded from the match so a link at the end of a
 // sentence ("cek https://foo.com/bar.") does not swallow the period into
 // the href. Raw URL text renders as-is, not recursed through the other
 // rules below — a stray `_` in a query string must not turn into italics.
+// `noRecurse` is required here, not just an optimization: the whole match
+// IS the capture group (there is no delimiter to strip), so recursing into
+// `match[1]` re-feeds the identical string back into this same rule forever.
 const INLINE_RULES: Rule[] = [
   {
     pattern: /(https?:\/\/[^\s<]+[^\s<.,!?)\]"'])/,
+    noRecurse: true,
     render: (_inner, key, raw) => (
       <a
         key={key}
@@ -50,9 +54,10 @@ function renderInline(text: string, keyPrefix: string): ReactNode[] {
     if (!match) continue;
     const before = text.slice(0, match.index);
     const after = text.slice(match.index + match[0].length);
+    const inner = rule.noRecurse ? match[1] : renderInline(match[1], `${keyPrefix}i`);
     return [
       ...renderInline(before, `${keyPrefix}b`),
-      rule.render(renderInline(match[1], `${keyPrefix}i`), `${keyPrefix}m`, match[1]),
+      rule.render(inner, `${keyPrefix}m`, match[1]),
       ...renderInline(after, `${keyPrefix}a`),
     ];
   }

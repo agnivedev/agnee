@@ -1,5 +1,19 @@
 ## [Unreleased]
 
+### Fixed
+
+- **Percakapan hilang total dari Inbox kalau pesan terakhirnya dihapus.**
+  Ditemukan lewat laporan Hanny: dua lead nyata menghilang dari Agnee setelah
+  pesan terakhirnya dihapus langsung dari WhatsApp. Akar masalahnya beda dari
+  perbaikan "pesan dihapus dicoret" sebelumnya — itu memperbaiki tampilan
+  DALAM satu percakapan yang sudah terbuka; bug ini ada di filter TERPISAH
+  yang menentukan chat mana yang muncul di daftar Inbox sama sekali
+  (`isConversationMessageForUi`), dan filter itu belum menganggap pesan
+  `revoked` sebagai "pesan terakhir yang sah" — chat dengan HANYA satu pesan
+  yang sudah dihapus dianggap tidak punya pesan sama sekali, jadi tersaring
+  keluar seolah percakapan itu tidak pernah ada. Sekarang `revoked` diakui,
+  dan pratinjaunya di daftar Inbox menampilkan "Pesan dihapus".
+
 ### Added
 
 - **Board Kanban CRM** (`/pipeline`) — pindahkan lead antar kolom Cold/Warm/

@@ -188,6 +188,7 @@ function messagePreviewForUi(type, body, hasMedia = false, caption = '') {
   const labels = {
     call_log: 'Panggilan WhatsApp', image: 'Foto', sticker: 'Stiker', video: 'Video',
     audio: 'Audio', ptt: 'Pesan suara', document: 'Dokumen', interactive: 'Pesan interaktif WhatsApp',
+    revoked: 'Pesan dihapus',
   };
   if (inlineImageFromBody(body)) {
     const captionText = typeof caption === 'string' && !inlineImageFromBody(caption) ? caption.trim() : '';
@@ -219,6 +220,7 @@ function isConversationMessageForUi(message) {
   const hiddenTypes = new Set(['e2e_notification', 'protocol', 'notification_template', 'gp2']);
   if (hiddenTypes.has(message.type)) return false;
   return message.type === 'call_log'
+    || message.type === 'revoked'
     || Boolean(String(message.body || message.caption || '').trim())
     || Boolean(message.hasMedia || message.mediaData || message.__x_mediaData);
 }

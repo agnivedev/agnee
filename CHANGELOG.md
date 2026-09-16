@@ -2,13 +2,62 @@
 
 ### Planned
 
-- **Landing page depan dijadikan halaman jualan Agnee per fitur**, dengan nada
-  marketing yang sengaja dilebih-lebihkan dan ditutup promo, plus dua umpan:
-  ebook untuk CS perusahaan dan webinar gratis "how to sell everything under
-  15 minutes". Sudut pandangnya CS, bukan hanya pemilik perusahaan — yang
-  dimudahkan adalah orang yang membalas chat setiap hari, dan Agnee menangani
-  customer sekaligus menopang CS-nya. Dikerjakan di sesi terpisah; belum
-  dimulai. Nada boleh berlebihan, klaim yang bisa dibuktikan salah tidak.
+- **Isi kedua umpan landing page belum ada.** Halamannya sudah menawarkan ebook
+  "Balas Chat Tanpa Kehabisan Diri Sendiri" dan webinar "Jualan Apa Pun dalam 15
+  Menit Chat", tapi naskah ebook, materi webinar, dan tanggal webinarnya belum
+  dibuat. Jangan menayangkan halaman ini ke publik sebelum keduanya ada, atau
+  pengunjung menekan tombol untuk sesuatu yang tidak bisa dikirim.
+- **Produk Mayar Rp0 untuk kedua umpan belum dibuat.** Konstanta `MAYAR_EBOOK`
+  dan `MAYAR_WEBINAR` di `LandingPage.tsx` sengaja dikosongkan: selama kosong,
+  tombolnya jatuh ke jalur WhatsApp yang memang sudah hidup. Perhatikan bahwa
+  akun Mayar yang terhubung ke repo ini milik Traders Mastermind, bukan Agnive.
+- **Halaman Kebijakan Privasi dan Syarat & Ketentuan belum ada.** Keduanya
+  dikeluarkan dari footer, bukan dibiarkan sebagai link mati — tapi wajib ada
+  sebelum penampungan email lewat Mayar dihidupkan.
+
+### Added
+
+- **Landing page depan jadi halaman jualan per fitur.** `/landing` ditulis ulang
+  dari satu pitch umum menjadi empat band fitur yang masing-masing dijual dua
+  sisi: apa yang perusahaan dapat, dan apa yang CS-nya dapat. Sudut pandang itu
+  yang membedakannya dari copy SaaS biasa — yang dimudahkan bukan cuma
+  perusahaannya, tapi orang yang membalas chat setiap hari. Ditutup promo tiga
+  paket (Personal Rp99.000/bln, Company Rp3.900.000/bln, Lifetime Rp29.900.000
+  sekali bayar) dengan batas 100 perusahaan pertama, plus strip white label.
+- **Dua umpan di halaman depan.** Ebook untuk CS diletakkan di tengah, tepat
+  setelah dua band yang paling menyentuh pekerjaan harian mereka; webinar
+  diletakkan tepat sebelum harga, karena niat pembacanya sudah lebih tinggi di
+  sana. Keduanya punya dua jalur pendaftaran: Mayar kalau produknya sudah ada,
+  dan WhatsApp yang selalu hidup — dilayani Agnee sendiri, jadi calon pelanggan
+  mengalami produknya sebelum membelinya.
+
+### Removed
+
+- **Empat testimoni karangan dan empat angka hasil tanpa sumber** dibuang dari
+  landing page. Testimoninya memakai nama, jabatan, perusahaan, dan bintang lima
+  dari orang yang tidak pernah mengatakannya; angkanya ("500+ chat dihandle hari
+  ini", "<3 dtk rata-rata response AI", "10+ tim CS onboard beta") tidak punya
+  sumber di mana pun di repo. Ruang yang ditinggalkan diisi grid "15 hal kecil
+  yang berhenti mengganggu" — pernyataan tentang apa yang dilakukan produk,
+  tanpa nama, foto, atau bintang. Blok testimoni boleh dipasang lagi hanya
+  dengan kutipan asli yang orangnya sudah menyetujui namanya ditampilkan.
+- **Dua klaim fitur yang tidak ada di kode.** "Distribusi traffic cerdas — chat
+  dibagi otomatis ke agen yang available" (yang ada adalah pengambilalihan saat
+  agent mengetik, bukan pembagian chat) dan "response time rata-rata" di laporan
+  (yang dicatat `ai_usage_logs` adalah token dan biaya, bukan waktu balas).
+
+### Changed
+
+- **Plafon di kartu harga disamakan dengan yang diberlakukan server.** Personal
+  1 pengguna / 1 nomor / 1 playbook / 500 pesan AI per bulan, Company 5 pengguna
+  dan sisanya tanpa plafon angka — sesuai batas paket di `src/database.js`.
+  "Unlimited pesan AI" diganti "tanpa plafon angka" dengan catatan pemakaian
+  wajar yang menyebutkan apa yang benar-benar terjadi kalau pemakaian melonjak:
+  dihubungi dulu, tidak diputus tiba-tiba.
+- **Angka di pita bukti diganti angka yang bisa ditunjuk barisnya** — 30 menit
+  (`AUTO_ASSIGN_IDLE_MINUTES`), 8 dokumen (`Database.PLAYBOOK_KINDS`), 2 penulis
+  1 tanda (kolom `author` di migrasi 014), 3 pengaman follow-up (`src/follow-up.js`).
+
 
 ### Fixed
 

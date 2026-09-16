@@ -1,32 +1,83 @@
 import { useEffect, useState, type ReactNode } from 'react';
 
 /**
- * Public marketing page. Deliberately not run through the i18n dictionary: the
- * copy is Indonesian sales writing, not interface labels, and the vanilla page
- * it replaces was never translated either.
+ * Halaman jualan publik Agnee.
  *
- * It carries its own palette (neon on deep green) rather than the workspace
- * one, and follows the visitor's system dark mode.
+ * Sengaja tidak lewat kamus i18n: ini naskah penjualan Bahasa Indonesia, bukan
+ * label antarmuka, dan halaman vanilla yang digantikannya juga tidak pernah
+ * diterjemahkan. Palet dan mode gelapnya berdiri sendiri, tidak ikut workspace.
+ *
+ * ATURAN NASKAH — jangan dilanggar saat menyunting halaman ini:
+ *
+ * Nadanya boleh sekeras apa pun. Klaimnya tidak boleh bisa dibuktikan salah.
+ * Tiap angka di halaman ini punya baris kodenya sendiri, dicatat di komentar
+ * tepat di atas tempat angka itu dipakai. Kalau mau menambah angka baru, cari
+ * dulu kodenya; kalau tidak ketemu, angkanya tidak boleh ditulis.
+ *
+ * Yang DIBUANG dari versi sebelumnya dan tidak boleh dikembalikan:
+ *   - empat testimoni dengan nama, jabatan, dan bintang lima dari orang yang
+ *     tidak pernah mengatakannya;
+ *   - "500+ chat dihandle hari ini", "<3 dtk response AI", "10+ tim CS onboard"
+ *     — tidak ada sumbernya di mana pun;
+ *   - "Distribusi traffic otomatis ke agen yang available" — yang ada adalah
+ *     pengambilalihan saat agent mengetik, bukan pembagian chat;
+ *   - "response time rata-rata" di laporan — yang dicatat ai_usage_logs adalah
+ *     token dan biaya, bukan waktu balas.
+ *
+ * Blok testimoni boleh dipasang lagi HANYA dengan kutipan asli yang orangnya
+ * sudah menyetujui namanya ditampilkan.
  */
 
 const WA_LINK = 'https://wa.me/6281218700276';
-const WA_PERSONAL = `${WA_LINK}?text=Halo%2C%20saya%20mau%20langganan%20Agnee%20Personal%20Beta`;
-const WA_COMPANY = `${WA_LINK}?text=Halo%2C%20saya%20mau%20langganan%20Agnee%20Company%20Beta`;
+const waLink = (pesan: string) => `${WA_LINK}?text=${encodeURIComponent(pesan)}`;
+
+const WA_PERSONAL = waLink('Halo, saya mau langganan Agnee Personal');
+const WA_COMPANY = waLink('Halo, saya mau langganan Agnee Company');
+const WA_LIFETIME = waLink('Halo, saya mau tanya paket Agnee Lifetime');
+const WA_WHITELABEL = waLink('Halo, saya mau tanya Agnee white label');
+const WA_EBOOK = waLink('EBOOK CS - halo, saya mau ebook "Balas Chat Tanpa Kehabisan Diri Sendiri"');
+const WA_WEBINAR = waLink('WEBINAR - halo, saya mau daftar kelas "Jualan Apa Pun dalam 15 Menit Chat"');
+
+/**
+ * Halaman pendaftaran Mayar untuk kedua umpan.
+ *
+ * Biarkan kosong selama produknya belum dibuat: tombol Mayar menyembunyikan
+ * dirinya sendiri dan yang tersisa jalur WhatsApp, yang selalu hidup karena
+ * dilayani Agnee sendiri. Isi dengan URL produk Rp0 begitu ada di akun Mayar
+ * Agnive — perhatikan bahwa akun Mayar yang terhubung ke repo ini milik Traders
+ * Mastermind, bukan Agnive.
+ */
+const MAYAR_EBOOK = '';
+const MAYAR_WEBINAR = '';
+
+/**
+ * Kuota promo pembukaan.
+ *
+ * Angka ini janji ke pembaca, bukan hiasan. Kalau perusahaan ke-101 mendaftar,
+ * harga promonya memang harus berhenti — atau angkanya yang diubah di sini
+ * sebelum itu terjadi.
+ */
+const KUOTA_PROMO = 100;
 
 export function LandingPage() {
   useEffect(() => {
-    document.title = 'Agnee — Inbox CS WhatsApp untuk Tim yang Serius';
+    document.title = 'Agnee — Pelangganmu dilayani. CS-mu juga.';
   }, []);
 
   return (
     <div className="min-h-dvh scroll-smooth bg-[#eef5eb] text-ink dark:bg-[#0c1912] dark:text-[#f4f9f0]">
       <Nav />
       <Hero />
-      <Stats />
-      <Features />
+      <ProofStrip />
+      <BandSiapaBicara />
+      <BandFollowUp />
+      <UmpanEbook />
+      <BandKnowledge />
+      <BandRingkasan />
+      <GridPendukung />
+      <GridYangBerubah />
+      <UmpanWebinar />
       <HowItWorks />
-      <Product />
-      <Testimonials />
       <Pricing />
       <Faq />
       <CtaBanner />
@@ -52,7 +103,31 @@ function Eyebrow({ children }: { children: ReactNode }) {
 }
 
 function SectionTitle({ children }: { children: ReactNode }) {
-  return <h2 className="m-0 mb-10 text-[clamp(28px,4vw,42px)] leading-[1.15] font-semibold tracking-[-.035em]">{children}</h2>;
+  return <h2 className="m-0 mb-6 text-[clamp(28px,4vw,42px)] leading-[1.15] font-semibold tracking-[-.035em]">{children}</h2>;
+}
+
+function Lead({ children }: { children: ReactNode }) {
+  return <p className="m-0 max-w-2xl text-[16px] leading-[1.7] text-[#4e6e5e] dark:text-[#7aaa8a]">{children}</p>;
+}
+
+/** Dua sisi tiap fitur: yang perusahaan dapat, dan yang orangnya dapat. */
+function DuaSisi({ perusahaan, cs }: { perusahaan: ReactNode; cs: ReactNode }) {
+  return (
+    <div className="mt-8 grid gap-4 sm:grid-cols-2">
+      <div className="rounded-panel border border-[#c6dcc0] bg-white p-5 dark:border-[#24403a] dark:bg-[#14241f]">
+        <p className="m-0 mb-1.5 font-mono text-[11px] font-semibold tracking-[.12em] text-[#4e6e5e] uppercase dark:text-[#7aaa8a]">
+          Perusahaanmu dapat
+        </p>
+        <p className="m-0 text-[14px] leading-[1.65]">{perusahaan}</p>
+      </div>
+      <div className="rounded-panel border-2 border-green-dark bg-[#dff0d6] p-5 dark:border-[#7fff4f] dark:bg-[#1b3028]">
+        <p className="m-0 mb-1.5 font-mono text-[11px] font-semibold tracking-[.12em] text-[#205a38] uppercase dark:text-[#7fff4f]">
+          Kamu, CS, dapat
+        </p>
+        <p className="m-0 text-[14px] leading-[1.65] text-[#14241f] dark:text-[#f4f9f0]">{cs}</p>
+      </div>
+    </div>
+  );
 }
 
 function Nav() {
@@ -61,21 +136,24 @@ function Nav() {
       <a href="/landing" className="shrink-0" aria-label="Agnee by Beweix">
         <img src="/brand/agnee-logo-primary.svg" alt="Agnee by Beweix" className="h-7 dark:brightness-0 dark:invert" />
       </a>
-      <nav className="hidden gap-6 sm:flex">
+      <nav className="hidden gap-6 md:flex">
         {[
           ['#fitur', 'Fitur'],
+          ['#ebook', 'Ebook gratis'],
+          ['#webinar', 'Webinar'],
           ['#pricing', 'Harga'],
           ['#faq', 'FAQ'],
         ].map(([href, label]) => (
-          <a key={href} href={href} className="text-sm font-medium text-[#4e6e5e] no-underline hover:text-ink dark:text-[#7aaa8a] dark:hover:text-[#f4f9f0]">
+          <a
+            key={href}
+            href={href}
+            className="text-sm font-medium text-[#4e6e5e] no-underline hover:text-ink dark:text-[#7aaa8a] dark:hover:text-[#f4f9f0]"
+          >
             {label}
           </a>
         ))}
       </nav>
-      <a
-        href="/"
-        className="ml-auto rounded-full border border-[#c6dcc0] px-4 py-2 text-sm font-semibold no-underline dark:border-[#24403a]"
-      >
+      <a href="/" className="ml-auto rounded-full border border-[#c6dcc0] px-4 py-2 text-sm font-semibold no-underline dark:border-[#24403a]">
         Masuk
       </a>
     </header>
@@ -88,15 +166,17 @@ function Hero() {
       <div className="grid items-center gap-10 lg:grid-cols-[1.1fr_.9fr]">
         <div>
           <span className="inline-block rounded-full bg-[#dff0d6] px-3 py-1 font-mono text-[11px] font-semibold text-[#205a38] dark:bg-[#1b3028] dark:text-[#7fff4f]">
-            Beta
+            Beta — promo {KUOTA_PROMO} perusahaan pertama
           </span>
-          <h1 className="mt-4 mb-0 text-[clamp(38px,6vw,68px)] leading-[1.03] font-semibold tracking-[-.05em]">
-            Banyak agen CS,
+          <h1 className="mt-4 mb-0 text-[clamp(36px,6vw,66px)] leading-[1.03] font-semibold tracking-[-.05em]">
+            Pelangganmu dilayani.
             <br />
-            satu dashboard.
+            CS-mu juga.
           </h1>
           <p className="mt-5 mb-0 max-w-xl text-[17px] leading-[1.6] text-[#4e6e5e] dark:text-[#7aaa8a]">
-            Atur distribusi chat otomatis, pantau seluruh tim, dan biarkan AI balas pelanggan 24/7 — dari satu tempat.
+            Semua yang lain menjual robot yang menggantikan CS. Agnee menjaga chat pelangganmu{' '}
+            <b className="font-semibold text-ink dark:text-[#f4f9f0]">dan</b> menopang orang yang membalasnya — supaya
+            tidak ada chat yang jatuh ke lantai, dan tidak ada CS yang pulang membawa kerjaan.
           </p>
           <div className="mt-7 flex flex-wrap gap-3">
             <a
@@ -105,11 +185,8 @@ function Hero() {
             >
               Coba Gratis
             </a>
-            <a
-              href="#pricing"
-              className="rounded-app border border-[#c6dcc0] px-5 py-3 text-[15px] font-semibold no-underline dark:border-[#24403a]"
-            >
-              Lihat harga
+            <a href="#ebook" className="rounded-app border border-[#c6dcc0] px-5 py-3 text-[15px] font-semibold no-underline dark:border-[#24403a]">
+              Ambil ebook CS-nya dulu
             </a>
           </div>
         </div>
@@ -119,21 +196,28 @@ function Hero() {
   );
 }
 
-const STATS = [
-  ['500+', 'Chat dihandle hari ini'],
-  ['<3 dtk', 'Rata-rata response AI'],
-  ['10+', 'Tim CS onboard beta'],
-  ['24/7', 'AI siap melayani'],
+/**
+ * Pita bukti. Empat angka yang bisa ditunjuk barisnya, bukan angka hasil bisnis:
+ *   30 menit  — AUTO_ASSIGN_IDLE_MINUTES di src/server.js
+ *   8 dokumen — Database.PLAYBOOK_KINDS di src/database.js
+ *   2 penulis — kolom author ('ai' | 'human') di migrasi 014
+ *   3 pengaman — jendela jam, plafon harian, jarak minimum di src/follow-up.js
+ */
+const BUKTI: [string, string][] = [
+  ['30 menit', 'Chat ditinggal selama ini, AI mengambil alih lagi sendiri'],
+  ['8 dokumen', 'Playbook yang menentukan cara AI-mu bicara, semua diisi lewat obrolan'],
+  ['2 penulis, 1 tanda', 'Tiap balasan keluar ketahuan: AI, atau agent yang mana'],
+  ['3 pengaman', 'Jendela jam, plafon harian, jarak minimum — sebelum follow-up boleh kirim'],
 ];
 
-function Stats() {
+function ProofStrip() {
   return (
     <Section className="border-y border-[#c6dcc0] py-8 dark:border-[#24403a]">
-      <div className="grid gap-6 sm:grid-cols-4">
-        {STATS.map(([value, label]) => (
-          <div key={label} className="text-center">
-            <span className="block text-2xl font-semibold tracking-[-.03em]">{value}</span>
-            <span className="mt-1 block text-[13px] text-[#4e6e5e] dark:text-[#7aaa8a]">{label}</span>
+      <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+        {BUKTI.map(([nilai, label]) => (
+          <div key={nilai} className="text-center">
+            <span className="block text-[22px] leading-tight font-semibold tracking-[-.03em]">{nilai}</span>
+            <span className="mt-1.5 block text-[13px] leading-[1.5] text-[#4e6e5e] dark:text-[#7aaa8a]">{label}</span>
           </div>
         ))}
       </div>
@@ -141,92 +225,232 @@ function Stats() {
   );
 }
 
-const FEATURES: { title: string; desc: string; path: ReactNode }[] = [
-  {
-    title: 'Multi-agent Inbox',
-    desc: 'Satu nomor WA, seluruh tim CS. Assign, transfer, dan pantau semua percakapan dari satu dashboard bersama.',
-    path: (
-      <>
-        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-        <circle cx="9" cy="7" r="4" />
-        <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-        <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-      </>
-    ),
-  },
-  {
-    title: 'AI Auto-reply 24/7',
-    desc: 'Buat playbook sekali, AI yang jaga pelanggan. Dari FAQ sampai kualifikasi leads — semua otomatis, kapan saja.',
-    path: (
-      <>
-        <path d="M12 2L2 7l10 5 10-5-10-5z" />
-        <path d="M2 17l10 5 10-5" />
-        <path d="M2 12l10 5 10-5" />
-      </>
-    ),
-  },
-  {
-    title: 'Distribusi Traffic Cerdas',
-    desc: 'Chat masuk dibagi otomatis ke agen yang available. Tidak ada yang kelebihan beban, tidak ada chat yang terlewat.',
-    path: <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />,
-  },
-  {
-    title: 'Dashboard Real-time',
-    desc: 'Monitor beban kerja setiap agen, status percakapan, dan performa tim secara langsung tanpa perlu refresh.',
-    path: (
-      <>
-        <rect x="2" y="3" width="20" height="14" rx="2" />
-        <line x1="8" y1="21" x2="16" y2="21" />
-        <line x1="12" y1="17" x2="12" y2="21" />
-      </>
-    ),
-  },
-  {
-    title: 'Histori Percakapan Lengkap',
-    desc: 'Semua riwayat chat tersimpan dan mudah dicari. Agen baru langsung tahu konteks pelanggan tanpa tanya ulang.',
-    path: <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />,
-  },
-  {
-    title: 'Laporan & Analitik',
-    desc: 'Lihat berapa chat ditangani, response time rata-rata, dan performa AI — semua dalam satu halaman laporan.',
-    path: (
-      <>
-        <line x1="18" y1="20" x2="18" y2="10" />
-        <line x1="12" y1="20" x2="12" y2="4" />
-        <line x1="6" y1="20" x2="6" y2="14" />
-      </>
-    ),
-  },
-];
-
-function Features() {
+function BandSiapaBicara() {
   return (
     <Section id="fitur" className="py-16 sm:py-20">
-      <Eyebrow>Fitur utama</Eyebrow>
-      <SectionTitle>Semua yang tim CS kamu butuhkan</SectionTitle>
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {FEATURES.map((feature) => (
+      <Eyebrow>Inbox multi-agent</Eyebrow>
+      <SectionTitle>Dua orang membalas satu pelanggan adalah mimpi buruk. Agnee tidak mengizinkannya.</SectionTitle>
+      <Lead>
+        Agent mulai mengetik di chat yang sedang dijaga AI? Chat itu jadi miliknya, detik itu juga — AI mundur tanpa
+        disuruh. Agent pergi tanpa pamit? Setelah 30 menit diam, chat kembali ke AI, bukan menggantung menunggu orang
+        yang sudah pulang. Dan tiap balasan yang keluar dari nomormu membawa namanya sendiri: AI, atau agent yang mana.
+      </Lead>
+      <DuaSisi
+        perusahaan="Satu nomor, seluruh tim, dan riwayat yang bisa ditanya “ini tadi siapa yang janji?” — dengan jawaban."
+        cs="Tidak pernah lagi malu karena AI mengirim link checkout lima detik setelah kamu menjanjikan telepon jam 3."
+      />
+      <img
+        src="/assets/hero-dashboard.png"
+        alt="Inbox Agnee"
+        loading="lazy"
+        className="mt-10 w-full rounded-panel"
+      />
+    </Section>
+  );
+}
+
+function BandFollowUp() {
+  return (
+    <Section className="bg-ink py-16 text-white sm:py-20 dark:bg-[#14241f]">
+      <p className="m-0 mb-2 font-mono text-[11px] font-medium tracking-[.14em] text-[#7fff4f] uppercase">
+        Follow-up berjadwal
+      </p>
+      <SectionTitle>Follow-up yang lebih sopan daripada kebanyakan manusia.</SectionTitle>
+      <p className="m-0 max-w-2xl text-[16px] leading-[1.7] text-white/65">
+        Agnee mengejar leadmu sampai menjawab — tapi tidak sampai dibenci. Sebelum satu pesan boleh berangkat, dia harus
+        lolos tiga pintu: masih di dalam jam kirim yang kamu tentukan, belum melewati plafon hari itu, dan sudah cukup
+        jauh jaraknya dari pesan sebelumnya. Supervisor mau kirim manual di luar jadwal? Boleh — jaraknya diperpendek,{' '}
+        <b className="font-semibold text-white">tidak dihapus</b>. Rangkaian yang sudah selesai pun boleh dimulai ulang,
+        dengan jeda hari yang kamu tentukan sendiri.
+      </p>
+      <div className="mt-8 grid gap-4 sm:grid-cols-2">
+        <div className="rounded-panel border border-white/15 p-5">
+          <p className="m-0 mb-1.5 font-mono text-[11px] font-semibold tracking-[.12em] text-white/50 uppercase">
+            Perusahaanmu dapat
+          </p>
+          <p className="m-0 text-[14px] leading-[1.65] text-white/80">
+            Lead yang dingin tetap disentuh, tanpa nomormu dilaporkan.
+          </p>
+        </div>
+        <div className="rounded-panel border-2 border-[#7fff4f] bg-[#7fff4f]/10 p-5">
+          <p className="m-0 mb-1.5 font-mono text-[11px] font-semibold tracking-[.12em] text-[#7fff4f] uppercase">
+            Kamu, CS, dapat
+          </p>
+          <p className="m-0 text-[14px] leading-[1.65] text-white">
+            Daftar “nanti dikabarin lagi” yang tidak lagi tinggal di kepalamu sampai jam 11 malam.
+          </p>
+        </div>
+      </div>
+    </Section>
+  );
+}
+
+/** Tombol umpan: Mayar kalau produknya sudah ada, WhatsApp selalu. */
+function TombolUmpan({ mayar, mayarLabel, wa, waLabel }: { mayar: string; mayarLabel: string; wa: string; waLabel: string }) {
+  return (
+    <div className="mt-7 flex flex-wrap gap-3">
+      {mayar ? (
+        <a
+          href={mayar}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="rounded-app bg-ink px-5 py-3 text-[15px] font-semibold text-white no-underline transition hover:-translate-y-0.5 dark:bg-[#7fff4f] dark:text-[#0c1912]"
+        >
+          {mayarLabel}
+        </a>
+      ) : null}
+      <a
+        href={wa}
+        target="_blank"
+        rel="noopener noreferrer"
+        className={
+          mayar
+            ? 'rounded-app border border-[#c6dcc0] px-5 py-3 text-[15px] font-semibold no-underline dark:border-[#24403a]'
+            : 'inline-flex items-center gap-2 rounded-app bg-[#25d366] px-5 py-3 text-[15px] font-semibold text-white no-underline transition hover:bg-[#1dbd5e]'
+        }
+      >
+        {waLabel}
+      </a>
+    </div>
+  );
+}
+
+function UmpanEbook() {
+  return (
+    <Section id="ebook" className="py-16 sm:py-20">
+      <div className="rounded-panel border-2 border-green-dark bg-white p-7 sm:p-10 dark:border-[#7fff4f] dark:bg-[#14241f]">
+        <div className="grid gap-8 lg:grid-cols-[1.15fr_.85fr]">
+          <div>
+            <Eyebrow>Gratis — untuk kamu yang membalas</Eyebrow>
+            <h2 className="m-0 mb-4 text-[clamp(26px,3.6vw,38px)] leading-[1.15] font-semibold tracking-[-.035em]">
+              “Balas Chat Tanpa Kehabisan Diri Sendiri”
+            </h2>
+            <Lead>
+              Bukan untuk bosmu. Untuk kamu. Panduan tentang pekerjaan yang jarang ada bukunya: menghadapi orang marah
+              tanpa ikut terbawa, membaca kapan seseorang sebenarnya sudah siap beli, dan menutup hari tanpa membawa
+              satu pun chat pulang.
+            </Lead>
+            <p className="mt-3 mb-0 text-[14px] leading-[1.65] text-[#4e6e5e] dark:text-[#7aaa8a]">
+              Boleh dibaca walaupun kantormu tidak pakai Agnee. Kami serius.
+            </p>
+            <TombolUmpan
+              mayar={MAYAR_EBOOK}
+              mayarLabel="Kirim ebook-nya ke saya"
+              wa={WA_EBOOK}
+              waLabel="Minta ebook-nya via WhatsApp"
+            />
+          </div>
+          <ol className="m-0 grid list-none content-start gap-2 p-0">
+            {[
+              'Kenapa 200 chat terasa berat, padahal isinya cuma 12 pertanyaan',
+              'Dua belas balasan yang harusnya tidak kamu ketik ulang',
+              'Orang marah: tiga kalimat pertama yang menentukan sisanya',
+              'Membaca sinyal siap beli — kapan kirim link, kapan justru jangan',
+              'Follow-up yang tidak terasa nagih',
+              'Serah terima ke shift berikutnya tanpa kehilangan konteks',
+              'Menutup hari: apa yang boleh ditinggal untuk besok',
+              'Checklist siap cetak',
+            ].map((bab, index) => (
+              <li key={bab} className="flex gap-3 text-[13px] leading-[1.55]">
+                <span className="shrink-0 font-mono text-[11px] font-semibold text-green-dark dark:text-[#7fff4f]">
+                  {String(index + 1).padStart(2, '0')}
+                </span>
+                <span>{bab}</span>
+              </li>
+            ))}
+          </ol>
+        </div>
+      </div>
+    </Section>
+  );
+}
+
+function BandKnowledge() {
+  return (
+    <Section className="py-16 sm:py-20">
+      <Eyebrow>Knowledge</Eyebrow>
+      <SectionTitle>AI-mu tidak butuh kamu jadi penulis prompt.</SectionTitle>
+      <Lead>
+        Delapan dokumen menentukan bagaimana AI-mu bicara. Kamu tidak mengisinya dengan mengetik dokumen — kamu
+        mengisinya dengan <b className="font-semibold text-ink dark:text-[#f4f9f0]">mengobrol</b>. Agnee bertanya, kamu
+        menjawab seperti menjawab karyawan baru, dan dokumennya tersusun sendiri. Dan tiap kali satu percakapan nyata
+        berakhir baik, Agnee menawarkan: mau disimpan ke dokumen?
+      </Lead>
+      <div className="mt-8 flex flex-wrap gap-2">
+        {[
+          ['Persona', 'Siapa dia saat bicara'],
+          ['Compliance', 'Yang tidak boleh dikatakan'],
+          ['Tanya-jawab', 'Pertanyaan yang itu-itu saja'],
+          ['Discovery', 'Cara menggali kebutuhan'],
+          ['Objection', 'Menjawab keberatan'],
+          ['Closing', 'Membawa ke keputusan'],
+          ['Follow-up', 'Cara menyusul'],
+          ['Handoff', 'Kapan menyerah ke manusia'],
+        ].map(([nama, guna]) => (
+          <span
+            key={nama}
+            className="rounded-app border border-[#c6dcc0] bg-white px-3.5 py-2 text-[13px] dark:border-[#24403a] dark:bg-[#14241f]"
+          >
+            <b className="font-semibold">{nama}</b>
+            <span className="text-[#4e6e5e] dark:text-[#7aaa8a]"> — {guna}</span>
+          </span>
+        ))}
+      </div>
+      <DuaSisi
+        perusahaan="Playbook yang tumbuh dari percakapan yang benar-benar terjadi, bukan dari dokumen yang ditulis sekali lalu dilupakan."
+        cs="Jawaban terbaikmu tidak mati bersama satu chat — dia jadi cara AI menjawab besok."
+      />
+    </Section>
+  );
+}
+
+function BandRingkasan() {
+  return (
+    <Section className="py-16 sm:py-20">
+      <Eyebrow>Ringkasan &amp; label</Eyebrow>
+      <SectionTitle>AI boleh menyimpulkan. Kamu boleh membantah.</SectionTitle>
+      <Lead>
+        Tiap percakapan punya ringkasan dan label yang dibuat AI. Salah? Perbaiki. Suntinganmu tercatat lengkap dengan
+        namamu dan jamnya — dan AI tidak lantas dikunci. Dia tetap boleh memperbarui, tapi sekarang dengan tahu bahwa
+        manusia sudah pernah turun tangan di sini.
+      </Lead>
+      <DuaSisi
+        perusahaan="Ringkasan yang bisa dipercaya, bukan tebakan mesin yang tidak ada yang berani koreksi."
+        cs="Kata terakhir."
+      />
+    </Section>
+  );
+}
+
+const PENDUKUNG: [string, string][] = [
+  ['Lead List, siap dibawa ke mana saja', 'Ekspor XLSX atau CSV kapan saja. Datamu datamu.'],
+  [
+    'Struk AI-mu terbuka',
+    'Tiap panggilan AI dicatat: token masuk, token keluar, model yang dipakai, dan biayanya. Per perusahaan.',
+  ],
+  [
+    'Tetangga tidak bisa mengintip',
+    'Isolasi antar perusahaan diterapkan di level database, dan sudah diuji dengan probe lintas company.',
+  ],
+  [
+    'Nomor WA yang sudah kamu punya',
+    'Scan QR, selesai. Tanpa menunggu approval Meta, tanpa biaya per pesan.',
+  ],
+];
+
+function GridPendukung() {
+  return (
+    <Section className="py-16 sm:py-20">
+      <Eyebrow>Ikut di semua paket</Eyebrow>
+      <SectionTitle>Dan ini yang tidak dihitung terpisah</SectionTitle>
+      <div className="grid gap-4 sm:grid-cols-2">
+        {PENDUKUNG.map(([judul, isi]) => (
           <div
-            key={feature.title}
+            key={judul}
             className="rounded-panel border border-[#c6dcc0] bg-white p-6 dark:border-[#24403a] dark:bg-[#14241f]"
           >
-            <span className="grid size-11 place-items-center rounded-xl bg-[#dff0d6] text-[#205a38] dark:bg-[#1b3028] dark:text-[#7fff4f]">
-              <svg
-                width="22"
-                height="22"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden
-              >
-                {feature.path}
-              </svg>
-            </span>
-            <h3 className="mt-4 mb-1.5 text-base font-semibold">{feature.title}</h3>
-            <p className="m-0 text-[13px] leading-[1.6] text-[#4e6e5e] dark:text-[#7aaa8a]">{feature.desc}</p>
+            <h3 className="mt-0 mb-1.5 text-base font-semibold">{judul}</h3>
+            <p className="m-0 text-[13px] leading-[1.6] text-[#4e6e5e] dark:text-[#7aaa8a]">{isi}</p>
           </div>
         ))}
       </div>
@@ -234,25 +458,128 @@ function Features() {
   );
 }
 
-const STEPS = [
-  ['Hubungkan WhatsApp', 'Scan QR code dari dashboard Agnee. Selesai dalam 2 menit — tanpa coding, tanpa API berbayar.'],
-  ['Undang Tim CS', 'Tambahkan agen via email, atur peran mereka, dan mulai assign percakapan ke orang yang tepat.'],
-  ['Aktifkan AI', 'Setup playbook sesuai bisnis kamu sekali. AI langsung siap balas pelanggan 24/7 sesuai panduan yang kamu buat.'],
+/**
+ * Lima belas hal yang berhenti mengganggu.
+ *
+ * Ini mengisi ruang yang dulu ditempati testimoni karangan. Tidak ada nama,
+ * foto, atau bintang di sini dengan sengaja: tiap baris adalah pernyataan
+ * tentang apa yang dilakukan produk, bukan kesaksian orang yang tidak pernah
+ * mengatakannya. Kalau nanti ada kutipan asli, blok testimoni dipasang
+ * terpisah — jangan mencampur keduanya.
+ */
+const YANG_BERUBAH: [string, string][] = [
+  ['Dua CS membalas orang yang sama', 'Agent mulai mengetik, AI mundur detik itu juga'],
+  ['“Ini tadi siapa yang janji?”', 'Tiap balasan keluar membawa nama penulisnya'],
+  ['Chat menggantung karena agent sudah pulang', 'Setelah 30 menit diam, AI mengambil alih lagi'],
+  ['Follow-up yang kelewat', 'Berjadwal, dengan plafon harian dan jarak minimum'],
+  ['Nomor kena report karena kebanyakan kirim', 'Tiga pintu harus lolos sebelum satu pesan berangkat'],
+  ['Baca ulang chat panjang dari paling atas', 'Ringkasan per percakapan, siap dibantah kalau salah'],
+  ['Ringkasan AI salah, tak ada yang berani koreksi', 'Sunting, tercatat namamu, dan AI tetap jalan'],
+  ['Mengisi setelan AI seperti menulis dokumen', 'Diisi lewat obrolan — Agnee yang bertanya'],
+  ['Jawaban bagusmu mati bersama satu chat', 'Ditawarkan disimpan jadi playbook'],
+  ['Data lead terkunci di dalam aplikasi', 'Ekspor XLSX atau CSV kapan saja'],
+  ['Tagihan AI yang tidak jelas dari mana', 'Token masuk, token keluar, model, biaya — per perusahaan'],
+  ['Takut data perusahaan lain kelihatan', 'Isolasi di level database, sudah diuji probe lintas company'],
+  ['Menunggu approval Meta', 'Scan QR nomor yang sudah kamu punya'],
+  ['Biaya per pesan', 'Tidak ada'],
+  ['Pindah-pindah HP antar shift', 'Satu inbox, seluruh tim'],
+];
+
+function GridYangBerubah() {
+  return (
+    <Section className="py-16 sm:py-20">
+      <Eyebrow>Yang berubah di hari kerjamu</Eyebrow>
+      <SectionTitle>15 hal kecil yang berhenti mengganggu</SectionTitle>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {YANG_BERUBAH.map(([masalah, jawaban], index) => (
+          <div
+            key={masalah}
+            className="rounded-panel border border-[#c6dcc0] bg-white p-5 dark:border-[#24403a] dark:bg-[#14241f]"
+          >
+            <span className="block font-mono text-[11px] font-semibold text-[#9db99a] dark:text-[#4e6e5e]">
+              {String(index + 1).padStart(2, '0')}
+            </span>
+            <p className="mt-2 mb-2 text-[13px] leading-[1.5] text-[#4e6e5e] line-through decoration-[#c6dcc0] decoration-2 dark:text-[#7aaa8a] dark:decoration-[#24403a]">
+              {masalah}
+            </p>
+            <p className="m-0 text-[14px] leading-[1.55] font-semibold">{jawaban}</p>
+          </div>
+        ))}
+      </div>
+    </Section>
+  );
+}
+
+function UmpanWebinar() {
+  return (
+    <Section id="webinar" className="py-16 sm:py-20">
+      <div className="rounded-panel bg-ink p-7 text-white sm:p-10 dark:bg-[#14241f]">
+        <div className="grid gap-8 lg:grid-cols-[1.15fr_.85fr]">
+          <div>
+            <p className="m-0 mb-2 font-mono text-[11px] font-medium tracking-[.14em] text-[#7fff4f] uppercase">
+              Kelas gratis — kuota terbatas
+            </p>
+            <h2 className="m-0 mb-4 text-[clamp(26px,3.6vw,38px)] leading-[1.15] font-semibold tracking-[-.035em]">
+              Jualan Apa Pun dalam 15 Menit Chat
+            </h2>
+            <p className="m-0 max-w-xl text-[16px] leading-[1.7] text-white/65">
+              Kerangka lima tahap yang dipakai CS terbaik untuk membawa orang dari “nanya doang” ke “transfer ke mana
+              ya” — tanpa terdengar sedang berjualan. Kerangka yang sama yang kami tanam ke dalam Agnee.
+            </p>
+            <p className="mt-3 mb-0 text-[14px] leading-[1.65] text-white/50">
+              Gratis. Rekaman dibagikan ke yang mendaftar.
+            </p>
+            <TombolUmpan
+              mayar={MAYAR_WEBINAR}
+              mayarLabel="Daftar sekarang"
+              wa={WA_WEBINAR}
+              waLabel="Daftar via WhatsApp"
+            />
+          </div>
+          <ol className="m-0 grid list-none content-start gap-2.5 p-0">
+            {[
+              ['Buka', 'Kalimat pertama yang membuat orang membalas'],
+              ['Gali', 'Tiga pertanyaan yang menggantikan brosur'],
+              ['Cocokkan', 'Menawarkan yang dia butuh, bukan yang kamu punya'],
+              ['Tangani keberatan', '“Mahal” hampir tidak pernah berarti mahal'],
+              ['Tutup', 'Meminta keputusan tanpa terdengar mendesak'],
+            ].map(([tahap, isi], index) => (
+              <li key={tahap} className="flex gap-3">
+                <span className="grid size-6 shrink-0 place-items-center rounded-full bg-[#7fff4f] font-mono text-[11px] font-bold text-[#0c1912]">
+                  {index + 1}
+                </span>
+                <span className="text-[13px] leading-[1.5]">
+                  <b className="font-semibold">{tahap}</b>
+                  <span className="text-white/55"> — {isi}</span>
+                </span>
+              </li>
+            ))}
+          </ol>
+        </div>
+      </div>
+    </Section>
+  );
+}
+
+const STEPS: [string, string][] = [
+  ['Hubungkan WhatsApp', 'Scan QR dari dashboard Agnee. Tanpa coding, tanpa API berbayar, tanpa menunggu approval.'],
+  ['Undang tim CS', 'Tambahkan agent lewat email dan atur perannya. Mereka langsung punya inbox yang sama.'],
+  ['Isi Knowledge lewat obrolan', 'Agnee bertanya, kamu menjawab. Delapan dokumen playbook tersusun dari jawabanmu.'],
 ];
 
 function HowItWorks() {
   return (
-    <Section className="bg-ink py-16 text-white sm:py-20 dark:bg-[#14241f]">
-      <p className="m-0 mb-2 font-mono text-[11px] font-medium tracking-[.14em] text-[#7fff4f] uppercase">Cara kerja</p>
-      <SectionTitle>Setup dalam 3 langkah mudah</SectionTitle>
+    <Section className="py-16 sm:py-20">
+      <Eyebrow>Cara kerja</Eyebrow>
+      <SectionTitle>Tiga langkah, lalu sudah</SectionTitle>
       <div className="grid gap-6 sm:grid-cols-3">
-        {STEPS.map(([title, desc], index) => (
-          <div key={title}>
-            <span className="grid size-9 place-items-center rounded-full bg-[#7fff4f] font-semibold text-[#0c1912]">
+        {STEPS.map(([judul, isi], index) => (
+          <div key={judul}>
+            <span className="grid size-9 place-items-center rounded-full bg-[#dff0d6] font-semibold text-[#205a38] dark:bg-[#1b3028] dark:text-[#7fff4f]">
               {index + 1}
             </span>
-            <h3 className="mt-3.5 mb-1.5 text-base font-semibold">{title}</h3>
-            <p className="m-0 text-[13px] leading-[1.6] text-white/60">{desc}</p>
+            <h3 className="mt-3.5 mb-1.5 text-base font-semibold">{judul}</h3>
+            <p className="m-0 text-[13px] leading-[1.6] text-[#4e6e5e] dark:text-[#7aaa8a]">{isi}</p>
           </div>
         ))}
       </div>
@@ -260,134 +587,97 @@ function HowItWorks() {
   );
 }
 
-function Product() {
-  return (
-    <Section className="py-16 text-center sm:py-20">
-      <Eyebrow>Satu inbox. Semua agen. Semua percakapan.</Eyebrow>
-      <SectionTitle>
-        Kelola seluruh tim CS dan chat WhatsApp
-        <br />
-        dari satu dashboard
-      </SectionTitle>
-      <img src="/assets/hero-dashboard.png" alt="Agnee Dashboard" loading="lazy" className="mx-auto w-full rounded-panel" />
-    </Section>
-  );
-}
-
-const TESTIMONIALS = [
-  [
-    '"Sejak pakai Agnee, tim CS kami tidak perlu pindah-pindah HP lagi. Semua chat WA terpusat, dan AI yang jaga malam hari. Response time kami turun dari 30 menit jadi di bawah 5 menit."',
-    'RS',
-    'Ratna S.',
-    'Owner, Toko Online Fashion',
-  ],
-  [
-    '"AI-nya bisa dikustomisasi sesuai produk kita. Playbook-nya fleksibel, dan kalau ada yang butuh agen manusia langsung di-handover dengan mulus. Tim kami jadi jauh lebih efisien."',
-    'DA',
-    'Deni A.',
-    'CS Manager, Properti Digital',
-  ],
-  [
-    '"Kami punya 3 agen CS dengan 1 nomor WA. Sebelumnya chaos karena tidak ada yang tahu siapa handle siapa. Sekarang semua ter-assign jelas, histori lengkap, tidak ada yang terlewat."',
-    'MA',
-    'Maya A.',
-    'Founder, Klinik Kecantikan',
-  ],
-  [
-    '"Dashboard-nya simpel tapi lengkap. Saya bisa lihat berapa chat yang pending, siapa agen yang paling sibuk, dan berapa yang sudah AI tangani — semua real-time tanpa perlu tanya-tanya ke tim."',
-    'BW',
-    'Budi W.',
-    'Operations Lead, E-commerce',
-  ],
-];
-
-function Testimonials() {
-  return (
-    <Section className="py-16 sm:py-20">
-      <Eyebrow>Kata mereka</Eyebrow>
-      <SectionTitle>Dipercaya tim CS yang berkembang</SectionTitle>
-      <div className="grid gap-4 sm:grid-cols-2">
-        {TESTIMONIALS.map(([quote, initials, name, role]) => (
-          <figure
-            key={name}
-            className="m-0 rounded-panel border border-[#c6dcc0] bg-white p-6 dark:border-[#24403a] dark:bg-[#14241f]"
-          >
-            <div className="text-[#f0b429]" aria-label="5 dari 5">
-              ★★★★★
-            </div>
-            <blockquote className="mt-3 mb-4 text-[14px] leading-[1.65]">{quote}</blockquote>
-            <figcaption className="flex items-center gap-3">
-              <span className="grid size-9 place-items-center rounded-full bg-[#dff0d6] font-mono text-[11px] font-bold text-[#205a38] dark:bg-[#1b3028] dark:text-[#7fff4f]">
-                {initials}
-              </span>
-              <span className="grid">
-                <b className="text-[13px]">{name}</b>
-                <small className="text-[11px] text-[#4e6e5e] dark:text-[#7aaa8a]">{role}</small>
-              </span>
-            </figcaption>
-          </figure>
-        ))}
-      </div>
-    </Section>
-  );
-}
-
+/**
+ * Plafon di tiap paket harus sama dengan yang benar-benar diberlakukan server
+ * (lihat batas paket di src/database.js): personal = 1 pengguna, 1 nomor,
+ * 1 playbook, 500 pesan AI per bulan; company = 5 pengguna, dan sisanya tanpa
+ * plafon angka. Jangan menulis "unlimited" tanpa catatan pemakaian wajar.
+ */
 const PLANS = [
   {
-    badge: 'Beta Promo',
+    badge: 'Perorangan',
     name: 'Personal',
-    oldPrice: 'Rp 299.000',
+    oldPrice: 'Rp 899.000',
     price: 'Rp 99.000',
-    features: ['1 user', '1 WhatsApp', '1 Playbook AI', '500 pesan AI/bulan', 'Histori percakapan', 'Dukungan via WhatsApp'],
+    period: '/bulan',
+    features: [
+      '1 pengguna',
+      '1 nomor WhatsApp',
+      '1 dokumen playbook',
+      '500 pesan AI per bulan',
+      'Riwayat percakapan penuh',
+      'Dukungan via WhatsApp',
+    ],
     href: WA_PERSONAL,
+    cta: 'Ambil harga promo',
     highlight: false,
+    note: '',
   },
   {
-    badge: 'Most Popular',
+    badge: 'Paling banyak diambil tim',
     name: 'Company',
-    oldPrice: 'Rp 1.299.000',
-    price: 'Rp 999.000',
+    oldPrice: 'Rp 8.900.000',
+    price: 'Rp 3.900.000',
+    period: '/bulan',
     features: [
-      '5 users (agen CS)',
-      'Unlimited WhatsApp',
-      'Unlimited Playbook AI',
-      'Unlimited pesan AI',
-      'Distribusi traffic otomatis',
-      'Dashboard analytics',
-      'Prioritas dukungan',
+      '5 pengguna (agent CS)',
+      'Nomor WhatsApp tanpa plafon angka',
+      'Delapan dokumen playbook, semuanya',
+      'Pesan AI tanpa plafon angka',
+      'Follow-up berjadwal + pengaman',
+      'Lead List + ekspor XLSX/CSV',
+      'Rincian token dan biaya AI',
     ],
     href: WA_COMPANY,
+    cta: 'Ambil harga promo',
     highlight: true,
+    note: 'Pemakaian wajar: kalau pemakaianmu jauh di atas rata-rata, kami menghubungi dulu — tidak pernah memutus tiba-tiba. Berapa pun pemakaianmu, rinciannya bisa kamu lihat sendiri.',
+  },
+  {
+    badge: 'Sekali bayar',
+    name: 'Lifetime',
+    oldPrice: 'Rp 39.900.000',
+    price: 'Rp 29.900.000',
+    period: 'sekali bayar',
+    features: [
+      'Semua yang ada di Company',
+      'Bayar sekali, tidak kedaluwarsa',
+      'Tidak ada tagihan bulanan, selamanya',
+    ],
+    href: WA_LIFETIME,
+    cta: 'Tanya paket Lifetime',
+    highlight: false,
+    note: '',
   },
 ];
 
 function Pricing() {
   return (
     <Section id="pricing" className="py-16 sm:py-20">
-      <Eyebrow>Harga</Eyebrow>
-      <SectionTitle>
-        Pilih paket yang sesuai
-        <br />
-        dengan kebutuhan tim kamu
-      </SectionTitle>
-      <div className="grid gap-4 md:grid-cols-2">
+      <Eyebrow>Promo pembukaan</Eyebrow>
+      <SectionTitle>Harga ini berhenti di perusahaan ke-{KUOTA_PROMO}.</SectionTitle>
+      <Lead>
+        Bukan hitung mundur palsu yang mengulang dirinya tiap kamu buka halaman ini. {KUOTA_PROMO} perusahaan pertama,
+        lalu harga coretnya yang berlaku.
+      </Lead>
+      <div className="mt-10 grid gap-4 lg:grid-cols-3">
         {PLANS.map((plan) => (
           <div
             key={plan.name}
             className={
               plan.highlight
-                ? 'rounded-panel border-2 border-ink bg-white p-7 dark:border-[#7fff4f] dark:bg-[#14241f]'
-                : 'rounded-panel border border-[#c6dcc0] bg-white p-7 dark:border-[#24403a] dark:bg-[#14241f]'
+                ? 'flex flex-col rounded-panel border-2 border-ink bg-white p-7 dark:border-[#7fff4f] dark:bg-[#14241f]'
+                : 'flex flex-col rounded-panel border border-[#c6dcc0] bg-white p-7 dark:border-[#24403a] dark:bg-[#14241f]'
             }
           >
-            <span className="inline-block rounded-full bg-[#dff0d6] px-3 py-1 font-mono text-[11px] font-semibold text-[#205a38] dark:bg-[#1b3028] dark:text-[#7fff4f]">
+            <span className="inline-block self-start rounded-full bg-[#dff0d6] px-3 py-1 font-mono text-[11px] font-semibold text-[#205a38] dark:bg-[#1b3028] dark:text-[#7fff4f]">
               {plan.badge}
             </span>
             <h3 className="mt-3 mb-2 text-xl font-semibold">{plan.name}</h3>
             <s className="text-[13px] text-[#4e6e5e] dark:text-[#7aaa8a]">{plan.oldPrice}</s>
-            <div className="mt-1 flex items-baseline gap-1.5">
+            <div className="mt-1 flex flex-wrap items-baseline gap-1.5">
               <span className="text-3xl font-semibold tracking-[-.03em]">{plan.price}</span>
-              <span className="text-[13px] text-[#4e6e5e] dark:text-[#7aaa8a]">/bulan</span>
+              <span className="text-[13px] text-[#4e6e5e] dark:text-[#7aaa8a]">{plan.period}</span>
             </div>
             <ul className="mt-5 mb-6 grid list-none gap-2 p-0 text-[13px]">
               {plan.features.map((feature) => (
@@ -399,50 +689,90 @@ function Pricing() {
                 </li>
               ))}
             </ul>
+            {plan.note ? (
+              <p className="mt-auto mb-5 text-[12px] leading-[1.55] text-[#4e6e5e] dark:text-[#7aaa8a]">{plan.note}</p>
+            ) : null}
             <a
               href={plan.href}
               target="_blank"
               rel="noopener noreferrer"
-              className="block rounded-app bg-[#25d366] px-5 py-3 text-center text-[15px] font-semibold text-white no-underline transition hover:bg-[#1dbd5e]"
+              className={
+                plan.note
+                  ? 'block rounded-app bg-[#25d366] px-5 py-3 text-center text-[15px] font-semibold text-white no-underline transition hover:bg-[#1dbd5e]'
+                  : 'mt-auto block rounded-app bg-[#25d366] px-5 py-3 text-center text-[15px] font-semibold text-white no-underline transition hover:bg-[#1dbd5e]'
+              }
             >
-              Beli via WhatsApp
+              {plan.cta}
             </a>
           </div>
         ))}
+      </div>
+
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-4 rounded-panel border border-[#c6dcc0] bg-white p-6 dark:border-[#24403a] dark:bg-[#14241f]">
+        <div>
+          <h3 className="mt-0 mb-1 text-base font-semibold">Mau Agnee tampil dengan namamu sendiri?</h3>
+          <p className="m-0 text-[13px] leading-[1.6] text-[#4e6e5e] dark:text-[#7aaa8a]">
+            White label kami bicarakan satu per satu — ruang lingkup dan harganya menyesuaikan.
+          </p>
+        </div>
+        <a
+          href={WA_WHITELABEL}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="rounded-app border border-[#c6dcc0] px-5 py-3 text-[15px] font-semibold no-underline dark:border-[#24403a]"
+        >
+          Hubungi kami
+        </a>
       </div>
     </Section>
   );
 }
 
-const FAQ_ITEMS = [
+const FAQ_ITEMS: [string, string][] = [
   [
-    'Apakah Agnee menggunakan WhatsApp resmi (API)?',
-    'Agnee menggunakan WhatsApp Web — bukan WhatsApp Business API berbayar. Ini artinya kamu bisa mulai langsung dengan nomor WA yang sudah ada, tanpa perlu approval Meta atau biaya per-pesan. Tradeoff-nya: nomor harus tetap terhubung (scan QR sekali, lalu berjalan di background).',
+    'Apakah Agnee memakai WhatsApp Business API resmi?',
+    'Tidak — Agnee memakai WhatsApp Web. Artinya kamu langsung mulai dengan nomor yang sudah kamu punya, tanpa approval Meta dan tanpa biaya per pesan. Tradeoff-nya: nomor itu harus tetap terhubung. Scan QR sekali, lalu berjalan di belakang layar.',
   ],
   [
-    'Berapa banyak agen CS yang bisa saya tambahkan?',
-    'Paket Personal mendukung 1 user. Paket Company mendukung hingga 5 agen CS aktif. Butuh lebih? Hubungi kami via WhatsApp — kami bisa buat paket custom sesuai kebutuhan tim kamu.',
+    'Berapa agent yang bisa saya tambahkan?',
+    'Personal untuk 1 pengguna. Company untuk 5 agent aktif. Butuh lebih banyak? Bilang ke kami lewat WhatsApp — plafonnya memang diatur per perusahaan.',
   ],
   [
-    'Apakah AI bisa dikustomisasi sesuai bisnis saya?',
-    'Ya. Kamu buat "Playbook" — panduan yang memberitahu AI cara menjawab, produk apa yang dijual, pertanyaan mana yang harus di-eskalasi ke agen manusia, dan tone yang harus digunakan. AI akan mengikuti playbook tersebut secara konsisten.',
+    '“Pesan AI tanpa plafon angka” itu benar-benar tanpa batas?',
+    'Tidak ada angka yang memutusmu di tengah jalan, dan itu memang yang dijalankan sistemnya. Tapi kami tidak akan berpura-pura listrik itu gratis: kalau pemakaianmu jauh di atas rata-rata, kami menghubungi dulu untuk bicara. Yang tidak pernah kami lakukan adalah mematikan layananmu tiba-tiba. Rincian token dan biayanya bisa kamu lihat sendiri kapan saja.',
   ],
   [
-    'Apakah data percakapan pelanggan aman?',
-    'Data percakapan disimpan di server kami dengan enkripsi. Kami tidak membagikan data ke pihak ketiga. Setiap perusahaan hanya bisa mengakses data mereka sendiri — isolasi antar tenant sudah diterapkan di level database.',
+    'Apakah AI-nya bisa disesuaikan dengan bisnis saya?',
+    'Ada delapan dokumen yang menentukan cara dia bicara: persona, batasan, tanya-jawab, penggalian kebutuhan, penanganan keberatan, penutupan, follow-up, dan serah terima ke manusia. Kamu tidak perlu menulisnya — Agnee mewawancaraimu, dan dokumennya tersusun dari jawabanmu.',
   ],
   [
-    'Apakah ada masa trial atau versi gratis?',
-    'Saat ini kami masih dalam fase beta. Klik "Coba Gratis" untuk membuat akun dan mulai menggunakan Agnee. Hubungi kami via WhatsApp jika ingin mendiskusikan akses extended atau kebutuhan khusus.',
+    'Apakah data percakapan pelanggan saya aman?',
+    'Tiap perusahaan hanya bisa mengakses datanya sendiri, dan pemisahan itu diterapkan di level database, bukan sekadar disembunyikan di tampilan. Kami sudah mengujinya dengan permintaan lintas perusahaan yang sengaja dibuat untuk menembus — dan ditolak.',
   ],
   [
-    'Berapa lama proses setup?',
-    'Rata-rata kurang dari 10 menit: buat akun, scan QR WhatsApp (2 menit), undang agen, dan setup playbook AI dasar. Tim kamu sudah bisa mulai handle chat WA bersama hari ini juga.',
+    'Kalau saya ambil alih chat, apakah AI berhenti total?',
+    'Berhenti di chat itu, selama kamu masih di sana. Tiga puluh menit setelah kamu diam, dia melanjutkan — supaya pelanggan tidak menunggu orang yang sudah pulang. Percakapan yang ditugaskan supervisor lewat panel tidak ikut kedaluwarsa.',
+  ],
+  [
+    'Berarti atasan saya bisa melihat semua balasan saya?',
+    'Ya. Tiap balasan keluar tercatat penulisnya. Itu memang gunanya — termasuk supaya balasan bagusmu ketahuan siapa yang menulis, bukan diklaim sistem.',
+  ],
+  [
+    'Saya harus belajar aplikasi baru lagi?',
+    'Chat-nya tetap chat. Yang berubah: kamu berhenti pindah-pindah HP, dan berhenti menebak siapa yang sudah membalas siapa.',
+  ],
+  [
+    'Ada masa percobaan?',
+    'Agnee masih dalam fase beta. Klik “Coba Gratis” untuk membuat akun dan mulai memakainya. Kalau butuh akses yang lebih panjang atau ada kebutuhan khusus, bicarakan dengan kami lewat WhatsApp.',
+  ],
+  [
+    'Berapa lama setup-nya?',
+    'Menghubungkan WhatsApp perlu satu kali scan QR. Mengundang tim beberapa menit. Yang paling menentukan hasilnya justru mengisi Knowledge — dan itu bukan pekerjaan sepuluh menit, karena isinya cara bisnismu bicara. Kabar baiknya: kamu mengisinya dengan mengobrol, dan bisa dicicil.',
   ],
 ];
 
 function Faq() {
-  // One open at a time, as the vanilla page behaved.
+  // Satu terbuka pada satu waktu, seperti perilaku halaman vanilla sebelumnya.
   const [open, setOpen] = useState<number | null>(null);
   return (
     <Section id="faq" className="py-16 sm:py-20">
@@ -487,17 +817,27 @@ function CtaBanner() {
     <Section className="py-16 sm:py-20">
       <div className="rounded-panel bg-ink p-10 text-center text-white dark:bg-[#14241f]">
         <h2 className="m-0 text-[clamp(26px,4vw,40px)] leading-[1.15] font-semibold tracking-[-.035em]">
-          Siap tingkatkan layanan
+          Pelangganmu sedang mengetik.
           <br />
-          CS tim kamu?
+          CS-mu tidak harus sendirian.
         </h2>
-        <p className="mt-3 mb-6 text-white/65">Setup dalam 10 menit. Tidak perlu kartu kredit.</p>
-        <a
-          href="/?signup=1"
-          className="inline-block rounded-app bg-[#7fff4f] px-6 py-3 text-[15px] font-semibold text-[#0c1912] no-underline"
-        >
-          Mulai Gratis Sekarang →
-        </a>
+        <p className="mt-3 mb-6 text-white/65">
+          Promo {KUOTA_PROMO} perusahaan pertama. Tidak perlu kartu kredit untuk mencoba.
+        </p>
+        <div className="flex flex-wrap justify-center gap-3">
+          <a
+            href="/?signup=1"
+            className="inline-block rounded-app bg-[#7fff4f] px-6 py-3 text-[15px] font-semibold text-[#0c1912] no-underline"
+          >
+            Mulai Gratis Sekarang →
+          </a>
+          <a
+            href="#ebook"
+            className="inline-block rounded-app border border-white/25 px-6 py-3 text-[15px] font-semibold text-white no-underline"
+          >
+            Atau ambil ebook-nya dulu
+          </a>
+        </div>
       </div>
     </Section>
   );
@@ -509,21 +849,21 @@ const FOOTER_COLUMNS: [string, [string, string][]][] = [
     [
       ['#fitur', 'Fitur'],
       ['#pricing', 'Harga'],
-      ['/', 'Login'],
+      ['/', 'Masuk'],
     ],
   ],
   [
-    'Perusahaan',
+    'Gratis',
     [
-      ['#tentang', 'Tentang Kami'],
-      [WA_LINK, 'Karir'],
+      ['#ebook', 'Ebook untuk CS'],
+      ['#webinar', 'Webinar 15 menit'],
     ],
   ],
   [
     'Dukungan',
     [
       ['#faq', 'FAQ'],
-      [WA_LINK, 'WhatsApp Kami'],
+      [WA_LINK, 'WhatsApp kami'],
       ['mailto:hanny@agnive.co', 'Email'],
     ],
   ],
@@ -537,7 +877,7 @@ function Footer() {
           <div>
             <img src="/brand/agnee-logo-primary.svg" alt="Agnee by Beweix" className="h-7 dark:brightness-0 dark:invert" />
             <p className="mt-3 mb-4 max-w-xs text-[13px] leading-[1.6] text-[#4e6e5e] dark:text-[#7aaa8a]">
-              Inbox CS WhatsApp untuk tim yang ingin tumbuh lebih cepat — tanpa chaos.
+              Menangani pelangganmu, dan menopang orang yang menanganinya.
             </p>
             <a
               href={WA_LINK}
@@ -573,16 +913,14 @@ function Footer() {
           ))}
         </div>
 
+        {/*
+          Kebijakan Privasi dan Syarat & Ketentuan sengaja belum dipasang di sini:
+          keduanya belum ada halamannya, dan link mati ke "#" pada halaman yang
+          mengumpulkan email lebih buruk daripada tidak ada link sama sekali.
+          Pasang begitu halamannya jadi — wajib sebelum penampungan email hidup.
+        */}
         <div className="mt-10 flex flex-wrap items-center justify-between gap-3 border-t border-[#c6dcc0] pt-5 text-[12px] text-[#4e6e5e] dark:border-[#24403a] dark:text-[#7aaa8a]">
-          <span>© 2025 Agnive. Hak cipta dilindungi.</span>
-          <span className="flex gap-4">
-            <a href="#" className="text-inherit no-underline hover:underline">
-              Kebijakan Privasi
-            </a>
-            <a href="#" className="text-inherit no-underline hover:underline">
-              Syarat &amp; Ketentuan
-            </a>
-          </span>
+          <span>© 2026 Agnive. Hak cipta dilindungi.</span>
           <span>Dibuat di Indonesia 🇮🇩</span>
         </div>
       </div>

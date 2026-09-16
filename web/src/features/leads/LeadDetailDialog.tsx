@@ -21,7 +21,7 @@ const PRIORITIES = ['low', 'normal', 'high', 'urgent'] as const;
  * needs to preselect correctly.
  */
 export function LeadDetailDialog({ row, onClose, onSaved }: { row: Row | null; onClose: () => void; onSaved: () => void }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const chatId = row?.chatId || null;
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -41,7 +41,7 @@ export function LeadDetailDialog({ row, onClose, onSaved }: { row: Row | null; o
     setLoading(true);
     setStatus('');
     Promise.all([
-      api<{ summary?: string }>(`/v1/chats/${encodeURIComponent(chatId)}/summary`),
+      api<{ summary?: string }>(`/v1/chats/${encodeURIComponent(chatId)}/summary?locale=${encodeURIComponent(locale)}`),
       api<{ routing: { mode: 'ai' | 'human'; assigneeUserId?: string | null; priority?: string } }>(
         `/v1/chats/${encodeURIComponent(chatId)}/routing`,
       ),
@@ -58,14 +58,14 @@ export function LeadDetailDialog({ row, onClose, onSaved }: { row: Row | null; o
       })
       .catch((error) => setStatus(messageFromError(error, '')))
       .finally(() => setLoading(false));
-  }, [chatId]);
+  }, [chatId, locale]);
 
   async function save() {
     if (!chatId) return;
     setSaving(true);
     setStatus('');
     try {
-      await api(`/v1/chats/${encodeURIComponent(chatId)}/summary`, { method: 'PATCH', body: { summary } });
+      await api(`/v1/chats/${encodeURIComponent(chatId)}/summary`, { method: 'PATCH', body: { summary, locale } });
       await api(`/v1/chats/${encodeURIComponent(chatId)}/routing`, {
         method: 'POST',
         body: { mode, assigneeUserId: mode === 'human' ? assigneeUserId || null : null, priority },

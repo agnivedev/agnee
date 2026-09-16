@@ -39,7 +39,11 @@ export function Dialog({
         if (event.target === ref.current) onClose();
       }}
       className={cn(
-        'w-[min(92vw,430px)] rounded-[28px_28px_10px_28px] border-0 bg-[#f8f7f1] p-0 text-ink shadow-panel backdrop:bg-[rgba(10,25,19,.55)] backdrop:backdrop-blur-md',
+        // Tailwind's preflight zeroes margin on every element, including the
+        // browser's own `dialog:modal { margin: auto }` centering rule — left
+        // as `m-0` (the default it would otherwise inherit), the dialog sticks
+        // to the inset origin (top-left) instead of centering in the viewport.
+        'm-auto w-[min(92vw,430px)] rounded-[28px_28px_10px_28px] border-0 bg-[#f8f7f1] p-0 text-ink shadow-panel backdrop:bg-[rgba(10,25,19,.55)] backdrop:backdrop-blur-md',
         className,
       )}
     >

@@ -2,6 +2,13 @@
 
 ### Fixed
 
+- **Semua dialog (konfirmasi, hapus pesan, edit lead, dsb) nempel di pojok
+  kiri atas, bukan di tengah layar.** Browser sendiri menaruh `margin: auto`
+  pada `<dialog>` modal untuk menengahkannya, tapi Tailwind preflight
+  menimpanya jadi `margin: 0` untuk SEMUA elemen. Satu komponen `Dialog`
+  dipakai semua modal di app, jadi satu baris `m-auto` membetulkan semuanya
+  sekaligus.
+
 - **Percakapan hilang total dari Inbox kalau pesan terakhirnya dihapus.**
   Ditemukan lewat laporan Hanny: dua lead nyata menghilang dari Agnee setelah
   pesan terakhirnya dihapus langsung dari WhatsApp. Akar masalahnya beda dari

@@ -1,5 +1,18 @@
 ## [Unreleased]
 
+### Fixed
+
+- **AI menanyakan balik maksud customer, persis pola yang sudah lama dilarang
+  di prompt tapi tidak pernah ditegakkan di kode.** Ditemukan di produksi
+  2026-09-16: customer membalas "Gimana kak" (pertanyaan lanjutan yang sah)
+  dibalas "Maksudnya gimana apanya kak?" — membuat customer merasa disalahkan.
+  Aturan larangan ini sudah ada di `AGNEE_CONVERSATION_RULES` butir 11 sejak
+  lama (dengan contoh persis "maksudnya yang mana ya kak"), tapi larangan
+  prompt saja terbukti tidak cukup dua kali di dua company berbeda. Sekarang
+  ditegakkan di kode seperti klaim hasil/risiko dan placeholder `{jam}`:
+  balasan yang menanyakan balik maksud customer ditulis ulang sekali oleh
+  model, dan kalau masih melanggar, kalimatnya dibuang.
+
 ### Added
 
 - **Stage CRM (pipeline) terpisah dari flag kualifikasi AI**: field baru

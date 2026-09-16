@@ -51,10 +51,30 @@ const PLACEHOLDER_LEAK_PATTERNS = [
 ];
 
 /**
+ * Menanyakan balik apa maksud customer — sudah dilarang eksplisit di aturan
+ * prompt (lihat AGNEE_CONVERSATION_RULES butir 11, dengan contoh persis
+ * "maksudnya yang mana ya kak"), tapi larangan prompt saja terbukti tidak
+ * cukup: produksi 2026-09-16 menemukan giliran nyata "Gimana kak" (pertanyaan
+ * lanjutan yang sah) dibalas "Maksudnya gimana apanya kak?" — persis pola
+ * yang sudah lama dilarang, dari company dan playbook yang berbeda dari kasus
+ * pertama. Ditegakkan di kode seperti klaim hasil/risiko dan placeholder di
+ * atas, dengan alasan yang sama: customer merasa disalahkan dan diajak
+ * berdebat, bukan dibantu.
+ *
+ * Sengaja hanya menangkap pola "maksud(nya) ... apa/gimana/yang mana", bukan
+ * semua kalimat bertanya balik — "maksudnya" yang dipakai untuk menjelaskan
+ * ("Maksudnya, paket ini sudah termasuk ebook") tidak diikuti kata tanya jadi
+ * tetap lolos.
+ */
+const CLARIFICATION_QUESTION_PATTERNS = [
+  [/\bmaksud(?:nya)?\b[^.!?\n]{0,20}\b(?:yang\s+mana|gimana|apa(?:nya)?|bagaimana)\b/i, 'menanyakan balik maksud customer'],
+];
+
+/**
  * Pelanggaran yang tidak boleh lolos sama sekali — bukan soal gaya (panjang,
  * emoji), tapi salah dengan cara yang berbahaya kalau sampai ke customer.
  */
-const HARD_VIOLATION_PATTERNS = [...CLAIM_PATTERNS, ...PLACEHOLDER_LEAK_PATTERNS];
+const HARD_VIOLATION_PATTERNS = [...CLAIM_PATTERNS, ...PLACEHOLDER_LEAK_PATTERNS, ...CLARIFICATION_QUESTION_PATTERNS];
 
 /** Pecah jadi kalimat, tetap menyimpan baris supaya daftar tidak hancur. */
 function splitSentences(text) {
@@ -64,14 +84,15 @@ function splitSentences(text) {
     .filter(Boolean);
 }
 
-/** @returns {{sentence: string, label: string, isPlaceholderLeak: boolean}[]} */
+/** @returns {{sentence: string, label: string, isPlaceholderLeak: boolean, isClarificationQuestion: boolean}[]} */
 function findClaimViolations(text) {
   const found = [];
   for (const sentence of splitSentences(text)) {
     for (const [pattern, label] of HARD_VIOLATION_PATTERNS) {
       if (pattern.test(sentence)) {
         const isPlaceholderLeak = PLACEHOLDER_LEAK_PATTERNS.some(([p]) => p === pattern);
-        found.push({ sentence, label, isPlaceholderLeak });
+        const isClarificationQuestion = CLARIFICATION_QUESTION_PATTERNS.some(([p]) => p === pattern);
+        found.push({ sentence, label, isPlaceholderLeak, isClarificationQuestion });
         break;
       }
     }
@@ -327,7 +348,9 @@ function styleWarnings(text, expectations = {}) {
   if ((value.match(/\?/g) || []).length > 1) warnings.push('more than one question');
   if (expectations.expectDirectHandoff && value.includes('?')) warnings.push('asks a question after explicit handoff request');
   const claim = findClaimViolations(value)[0];
-  if (claim) warnings.push(claim.isPlaceholderLeak ? claim.label : `klaim hasil/risiko: ${claim.label}`);
+  if (claim) {
+    warnings.push(claim.isPlaceholderLeak || claim.isClarificationQuestion ? claim.label : `klaim hasil/risiko: ${claim.label}`);
+  }
   const canned = [
     'saya memahami',
     'terima kasih atas pertanyaannya',

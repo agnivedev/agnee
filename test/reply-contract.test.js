@@ -50,6 +50,31 @@ test('placeholder template yang belum diisi ditandai dan dibuang', () => {
   assert.deepEqual(findClaimViolations('Jadwalnya jam 15.00 kak.'), []);
 });
 
+test('menanyakan balik maksud customer ditandai dan dibuang', () => {
+  // Ditemukan di produksi 2026-09-16: customer membalas "Gimana kak" (pertanyaan
+  // lanjutan yang sah atas penawaran sebelumnya) dan dibalas "Maksudnya gimana
+  // apanya kak?" — persis pola yang sudah lama dilarang di prompt (butir 11)
+  // tapi tidak pernah ditegakkan di kode.
+  const melanggar = [
+    'Maksudnya gimana apanya kak?',
+    'Maksudnya yang mana ya kak?',
+    'Maksud kakak apa ya?',
+  ];
+  for (const text of melanggar) {
+    const violations = findClaimViolations(text);
+    assert.equal(violations.length, 1, `harus kena: ${text}`);
+    assert.equal(violations[0].isClarificationQuestion, true);
+  }
+  assert.equal(styleWarnings('Maksudnya gimana apanya kak?')[0], 'menanyakan balik maksud customer');
+
+  // "Maksudnya" yang menjelaskan (bukan bertanya balik) harus tetap lolos.
+  assert.deepEqual(findClaimViolations('Maksudnya, paket ini sudah termasuk ebook ya kak.'), []);
+
+  const dipangkas = stripClaimSentences('Siap kak.\nMaksudnya gimana apanya kak?');
+  assert.ok(!dipangkas.toLowerCase().includes('maksudnya'));
+  assert.ok(dipangkas.includes('Siap kak'));
+});
+
 test('hanya kalimat yang melanggar yang dibuang', () => {
   const text = `${CLEAN}\nRisiko kakak nyaris nggak ada.\nAda refund 50% setelah 3 hari.`;
   const kept = stripClaimSentences(text);

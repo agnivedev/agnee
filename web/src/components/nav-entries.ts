@@ -3,6 +3,7 @@ import {
   Users,
   TrendingUp,
   ListChecks,
+  Kanban,
   FlaskConical,
   ShieldCheck,
   Settings2,
@@ -22,7 +23,7 @@ import {
  * same slide-over it would from its own rail.
  */
 export type NavEntryId =
-  | 'inbox' | 'contacts' | 'funnel' | 'leads' | 'playground' | 'admin' | 'settings' | 'logout';
+  | 'inbox' | 'contacts' | 'funnel' | 'leads' | 'pipeline' | 'playground' | 'admin' | 'settings' | 'logout';
 
 type NavEntryBase = {
   id: NavEntryId;
@@ -40,6 +41,7 @@ export const NAV_ENTRIES: NavEntry[] = [
   { id: 'contacts', icon: Users, labelKey: 'nav.labelContacts', ariaKey: 'nav.contacts', kind: 'panel', panel: 'contacts' },
   { id: 'funnel', icon: TrendingUp, labelKey: 'nav.labelFunnel', ariaKey: 'nav.funnel', kind: 'panel', panel: 'funnel' },
   { id: 'leads', icon: ListChecks, labelKey: 'nav.labelLeads', ariaKey: 'nav.leads', kind: 'route', to: '/leads' },
+  { id: 'pipeline', icon: Kanban, labelKey: 'nav.labelPipeline', ariaKey: 'nav.pipeline', kind: 'route', to: '/pipeline' },
   { id: 'playground', icon: FlaskConical, labelKey: 'nav.labelTraining', ariaKey: 'nav.playground', kind: 'route', to: '/knowledge', supervisorOnly: true },
   { id: 'admin', icon: ShieldCheck, labelKey: 'nav.labelAdmin', ariaKey: 'nav.admin', kind: 'route', to: '/admin', supervisorOnly: true },
   // Open to every role: the server serves /settings to agents too, and the

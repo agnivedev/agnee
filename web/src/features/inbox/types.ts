@@ -91,6 +91,17 @@ export type Lead = {
   pipelineStageSuggestedReason?: string | null;
 };
 
+/** Satu baris dari GET /v1/leads/pipeline — dipakai board Kanban. */
+export type PipelineLead = {
+  chatId: string;
+  phone: string;
+  title?: string | null;
+  detail?: string | null;
+  pipelineStage: PipelineStage;
+  pipelineStageSuggested?: PipelineStage | null;
+  pipelineStageSuggestedReason?: string | null;
+};
+
 export type Attachment = {
   data: string;
   mimetype: string;

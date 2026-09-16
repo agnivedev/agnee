@@ -187,6 +187,26 @@ class Database {
     return result.rows[0] || null;
   }
 
+  /** Semua lead se-company untuk board Kanban, urut per stage lalu paling baru
+   *  diperbarui dulu. Pakai index lead_states_company_pipeline_idx. */
+  async listPipelineLeads(companyId, limit = 500) {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(`
+      SELECT chat_id AS "chatId",
+        regexp_replace(chat_id, '@.*$', '') AS "phone",
+        title, detail,
+        pipeline_stage AS "pipelineStage",
+        pipeline_stage_suggested AS "pipelineStageSuggested",
+        pipeline_stage_suggested_reason AS "pipelineStageSuggestedReason",
+        pipeline_stage_updated_at AS "pipelineStageUpdatedAt"
+      FROM lead_states
+      WHERE company_id = $1
+      ORDER BY pipeline_stage, updated_at DESC
+      LIMIT $2
+    `, [companyId, limit]);
+    return result.rows;
+  }
+
   /**
    * Menyunting ringkasan atau label sebuah percakapan dengan tangan.
    *

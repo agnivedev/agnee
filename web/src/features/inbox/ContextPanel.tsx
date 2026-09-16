@@ -5,12 +5,11 @@ import { useSession } from '@/lib/session';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { FollowUpSection } from './FollowUpDialog';
+import { PIPELINE_STAGES, usePipelineStage } from './usePipelineStage';
 import type { Chat, Handoff, Lead, Note, PipelineStage, Routing, TeamMember } from './types';
 
 /** Batasnya juga ditegakkan server-side saat menyimpan ringkasan. */
 const MAX_LABELS = 5;
-
-const PIPELINE_STAGES: PipelineStage[] = ['cold', 'warm', 'hot', 'closing', 'lost', 'on_hold'];
 
 export function ContextPanel({
   chat,
@@ -184,30 +183,12 @@ export function ContextPanel({
     }
   }
 
-  async function setPipelineStage(stage: PipelineStage, accepted: boolean) {
-    if (!chatId) return;
-    try {
-      const refreshed = await api<Lead>(`/v1/chats/${encodeURIComponent(chatId)}/pipeline-stage`, {
-        method: 'PATCH',
-        body: { stage, accepted },
-      });
-      setLead(refreshed);
-    } catch (error) {
-      setStatus(messageFromError(error, t('lead.pipelineUpdateFailed')));
-    }
-  }
-
-  async function dismissPipelineSuggestion() {
-    if (!chatId) return;
-    try {
-      const refreshed = await api<Lead>(`/v1/chats/${encodeURIComponent(chatId)}/pipeline-stage/suggestion`, {
-        method: 'DELETE',
-      });
-      setLead(refreshed);
-    } catch (error) {
-      setStatus(messageFromError(error, t('lead.pipelineUpdateFailed')));
-    }
-  }
+  const { setStage: setPipelineStageFor, dismissSuggestion: dismissPipelineSuggestionFor } = usePipelineStage(
+    setLead,
+    (message) => setStatus(message || t('lead.pipelineUpdateFailed')),
+  );
+  const setPipelineStage = (stage: PipelineStage, accepted: boolean) => setPipelineStageFor(chatId, stage, accepted);
+  const dismissPipelineSuggestion = () => dismissPipelineSuggestionFor(chatId);
 
   const assignable = team.filter(
     (member) =>

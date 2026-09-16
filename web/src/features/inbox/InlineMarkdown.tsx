@@ -8,9 +8,28 @@ import { Fragment, type ReactNode } from 'react';
  * customer types — the escaping step is not something we have to remember.
  */
 
-type Rule = { pattern: RegExp; render: (inner: ReactNode, key: string) => ReactNode };
+type Rule = { pattern: RegExp; render: (inner: ReactNode, key: string, raw: string) => ReactNode };
 
+// Trailing `.,!?)]"'` excluded from the match so a link at the end of a
+// sentence ("cek https://foo.com/bar.") does not swallow the period into
+// the href. Raw URL text renders as-is, not recursed through the other
+// rules below — a stray `_` in a query string must not turn into italics.
 const INLINE_RULES: Rule[] = [
+  {
+    pattern: /(https?:\/\/[^\s<]+[^\s<.,!?)\]"'])/,
+    render: (_inner, key, raw) => (
+      <a
+        key={key}
+        href={raw}
+        target="_blank"
+        rel="noopener noreferrer"
+        onClick={(event) => event.stopPropagation()}
+        className="text-[#1878cf] break-all underline"
+      >
+        {raw}
+      </a>
+    ),
+  },
   { pattern: /\*\*([^*]+)\*\*/, render: (inner, key) => <strong key={key}>{inner}</strong> },
   { pattern: /\*([^*]+)\*/, render: (inner, key) => <strong key={key}>{inner}</strong> },
   { pattern: /__([^_]+)__/, render: (inner, key) => <strong key={key}>{inner}</strong> },
@@ -33,7 +52,7 @@ function renderInline(text: string, keyPrefix: string): ReactNode[] {
     const after = text.slice(match.index + match[0].length);
     return [
       ...renderInline(before, `${keyPrefix}b`),
-      rule.render(renderInline(match[1], `${keyPrefix}i`), `${keyPrefix}m`),
+      rule.render(renderInline(match[1], `${keyPrefix}i`), `${keyPrefix}m`, match[1]),
       ...renderInline(after, `${keyPrefix}a`),
     ];
   }

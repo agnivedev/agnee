@@ -1612,7 +1612,7 @@ async function buildApp(overrides = {}) {
   // of flashing a workspace it is about to lose.
   app.get('/', (_request, reply) => sendReactApp(reply));
   app.get('/landing', (_request, reply) => sendReactApp(reply));
-  for (const page of ['settings', 'admin', 'leads', 'knowledge']) {
+  for (const page of ['settings', 'admin', 'leads', 'pipeline', 'knowledge']) {
     app.get(`/${page}`, (request, reply) => {
       const session = verifySession(getCookie(request.headers.cookie, 'agnee_session'), config.sessionSecret);
       if (!session) return reply.redirect('/');
@@ -3549,7 +3549,7 @@ Aturan:
    * penyaringan ini, halaman Lead List menjadi pintu belakang: daftar lengkap
    * nomor dan isi pesan seluruh customer, termasuk yang dipegang agent lain.
    */
-  async function buildExportRows(companyId, session = null) {
+  async function buildExportRows(companyId, session = null, { includeChatId = false } = {}) {
     if (!canCall('listContactExportRows')) return [];
     let rows = await database.listContactExportRows(companyId).catch(() => []);
     if (session && !isSupervisor(session)) {
@@ -3562,9 +3562,13 @@ Aturan:
       });
     }
     await fillLidPhones(companyId, rows).catch(() => {});
-    return rows.map((row) => Object.fromEntries(
-      EXPORT_COLUMNS.map(([key]) => [key, exportCell(key, row[key])]),
-    ));
+    // chatId never joins EXPORT_COLUMNS — it is an internal id, not a column
+    // anyone downloading the sheet wants to see. Only the JSON route (the
+    // Lead List page itself, to act on a row) asks for it.
+    return rows.map((row) => ({
+      ...(includeChatId ? { chatId: row.chatId } : {}),
+      ...Object.fromEntries(EXPORT_COLUMNS.map(([key]) => [key, exportCell(key, row[key])])),
+    }));
   }
 
   /** RFC 4180: kutip kalau ada koma, kutip, atau baris baru; kutip digandakan. */
@@ -3579,7 +3583,7 @@ Aturan:
   // Unduhan massal di bawah tetap supervisor saja: satu berkas berisi seluruh
   // daftar customer adalah hal yang berbeda dari melihat percakapan sendiri.
   app.get('/v1/export/contacts', async (request) => {
-    const rows = await buildExportRows(request.agneeSession.companyId, request.agneeSession);
+    const rows = await buildExportRows(request.agneeSession.companyId, request.agneeSession, { includeChatId: true });
     return {
       columns: EXPORT_COLUMNS.map(([key, label]) => ({ key, label })),
       rows,
@@ -4418,6 +4422,31 @@ Aturan:
     leadStates.set(`${companyId}:${chatId}`, lead);
     broadcastEvent(companyId, 'lead', lead);
     return lead;
+  });
+
+  /**
+   * Semua lead se-company untuk board Kanban CRM, bukan satu percakapan.
+   *
+   * Penyaringan sama persis dengan buildExportRows (Lead List): agent hanya
+   * melihat lead miliknya/belum dipegang siapa pun, supervisor melihat semua.
+   * Tanpa ini board jadi pintu belakang ke seluruh lead company lintas agent.
+   */
+  app.get('/v1/leads/pipeline', async (request, reply) => {
+    if (!database.status().connected) return reply.code(503).send({ error: 'Penyimpanan belum tersedia.' });
+    const companyId = request.agneeSession.companyId;
+    if (!canCall('listPipelineLeads')) return { leads: [] };
+    let leads = await database.listPipelineLeads(companyId).catch(() => []);
+    const session = request.agneeSession;
+    if (session && !isSupervisor(session)) {
+      const routing = await Promise.all(leads.map((lead) => getRouting(lead.chatId, companyId)));
+      leads = leads.filter((_lead, index) => {
+        const entry = routing[index];
+        const heldByOtherAgent = entry.mode === 'human'
+          && entry.assigneeUserId && entry.assigneeUserId !== session.userId;
+        return !heldByOtherAgent;
+      });
+    }
+    return { leads };
   });
 
   app.post('/v1/chats/:chatId/assign', {

@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { api, messageFromError, ApiError } from '@/lib/api';
 import { useI18n, usePageTitle } from '@/lib/i18n';
 import { useSession } from '@/lib/session';
 import { AppSidebar } from '@/components/AppSidebar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Dialog, DialogClose } from '@/components/ui/dialog';
+import { LeadDetailDialog } from './LeadDetailDialog';
 import { cn } from '@/lib/utils';
 
 type Column = { key: string; label: string };
@@ -26,6 +29,7 @@ function compareValues(a: string, b: string) {
 export function LeadsPage() {
   const { t } = useI18n();
   const { isSupervisor } = useSession();
+  const navigate = useNavigate();
   usePageTitle('leads.title');
 
   const [columns, setColumns] = useState<Column[]>([]);
@@ -35,6 +39,13 @@ export function LeadsPage() {
   const [stage, setStage] = useState('');
   const [handling, setHandling] = useState('');
   const [sort, setSort] = useState<{ key: string; direction: SortDirection } | null>(null);
+  const [choiceRow, setChoiceRow] = useState<Row | null>(null);
+  const [editRow, setEditRow] = useState<Row | null>(null);
+
+  function openInInbox(row: Row) {
+    setChoiceRow(null);
+    navigate(`/?chat=${encodeURIComponent(row.chatId)}&title=${encodeURIComponent(row.phone || row.chatId)}`);
+  }
 
   const load = useCallback(async () => {
     setStatus(t('common.loading'));
@@ -187,7 +198,19 @@ export function LeadsPage() {
               </thead>
               <tbody>
                 {visibleRows.map((row, index) => (
-                  <tr key={row.chatId || index} className="group">
+                  <tr
+                    key={row.chatId || index}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => row.chatId && setChoiceRow(row)}
+                    onKeyDown={(event) => {
+                      if ((event.key === 'Enter' || event.key === ' ') && row.chatId) {
+                        event.preventDefault();
+                        setChoiceRow(row);
+                      }
+                    }}
+                    className="group cursor-pointer"
+                  >
                     {columns.map((column) => {
                       const value = row[column.key] ?? '';
                       return (
@@ -212,6 +235,40 @@ export function LeadsPage() {
           </div>
         </section>
       </main>
+
+      <Dialog open={Boolean(choiceRow)} onClose={() => setChoiceRow(null)} labelledBy="row-choice-title" className="w-[min(92vw,380px)]">
+        {choiceRow ? (
+          <div className="grid gap-3 p-6">
+            <div className="flex items-center justify-between">
+              <h2 id="row-choice-title" className="m-0 text-base">
+                {t('leads.rowChoiceTitle', { phone: choiceRow.phone })}
+              </h2>
+              <DialogClose onClick={() => setChoiceRow(null)} label={t('lead.close')} />
+            </div>
+            <button
+              type="button"
+              onClick={() => openInInbox(choiceRow)}
+              className="grid gap-0.5 rounded-[12px] border border-border bg-white px-4 py-3 text-left transition hover:border-green"
+            >
+              <strong className="text-sm">{t('leads.rowGoInbox')}</strong>
+              <span className="text-xs text-muted">{t('leads.rowGoInboxHint')}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setEditRow(choiceRow);
+                setChoiceRow(null);
+              }}
+              className="grid gap-0.5 rounded-[12px] border border-border bg-white px-4 py-3 text-left transition hover:border-green"
+            >
+              <strong className="text-sm">{t('leads.rowEdit')}</strong>
+              <span className="text-xs text-muted">{t('leads.rowEditHint')}</span>
+            </button>
+          </div>
+        ) : null}
+      </Dialog>
+
+      <LeadDetailDialog row={editRow} onClose={() => setEditRow(null)} onSaved={() => void load()} />
     </div>
   );
 }

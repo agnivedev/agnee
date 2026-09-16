@@ -2,6 +2,15 @@
 
 ### Added
 
+- **Board Kanban CRM** (`/pipeline`) — pindahkan lead antar kolom Cold/Warm/
+  Hot/Closing/Lost/On Hold secara visual, di atas fondasi stage CRM yang
+  sudah dibangun sebelumnya. Endpoint baru `GET /v1/leads/pipeline` (`agnee-df`).
+- **Klik baris di Lead List** sekarang memunculkan pilihan: buka percakapannya
+  langsung di Inbox, atau lihat & edit detailnya lewat modal (ringkasan,
+  ditangani/PIC, prioritas, tahap CRM — sisanya read-only).
+- **Link http(s) di bubble chat sekarang biru dan bisa diklik** — sebelumnya
+  tampil sebagai teks polos tak bisa disentuh. Tanda baca di akhir kalimat
+  tidak ikut ke dalam link.
 - **Pesan yang dihapus tetap tampil di riwayat, dicoret** — sebelumnya
   "hapus untuk semua orang" membuat pesan hilang total dari tampilan begitu
   riwayat dimuat ulang (WhatsApp menandai pesan sebagai `revoked` dengan isi

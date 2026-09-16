@@ -165,6 +165,30 @@ export function InboxPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // The Pipeline board links here with ?chat=<id>&title=<name> to open a lead's
+  // conversation directly — that lead may not be on the inbox's first loaded
+  // page, so a synthetic stub is opened straight away rather than waiting for
+  // it to show up in `inbox.chats`. `openChat` only needs the id to fetch
+  // messages; the rest is cosmetic until the real chat data arrives.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const requestedChatId = params.get('chat');
+    if (!requestedChatId) return;
+    const title = params.get('title');
+    window.history.replaceState({}, '', window.location.pathname);
+    void inbox.openChat({
+      id: requestedChatId,
+      name: title || requestedChatId.replace(/@.*$/, ''),
+      preview: '',
+      timestamp: 0,
+      unreadCount: 0,
+      isGroup: false,
+      pinned: false,
+      archived: false,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // ── Rail actions ───────────────────────────────────────────────────────────
   async function onRailAction(action: RailAction) {
     switch (action) {

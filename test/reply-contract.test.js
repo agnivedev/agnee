@@ -4,7 +4,7 @@ const { test } = require('node:test');
 const assert = require('node:assert');
 const {
   styleWarnings, findClaimViolations, stripClaimSentences, enforceReplyContract,
-  classifyShortReply, lastTurnAlreadyClosed, alreadyThankedForAck, ensureClosingIsRecognizable, stripLinks,
+  classifyShortReply, lastTurnAlreadyClosed, countRecentAckRounds, ensureClosingIsRecognizable, stripLinks,
 } = require('../src/reply-style.js');
 
 const CLEAN = 'Recovery Package Rp99.000 isinya copy trade, ebook recovery, signal, dan pendampingan tim.';
@@ -129,25 +129,34 @@ test('mengiyakan hal yang sudah disepakati bukan teka-teki', () => {
   assert.equal(classifyShortReply('oke', cs('Terima kasih kak. Mau aku bantu sekarang?')), 'none');
 });
 
-test('"oke" dibalas sekali, "oke" kedua tidak diulang', () => {
+test('ronde balasan pendek dihitung supaya isinya berubah, bukan hilang', () => {
   const penutup = 'Siap kak, terima kasih 🙏 Anya akan telepon kakak jam 12 WIB ya.';
 
   // Ronde pertama: customer baru menyebut jamnya, lalu CS mengkonfirmasi.
-  // "Oke" di sini pantas dibalas — mengabaikannya terasa seperti diacuhkan.
+  // "Oke" yang masuk sekarang belum ada di riwayat, jadi hitungannya 0.
   const rondePertama = [
     { role: 'user', content: 'Jam 12 boleh' },
     { role: 'assistant', content: penutup },
   ];
   assert.equal(classifyShortReply('Oke', rondePertama), 'acknowledged');
-  assert.equal(alreadyThankedForAck(rondePertama), false, 'belum pernah dibalas');
+  assert.equal(countRecentAckRounds(rondePertama), 0, 'belum ada "oke" sebelumnya');
 
-  // Ronde kedua: "oke" sebelumnya SUDAH dibalas terima kasih. Sekali cukup.
+  // Ronde kedua: satu "oke" sudah dibalas terima kasih. Balasannya tetap ada,
+  // isinya yang harus berbeda — jadi hitungannya naik, bukan jadi diam.
   const rondeKedua = [
     ...rondePertama,
     { role: 'user', content: 'Oke' },
     { role: 'assistant', content: 'Sama-sama kak, terima kasih ya 🙏' },
   ];
-  assert.equal(alreadyThankedForAck(rondeKedua), true, 'sudah dibalas sekali');
+  assert.equal(countRecentAckRounds(rondeKedua), 1);
+
+  // Pertanyaan sungguhan di antaranya mengembalikan hitungan ke nol.
+  const adaPertanyaan = [
+    ...rondeKedua,
+    { role: 'user', content: 'Nanti ditelepon dari nomor mana kak?' },
+    { role: 'assistant', content: 'Dari nomor ini juga kak.' },
+  ];
+  assert.equal(countRecentAckRounds(adaPertanyaan), 0, 'bukan balasan pendek, hitungan berhenti');
 });
 
 test('penutup selalu bisa dikenali sebagai penutup', () => {

@@ -209,26 +209,28 @@ function lastTurnAlreadyClosed(history = []) {
 }
 
 /**
- * Apakah kita SUDAH pernah membalas satu "oke" dengan ucapan terima kasih,
- * tepat sebelum ini?
+ * Sudah berapa kali berturut-turut customer hanya membalas pendek?
  *
- * Customer yang bilang "oke" memang pantas dibalas — mengabaikannya terasa
- * seperti diacuhkan. Tapi balasan itu sendiri bisa memancing "oke" berikutnya,
- * dan seterusnya. Jadi sopan santunnya diberikan sekali: ronde pertama dibalas
- * terima kasih, ronde kedua tidak.
+ * Customer yang bilang "oke" selalu dibalas — didiamkan terasa seperti
+ * diacuhkan, dan itu aturan tegas dari pemilik produk. Yang berubah adalah ISI
+ * balasannya: ronde pertama ucapan terima kasih, ronde berikutnya sesuatu yang
+ * benar-benar baru. Berterima kasih dua kali dengan susunan berbeda terbaca
+ * seperti mesin yang kehabisan kalimat.
  *
- * Yang diperiksa adalah pola di ekor riwayat — giliran CS terakhir berupa
- * penutup, dan giliran customer tepat sebelumnya juga sudah berupa balasan
- * pendek. Pesan yang sedang diproses belum masuk riwayat.
+ * Dihitung mundur dari ekor riwayat, berhenti pada giliran customer pertama
+ * yang bukan balasan pendek. Pesan yang sedang diproses belum masuk riwayat,
+ * jadi 0 berarti pesan inilah ronde pertamanya.
  */
-function alreadyThankedForAck(history = []) {
-  const tail = history.filter((turn) => turn?.role === 'assistant' || turn?.role === 'user');
-  const lastCs = tail[tail.length - 1];
-  if (!lastCs || lastCs.role !== 'assistant') return false;
-  if (!lastTurnAlreadyClosed([lastCs])) return false;
-  const sebelumnya = tail[tail.length - 2];
-  if (!sebelumnya || sebelumnya.role !== 'user') return false;
-  return classifyShortReply(sebelumnya.content, [{ role: 'assistant', content: 'x' }]) !== 'none';
+function countRecentAckRounds(history = []) {
+  const konteksNetral = [{ role: 'assistant', content: 'x' }];
+  let rounds = 0;
+  for (let i = history.length - 1; i >= 0; i -= 1) {
+    const turn = history[i];
+    if (turn?.role !== 'user') continue;
+    if (classifyShortReply(turn.content, konteksNetral) === 'none') break;
+    rounds += 1;
+  }
+  return rounds;
 }
 
 /**
@@ -502,6 +504,12 @@ const AGNEE_CONVERSATION_RULES = `## ATURAN PERCAKAPAN (bawaan Agnee, berlaku se
     tawarkan satu langkah lanjutan yang konkret. Customer memilih, bukan
     menjelaskan dirinya.
 
+    JANGAN PERNAH mendiamkan pesan customer. Setiap pesan dibalas. Kalau kamu
+    sudah berterima kasih di giliran sebelumnya, jangan berterima kasih lagi —
+    tambahkan satu keterangan baru yang berguna tentang apa yang sudah
+    disepakati. Balasan yang mengulang kalimat sebelumnya sama buruknya dengan
+    tidak membalas.
+
 12. Sesuatu yang sudah dikonfirmasi tidak dikonfirmasi ulang. Kalau jadwal call
     sudah disepakati dan customer hanya mengiyakan, cukup satu kalimat penutup,
     lalu berhenti. Percakapan yang sudah punya ujung tidak perlu dilanjutkan.`;
@@ -563,5 +571,5 @@ function limitLinks(text) {
 module.exports = {
   normalizeUsage, formatUsd, styleWarnings, judgeReply,
   CLAIM_PATTERNS, findClaimViolations, stripClaimSentences, enforceReplyContract,
-  classifyShortReply, lastTurnAlreadyClosed, alreadyThankedForAck, ensureClosingIsRecognizable, stripLinks, AGNEE_CONVERSATION_RULES, limitLinks, MAX_LINKS_PER_REPLY,
+  classifyShortReply, lastTurnAlreadyClosed, countRecentAckRounds, ensureClosingIsRecognizable, stripLinks, AGNEE_CONVERSATION_RULES, limitLinks, MAX_LINKS_PER_REPLY,
 };

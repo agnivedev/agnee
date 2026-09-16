@@ -14,7 +14,7 @@ const KnowledgeBase = require('./knowledge-loader.js');
 const LlmService = require('./llm-service.js');
 const {
   normalizeUsage, styleWarnings, judgeReply, enforceReplyContract,
-  classifyShortReply, alreadyThankedForAck, ensureClosingIsRecognizable, stripLinks, AGNEE_CONVERSATION_RULES, limitLinks,
+  classifyShortReply, countRecentAckRounds, ensureClosingIsRecognizable, stripLinks, AGNEE_CONVERSATION_RULES, limitLinks,
 } = require('./reply-style.js');
 const { FollowUpScheduler, decide: followUpDecide, withManualGap } = require('./follow-up.js');
 const onedrive = require('./onedrive-sync.js');
@@ -31,6 +31,14 @@ const { extractPlaybookText } = require('./playbook-extractor.js');
  * hanya dipakai di ujung percakapan yang seluruhnya sudah berbahasa Indonesia.
  */
 const PENUTUP_BAWAAN = 'Siap kak, terima kasih ya. Kalau ada yang mau ditanyakan lagi, tinggal chat di sini.';
+
+/**
+ * Cadangan untuk balasan pendek ronde kedua dan seterusnya.
+ *
+ * Sengaja TIDAK memuat ucapan terima kasih: ronde ini justru harus terdengar
+ * berbeda dari ronde pertama, dan kata itu dipakai untuk mengenali penutup.
+ */
+const LANJUTAN_BAWAAN = 'Siap kak. Aku standby di sini ya, kalau ada yang mau ditanyakan sebelum nanti dihubungi tim.';
 process.on('unhandledRejection', (reason) => {
   console.error('Unhandled promise rejection (WhatsApp adapter kept alive):', reason);
 });
@@ -812,19 +820,26 @@ async function buildApp(overrides = {}) {
     // terima kasih, yang kedua tidak dibalas lagi — kalau tidak, dua pihak
     // saling berterima kasih tanpa ujung.
     if (jenisBalasanPendek === 'acknowledged') {
-      if (alreadyThankedForAck(conversationHistory)) {
-        app.log.info({ companyId, chatId: message.from },
-          'Balasan pendek kedua berturut-turut — sudah pernah dibalas, tidak diulang');
-        return null;
-      }
-      const penutup = await llmService.generateReply(
-        `Customer membalas "${message.body}". Itu hanya tanda mengerti atas apa yang baru kamu sampaikan, bukan pertanyaan dan bukan permintaan baru.\n\nTulis SATU kalimat pendek dengan persona kamu yang menutup dengan ramah. Jangan bertanya apa pun, jangan menawarkan produk, jangan menyebut harga, jangan mengirim link, jangan mengulang yang sudah disampaikan. Keluarkan HANYA kalimatnya.`,
+      // Selalu dibalas. Yang berubah adalah isinya: ronde pertama ucapan terima
+      // kasih, ronde berikutnya sesuatu yang benar-benar baru. Berterima kasih
+      // dua kali dengan susunan berbeda terbaca seperti mesin kehabisan
+      // kalimat, dan mengulang kalimat yang sama persis lebih buruk lagi.
+      const ronde = countRecentAckRounds(conversationHistory);
+      const perintah = ronde === 0
+        ? `Customer membalas "${message.body}". Itu tanda mengerti atas apa yang baru kamu sampaikan, bukan pertanyaan dan bukan permintaan baru.\n\nTulis SATU kalimat pendek dengan persona kamu yang menutup dengan ramah. Jangan bertanya apa pun, jangan menawarkan produk, jangan menyebut harga, jangan mengirim link, jangan mengulang yang sudah disampaikan. Keluarkan HANYA kalimatnya.`
+        : `Customer membalas "${message.body}" lagi, dan kamu SUDAH berterima kasih di giliran sebelumnya.\n\nJangan berterima kasih lagi, jangan mengulang kalimat yang sudah kamu kirim, jangan bertanya apa pun, jangan menanyakan maksudnya, jangan menawarkan produk, jangan menyebut harga, jangan mengirim link.\n\nTulis paling banyak DUA kalimat pendek dengan persona kamu yang menambahkan satu keterangan BARU dan berguna tentang apa yang sudah disepakati — misalnya apa yang terjadi berikutnya atau apa yang bisa disiapkan. Ambil keterangannya dari playbook, jangan mengarang. Keluarkan HANYA kalimatnya.`;
+
+      const lanjutan = await llmService.generateReply(perintah,
         { systemPrompt: ctx.systemPrompt, history: conversationHistory, companyId, purpose: 'auto_reply' },
       ).catch(() => null);
-      // Penutupnya harus bisa dikenali sebagai penutup pada giliran berikutnya,
-      // kalau tidak "oke" yang kedua akan ditanyai lagi.
-      const ditutup = stripLinks(penutup?.text || '');
-      return ensureClosingIsRecognizable(ditutup, PENUTUP_BAWAAN);
+      const teksLanjutan = stripLinks(lanjutan?.text || '');
+      app.log.info({ companyId, chatId: message.from, ronde },
+        'Balasan pendek customer dibalas');
+      // Ronde pertama dipastikan memuat ucapan terima kasih supaya bisa dikenali
+      // sebagai penutup; ronde berikutnya justru tidak boleh, jadi hanya
+      // cadangannya yang dipakai kalau model gagal menulis apa pun.
+      if (ronde === 0) return ensureClosingIsRecognizable(teksLanjutan, PENUTUP_BAWAAN);
+      return teksLanjutan || LANJUTAN_BAWAAN;
     }
 
     // Balasan pendek tanpa rujukan yang jelas ("ya" setelah CS menyebut isi

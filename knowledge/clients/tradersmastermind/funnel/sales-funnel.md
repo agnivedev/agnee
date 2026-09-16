@@ -299,9 +299,11 @@ bilang *saya mengerti*. Itu bukan pertanyaan.
   16 September, "Oke" dibalas "Maksudnya yang mana ya kak?" dan lead menulis
   "Saya krng paham". Ditanyai maksudnya padahal sudah jelas terbaca seperti
   diajak berdebat.
-- **Cukup sekali.** Kalau "oke" sebelumnya sudah dibalas terima kasih, yang
-  kedua tidak perlu dibalas lagi. Dua pihak saling berterima kasih tanpa ujung
-  sama tidak enaknya dengan diacuhkan.
+- **Selalu dibalas, isinya yang berubah.** Jangan pernah mendiamkan pesan lead.
+  Kalau "oke" sebelumnya sudah dibalas terima kasih, yang kedua dibalas dengan
+  keterangan BARU — apa yang terjadi berikutnya, atau apa yang bisa disiapkan
+  sebelum call. Berterima kasih dua kali dengan susunan berbeda terbaca seperti
+  mesin yang kehabisan kalimat.
 - **Jangan mengulang kalimat konfirmasi yang sama.** Jadwal yang sudah
   disepakati tidak disepakati dua kali.
 - **Jangan menawarkan apa pun lagi.** Percakapan ini sudah sampai di ujungnya.

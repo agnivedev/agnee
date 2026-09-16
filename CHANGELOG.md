@@ -1,5 +1,15 @@
 ## [Unreleased]
 
+### Planned
+
+- **Landing page depan dijadikan halaman jualan Agnee per fitur**, dengan nada
+  marketing yang sengaja dilebih-lebihkan dan ditutup promo, plus dua umpan:
+  ebook untuk CS perusahaan dan webinar gratis "how to sell everything under
+  15 minutes". Sudut pandangnya CS, bukan hanya pemilik perusahaan — yang
+  dimudahkan adalah orang yang membalas chat setiap hari, dan Agnee menangani
+  customer sekaligus menopang CS-nya. Dikerjakan di sesi terpisah; belum
+  dimulai. Nada boleh berlebihan, klaim yang bisa dibuktikan salah tidak.
+
 ### Fixed
 
 - **Penawaran Rp99.000 terkirim tanpa cara mengambilnya.** Dua percakapan

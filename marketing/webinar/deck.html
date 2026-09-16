@@ -1,0 +1,397 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<title>Closing di Bawah 15 Menit — Materi Training CS</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,700;1,9..40,400&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#14241f; --soft:#46605a; --wash:#f2f7f0; --line:#d8e4d5;
+    --deep:#0c1912; --deep2:#14241f; --lime:#7fff4f; --green:#1f7a4d;
+  }
+  @page { size: 254mm 143mm; margin: 0; }   /* 16:9 */
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    font-family:"DM Sans",-apple-system,"Helvetica Neue",Arial,sans-serif;
+    color:var(--ink); -webkit-font-smoothing:antialiased;
+  }
+  .s{
+    width:254mm; height:143mm; padding:16mm 18mm;
+    page-break-after:always; break-after:page;
+    position:relative; overflow:hidden; background:#fff;
+    display:flex; flex-direction:column;
+  }
+  .s:last-child{page-break-after:auto;break-after:auto}
+  .s.dark{background:var(--deep); color:#f4f9f0}
+  .s.wash{background:var(--wash)}
+
+  .kicker{
+    font-family:"IBM Plex Mono",monospace; font-size:9pt; letter-spacing:.2em;
+    text-transform:uppercase; color:var(--green); margin:0 0 6mm;
+  }
+  .dark .kicker{color:var(--lime)}
+  h1{font-size:34pt;line-height:1.06;letter-spacing:-.035em;margin:0 0 6mm;font-weight:700;max-width:180mm}
+  h2{font-size:24pt;line-height:1.12;letter-spacing:-.03em;margin:0 0 6mm;font-weight:700;max-width:190mm}
+  h3{font-size:13pt;margin:0 0 2.5mm;font-weight:700}
+  p{font-size:12pt;line-height:1.55;margin:0 0 4mm;max-width:175mm}
+  .sub{font-size:14pt;color:var(--soft);line-height:1.5;max-width:165mm}
+  .dark .sub{color:rgba(244,249,240,.7)}
+  .small{font-size:10.5pt;line-height:1.5}
+  .mono{font-family:"IBM Plex Mono",monospace}
+
+  .fill{margin-top:auto}
+  .foot{
+    position:absolute; left:18mm; right:18mm; bottom:9mm;
+    display:flex; justify-content:space-between;
+    font-family:"IBM Plex Mono",monospace; font-size:8pt; letter-spacing:.12em;
+    text-transform:uppercase; color:var(--soft);
+  }
+  .dark .foot{color:rgba(244,249,240,.4)}
+
+  .cols{display:flex;gap:7mm}
+  .cols>*{flex:1}
+
+  .card{border:1px solid var(--line);border-radius:4mm;padding:6mm;background:#fff}
+  .dark .card{border-color:#24403a;background:#14241f}
+  .card .n{font-family:"IBM Plex Mono",monospace;font-size:9pt;color:var(--green);font-weight:600;margin:0 0 2.5mm}
+  .dark .card .n{color:var(--lime)}
+  .card p{font-size:10.5pt;margin:0;line-height:1.5}
+
+  .stage{display:flex;gap:5mm;align-items:stretch;margin:2mm 0 0}
+  .stage>div{flex:1;border-radius:4mm;padding:5mm;border:1px solid var(--line);background:#fff}
+  .stage .t{font-size:11.5pt;font-weight:700;margin:0 0 1.5mm}
+  .stage .m{font-family:"IBM Plex Mono",monospace;font-size:8.5pt;color:var(--green);margin:0 0 2.5mm;letter-spacing:.06em}
+  .stage p{font-size:9.6pt;line-height:1.45;margin:0}
+  .stage .on{border:2px solid var(--green);background:var(--wash)}
+
+  .say{background:var(--wash);border-left:3px solid var(--green);border-radius:0 3mm 3mm 0;padding:4mm 5mm;margin:0 0 3.5mm}
+  .say p{margin:0;font-size:11.5pt;line-height:1.5}
+  .dark .say{background:#14241f;border-left-color:var(--lime)}
+
+  .vs{display:flex;gap:6mm;margin:3mm 0}
+  .vs>div{flex:1;border-radius:4mm;padding:5mm}
+  .vs .x{background:#fdf4f3;border:1px solid #f0d9d6}
+  .vs .v{background:var(--wash);border:1px solid var(--line)}
+  .vs .hd{font-family:"IBM Plex Mono",monospace;font-size:8.5pt;letter-spacing:.14em;text-transform:uppercase;margin:0 0 2.5mm;font-weight:600}
+  .vs .x .hd{color:#9b3228}
+  .vs .v .hd{color:var(--green)}
+  .vs p{font-size:10.5pt;margin:0;line-height:1.5}
+
+  ul,ol{margin:0 0 4mm;padding-left:6mm}
+  li{font-size:11.5pt;line-height:1.5;margin-bottom:2.5mm}
+
+  .big{font-size:52pt;line-height:1;font-weight:700;letter-spacing:-.045em;color:var(--lime)}
+  .rule{height:2px;background:var(--lime);width:30mm;margin:0 0 6mm}
+
+  .tx{border:1px solid var(--line);border-radius:4mm;overflow:hidden}
+  .tx .row{display:flex;gap:5mm;padding:2.6mm 5mm;border-bottom:1px solid var(--line)}
+  .tx .row:last-child{border-bottom:none}
+  .tx .who{font-family:"IBM Plex Mono",monospace;font-size:8pt;color:var(--soft);width:24mm;flex-shrink:0;padding-top:.8mm;letter-spacing:.04em;white-space:nowrap}
+  .tx .msg{font-size:10pt;line-height:1.45;margin:0}
+  .tx .cs{background:var(--wash)}
+</style>
+</head>
+<body>
+
+<!-- 1 -->
+<div class="s dark">
+  <p class="kicker">Materi training CS · Agnee</p>
+  <div class="rule"></div>
+  <h1>Closing di Bawah 15 Menit</h1>
+  <p class="sub">Kerangka lima tahap untuk membawa orang dari “nanya doang” ke “transfer ke mana ya” — tanpa terdengar sedang berjualan.</p>
+  <div class="fill"></div>
+  <p class="sub small">Untuk CS toko sendiri dan CS perusahaan.</p>
+  <div class="foot"><span>Agnee</span></div>
+</div>
+
+<!-- 2 -->
+<div class="s">
+  <p class="kicker">Yang perlu diluruskan dulu</p>
+  <h2>15 menit bukan berarti buru-buru.</h2>
+  <p>15 menit adalah tanda bahwa percakapannya <strong>punya arah</strong>. Chat yang berlarut biasanya bukan karena pelanggannya lama berpikir — tapi karena tidak ada yang memandunya.</p>
+  <p>Yang kita latih hari ini bukan cara mendesak. Kita melatih cara <strong>tidak membuang menit</strong>: tidak mengulang pertanyaan, tidak menjelaskan yang tidak ditanya, tidak menunggu pelanggan yang menyimpulkan sendiri.</p>
+  <div class="say"><p>Kalau pelanggan butuh tiga hari untuk memutuskan, itu haknya. Tugas kita memastikan tiga hari itu bukan karena kita yang membingungkan.</p></div>
+  <div class="foot"><span>Closing di bawah 15 menit</span></div>
+</div>
+
+<!-- 3 -->
+<div class="s wash">
+  <p class="kicker">Diagnosis</p>
+  <h2>Tiga cara chat mati pelan-pelan</h2>
+  <div class="cols">
+    <div class="card"><p class="n">01</p><h3>Jawab, lalu diam</h3><p>CS menjawab pertanyaan dengan benar, lalu berhenti. Tidak ada pertanyaan balik, tidak ada langkah berikutnya. Bola jatuh ke pelanggan, dan pelanggan tidak punya alasan memungutnya.</p></div>
+    <div class="card"><p class="n">02</p><h3>Brosur beruntun</h3><p>Pelanggan tanya satu hal, dibalas enam paragraf keunggulan. Dia tidak membaca, tapi dia juga tidak enak membalas “nggak jadi”. Jadi dia menghilang.</p></div>
+    <div class="card"><p class="n">03</p><h3>Link terlalu cepat</h3><p>Baru menyebut “harga”, sudah disodori formulir bayar. Dia belum tahu yang mana yang dia beli. Ini penghenti percakapan paling efektif yang kita punya.</p></div>
+  </div>
+  <div class="fill"></div>
+  <p class="small"><strong>Ketiganya punya akar yang sama:</strong> tidak ada yang memutuskan percakapan ini mau ke mana.</p>
+  <div class="foot"><span>Closing di bawah 15 menit</span></div>
+</div>
+
+<!-- 4 -->
+<div class="s">
+  <p class="kicker">Kerangkanya</p>
+  <h2>Lima tahap, lima belas menit</h2>
+  <div class="stage">
+    <div><p class="m">Menit 0–2</p><p class="t">Buka</p><p>Bikin dia membalas, dan tahu dia sedang bicara dengan siapa.</p></div>
+    <div><p class="m">Menit 2–6</p><p class="t">Gali</p><p>Cari tahu untuk apa, untuk kapan, dan untuk siapa.</p></div>
+    <div><p class="m">Menit 6–9</p><p class="t">Cocokkan</p><p>Tawarkan satu, bukan semua. Sebut alasannya.</p></div>
+    <div><p class="m">Menit 9–12</p><p class="t">Keberatan</p><p>Cari keberatan yang sebenarnya, bukan yang diucapkan.</p></div>
+    <div><p class="m">Menit 12–15</p><p class="t">Tutup</p><p>Minta keputusan, beri jalan yang jelas.</p></div>
+  </div>
+  <div class="fill"></div>
+  <p class="small">Tahap tidak boleh dilompati. Melompat ke <strong>Tutup</strong> dari <strong>Buka</strong> itulah yang namanya mengirim link terlalu cepat.</p>
+  <div class="foot"><span>Closing di bawah 15 menit</span></div>
+</div>
+
+<!-- 5 -->
+<div class="s dark">
+  <p class="kicker">Tahap 1 · Menit 0–2</p>
+  <h2>Buka</h2>
+  <p class="sub">Tujuan tahap ini cuma satu: <strong>dia membalas.</strong> Bukan tertarik, bukan paham produk. Membalas.</p>
+  <div class="fill"></div>
+  <div class="foot"><span>Closing di bawah 15 menit</span></div>
+</div>
+
+<!-- 6 -->
+<div class="s">
+  <p class="kicker">Tahap 1 · Buka</p>
+  <h2>Rumus tiga bagian</h2>
+  <p class="small"><strong>Nama kamu + jawab yang dia tanya + satu pertanyaan mudah.</strong></p>
+  <div class="say"><p>“Halo kak, saya Anya dari [Toko]. Yang ukuran 42 masih ada, sisa dua. Buat dipakai sendiri atau buat hadiah kak?”</p></div>
+  <p class="small">Tiga bagian itu bekerja karena: menyebut nama membuat dia bicara dengan orang, bukan akun. Menjawab dulu membuat dia tidak merasa diinterogasi. Dan pertanyaan penutup itu <strong>mudah dijawab</strong> — dua pilihan, bukan esai.</p>
+  <div class="vs">
+    <div class="x"><p class="hd">Mematikan</p><p>“Halo kak, ada yang bisa dibantu?”<br><span class="small">Melempar balik pekerjaan berpikir ke pelanggan yang baru datang.</span></p></div>
+    <div class="v"><p class="hd">Menghidupkan</p><p>“Halo kak, saya Anya. Yang kakak tanya masih ada. Buat sendiri atau buat hadiah?”</p></div>
+  </div>
+  <div class="foot"><span>Closing di bawah 15 menit</span></div>
+</div>
+
+<!-- 7 -->
+<div class="s dark">
+  <p class="kicker">Tahap 2 · Menit 2–6</p>
+  <h2>Gali</h2>
+  <p class="sub">Ini tahap terpanjang, dan yang paling sering dilewati. Empat menit di sini menghemat sepuluh menit di tahap berikutnya.</p>
+  <div class="fill"></div>
+  <div class="foot"><span>Closing di bawah 15 menit</span></div>
+</div>
+
+<!-- 8 -->
+<div class="s">
+  <p class="kicker">Tahap 2 · Gali</p>
+  <h2>Tiga pertanyaan yang hampir selalu cukup</h2>
+  <div class="cols">
+    <div class="card"><p class="n">Untuk apa</p><p>“Ini buat dipakai sendiri atau buat hadiah kak?”<br><br><span class="small">Menentukan nada, harga yang pantas ditawarkan, dan seberapa penting kemasan.</span></p></div>
+    <div class="card"><p class="n">Untuk kapan</p><p>“Kakak butuhnya kapan?”<br><br><span class="small">Tenggat adalah yang menutup penjualan, bukan kamu. Kalau ada tanggal, percakapan ini punya rem waktu sendiri.</span></p></div>
+    <div class="card"><p class="n">Sudah lihat apa</p><p>“Ada yang sudah kakak lihat, atau saya bantu carikan dari awal?”<br><br><span class="small">Kalau dia sudah punya kandidat, tugasmu membandingkan. Kalau belum, tugasmu memilihkan.</span></p></div>
+  </div>
+  <div class="fill"></div>
+  <p class="small"><strong>Aturan:</strong> satu pertanyaan per pesan. Tiga pertanyaan sekaligus dalam satu balasan terbaca seperti formulir, dan dijawab satu saja.</p>
+  <div class="foot"><span>Closing di bawah 15 menit</span></div>
+</div>
+
+<!-- 9 -->
+<div class="s wash">
+  <p class="kicker">Tahap 2 · Gali</p>
+  <h2>Dengarkan dua hal, catat keduanya</h2>
+  <div class="cols">
+    <div class="card"><p class="n">Yang dia butuh</p><p>Barangnya, ukurannya, warnanya, jumlahnya. Ini yang biasanya kita catat.</p></div>
+    <div class="card"><p class="n">Yang dia takutkan</p><p>“Takut nggak muat”, “takut nggak sampai tepat waktu”, “takut beda sama foto”. Ini yang hampir tidak pernah kita catat — padahal <strong>ini yang akan jadi keberatannya nanti di menit 9</strong>.</p></div>
+  </div>
+  <div class="fill"></div>
+  <div class="say"><p>Kalau kamu menangkap ketakutannya di menit 4, kamu bisa mematikannya di menit 7 — sebelum dia sempat mengucapkannya sebagai alasan menolak.</p></div>
+  <div class="foot"><span>Closing di bawah 15 menit</span></div>
+</div>
+
+<!-- 10 -->
+<div class="s dark">
+  <p class="kicker">Tahap 3 · Menit 6–9</p>
+  <h2>Cocokkan</h2>
+  <p class="sub">Tawarkan satu. Bukan semua yang kamu punya.</p>
+  <div class="fill"></div>
+  <div class="foot"><span>Closing di bawah 15 menit</span></div>
+</div>
+
+<!-- 11 -->
+<div class="s">
+  <p class="kicker">Tahap 3 · Cocokkan</p>
+  <h2>Rumus: satu pilihan + alasannya + satu cadangan</h2>
+  <div class="say"><p>“Kalau buat hadiah dan butuh Sabtu, saya sarankan yang [A] kak — stoknya ada di gudang Jakarta jadi pasti sampai Jumat, dan sudah termasuk kotak hadiah. Kalau kakak mau yang lebih ringan, ada [B], tapi kirimnya dari Surabaya jadi mepet.”</p></div>
+  <p class="small">Tiga hal terjadi di paragraf itu: kamu memilihkan, kamu <strong>menyebut alasan yang diambil dari jawabannya sendiri</strong> (hadiah, Sabtu), dan kamu memberi satu cadangan supaya dia merasa memilih, bukan didikte.</p>
+  <div class="vs">
+    <div class="x"><p class="hd">Jangan</p><p>Mengirim lima pilihan dan bertanya “kakak mau yang mana?”<br><span class="small">Lima pilihan = lima kali kerja berpikir. Orang yang kebanyakan pilihan menunda.</span></p></div>
+    <div class="v"><p class="hd">Lakukan</p><p>Satu rekomendasi, satu cadangan, alasan yang diambil dari kata-katanya sendiri.</p></div>
+  </div>
+  <div class="foot"><span>Closing di bawah 15 menit</span></div>
+</div>
+
+<!-- 12 -->
+<div class="s dark">
+  <p class="kicker">Tahap 4 · Menit 9–12</p>
+  <h2>Keberatan</h2>
+  <p class="sub">“Mahal” hampir tidak pernah berarti mahal.</p>
+  <div class="fill"></div>
+  <div class="foot"><span>Closing di bawah 15 menit</span></div>
+</div>
+
+<!-- 13 -->
+<div class="s">
+  <p class="kicker">Tahap 4 · Keberatan</p>
+  <h2>Terjemahannya</h2>
+  <div class="cols">
+    <div class="card"><p class="n">“Mahal ya”</p><p>Biasanya: <strong>saya belum yakin ini sepadan.</strong><br><br><span class="small">Jawab dengan nilai, bukan potongan. Diskon terlalu cepat justru mengonfirmasi bahwa harganya memang mengada-ada.</span></p></div>
+    <div class="card"><p class="n">“Nanti saya pikir dulu”</p><p>Biasanya: <strong>ada satu hal yang belum terjawab, dan saya tidak enak menanyakannya.</strong><br><br><span class="small">Jawab dengan pertanyaan: “Boleh saya tahu bagian mana yang masih mengganjal kak?”</span></p></div>
+    <div class="card"><p class="n">“Tanya suami/istri dulu”</p><p>Biasanya: <strong>benar, dan dia butuh bahan untuk menjelaskan.</strong><br><br><span class="small">Bantu dia menjelaskan: kirim ringkasan singkat yang bisa dia teruskan.</span></p></div>
+  </div>
+  <div class="fill"></div>
+  <p class="small"><strong>Aturan emas:</strong> jangan pernah melawan keberatan. Tanyakan dulu apa yang ada di belakangnya. Keberatan pertama yang diucapkan orang hampir tidak pernah keberatan yang sebenarnya.</p>
+  <div class="foot"><span>Closing di bawah 15 menit</span></div>
+</div>
+
+<!-- 14 -->
+<div class="s dark">
+  <p class="kicker">Tahap 5 · Menit 12–15</p>
+  <h2>Tutup</h2>
+  <p class="sub">Minta keputusan. Jangan menunggu dia menawarkan diri.</p>
+  <div class="fill"></div>
+  <div class="foot"><span>Closing di bawah 15 menit</span></div>
+</div>
+
+<!-- 15 -->
+<div class="s">
+  <p class="kicker">Tahap 5 · Tutup</p>
+  <h2>Penutupan langkah, bukan penutupan tanya</h2>
+  <div class="vs">
+    <div class="x"><p class="hd">Penutupan tanya</p><p>“Jadi order kak?”<br><br><span class="small">Menaruh seluruh beban keputusan di pundaknya, tanpa jalan. Jawaban paling mudah untuk pertanyaan ini adalah diam.</span></p></div>
+    <div class="v"><p class="hd">Penutupan langkah</p><p>“Saya siapkan yang [A] ya kak, total [nominal] sudah termasuk ongkir ke [kota]. Transfer ke [rekening], lalu kirim buktinya ke sini — saya proses hari ini juga.”<br><br><span class="small">Keputusannya tetap miliknya. Tapi jalannya sudah dibuka, dan tidak ada lagi yang perlu dia tanyakan.</span></p></div>
+  </div>
+  <div class="fill"></div>
+  <p class="small"><strong>Yang wajib ada di pesan penutup:</strong> nama barangnya, total termasuk ongkir, cara bayar, dan apa yang terjadi setelah dia bayar. Keempatnya, dalam satu pesan.</p>
+  <div class="foot"><span>Closing di bawah 15 menit</span></div>
+</div>
+
+<!-- 16 -->
+<div class="s wash">
+  <p class="kicker">Aturan yang tidak boleh dilanggar</p>
+  <h2>Kalau kamu menyebut angka, sebutkan juga cara mengambilnya</h2>
+  <p>Ini penyebab kebocoran paling mahal, dan paling tidak kelihatan: CS menyebut penawaran, pelanggan menjawab <span class="mono">“Caranya kak?”</span>, lalu percakapan berhenti karena CS sudah berpindah ke chat lain.</p>
+  <p>Dari sisi pelanggan, dia baru saja menyatakan niat beli — dan tidak dijawab.</p>
+  <div class="say"><p>Satu pesan harus lengkap sendiri: <strong>apa yang dibeli, berapa totalnya, dan langkah berikutnya.</strong> Jangan pernah menyebut dua, lalu menunggu ditanya yang ketiga.</p></div>
+  <div class="foot"><span>Closing di bawah 15 menit</span></div>
+</div>
+
+<!-- 17 -->
+<div class="s">
+  <p class="kicker">Contoh utuh</p>
+  <h2>Transkrip 15 menit</h2>
+  <div class="tx">
+    <div class="row"><div class="who">00:00 Plgn</div><p class="msg">Kak sepatu yang di foto masih ada?</p></div>
+    <div class="row cs"><div class="who">00:01 CS</div><p class="msg">Halo kak, saya Anya dari [Toko]. Yang di foto itu seri [X], masih ada. Kakak butuh ukuran berapa?</p></div>
+    <div class="row"><div class="who">00:03 Plgn</div><p class="msg">42</p></div>
+    <div class="row cs"><div class="who">00:04 CS</div><p class="msg">42 ada, sisa dua. Buat dipakai sendiri atau buat hadiah kak?</p></div>
+    <div class="row"><div class="who">00:05 Plgn</div><p class="msg">buat hadiah, ulang tahun adik saya</p></div>
+    <div class="row cs"><div class="who">00:06 CS</div><p class="msg">Wah pas. Ulang tahunnya kapan kak?</p></div>
+    <div class="row"><div class="who">00:07 Plgn</div><p class="msg">sabtu ini. takutnya nggak keburu sih</p></div>
+  </div>
+  <div class="foot"><span>Closing di bawah 15 menit</span></div>
+</div>
+
+<!-- 17b -->
+<div class="s">
+  <p class="kicker">Contoh utuh · lanjutan</p>
+  <h2>Transkrip 15 menit <span style="font-weight:400;color:#46605a">— menit 8 ke atas</span></h2>
+  <div class="tx">
+    <div class="row cs"><div class="who">00:08 CS</div><p class="msg">Kalau kakak pesan hari ini, saya kirim sore ini juga dari gudang Jakarta — sampai Kamis, jadi masih ada jeda dua hari sebelum Sabtu. Alamatnya di kota mana kak?</p></div>
+    <div class="row"><div class="who">00:09 Plgn</div><p class="msg">bekasi. harganya berapa ya kak</p></div>
+    <div class="row cs"><div class="who">00:10 CS</div><p class="msg">[nominal] kak, dan buat hadiah saya sekalian masukkan kotak hadiahnya, tidak ada tambahan biaya. Ongkir ke Bekasi [nominal].</p></div>
+    <div class="row"><div class="who">00:11 Plgn</div><p class="msg">agak mahal ya kak</p></div>
+    <div class="row cs"><div class="who">00:12 CS</div><p class="msg">Boleh saya tahu dibandingkan dengan yang mana kak? Kalau yang kakak lihat di tempat lain seri [Y], itu memang lebih murah — bedanya di [pembeda]. Kalau buat hadiah saya tetap sarankan yang ini, karena kalau ukurannya tidak pas bisa ditukar sampai 7 hari.</p></div>
+    <div class="row"><div class="who">00:13 Plgn</div><p class="msg">oh bisa tukar? oke deh</p></div>
+  </div>
+  <div class="foot"><span>Closing di bawah 15 menit</span></div>
+</div>
+
+
+<!-- 17c -->
+<div class="s wash">
+  <p class="kicker">Contoh utuh · pesan penutup</p>
+  <h2>Menit 14 — satu pesan, empat hal</h2>
+  <div class="say"><p>“Siap kak. Saya siapkan <strong>[X] ukuran 42, plus kotak hadiah</strong>. Total <strong>[nominal] sudah termasuk ongkir ke Bekasi</strong>. <strong>Transfer ke [rekening] a/n [nama]</strong>, lalu kirim buktinya ke sini — <strong>saya kirim sore ini dan resinya saya kabari malam ini juga</strong>.”</p></div>
+  <div class="cols">
+    <div class="card"><p class="n">1 · Apa</p><p>Barangnya disebut ulang, lengkap dengan ukuran dan bonusnya. Dia tidak perlu menggulir ke atas.</p></div>
+    <div class="card"><p class="n">2 · Berapa</p><p>Total, dan disebutkan bahwa ongkir sudah termasuk. Tidak ada kejutan.</p></div>
+    <div class="card"><p class="n">3 · Bagaimana</p><p>Rekening dan nama pemilik. Tidak ada yang perlu ditanyakan lagi.</p></div>
+    <div class="card"><p class="n">4 · Lalu apa</p><p>Apa yang terjadi setelah dia bayar, dengan waktunya. Ini yang membuat dia berani transfer.</p></div>
+  </div>
+  <div class="foot"><span>Closing di bawah 15 menit</span></div>
+</div>
+
+<!-- 18 -->
+<div class="s wash">
+  <p class="kicker">Bedah transkrip</p>
+  <h2>Di mana lima tahapnya tadi</h2>
+  <div class="cols">
+    <div class="card"><p class="n">Buka · 00:01</p><p>Nama disebut, pertanyaannya dijawab dulu, ditutup pertanyaan mudah.</p></div>
+    <div class="card"><p class="n">Gali · 00:04–00:07</p><p>Untuk apa (hadiah), untuk kapan (Sabtu). Ketakutannya ikut tertangkap: <em>“takutnya nggak keburu”</em>.</p></div>
+    <div class="card"><p class="n">Cocokkan · 00:08–00:10</p><p>Ketakutan soal waktu dimatikan sebelum jadi alasan menolak. Kotak hadiah muncul karena tahu ini hadiah.</p></div>
+    <div class="card"><p class="n">Keberatan · 00:12</p><p>“Mahal” tidak dilawan dan tidak didiskon — ditanyakan dulu pembandingnya, lalu dijawab dengan jaminan tukar.</p></div>
+    <div class="card"><p class="n">Tutup · 00:14</p><p>Barang, total, cara bayar, dan apa yang terjadi setelahnya. Semua dalam satu pesan.</p></div>
+  </div>
+  <div class="foot"><span>Closing di bawah 15 menit</span></div>
+</div>
+
+<!-- 19 -->
+<div class="s">
+  <p class="kicker">Latihan</p>
+  <h2>Role-play 15 menit, berpasangan</h2>
+  <p class="small">Satu orang jadi CS, satu jadi pelanggan. Yang jadi pelanggan memilih satu kartu di bawah dan <strong>tidak memberitahukannya</strong>. Timer 15 menit.</p>
+  <div class="cols">
+    <div class="card"><p class="n">Kartu A</p><p>Kamu butuh barangnya lusa, tapi baru akan bilang soal tenggat kalau ditanya. Keberatan aslimu: takut ukurannya salah.</p></div>
+    <div class="card"><p class="n">Kartu B</p><p>Kamu sedang membandingkan tiga toko. Keberatan aslimu: kamu tidak yakin toko ini benar-benar mengirim. Kamu akan mengatakan “mahal”.</p></div>
+    <div class="card"><p class="n">Kartu C</p><p>Kamu membeli untuk kantor dan harus lapor ke atasan. Keberatan aslimu: butuh dokumen/invoice. Kamu akan bilang “nanti saya kabari”.</p></div>
+  </div>
+  <div class="fill"></div>
+  <p class="small"><strong>Yang dinilai bukan berhasil closing atau tidak.</strong> Yang dinilai: apakah si CS menemukan keberatan yang sebenarnya sebelum menit ke-12.</p>
+  <div class="foot"><span>Closing di bawah 15 menit</span></div>
+</div>
+
+<!-- 20 -->
+<div class="s">
+  <p class="kicker">Bawa pulang</p>
+  <h2>Checklist saku</h2>
+  <div class="cols">
+    <div>
+      <ul>
+        <li><strong>Buka:</strong> sebut namaku, jawab dulu, tutup dengan pertanyaan mudah.</li>
+        <li><strong>Gali:</strong> untuk apa, untuk kapan, sudah lihat apa. Satu pertanyaan per pesan.</li>
+        <li><strong>Catat ketakutannya</strong>, bukan cuma kebutuhannya.</li>
+      </ul>
+    </div>
+    <div>
+      <ul>
+        <li><strong>Cocokkan:</strong> satu rekomendasi, satu cadangan, alasan dari kata-katanya sendiri.</li>
+        <li><strong>Keberatan:</strong> tanya dulu apa di belakangnya. Jangan diskon duluan.</li>
+        <li><strong>Tutup:</strong> barang, total, cara bayar, apa yang terjadi setelahnya — satu pesan.</li>
+      </ul>
+    </div>
+  </div>
+  <div class="say"><p>Kalau aku menyebut angka, aku sebutkan juga cara mengambilnya. Selalu.</p></div>
+  <div class="foot"><span>Closing di bawah 15 menit</span></div>
+</div>
+
+<!-- 21 -->
+<div class="s dark">
+  <p class="kicker">Penutup</p>
+  <div class="rule"></div>
+  <h2>Kerangka ini juga yang ditanam ke dalam Agnee.</h2>
+  <p class="sub">Gali, tangani keberatan, dan tutup masing-masing punya dokumen playbook sendiri — diisi lewat obrolan, dengan kalimat yang tim kamu sendiri tentukan. AI mengikutinya saat CS sedang menangani chat lain, dan mundur begitu ada agent yang mulai mengetik.</p>
+  <div class="fill"></div>
+  <p class="sub small">agnee.agnive.co</p>
+  <div class="foot"><span>Agnee</span></div>
+</div>
+
+</body>
+</html>

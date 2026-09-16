@@ -1,0 +1,957 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<title>Balas Chat Tanpa Kehabisan Diri Sendiri</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,700;1,9..40,400&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink: #14241f;
+    --ink-soft: #46605a;
+    --paper: #ffffff;
+    --wash: #f2f7f0;
+    --line: #d8e4d5;
+    --deep: #0c1912;
+    --deep-2: #14241f;
+    --lime: #7fff4f;
+    --green: #1f7a4d;
+  }
+
+  @page {
+    size: 148mm 210mm;           /* A5 */
+    margin: 16mm 15mm 15mm 15mm;
+  }
+  @page :first { margin: 0; }
+
+  * { box-sizing: border-box; }
+
+  html, body { margin: 0; padding: 0; }
+
+  body {
+    font-family: "DM Sans", -apple-system, "Helvetica Neue", Arial, sans-serif;
+    font-size: 10.2pt;
+    line-height: 1.62;
+    color: var(--ink);
+    background: var(--paper);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .page { page-break-after: always; break-after: page; }
+  .page:last-child { page-break-after: auto; break-after: auto; }
+
+  /* ---------- COVER ---------- */
+  .cover {
+    width: 148mm; height: 210mm;
+    background: var(--deep);
+    color: #f4f9f0;
+    position: relative;
+    overflow: hidden;
+    padding: 18mm 15mm;
+    display: flex; flex-direction: column;
+  }
+  .cover-art { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .cover-inner { position: relative; z-index: 2; display: flex; flex-direction: column; height: 100%; }
+  .cover-brand {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 8pt; letter-spacing: .22em; text-transform: uppercase;
+    color: var(--lime);
+  }
+  .cover-title {
+    margin: 12mm 0 0; font-size: 31pt; line-height: 1.06;
+    font-weight: 700; letter-spacing: -.02em; word-spacing: .06em; max-width: 105mm;
+  }
+  .cover-sub {
+    margin: 7mm 0 0; font-size: 11pt; line-height: 1.5;
+    color: rgba(244,249,240,.72); max-width: 92mm; font-weight: 400;
+  }
+  .cover-foot { margin-top: auto; }
+  .cover-rule { height: 2px; background: var(--lime); width: 26mm; margin-bottom: 5mm; }
+  .cover-for {
+    font-family: "IBM Plex Mono", monospace; font-size: 8.5pt;
+    letter-spacing: .06em; color: rgba(244,249,240,.62);
+  }
+
+  /* ---------- CHAPTER OPENER ---------- */
+  .opener { padding-top: 6mm; }
+  .opener-num {
+    font-family: "IBM Plex Mono", monospace; font-size: 8.5pt;
+    letter-spacing: .2em; text-transform: uppercase; color: var(--green);
+    margin: 0 0 3mm;
+  }
+  .opener h1 {
+    margin: 0 0 6mm; font-size: 20pt; line-height: 1.14;
+    letter-spacing: -.03em; font-weight: 700; max-width: 108mm;
+  }
+  .opener-art { margin: 0 0 7mm; }
+  .opener-lede {
+    font-size: 11pt; line-height: 1.55; color: var(--ink-soft);
+    margin: 0 0 6mm; font-weight: 500;
+  }
+
+  h2 {
+    font-size: 12.5pt; line-height: 1.25; letter-spacing: -.015em;
+    margin: 7mm 0 2.5mm; font-weight: 700;
+  }
+  h3 {
+    font-size: 10.5pt; margin: 5mm 0 1.5mm; font-weight: 700;
+  }
+  p { margin: 0 0 3.2mm; }
+  strong { font-weight: 700; }
+  em { font-style: italic; }
+
+  ul, ol { margin: 0 0 3.5mm; padding-left: 5.5mm; }
+  li { margin-bottom: 1.6mm; }
+
+  .lead-in { font-weight: 700; }
+
+  /* ---------- COMPONENTS ---------- */
+  .box {
+    border: 1px solid var(--line); background: var(--wash);
+    border-radius: 3mm; padding: 4.5mm 5mm; margin: 4.5mm 0;
+  }
+  .box-label {
+    font-family: "IBM Plex Mono", monospace; font-size: 7.5pt;
+    letter-spacing: .16em; text-transform: uppercase; color: var(--green);
+    margin: 0 0 2mm; font-weight: 600;
+  }
+  .box p:last-child, .box ul:last-child, .box ol:last-child { margin-bottom: 0; }
+
+  .agnee {
+    border: none; border-left: 3px solid var(--lime);
+    background: var(--deep); color: #eef5eb;
+    border-radius: 0 3mm 3mm 0; padding: 4.5mm 5mm; margin: 6mm 0 0;
+  }
+  .agnee .box-label { color: var(--lime); }
+  .agnee p { margin-bottom: 2.2mm; }
+  .agnee p:last-child { margin-bottom: 0; }
+
+  .script {
+    border: 1px solid var(--line); border-radius: 3mm;
+    padding: 4mm 4.5mm; margin: 3.5mm 0; background: #fff;
+  }
+  .script .who {
+    font-family: "IBM Plex Mono", monospace; font-size: 7.5pt;
+    letter-spacing: .12em; text-transform: uppercase; color: var(--ink-soft);
+    margin: 0 0 1.2mm;
+  }
+  .script p { margin: 0 0 3mm; }
+  .script p:last-child { margin-bottom: 0; }
+  .said { background: var(--wash); border-radius: 2.5mm; padding: 2.6mm 3.2mm; display: block; }
+
+  .bad { color: #9b3228; font-weight: 700; }
+  .good { color: var(--green); font-weight: 700; }
+
+  .compare { display: flex; gap: 3.5mm; margin: 4mm 0; }
+  .compare > div { flex: 1; border-radius: 3mm; padding: 3.5mm 4mm; border: 1px solid var(--line); }
+  .compare .x { background: #fdf4f3; border-color: #f0d9d6; }
+  .compare .v { background: var(--wash); }
+  .compare .hd {
+    font-family: "IBM Plex Mono", monospace; font-size: 7.5pt;
+    letter-spacing: .12em; text-transform: uppercase; margin: 0 0 1.8mm; font-weight: 600;
+  }
+  .compare .x .hd { color: #9b3228; }
+  .compare .v .hd { color: var(--green); }
+  .compare p { margin: 0; font-size: 9.4pt; line-height: 1.5; }
+
+  .tmpl { margin: 3.5mm 0; }
+  .tmpl-item { border-top: 1px solid var(--line); padding: 3mm 0; }
+  .tmpl-item:last-child { border-bottom: 1px solid var(--line); }
+  .tmpl-n {
+    font-family: "IBM Plex Mono", monospace; font-size: 8pt; color: var(--green);
+    font-weight: 600; margin: 0 0 1mm;
+  }
+  .tmpl-q { font-weight: 700; margin: 0 0 1.5mm; }
+  .tmpl-a { margin: 0; background: var(--wash); border-radius: 2.5mm; padding: 2.6mm 3.2mm; font-size: 9.6pt; }
+
+  .check { list-style: none; padding-left: 0; }
+  .check li {
+    padding-left: 7mm; position: relative; margin-bottom: 2.4mm;
+  }
+  .check li::before {
+    content: ""; position: absolute; left: 0; top: 1.1mm;
+    width: 3.6mm; height: 3.6mm; border: 1.2px solid var(--green); border-radius: 1mm;
+  }
+
+  .toc-item {
+    display: flex; gap: 4mm; padding: 3mm 0; border-bottom: 1px solid var(--line);
+  }
+  .toc-n {
+    font-family: "IBM Plex Mono", monospace; font-size: 8.5pt; color: var(--green);
+    font-weight: 600; padding-top: .6mm; width: 8mm; flex-shrink: 0;
+  }
+  .toc-t { font-weight: 700; margin: 0 0 .8mm; font-size: 10.4pt; }
+  .toc-d { margin: 0; font-size: 9.2pt; color: var(--ink-soft); line-height: 1.45; }
+
+  .front-title {
+    font-size: 17pt; font-weight: 700; letter-spacing: -.025em;
+    margin: 0 0 5mm; line-height: 1.2;
+  }
+  .note { font-size: 9pt; color: var(--ink-soft); line-height: 1.5; }
+
+  /* Jangan sampai satu kotak terbelah dua halaman — kotak yang terpotong
+     kehilangan seluruh gunanya sebagai kotak. */
+  .box, .agnee, .script, .compare, .tmpl-item, .toc-item { break-inside: avoid; page-break-inside: avoid; }
+  h2, h3 { break-after: avoid; page-break-after: avoid; }
+  p, li { orphans: 2; widows: 2; }
+</style>
+</head>
+<body>
+
+<!-- ============ COVER ============ -->
+<div class="page cover">
+  <svg class="cover-art" viewBox="0 0 148 210" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+    <defs>
+      <linearGradient id="g1" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="#0c1912"/>
+        <stop offset="1" stop-color="#101f18"/>
+      </linearGradient>
+      <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
+        <stop offset="0" stop-color="#7fff4f" stop-opacity="0.16"/>
+        <stop offset="1" stop-color="#7fff4f" stop-opacity="0"/>
+      </radialGradient>
+    </defs>
+    <rect width="148" height="210" fill="url(#g1)"/>
+    <circle cx="74" cy="150" r="62" fill="url(#glow)"/>
+
+    <!-- orderly arc of chat bubbles -->
+    <g opacity="0.9">
+      <rect x="20" y="118" width="26" height="12" rx="6" fill="#1b3028"/>
+      <rect x="34" y="136" width="34" height="12" rx="6" fill="#1b3028"/>
+      <rect x="18" y="154" width="22" height="12" rx="6" fill="#1b3028"/>
+      <rect x="100" y="112" width="30" height="12" rx="6" fill="#1b3028"/>
+      <rect x="96" y="130" width="24" height="12" rx="6" fill="#1b3028"/>
+      <rect x="104" y="148" width="32" height="12" rx="6" fill="#7fff4f" opacity="0.92"/>
+      <rect x="88" y="166" width="26" height="12" rx="6" fill="#1b3028"/>
+      <rect x="30" y="172" width="30" height="12" rx="6" fill="#1b3028"/>
+    </g>
+
+    <!-- calm agent silhouette -->
+    <g transform="translate(74,168)">
+      <circle cx="0" cy="-26" r="11" fill="#24403a"/>
+      <path d="M-11 -26 a11 11 0 0 1 22 0" fill="none" stroke="#7fff4f" stroke-width="1.6" stroke-linecap="round"/>
+      <rect x="-13.5" y="-28" width="4" height="7" rx="2" fill="#7fff4f"/>
+      <rect x="9.5" y="-28" width="4" height="7" rx="2" fill="#7fff4f"/>
+      <path d="M-19 14 q0 -20 19 -20 q19 0 19 20 z" fill="#24403a"/>
+    </g>
+    <rect x="0" y="196" width="148" height="14" fill="#0a150f"/>
+  </svg>
+
+  <div class="cover-inner">
+    <div class="cover-brand">Agnee · Panduan CS</div>
+    <h1 class="cover-title">Balas Chat Tanpa Kehabisan Diri Sendiri</h1>
+    <p class="cover-sub">Panduan kerja untuk orang yang membalas chat pelanggan setiap hari — dan ingin pulang tanpa membawanya.</p>
+    <div class="cover-foot">
+      <div class="cover-rule"></div>
+      <div class="cover-for">Untuk CS toko sendiri &amp; CS perusahaan</div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ UNTUK SIAPA ============ -->
+<div class="page">
+  <p class="front-title">Buku ini untuk kamu, bukan untuk bosmu.</p>
+
+  <p>Hampir semua yang ditulis orang tentang layanan pelanggan sebenarnya ditujukan ke pemilik bisnis. Isinya tentang menurunkan biaya, menaikkan konversi, dan mengukur tim. Berguna — tapi bukan untuk orang yang jam sembilan pagi membuka HP dan melihat 140 pesan belum terbaca.</p>
+
+  <p>Buku ini ditulis untuk orang itu.</p>
+
+  <p>Kamu tidak akan menemukan target di sini. Yang ada: cara memotong pekerjaan yang berulang, cara menghadapi orang marah tanpa ikut terbawa, cara tahu kapan seseorang benar-benar siap membeli, dan cara menutup hari tanpa satu pun chat ikut pulang ke rumahmu.</p>
+
+  <p>Semuanya bisa kamu pakai hari ini juga, dengan alat apa pun yang kantormu pakai sekarang. Kalau kantormu kebetulan memakai Agnee, di akhir tiap bab ada kotak hijau yang menunjukkan bagian mana yang sudah dikerjakan sistem untukmu. Kalau tidak, lewati saja kotak itu — sisanya tetap utuh.</p>
+
+  <div class="box">
+    <p class="box-label">Cara memakai buku ini</p>
+    <p>Bab 1 sampai 3 tentang bertahan: beban kerja, template, dan orang marah. Bab 4 dan 5 tentang menjual tanpa terdengar berjualan. Bab 6 dan 7 tentang mengakhiri: serah terima dan menutup hari. Bab 8 adalah checklist yang memang dibuat untuk dicetak dan ditempel.</p>
+    <p>Kalau hari ini berat, baca Bab 3 dulu.</p>
+  </div>
+</div>
+
+<!-- ============ DAFTAR ISI ============ -->
+<div class="page">
+  <p class="front-title">Isi</p>
+
+  <div class="toc-item"><div class="toc-n">01</div><div><p class="toc-t">Kenapa 200 chat terasa berat, padahal isinya cuma 12 pertanyaan</p><p class="toc-d">Beban datang dari berpindah-pindah, bukan dari jumlah.</p></div></div>
+  <div class="toc-item"><div class="toc-n">02</div><div><p class="toc-t">Dua belas balasan yang harusnya tidak kamu ketik ulang</p><p class="toc-d">Bank template, dan aturan supaya tidak terdengar seperti mesin.</p></div></div>
+  <div class="toc-item"><div class="toc-n">03</div><div><p class="toc-t">Orang marah: tiga kalimat pertama yang menentukan sisanya</p><p class="toc-d">Urutan yang menenangkan, dan kalimat yang justru menyulut.</p></div></div>
+  <div class="toc-item"><div class="toc-n">04</div><div><p class="toc-t">Membaca sinyal siap beli — kapan kirim link, kapan justru jangan</p><p class="toc-d">Empat sinyal asli, tiga sinyal palsu, dan satu aturan link.</p></div></div>
+  <div class="toc-item"><div class="toc-n">05</div><div><p class="toc-t">Follow-up yang tidak terasa nagih</p><p class="toc-d">Bedanya menyusul dan menagih cuma satu: kamu bawa apa.</p></div></div>
+  <div class="toc-item"><div class="toc-n">06</div><div><p class="toc-t">Serah terima ke shift berikutnya tanpa kehilangan konteks</p><p class="toc-d">Catatan empat baris yang menggantikan “baca aja chat-nya”.</p></div></div>
+  <div class="toc-item"><div class="toc-n">07</div><div><p class="toc-t">Menutup hari: apa yang boleh ditinggal untuk besok</p><p class="toc-d">Triase sepuluh menit supaya kepalamu ikut pulang.</p></div></div>
+  <div class="toc-item"><div class="toc-n">08</div><div><p class="toc-t">Checklist siap cetak</p><p class="toc-d">Empat halaman terakhir memang dibuat untuk dirobek.</p></div></div>
+</div>
+
+<!-- ============ BAB 1 ============ -->
+<div class="page">
+  <div class="opener">
+    <p class="opener-num">Bab Satu</p>
+    <h1>Kenapa 200 chat terasa berat, padahal isinya cuma 12 pertanyaan</h1>
+    <svg class="opener-art" viewBox="0 0 118 26" width="100%" height="26" aria-hidden="true">
+      <rect x="0" y="9" width="14" height="8" rx="4" fill="#d8e4d5"/>
+      <rect x="17" y="9" width="10" height="8" rx="4" fill="#d8e4d5"/>
+      <rect x="30" y="9" width="16" height="8" rx="4" fill="#d8e4d5"/>
+      <rect x="49" y="9" width="10" height="8" rx="4" fill="#d8e4d5"/>
+      <rect x="62" y="9" width="14" height="8" rx="4" fill="#1f7a4d"/>
+      <rect x="79" y="9" width="11" height="8" rx="4" fill="#d8e4d5"/>
+      <rect x="93" y="9" width="15" height="8" rx="4" fill="#d8e4d5"/>
+    </svg>
+    <p class="opener-lede">Kalau kamu pulang dengan kepala penuh padahal pekerjaanmu “cuma balas chat”, kamu tidak lemah. Kamu cuma sedang membayar ongkos yang tidak kelihatan.</p>
+  </div>
+
+  <p>Coba lakukan satu hal besok. Setiap kali kamu membalas chat, tulis satu kata di buku catatan: inti pertanyaannya. Harga. Stok. Ongkir. Garansi. Cara pesan. Komplain.</p>
+
+  <p>Di akhir hari, hitung berapa kata berbeda yang kamu tulis. Hampir semua orang yang melakukan ini menemukan angka yang sama: <strong>antara sepuluh dan lima belas</strong>. Dari 200 chat.</p>
+
+  <p>Jadi kalau isinya cuma dua belas pertanyaan, kenapa rasanya seperti dua ratus pekerjaan?</p>
+
+  <h2>Yang menguras bukan mengetik, tapi berpindah</h2>
+
+  <p>Setiap kali kamu pindah dari satu chat ke chat lain, kepalamu melakukan tiga hal sebelum sempat mengetik satu huruf pun:</p>
+
+  <ol>
+    <li>Membaca ulang untuk mengingat ini siapa dan sampai mana.</li>
+    <li>Mengambil keputusan kecil — nadanya bagaimana, boleh kasih diskon atau tidak, ini perlu naik ke atasan atau tidak.</li>
+    <li>Menahan hal yang belum selesai dari chat sebelumnya supaya tidak lupa.</li>
+  </ol>
+
+  <p>Mengetik balasan mungkin lima belas detik. Tiga hal di atas bisa empat puluh detik, dan tidak ada satu pun yang terlihat sebagai “kerja” dari luar. Inilah kenapa laporan bilang kamu menangani 200 chat, sementara badanmu bilang kamu menangani sesuatu yang jauh lebih besar.</p>
+
+  <h2>Beban keputusan, bukan beban pesan</h2>
+
+  <p>Perhatikan chat mana yang paling melelahkan hari ini. Kemungkinan besar bukan yang paling panjang. Yang melelahkan adalah yang membuatmu ragu: <em>boleh tidak ya saya janjikan besok kirim?</em></p>
+
+  <p>Keraguan itu mahal, dan dia berulang. Kalau kamu ragu soal hal yang sama lima belas kali sehari, kamu membayar ongkosnya lima belas kali.</p>
+
+  <div class="box">
+    <p class="box-label">Latihan 10 menit</p>
+    <p>Ambil tiga keputusan yang paling sering membuatmu ragu minggu ini. Tulis masing-masing di satu baris, lalu tanyakan ke atasanmu sekali — dalam satu pesan, bukan satu per satu saat kejadian.</p>
+    <p>Contoh: <em>“Untuk keterlambatan di bawah 2 hari, saya boleh langsung kasih voucher ongkir atau harus tanya dulu?”</em></p>
+    <p>Tiga jawaban akan menghapus puluhan keraguan per minggu. Ini pekerjaan sepuluh menit yang membayar dirinya sendiri di hari yang sama.</p>
+  </div>
+
+  <h2>Tiga sumber beban yang bisa kamu potong sendiri</h2>
+
+  <h3>1. Pertanyaan yang jawabannya tidak pernah berubah</h3>
+  <p>Jam buka, ongkir, cara bayar, lama pengiriman. Ini bukan pekerjaan berpikir, tapi kamu memperlakukannya seperti pekerjaan berpikir setiap kali mengetiknya ulang. Bab 2 menyelesaikan ini.</p>
+
+  <h3>2. Konteks yang hilang</h3>
+  <p>Membaca ulang percakapan dari paling atas karena kamu lupa sampai mana. Ini beban paling sunyi, dan paling sering. Bab 6 menyelesaikan ini.</p>
+
+  <h3>3. Chat yang tidak jelas statusnya</h3>
+  <p>Yang menggantung: sudah dijawab tapi belum selesai, atau menunggu orang lain tapi tidak ada yang mencatat. Kepalamu menyimpannya sebagai daftar terbuka, dan daftar terbuka itulah yang ikut pulang ke rumah. Bab 7 menyelesaikan ini.</p>
+
+  <h2>Satu hal yang harus kamu berhenti lakukan</h2>
+
+  <p>Berhenti membalas chat sesuai urutan masuk.</p>
+
+  <p>Urutan masuk itu urutan acak. Dia mencampur orang yang cuma tanya jam buka dengan orang yang sudah transfer dan panik karena belum ada konfirmasi. Membalas berurutan berarti kamu membiarkan urutan acak menentukan prioritasmu.</p>
+
+  <p>Sapu cepat dulu. Buka semua chat baru, dan pisahkan secara kasar jadi tiga: <strong>cepat</strong> (jawabannya sudah kamu hafal), <strong>butuh dipikir</strong>, dan <strong>panas</strong> (marah, atau sudah bayar tapi ada masalah). Kerjakan yang panas duluan, lalu habiskan yang cepat sekaligus, baru yang butuh dipikir.</p>
+
+  <p>Yang cepat kalau dikerjakan sekaligus terasa seperti satu pekerjaan. Kalau diselang-seling, terasa seperti tiga puluh.</p>
+
+  <div class="agnee">
+    <p class="box-label">Di Agnee, bagian ini sudah otomatis</p>
+    <p>Tiap percakapan punya ringkasan yang dibuat otomatis, jadi kamu tidak membaca ulang dari atas untuk tahu sampai mana. Kalau ringkasannya salah, perbaiki — suntinganmu tercatat dengan namamu, dan AI tetap boleh memperbarui dengan tahu bahwa manusia sudah turun tangan di situ.</p>
+  </div>
+</div>
+
+<!-- ============ BAB 2 ============ -->
+<div class="page">
+  <div class="opener">
+    <p class="opener-num">Bab Dua</p>
+    <h1>Dua belas balasan yang harusnya tidak kamu ketik ulang</h1>
+    <svg class="opener-art" viewBox="0 0 118 26" width="100%" height="26" aria-hidden="true">
+      <rect x="0" y="4" width="54" height="7" rx="3.5" fill="#d8e4d5"/>
+      <rect x="0" y="15" width="38" height="7" rx="3.5" fill="#d8e4d5"/>
+      <rect x="62" y="4" width="56" height="18" rx="4" fill="#1f7a4d" opacity="0.14"/>
+      <rect x="67" y="9" width="30" height="3.4" rx="1.7" fill="#1f7a4d"/>
+      <rect x="67" y="15" width="44" height="3.4" rx="1.7" fill="#1f7a4d" opacity="0.5"/>
+    </svg>
+    <p class="opener-lede">Template bukan malas. Template adalah cara supaya tenagamu tersisa untuk chat yang benar-benar butuh kamu.</p>
+  </div>
+
+  <p>Ada kekhawatiran yang wajar: kalau saya pakai template, saya terdengar seperti robot. Betul — kalau kamu memakainya salah.</p>
+
+  <p>Aturannya satu, dan cuma satu:</p>
+
+  <div class="box">
+    <p class="box-label">Aturan template</p>
+    <p><strong>Template menangani bagian yang sama. Kamu menangani satu kalimat yang tidak sama.</strong></p>
+    <p>Satu kalimat. Menyebut nama, menyebut barangnya, atau menyebut hal yang baru saja dia bilang. Itu sudah cukup membuat balasan terasa ditulis orang.</p>
+  </div>
+
+  <p>Berikut dua belas yang paling sering dipakai. Ganti bagian dalam kurung siku dengan milikmu, lalu simpan di catatan HP atau fitur balasan cepat di aplikasimu.</p>
+
+  <div class="tmpl">
+    <div class="tmpl-item">
+      <p class="tmpl-n">01 · Sapaan pembuka</p>
+      <p class="tmpl-q">“Halo”, “Assalamualaikum”, “Permisi kak”</p>
+      <p class="tmpl-a">Halo kak, terima kasih sudah menghubungi [Nama Toko]. Saya [Namamu], ada yang bisa saya bantu?</p>
+    </div>
+    <div class="tmpl-item">
+      <p class="tmpl-n">02 · Tanya harga</p>
+      <p class="tmpl-q">“Berapa?”, “Price list dong”</p>
+      <p class="tmpl-a">[Nama produk] harganya [harga] kak. Kalau ambil [jumlah] ke atas jadi [harga]. Mau saya bantu cek stoknya sekalian?</p>
+    </div>
+    <div class="tmpl-item">
+      <p class="tmpl-n">03 · Tanya stok</p>
+      <p class="tmpl-q">“Ready?”, “Masih ada?”</p>
+      <p class="tmpl-a">Saya cek dulu ya kak, mohon tunggu sebentar. — lalu: [Produk] warna [warna] masih ada kak, sisa [jumlah].</p>
+    </div>
+    <div class="tmpl-item">
+      <p class="tmpl-n">04 · Ongkir</p>
+      <p class="tmpl-q">“Ongkir ke [kota] berapa?”</p>
+      <p class="tmpl-a">Ke [kota] ongkirnya [nominal] kak, estimasi [lama] hari kerja. Boleh saya minta kecamatannya supaya saya hitung yang pas?</p>
+    </div>
+    <div class="tmpl-item">
+      <p class="tmpl-n">05 · Cara pesan</p>
+      <p class="tmpl-q">“Caranya gimana?”</p>
+      <p class="tmpl-a">Gampang kak, tiga langkah: 1) kakak konfirmasi [produk] dan jumlahnya, 2) saya kirimkan total plus ongkir, 3) transfer ke [rekening], lalu kirim bukti ke sini. Saya proses hari itu juga kalau sebelum jam [jam].</p>
+    </div>
+  </div>
+</div>
+
+<div class="page">
+  <div class="tmpl">
+    <div class="tmpl-item">
+      <p class="tmpl-n">06 · Konfirmasi pembayaran</p>
+      <p class="tmpl-q">Bukti transfer masuk</p>
+      <p class="tmpl-a">Sudah saya terima kak, terima kasih. Pesanan [produk] atas nama [nama] saya proses sekarang. Nomor resinya saya kirim ke sini paling lambat [waktu].</p>
+    </div>
+    <div class="tmpl-item">
+      <p class="tmpl-n">07 · Belum bayar, masih dipikir</p>
+      <p class="tmpl-q">“Nanti saya kabari”</p>
+      <p class="tmpl-a">Siap kak, saya simpan dulu ya catatannya. Kalau ada yang mau ditanya soal [produk], langsung chat sini saja, saya standby sampai jam [jam].</p>
+    </div>
+    <div class="tmpl-item">
+      <p class="tmpl-n">08 · Barang belum sampai</p>
+      <p class="tmpl-q">“Kok belum nyampe?”</p>
+      <p class="tmpl-a">Saya cek resinya sekarang kak. — lalu: Posisi paketnya sudah di [lokasi], estimasi sampai [tanggal]. Kalau sampai [tanggal] belum ada, kabari saya, saya yang urus ke ekspedisinya.</p>
+    </div>
+    <div class="tmpl-item">
+      <p class="tmpl-n">09 · Barang rusak / salah</p>
+      <p class="tmpl-q">Komplain produk</p>
+      <p class="tmpl-a">Maaf kak, itu memang tidak seharusnya. Boleh kirim foto barangnya dan foto paketnya? Begitu saya terima, saya urus penggantiannya — tidak perlu kakak yang bolak-balik.</p>
+    </div>
+    <div class="tmpl-item">
+      <p class="tmpl-n">10 · Minta diskon</p>
+      <p class="tmpl-q">“Kurang dong kak”</p>
+      <p class="tmpl-a">Untuk [produk] harganya sudah paling baik kak. Tapi kalau kakak ambil [jumlah], saya bisa [bonus/ongkir/potongan]. Mau saya hitungkan?</p>
+    </div>
+    <div class="tmpl-item">
+      <p class="tmpl-n">11 · Di luar jam kerja</p>
+      <p class="tmpl-q">Chat masuk malam</p>
+      <p class="tmpl-a">Halo kak, terima kasih sudah chat. Saya balas lengkap besok pagi mulai jam [jam] ya. Kalau urgent soal pesanan yang sudah dibayar, tulis nomor pesanannya di sini supaya saya dahulukan.</p>
+    </div>
+    <div class="tmpl-item">
+      <p class="tmpl-n">12 · Penutup percakapan</p>
+      <p class="tmpl-q">Sudah selesai</p>
+      <p class="tmpl-a">Senang bisa bantu kak. Kalau ada apa-apa soal [produk], chat sini lagi saja — riwayatnya tersimpan, jadi kakak tidak perlu cerita dari awal lagi.</p>
+    </div>
+  </div>
+
+  <h2>Tiga cara template berubah jadi robot</h2>
+
+  <p><strong>Pertama: dipakai untuk pertanyaan yang salah.</strong> Orang bertanya “kenapa punya saya beda sama yang di foto?” dan dibalas template stok. Kalau template tidak menjawab pertanyaannya, jangan dipakai — ketik sendiri.</p>
+
+  <p><strong>Kedua: dikirim tanpa satu kalimat milikmu.</strong> Template bersih tanpa penyesuaian terbaca sebagai pengumuman, bukan jawaban.</p>
+
+  <p><strong>Ketiga: dikirim terlalu cepat setelah pesan panjang.</strong> Kalau seseorang mengetik enam baris cerita lalu dibalas dua detik kemudian dengan template rapi, dia tahu kamu tidak membacanya. Tunggu sebentar. Kalau perlu, sebut satu detail dari ceritanya.</p>
+
+  <div class="compare">
+    <div class="x">
+      <p class="hd">Terdengar mesin</p>
+      <p>“Baik kak, untuk stok masih tersedia. Terima kasih sudah menghubungi kami.”</p>
+    </div>
+    <div class="v">
+      <p class="hd">Terdengar orang</p>
+      <p>“Yang ukuran 42 masih ada kak, sisa dua. Yang hitam yang tadi kakak tanya itu ya?”</p>
+    </div>
+  </div>
+
+  <p>Bedanya bukan panjang. Bedanya: kalimat kedua membuktikan ada yang membaca.</p>
+
+  <div class="agnee">
+    <p class="box-label">Di Agnee, bagian ini sudah otomatis</p>
+    <p>Dua belas jawaban ini tinggal di dokumen playbook <em>Tanya-jawab</em>, dan kamu mengisinya dengan mengobrol — Agnee bertanya, kamu menjawab seperti menjawab karyawan baru. Setelah itu AI menjawab pertanyaan berulang memakai jawabanmu, dan kamu masuk hanya saat dibutuhkan.</p>
+    <p>Kalau di satu percakapan kamu menulis jawaban yang lebih bagus dari template, Agnee menawarkan menyimpannya ke dokumen. Jawaban bagusmu tidak mati bersama satu chat.</p>
+  </div>
+</div>
+
+<!-- ============ BAB 3 ============ -->
+<div class="page">
+  <div class="opener">
+    <p class="opener-num">Bab Tiga</p>
+    <h1>Orang marah: tiga kalimat pertama yang menentukan sisanya</h1>
+    <svg class="opener-art" viewBox="0 0 118 26" width="100%" height="26" aria-hidden="true">
+      <path d="M2 22 L14 4 L26 22 Z" fill="#f0d9d6"/>
+      <rect x="13" y="10" width="2" height="7" rx="1" fill="#9b3228"/>
+      <rect x="13" y="19" width="2" height="2" rx="1" fill="#9b3228"/>
+      <rect x="36" y="9" width="24" height="8" rx="4" fill="#d8e4d5"/>
+      <rect x="64" y="9" width="24" height="8" rx="4" fill="#d8e4d5"/>
+      <rect x="92" y="9" width="26" height="8" rx="4" fill="#1f7a4d"/>
+    </svg>
+    <p class="opener-lede">Orang yang marah tidak sedang meminta penjelasan. Dia sedang meminta bukti bahwa ada yang mengerti. Beri itu dulu, baru yang lain.</p>
+  </div>
+
+  <p>Ini bab yang paling menguras, jadi mari langsung ke intinya. Tiga kalimat pertamamu menentukan apakah percakapan ini selesai dalam lima menit atau lima hari.</p>
+
+  <h2>Urutannya: akui, sebut kerugiannya, satu langkah</h2>
+
+  <h3>Kalimat 1 — Akui faktanya, bukan perasaannya</h3>
+  <p>Sebut apa yang terjadi, dengan kalimat yang jelas. Jangan mulai dengan “mohon maaf atas ketidaknyamanannya”. Kalimat itu tidak menyebut apa pun, dan semua orang sudah tahu itu kalimat wajib.</p>
+  <p class="note">Bukan: “Mohon maaf atas ketidaknyamanannya kak.”<br>Tapi: “Paketnya sudah lewat empat hari dari estimasi. Itu terlalu lama.”</p>
+
+  <h3>Kalimat 2 — Sebut kerugiannya</h3>
+  <p>Ini kalimat yang paling sering dilewati, dan yang paling menenangkan. Tunjukkan kamu mengerti apa yang <em>dia</em> rugikan, bukan apa yang merepotkan kantormu.</p>
+  <p class="note">“Kakak butuh ini buat hari Sabtu, dan sekarang sudah lewat.”</p>
+
+  <h3>Kalimat 3 — Satu langkah konkret, dengan waktu</h3>
+  <p>Satu. Bukan tiga pilihan. Orang yang marah tidak mau disuruh memilih — dia mau diberi tahu apa yang akan terjadi.</p>
+  <p class="note">“Saya urus ke ekspedisinya sekarang dan saya kabari kakak lagi sebelum jam 4 sore, ada atau tidak ada hasilnya.”</p>
+
+  <div class="box">
+    <p class="box-label">Kenapa “sebelum jam 4, ada atau tidak ada hasilnya” penting</p>
+    <p>Yang membuat orang marah lagi bukan masalahnya, tapi tidak dikabari. Kalau kamu janji mengabari walaupun belum ada hasil, kamu memindahkan beban menunggu dari dia ke kamu. Itu yang dia mau.</p>
+    <p>Syaratnya cuma satu: kamu benar-benar mengabari. Janji kabar yang dilanggar jauh lebih merusak daripada tidak berjanji sama sekali.</p>
+  </div>
+</div>
+
+<div class="page">
+  <h2>Contoh lengkap</h2>
+
+  <div class="script">
+    <p class="who">Pelanggan</p>
+    <p><span class="said">Ini gimana sih?? udah 4 hari lewat estimasi, saya butuh sabtu kemarin buat kondangan. Uang saya udah masuk tapi barang gak ada. Tolong dong profesional dikit</span></p>
+    <p class="who">Balasan yang memperburuk</p>
+    <p><span class="said">Mohon maaf atas ketidaknyamanannya kak. Untuk pengiriman merupakan tanggung jawab pihak ekspedisi. Silakan kakak cek resi di website ekspedisi ya.</span></p>
+    <p class="who">Balasan yang menenangkan</p>
+    <p><span class="said">Paketnya sudah lewat empat hari dari estimasi, dan itu terlalu lama kak. Kakak butuh buat Sabtu kemarin, jadi sekarang sudah tidak kepakai untuk acaranya — saya mengerti kenapa kakak kesal.<br><br>Saya urus ke ekspedisinya sekarang. Saya kabari kakak lagi sebelum jam 4 sore, ada hasil atau belum ada hasil.</span></p>
+  </div>
+
+  <p>Perhatikan apa yang <em>tidak</em> ada di balasan kedua: tidak ada pembelaan, tidak ada penjelasan soal ekspedisi, tidak ada permintaan supaya dia mengecek sendiri. Semua itu boleh menyusul — setelah dia tenang.</p>
+
+  <h2>Lima kalimat yang menyulut, dan gantinya</h2>
+
+  <div class="compare">
+    <div class="x"><p class="hd">Jangan</p><p>“Sesuai kebijakan kami…”</p></div>
+    <div class="v"><p class="hd">Ganti</p><p>“Yang bisa saya lakukan sekarang adalah…”</p></div>
+  </div>
+  <div class="compare">
+    <div class="x"><p class="hd">Jangan</p><p>“Kakak sudah baca syarat &amp; ketentuannya?”</p></div>
+    <div class="v"><p class="hd">Ganti</p><p>“Ini bagian yang memang tidak jelas dari kami. Saya jelaskan.”</p></div>
+  </div>
+  <div class="compare">
+    <div class="x"><p class="hd">Jangan</p><p>“Itu bukan ranah saya kak.”</p></div>
+    <div class="v"><p class="hd">Ganti</p><p>“Saya bawa ke tim yang menangani, dan saya yang kabari kakak hasilnya.”</p></div>
+  </div>
+  <div class="compare">
+    <div class="x"><p class="hd">Jangan</p><p>“Mohon bersabar ya kak.”</p></div>
+    <div class="v"><p class="hd">Ganti</p><p>“Saya kabari lagi sebelum jam [jam].”</p></div>
+  </div>
+  <div class="compare">
+    <div class="x"><p class="hd">Jangan</p><p>“Baru kali ini ada komplain seperti ini.”</p></div>
+    <div class="v"><p class="hd">Ganti</p><p>“Ini tidak seharusnya terjadi, dan saya catat supaya tidak terulang.”</p></div>
+  </div>
+
+  <h2>Kalau kamu ikut terbawa</h2>
+
+  <p>Akan ada hari di mana satu chat membuat dadamu panas. Itu normal, dan bukan tanda kamu tidak cocok bekerja di sini.</p>
+
+  <p>Yang berbahaya bukan marahnya. Yang berbahaya adalah membalas dalam keadaan itu.</p>
+
+  <div class="box">
+    <p class="box-label">Aturan sembilan puluh detik</p>
+    <p>Ketik balasanmu — yang jujur, yang pedas, yang ingin kamu kirim. <strong>Jangan di kolom chat.</strong> Ketik di notes HP, atau di kertas.</p>
+    <p>Lalu tinggalkan sembilan puluh detik. Berdiri, minum, buka chat lain.</p>
+    <p>Kembali, baca yang kamu tulis, dan ambil satu-satunya bagian yang berisi fakta. Buang sisanya. Fakta itu bahan balasanmu.</p>
+    <p>Sembilan puluh detik ini bukan soal sopan santun. Ini soal kamu tidak menghabiskan sisa harimu untuk membereskan satu kalimat.</p>
+  </div>
+
+  <p>Dan satu hal yang perlu kamu dengar: ada pelanggan yang memang kasar, dan itu bukan kegagalanmu. Tugasmu menyelesaikan masalahnya, bukan memperbaiki cara dia bicara. Kalau sudah melewati batas — menghina, mengancam — itu bukan lagi urusanmu sendiri. Bawa ke atasanmu. Itu gunanya ada atasan.</p>
+
+  <div class="agnee">
+    <p class="box-label">Di Agnee, bagian ini sudah otomatis</p>
+    <p>Begitu kamu mulai mengetik di percakapan yang sedang dijaga AI, chat itu jadi milikmu — AI mundur, jadi tidak ada balasan otomatis yang nyelonong ke tengah komplain yang sedang kamu tangani.</p>
+    <p>Kalau kamu perlu menjauh sembilan puluh detik, chat tetap milikmu. Baru setelah tiga puluh menit tanpa aktivitas, AI mengambilnya lagi supaya pelanggan tidak menunggu orang yang sudah pergi.</p>
+  </div>
+</div>
+
+<!-- ============ BAB 4 ============ -->
+<div class="page">
+  <div class="opener">
+    <p class="opener-num">Bab Empat</p>
+    <h1>Membaca sinyal siap beli — kapan kirim link, kapan justru jangan</h1>
+    <svg class="opener-art" viewBox="0 0 118 26" width="100%" height="26" aria-hidden="true">
+      <rect x="0" y="11" width="18" height="4" rx="2" fill="#d8e4d5"/>
+      <rect x="22" y="11" width="18" height="4" rx="2" fill="#d8e4d5"/>
+      <rect x="44" y="11" width="18" height="4" rx="2" fill="#d8e4d5"/>
+      <circle cx="72" cy="13" r="5" fill="#1f7a4d"/>
+      <rect x="82" y="6" width="36" height="14" rx="4" fill="#1f7a4d" opacity="0.14"/>
+      <rect x="87" y="11" width="26" height="4" rx="2" fill="#1f7a4d"/>
+    </svg>
+    <p class="opener-lede">Mengirim link terlalu cepat bukan cuma tidak sopan. Itu cara paling efektif menghentikan percakapan yang tadinya sedang berjalan baik.</p>
+  </div>
+
+  <p>Ada satu kesalahan yang berulang di hampir semua tim CS, dan ini kesalahan yang justru dilakukan orang rajin: mengirim link pembayaran begitu pelanggan menyebut kata “harga”.</p>
+
+  <p>Rasanya seperti sigap. Yang terjadi di sisi sana: seseorang baru bertanya, dan tiba-tiba disodori formulir bayar untuk sesuatu yang belum dia pahami. Hampir semua orang berhenti membalas di titik itu.</p>
+
+  <h2>Empat sinyal siap beli yang asli</h2>
+
+  <ol>
+    <li><strong>Dia menyebut spesifik.</strong> Bukan “berapa harganya”, tapi “yang ukuran 42 warna hitam berapa”. Spesifik artinya dia sudah memilih di kepalanya.</li>
+    <li><strong>Dia bertanya soal sesudah membeli.</strong> Cara bayar, lama kirim, garansi, bisa tukar atau tidak. Orang tidak menanyakan ini kalau belum membayangkan barangnya ada di tangannya.</li>
+    <li><strong>Dia menyebut waktu atau keperluan.</strong> “Buat hadiah minggu depan”, “buat acara Sabtu”. Ada tenggat, dan tenggat itu yang akan menutup penjualannya, bukan kamu.</li>
+    <li><strong>Dia membandingkan dua barangmu.</strong> Bukan membandingkan kamu dengan toko lain — membandingkan dua pilihan di tokomu. Artinya keputusannya sudah bukan “beli atau tidak”, tapi “yang mana”.</li>
+  </ol>
+
+  <h2>Tiga sinyal palsu</h2>
+
+  <ul>
+    <li><strong>“Ada?”</strong> tanpa apa-apa lagi. Ini sapaan, bukan minat.</li>
+    <li><strong>“Berapa?”</strong> di pesan pertama. Ini orang sedang survei, sering di lima toko sekaligus.</li>
+    <li><strong>Balasan cepat dan ramah.</strong> Ramah bukan sinyal beli. Banyak orang ramah lalu menghilang, dan banyak orang cuek lalu transfer.</li>
+  </ul>
+</div>
+
+<div class="page">
+  <h2>Aturan link</h2>
+
+  <div class="box">
+    <p class="box-label">Aturan tunggal</p>
+    <p><strong>Jangan pernah mengirim link pembayaran sebelum orang itu bisa menyebut sendiri apa yang dia beli dan berapa harganya.</strong></p>
+    <p>Kalau dia belum bisa menyebutkannya, link-mu bukan kemudahan. Itu hambatan.</p>
+  </div>
+
+  <p>Dan kalau kamu memang mengirim link, jangan pernah mengirimnya sendirian. Link tanpa kalimat adalah tagihan. Link dengan satu kalimat adalah bantuan.</p>
+
+  <div class="compare">
+    <div class="x">
+      <p class="hd">Link telanjang</p>
+      <p>[link]</p>
+    </div>
+    <div class="v">
+      <p class="hd">Link berpakaian</p>
+      <p>“Ini buat [produk] warna hitam, total [nominal] sudah termasuk ongkir ke [kota]. Kalau sudah, kirim buktinya ke sini ya kak.”</p>
+    </div>
+  </div>
+
+  <p>Ada kesalahan kembarannya, dan ini lebih halus: <strong>menyebut penawaran tanpa memberi cara mengambilnya.</strong> Kamu bilang “ada paket [nominal]”, pelanggan menjawab “caranya gimana kak?”, dan percakapan berhenti di situ karena kamu keburu pindah ke chat lain.</p>
+
+  <p>Aturannya: kalau kamu menyebut angka, sebutkan juga langkah berikutnya di pesan yang sama. Selalu.</p>
+
+  <h2>Kalau sinyalnya belum ada</h2>
+
+  <p>Jangan mendorong. Gali. Satu pertanyaan yang tepat lebih berguna daripada tiga paragraf keunggulan produk.</p>
+
+  <p>Tiga pertanyaan yang hampir selalu bekerja:</p>
+
+  <ol>
+    <li>“Ini buat dipakai sendiri atau buat hadiah kak?”</li>
+    <li>“Kakak butuhnya kapan?”</li>
+    <li>“Ada yang sudah kakak lihat sebelumnya, atau saya bantu carikan dari awal?”</li>
+  </ol>
+
+  <p>Ketiganya punya sifat yang sama: jawabannya memberitahumu apa yang harus kamu tawarkan, dan tidak satu pun terdengar seperti jualan.</p>
+
+  <div class="agnee">
+    <p class="box-label">Di Agnee, bagian ini sudah otomatis</p>
+    <p>Cara menggali, cara menangani keberatan, dan cara menutup masing-masing punya dokumen playbook sendiri — <em>Discovery</em>, <em>Objection</em>, <em>Closing</em>. AI mengikuti dokumen itu saat kamu sedang menangani chat lain, dengan kalimat yang kamu sendiri tentukan.</p>
+    <p>Orang yang sudah menunjukkan minat masuk ke Lead List, dan bisa diekspor ke XLSX atau CSV kapan saja — jadi daftar “calon pembeli” tidak lagi tinggal di kepalamu.</p>
+  </div>
+</div>
+
+<!-- ============ BAB 5 ============ -->
+<div class="page">
+  <div class="opener">
+    <p class="opener-num">Bab Lima</p>
+    <h1>Follow-up yang tidak terasa nagih</h1>
+    <svg class="opener-art" viewBox="0 0 118 26" width="100%" height="26" aria-hidden="true">
+      <rect x="0" y="9" width="20" height="8" rx="4" fill="#1f7a4d"/>
+      <path d="M24 13 h10" stroke="#d8e4d5" stroke-width="1.6" stroke-dasharray="2 2"/>
+      <rect x="38" y="9" width="20" height="8" rx="4" fill="#d8e4d5"/>
+      <path d="M62 13 h14" stroke="#d8e4d5" stroke-width="1.6" stroke-dasharray="2 2"/>
+      <rect x="80" y="9" width="20" height="8" rx="4" fill="#d8e4d5"/>
+      <circle cx="112" cy="13" r="3" fill="#1f7a4d"/>
+    </svg>
+    <p class="opener-lede">Beda menyusul dan menagih cuma satu hal: kamu datang membawa apa.</p>
+  </div>
+
+  <p>Kebanyakan follow-up gagal bukan karena terlalu sering, tapi karena kosong.</p>
+
+  <p>“Halo kak, jadi order?” tidak membawa apa pun. Dia cuma memindahkan beban ke pelanggan: <em>kamu yang harus menjawab saya</em>. Dikirim dua kali, itu jadi tekanan. Dikirim tiga kali, orang memblokir nomormu.</p>
+
+  <div class="box">
+    <p class="box-label">Aturan follow-up</p>
+    <p><strong>Setiap follow-up harus membawa satu hal baru.</strong> Informasi baru, batas waktu yang nyata, atau kemudahan baru. Kalau kamu tidak punya satu pun dari tiga itu, jangan kirim — belum waktunya.</p>
+  </div>
+
+  <h2>Tiga bentuk yang bekerja</h2>
+
+  <h3>1. Membawa informasi baru</h3>
+  <p class="note">“Kak, yang ukuran 42 tadi tinggal satu. Saya tahan sampai besok sore kalau kakak masih mau.”</p>
+  <p>Ini bukan tekanan buatan kalau memang benar. Kalau tidak benar, jangan ditulis — sekali ketahuan, semua kalimatmu yang lain ikut tidak dipercaya.</p>
+
+  <h3>2. Membawa kemudahan</h3>
+  <p class="note">“Kak, saya sudah hitungkan totalnya termasuk ongkir ke Bekasi: [nominal]. Kalau cocok, tinggal transfer ke [rekening] dan kirim buktinya ke sini.”</p>
+  <p>Kamu menghapus satu pekerjaan dari pundaknya. Itu alasan yang sah untuk muncul lagi.</p>
+
+  <h3>3. Menutup dengan sopan</h3>
+  <p class="note">“Kak, saya tutup dulu catatan pesanannya ya supaya tidak menuh-menuhin. Kalau nanti berubah pikiran, chat sini lagi saja — datanya masih saya simpan.”</p>
+  <p>Ini follow-up terakhir, dan justru yang paling sering menghasilkan balasan. Orang membalas pesan yang tidak menuntut.</p>
+
+  <h2>Jarak</h2>
+
+  <p>Aturan yang aman untuk kebanyakan toko:</p>
+
+  <ul>
+    <li>Follow-up pertama: <strong>sehari</strong> setelah percakapan berhenti.</li>
+    <li>Follow-up kedua: <strong>tiga hari</strong> setelah yang pertama.</li>
+    <li>Follow-up ketiga: penutupan sopan, lalu <strong>berhenti</strong>.</li>
+  </ul>
+
+  <p>Tiga, lalu berhenti. Bukan karena tiga angka keramat, tapi karena orang yang tidak menjawab tiga pesan yang masing-masing membawa sesuatu sudah memberimu jawaban.</p>
+
+  <p>Dan jangan pernah mengirim dua follow-up di hari yang sama. Itu selalu terbaca sebagai desakan, tidak peduli seberapa sopan kalimatnya.</p>
+
+  <div class="agnee">
+    <p class="box-label">Di Agnee, bagian ini sudah otomatis</p>
+    <p>Follow-up berjalan berjadwal, dan sebelum satu pesan boleh berangkat dia harus lolos tiga pintu: masih di dalam jam kirim yang ditentukan, belum melewati plafon hari itu, dan sudah cukup jauh jaraknya dari pesan sebelumnya.</p>
+    <p>Supervisor yang mau mengirim manual di luar jadwal tetap bisa — jaraknya diperpendek, tidak dihapus. Jadi daftar “nanti dikabarin lagi” berhenti tinggal di kepalamu sampai jam sebelas malam.</p>
+  </div>
+</div>
+
+<!-- ============ BAB 6 ============ -->
+<div class="page">
+  <div class="opener">
+    <p class="opener-num">Bab Enam</p>
+    <h1>Serah terima ke shift berikutnya tanpa kehilangan konteks</h1>
+    <svg class="opener-art" viewBox="0 0 118 26" width="100%" height="26" aria-hidden="true">
+      <rect x="0" y="5" width="44" height="16" rx="4" fill="#d8e4d5"/>
+      <rect x="5" y="9" width="26" height="3" rx="1.5" fill="#ffffff"/>
+      <rect x="5" y="14" width="34" height="3" rx="1.5" fill="#ffffff"/>
+      <path d="M50 13 h18 m-5 -4 l5 4 l-5 4" stroke="#1f7a4d" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      <rect x="74" y="5" width="44" height="16" rx="4" fill="#1f7a4d" opacity="0.14"/>
+      <rect x="79" y="9" width="26" height="3" rx="1.5" fill="#1f7a4d"/>
+      <rect x="79" y="14" width="34" height="3" rx="1.5" fill="#1f7a4d" opacity="0.5"/>
+    </svg>
+    <p class="opener-lede">“Baca aja chat-nya” bukan serah terima. Itu memindahkan pekerjaanmu ke orang berikutnya, dan pelangganlah yang membayar ongkosnya.</p>
+  </div>
+
+  <p>Kamu sudah pernah jadi korbannya. Kamu masuk shift, buka chat, dan menemukan percakapan sepanjang empat puluh pesan. Kamu membacanya dari atas, menghabiskan tiga menit, lalu tetap tidak yakin apa yang sudah dijanjikan rekanmu.</p>
+
+  <p>Jadi kamu bertanya ke pelanggan — dan di sinilah kepercayaan hilang. Bagi pelanggan, dia baru saja menjelaskan semuanya. Sekarang dia diminta mengulang. Dari sudut pandangnya, kamu dan rekanmu bukan satu tim.</p>
+
+  <h2>Catatan empat baris</h2>
+
+  <p>Sebelum kamu meninggalkan sebuah percakapan yang belum selesai, tulis empat baris. Di kolom catatan, di label, atau di grup tim — di mana pun, asal bukan di kepalamu.</p>
+
+  <div class="box">
+    <p class="box-label">Format</p>
+    <p><strong>Siapa:</strong> nama, dan barang atau masalah yang dibahas.<br>
+    <strong>Mau apa:</strong> yang dia inginkan, dengan kalimatnya sendiri kalau bisa.<br>
+    <strong>Sudah dijanjikan:</strong> apa pun yang kamu janjikan, lengkap dengan waktunya.<br>
+    <strong>Langkah berikutnya:</strong> satu tindakan, dan siapa yang melakukannya.</p>
+  </div>
+
+  <div class="script">
+    <p class="who">Contoh</p>
+    <p><span class="said"><strong>Siapa:</strong> Bu Rina — sepatu 42 hitam, sudah transfer kemarin.<br>
+    <strong>Mau apa:</strong> barang sampai sebelum Sabtu, buat kondangan.<br>
+    <strong>Sudah dijanjikan:</strong> saya janji kabari hasil cek ekspedisi sebelum jam 4 sore hari ini.<br>
+    <strong>Langkah berikutnya:</strong> telepon ekspedisi, lalu kabari Bu Rina — siapa pun yang pegang shift sore.</span></p>
+  </div>
+
+  <p>Empat puluh detik menulisnya. Menghemat tiga menit untuk rekanmu, dan menghemat rasa percaya yang jauh lebih mahal dari itu.</p>
+
+  <h2>Yang tidak perlu ditulis</h2>
+
+  <p>Jangan menyalin isi percakapan. Jangan menuliskan pendapatmu tentang pelanggannya. Jangan menulis hal yang bisa dibaca sendiri dalam dua detik.</p>
+
+  <p>Catatan serah terima bukan ringkasan percakapan. Dia hanya menjawab satu pertanyaan: <strong>apa yang harus dilakukan orang berikutnya, dan apa yang sudah terlanjur dijanjikan.</strong></p>
+
+  <h2>Satu janji yang harus selalu ditulis</h2>
+
+  <p>Kalau kamu menjanjikan waktu — “saya kabari sebelum jam 4” — itu <em>wajib</em> masuk catatan, walaupun kamu yakin sempat mengerjakannya sendiri.</p>
+
+  <p>Janji waktu yang lewat tanpa kabar adalah penyebab komplain kedua yang paling sering, dan komplain kedua selalu lebih panas daripada yang pertama. Yang pertama tentang barang. Yang kedua tentang kamu.</p>
+
+  <div class="agnee">
+    <p class="box-label">Di Agnee, bagian ini sudah otomatis</p>
+    <p>Tiap percakapan punya ringkasan dan label yang dibuat AI, jadi shift berikutnya tidak membaca dari atas. Kalau ringkasannya kurang tepat, siapa pun boleh menyuntingnya — dan suntingan itu tercatat lengkap dengan nama dan jamnya.</p>
+    <p>Tiap balasan yang keluar juga membawa penulisnya: AI, atau agent yang mana. Pertanyaan “ini tadi siapa yang janji?” punya jawaban.</p>
+  </div>
+</div>
+
+<!-- ============ BAB 7 ============ -->
+<div class="page">
+  <div class="opener">
+    <p class="opener-num">Bab Tujuh</p>
+    <h1>Menutup hari: apa yang boleh ditinggal untuk besok</h1>
+    <svg class="opener-art" viewBox="0 0 118 26" width="100%" height="26" aria-hidden="true">
+      <rect x="0" y="4" width="34" height="18" rx="4" fill="#1f7a4d" opacity="0.14"/>
+      <rect x="6" y="10" width="22" height="3" rx="1.5" fill="#1f7a4d"/>
+      <rect x="6" y="15" width="14" height="3" rx="1.5" fill="#1f7a4d" opacity="0.5"/>
+      <rect x="42" y="4" width="34" height="18" rx="4" fill="#d8e4d5"/>
+      <rect x="48" y="10" width="22" height="3" rx="1.5" fill="#ffffff"/>
+      <rect x="48" y="15" width="14" height="3" rx="1.5" fill="#ffffff"/>
+      <rect x="84" y="4" width="34" height="18" rx="4" fill="#f2f7f0"/>
+      <path d="M92 13 l4 4 l8 -8" stroke="#1f7a4d" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    <p class="opener-lede">Yang ikut pulang bersamamu bukan chat yang belum dibalas. Yang ikut pulang adalah chat yang tidak jelas statusnya.</p>
+  </div>
+
+  <p>Kepala manusia cukup damai dengan pekerjaan yang belum selesai, asal dia tahu pekerjaan itu <em>ada di suatu tempat</em>. Yang membuatnya terus berputar adalah pekerjaan yang belum selesai <strong>dan</strong> belum tercatat. Kepalamu terpaksa jadi tempat penyimpanannya, dan tempat penyimpanan tidak bisa dimatikan jam enam sore.</p>
+
+  <p>Jadi menutup hari bukan soal menghabiskan semua chat. Itu tidak akan pernah terjadi. Menutup hari adalah soal memindahkan yang tersisa dari kepalamu ke tempat lain.</p>
+
+  <h2>Triase sepuluh menit</h2>
+
+  <p>Sepuluh menit sebelum selesai, berhenti membalas. Buka semua yang masih terbuka, dan masukkan tiap percakapan ke salah satu dari tiga kotak.</p>
+
+  <div class="box">
+    <p class="box-label">Kotak 1 — Menunggu saya</p>
+    <p>Ada yang harus <em>kamu</em> lakukan. Ini satu-satunya kotak yang benar-benar penting. Tulis catatan empat baris untuk tiap isinya (Bab 6), lalu tinggalkan.</p>
+  </div>
+
+  <div class="box">
+    <p class="box-label">Kotak 2 — Menunggu mereka</p>
+    <p>Bolanya di tangan pelanggan. Tidak perlu apa-apa darimu. Beri label, dan <strong>berhenti memikirkannya</strong> — kalau perlu follow-up, Bab 5 sudah mengatur jadwalnya.</p>
+  </div>
+
+  <div class="box">
+    <p class="box-label">Kotak 3 — Selesai</p>
+    <p>Tutup. Jangan biarkan percakapan selesai tetap terlihat terbuka; dia memakan perhatian yang sama dengan pekerjaan sungguhan.</p>
+  </div>
+
+  <p>Kalau kotak pertama isinya lebih dari lima, itu bukan masalah kerajinanmu — itu masalah jumlah orang, dan itu harus dibicarakan dengan atasanmu memakai angka, bukan perasaan. Catat jumlahnya selama seminggu, lalu tunjukkan angkanya.</p>
+
+  <h2>Kalimat penutup hari</h2>
+
+  <p>Untuk chat di kotak pertama yang tidak selesai hari ini, kirim satu kalimat sebelum pulang:</p>
+
+  <p class="note">“Kak, ini belum selesai hari ini. Saya lanjutkan besok pagi dan saya kabari sebelum jam [jam].”</p>
+
+  <p>Satu kalimat ini menghentikan komplain besok pagi, dan lebih penting lagi: dia memindahkan pekerjaan menunggu dari kepalamu ke catatan.</p>
+
+  <h2>Yang tidak boleh kamu bawa pulang</h2>
+
+  <p>Satu chat kasar tidak boleh memakai jatah malammu. Ini bukan nasihat motivasi, ini soal aritmetika: kamu akan membuka 200 chat lagi besok, dan kamu butuh tenaga untuk itu.</p>
+
+  <p>Kalau ada satu percakapan yang terus terputar di kepalamu setelah pulang, tulis satu baris di notes: <em>apa yang sebenarnya belum selesai dari ini.</em> Hampir selalu jawabannya berupa satu tindakan kecil yang bisa dikerjakan besok dalam dua menit. Begitu tertulis, kepalamu melepaskannya.</p>
+
+  <div class="agnee">
+    <p class="box-label">Di Agnee, bagian ini sudah otomatis</p>
+    <p>Percakapan yang kamu ambil alih tidak menggantung selamanya: tiga puluh menit tanpa aktivitas, dia kembali ke AI — jadi pelanggan tidak menunggu orang yang sudah pulang, dan kamu tidak perlu menutup semuanya sendiri sebelum pergi.</p>
+    <p>Label dan ringkasan menggantikan tiga kotak di atas, dan keduanya boleh kamu perbaiki dengan tangan sendiri.</p>
+  </div>
+</div>
+
+<!-- ============ BAB 8 — CHECKLIST ============ -->
+<div class="page">
+  <div class="opener">
+    <p class="opener-num">Bab Delapan</p>
+    <h1>Checklist siap cetak</h1>
+    <svg class="opener-art" viewBox="0 0 118 26" width="100%" height="26" aria-hidden="true">
+      <rect x="0" y="6" width="5" height="5" rx="1.2" fill="none" stroke="#1f7a4d" stroke-width="1.2"/>
+      <rect x="9" y="7" width="40" height="3" rx="1.5" fill="#d8e4d5"/>
+      <rect x="0" y="15" width="5" height="5" rx="1.2" fill="none" stroke="#1f7a4d" stroke-width="1.2"/>
+      <rect x="9" y="16" width="52" height="3" rx="1.5" fill="#d8e4d5"/>
+      <rect x="68" y="4" width="50" height="18" rx="4" fill="#1f7a4d" opacity="0.1"/>
+      <path d="M76 13 l4 4 l8 -8" stroke="#1f7a4d" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    <p class="opener-lede">Empat halaman terakhir memang dibuat untuk dicetak dan ditempel di dekat tempatmu bekerja.</p>
+  </div>
+
+  <h2>Buka hari — 5 menit</h2>
+  <ul class="check">
+    <li>Sapu semua chat baru tanpa membalas satu pun dulu.</li>
+    <li>Tandai yang <strong>panas</strong>: marah, atau sudah bayar tapi bermasalah.</li>
+    <li>Kerjakan yang panas duluan, sampai habis.</li>
+    <li>Baru habiskan yang <strong>cepat</strong> sekaligus, dalam satu tarikan.</li>
+    <li>Cek catatan serah terima dari shift sebelumnya.</li>
+    <li>Cek janji waktu yang jatuh tempo hari ini.</li>
+  </ul>
+
+  <h2>Tiap balasan — 5 detik</h2>
+  <ul class="check">
+    <li>Apakah ini menjawab yang dia tanyakan, bukan yang mirip?</li>
+    <li>Ada satu kalimat yang hanya berlaku untuk dia?</li>
+    <li>Kalau saya menyebut angka, sudahkah saya sebutkan langkah berikutnya?</li>
+    <li>Kalau saya menjanjikan waktu, sudahkah saya catat?</li>
+  </ul>
+
+  <h2>Tutup hari — 10 menit</h2>
+  <ul class="check">
+    <li>Berhenti membalas sepuluh menit sebelum selesai.</li>
+    <li>Pisahkan sisa chat: menunggu saya / menunggu mereka / selesai.</li>
+    <li>Tulis catatan empat baris untuk tiap isi kotak “menunggu saya”.</li>
+    <li>Kirim kalimat penutup hari ke yang belum selesai.</li>
+    <li>Tutup yang sudah selesai supaya tidak ikut terlihat besok.</li>
+    <li>Catat berapa isi kotak “menunggu saya” hari ini.</li>
+  </ul>
+</div>
+
+<div class="page">
+  <h2>Checklist komplain</h2>
+
+  <p class="note">Tempel yang ini paling dekat.</p>
+
+  <ul class="check">
+    <li><strong>Kalimat 1:</strong> sebut faktanya. Bukan “mohon maaf atas ketidaknyamanannya”.</li>
+    <li><strong>Kalimat 2:</strong> sebut kerugian <em>dia</em>, bukan kerepotan kantor.</li>
+    <li><strong>Kalimat 3:</strong> satu langkah, dengan waktu. Bukan tiga pilihan.</li>
+    <li>Janji kabar walaupun belum ada hasil — lalu tepati.</li>
+    <li>Tidak ada pembelaan sebelum dia tenang.</li>
+    <li>Kalau dadaku panas: ketik di notes, tunggu 90 detik, ambil faktanya saja.</li>
+    <li>Kalau sudah menghina atau mengancam: naikkan ke atasan. Bukan urusanku sendiri.</li>
+  </ul>
+
+  <h2>Checklist sebelum kirim link</h2>
+
+  <ul class="check">
+    <li>Dia bisa menyebut sendiri apa yang dia beli?</li>
+    <li>Dia tahu total harganya, termasuk ongkir?</li>
+    <li>Link-ku disertai kalimat, bukan dikirim telanjang?</li>
+    <li>Aku sudah sebutkan apa yang harus dia lakukan setelah bayar?</li>
+  </ul>
+
+  <h2>Checklist follow-up</h2>
+
+  <ul class="check">
+    <li>Aku membawa satu hal baru: informasi, batas waktu nyata, atau kemudahan?</li>
+    <li>Kalau tidak ada satu pun — aku tidak mengirim.</li>
+    <li>Jarak dari pesan terakhir sudah cukup? (1 hari, lalu 3 hari)</li>
+    <li>Ini bukan follow-up kedua di hari yang sama?</li>
+    <li>Kalau ini yang ketiga: ini penutupan sopan, lalu aku berhenti.</li>
+  </ul>
+</div>
+
+<!-- ============ PENUTUP ============ -->
+<div class="page">
+  <p class="front-title">Satu hal terakhir</p>
+
+  <p>Pekerjaanmu sering dianggap pekerjaan mengetik. Bukan.</p>
+
+  <p>Kamu memutuskan kapan seseorang boleh didorong dan kapan harus diberi ruang. Kamu menahan kemarahan orang asing supaya tidak jadi kemarahan yang lebih besar. Kamu mengingat hal-hal yang tidak dicatat siapa pun. Dan kamu melakukannya dua ratus kali sehari, sambil tetap terdengar ramah.</p>
+
+  <p>Yang membuat pekerjaan ini berat bukan kesulitannya, tapi kesunyiannya — hampir tidak ada yang melihat bagian yang sulitnya.</p>
+
+  <p>Delapan bab tadi tidak membuat pekerjaanmu jadi ringan. Yang mereka lakukan lebih kecil dari itu: memindahkan beban yang tidak perlu kamu pikul, supaya tenagamu tersisa untuk bagian yang memang butuh manusia.</p>
+
+  <p>Itu bagian yang tidak akan pernah bisa digantikan. Jaga tenagamu untuk itu.</p>
+
+  <div class="agnee">
+    <p class="box-label">Tentang Agnee</p>
+    <p>Agnee menangani percakapan WhatsApp pelanggan untuk perusahaan — dan menopang orang yang menanganinya. Satu inbox untuk seluruh tim, pengambilalihan otomatis saat agent mulai mengetik, follow-up berjadwal dengan pengaman, dan playbook yang diisi lewat obrolan, bukan diketik.</p>
+    <p>agnee.agnive.co</p>
+  </div>
+
+  <p class="note" style="margin-top:8mm">Panduan ini boleh dibagikan utuh ke sesama CS, gratis. Isinya berlaku dengan alat apa pun, termasuk kalau kantormu tidak memakai Agnee.</p>
+</div>
+
+</body>
+</html>

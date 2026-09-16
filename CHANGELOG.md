@@ -2,11 +2,9 @@
 
 ### Planned
 
-- **Isi kedua umpan landing page belum ada.** Halamannya sudah menawarkan ebook
-  "Balas Chat Tanpa Kehabisan Diri Sendiri" dan webinar "Jualan Apa Pun dalam 15
-  Menit Chat", tapi naskah ebook, materi webinar, dan tanggal webinarnya belum
-  dibuat. Jangan menayangkan halaman ini ke publik sebelum keduanya ada, atau
-  pengunjung menekan tombol untuk sesuatu yang tidak bisa dikirim.
+- **Tanggal webinar belum ditentukan.** Materinya sudah ada, tapi jadwalnya
+  belum — halaman sengaja tidak menyebut tanggal apa pun, jadi tidak ada janji
+  yang dilanggar. Tentukan tanggalnya sebelum mengiklankan halaman ini.
 - **Produk Mayar Rp0 untuk kedua umpan belum dibuat.** Konstanta `MAYAR_EBOOK`
   dan `MAYAR_WEBINAR` di `LandingPage.tsx` sengaja dikosongkan: selama kosong,
   tombolnya jatuh ke jalur WhatsApp yang memang sudah hidup. Perhatikan bahwa
@@ -16,6 +14,18 @@
   sebelum penampungan email lewat Mayar dihidupkan.
 
 ### Added
+
+- **Ebook CS "Balas Chat Tanpa Kehabisan Diri Sendiri"** — 38 halaman A5, delapan
+  bab, untuk orang yang membalas chat setiap hari dan bukan untuk pemilik bisnis:
+  beban keputusan, dua belas template, menghadapi orang marah, membaca sinyal
+  siap beli, follow-up yang tidak menagih, serah terima antar shift, menutup
+  hari, dan checklist siap cetak. Tiap bab ditutup kotak yang menunjukkan bagian
+  mana yang sudah dikerjakan Agnee. Sumbernya `marketing/ebook/ebook.html`,
+  dirender ke PDF dengan headless Chrome.
+- **Materi training "Closing di Bawah 15 Menit"** — 23 slide 16:9 untuk melatih
+  agent CS: kerangka lima tahap (buka, gali, cocokkan, tangani keberatan, tutup)
+  dengan alokasi menit, transkrip percakapan utuh yang dibedah per tahap, kartu
+  role-play, dan checklist saku. Sumbernya `marketing/webinar/deck.html`.
 
 - **Landing page depan jadi halaman jualan per fitur.** `/landing` ditulis ulang
   dari satu pitch umum menjadi empat band fitur yang masing-masing dijual dua

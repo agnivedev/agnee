@@ -12,6 +12,24 @@
 
 ### Fixed
 
+- **"Oke" dibalas "Maksudnya yang mana ya kak?".** CS menutup dengan jadwal
+  call, lead membalas "Oke", dan CS menanyakan maksudnya — lead lalu menulis
+  "Saya krng paham". Penjaga balasan pendek menggolongkan semua "ya"/"oke"
+  sesudah pesan tanpa tanda tanya sebagai ambigu; pembedanya ternyata bukan
+  tanda tanya, melainkan apakah giliran CS terakhir menutup sesuatu yang sudah
+  disepakati. Balasan pendek kini digolongkan tiga (`classifyShortReply`):
+  bukan balasan pendek, ambigu, atau pengakuan. Pengakuan atas giliran yang
+  sudah berisi ucapan terima kasih **tidak dibalas sama sekali**; pengakuan
+  atas janji "akan telepon" dibalas satu kalimat penutup, sekali. Penutupnya
+  dipastikan memuat ucapan terima kasih supaya bisa dikenali sebagai penutup di
+  giliran berikutnya — tanpa itu putarannya terulang.
+- **Label hanya bisa disunting sebagai teks dipisah koma.** Membuang satu dari
+  lima berarti mencari koma yang tepat; salah satu karakter menggabung dua
+  label. Sekarang tiap label adalah chip dengan tombol buangnya sendiri, dengan
+  penolakan duplikat tanpa memandang besar-kecil huruf.
+- **Hasil pencarian kontak lama menimpa yang baru** di kolom tujuan percakapan
+  baru: membersihkan timer debounce tidak membatalkan permintaan yang sudah
+  terbang.
 - **Penawaran Rp99.000 terkirim tanpa cara mengambilnya.** Dua percakapan
   produksi 2026-09-16 berakhir identik: AI menyebut paketnya, customer membalas
   "Caranya kak?", agent manusia yang menutup. Batas satu link per balasan
@@ -34,6 +52,10 @@
 
 ### Added
 
+- **Kolom tujuan percakapan baru bisa memilih percakapan yang sudah ada**, bukan
+  hanya menerima nomor yang diketik ulang. Bukan buku kontak ponsel: nomor
+  telepon tidak tersimpan di sisi kita — id chat WhatsApp berbentuk `@lid` —
+  jadi yang bisa ditawarkan hanya orang yang pernah chat.
 - **Panjang riwayat percakapan dicatat per balasan otomatis** (`riwayat` di log
   `Riwayat percakapan untuk balasan otomatis`). Gejala menyapa ulang bisa
   berarti riwayat kosong atau template disalin mentah, dan dua kali sudah salah

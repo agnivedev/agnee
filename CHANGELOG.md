@@ -77,11 +77,11 @@
   sesudah pesan tanpa tanda tanya sebagai ambigu; pembedanya ternyata bukan
   tanda tanya, melainkan apakah giliran CS terakhir menutup sesuatu yang sudah
   disepakati. Balasan pendek kini digolongkan tiga (`classifyShortReply`):
-  bukan balasan pendek, ambigu, atau pengakuan. Pengakuan dibalas ucapan terima
-  kasih — sekali: "oke" kedua berturut-turut tidak dibalas lagi, supaya dua
-  pihak tidak saling berterima kasih tanpa ujung. Penutupnya dipastikan memuat
-  ucapan terima kasih supaya bisa dikenali sebagai penutup di giliran
-  berikutnya.
+  bukan balasan pendek, ambigu, atau pengakuan. Pengakuan **selalu dibalas** —
+  yang berganti isinya: ronde pertama ucapan terima kasih, ronde berikutnya satu
+  keterangan baru tentang apa yang sudah disepakati, dengan larangan mengulang
+  kalimat sebelumnya. Pertanyaan sungguhan di antaranya mengembalikan hitungan
+  ke nol.
 - **Pertanyaan "maksudnya yang mana ya kak?" dihapus seluruhnya.** Menanyakan
   maksud customer menaruh beban pada orang yang sudah menjawab dan terbaca
   seperti diajak berdebat. Penjaga balasan ambigu tetap ada — menebak "setuju

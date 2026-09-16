@@ -961,6 +961,7 @@ async function buildApp(overrides = {}) {
               && !message.isNotification
               && !hiddenTypes.includes(message.type)
               && (message.type === 'call_log'
+                || message.type === 'revoked'
                 || Boolean(typeof message.body === 'string' && message.body.trim())
                 || Boolean(typeof message.caption === 'string' && message.caption.trim())
                 || Boolean(message.mediaData || message.__x_mediaData));

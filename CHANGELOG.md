@@ -13,6 +13,12 @@
   yang sudah dihapus dianggap tidak punya pesan sama sekali, jadi tersaring
   keluar seolah percakapan itu tidak pernah ada. Sekarang `revoked` diakui,
   dan pratinjaunya di daftar Inbox menampilkan "Pesan dihapus".
+  **Ada DUA jalur kode independen yang membangun daftar Inbox** (jalur
+  standar `wa.getChats()`, dan snapshot cadangan lewat `pupPage.evaluate`
+  yang dipakai kalau jalur standar gagal serialisasi) — keduanya punya
+  logic visibilitas pesan sendiri-sendiri, jadi keduanya harus diperbaiki
+  terpisah. Baru ketahuan lolos di jalur cadangan setelah perbaikan pertama
+  ternyata belum menyelesaikan laporan Hanny.
 
 ### Added
 

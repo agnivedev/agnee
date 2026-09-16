@@ -445,6 +445,86 @@ export function InboxPage() {
   );
 }
 
+/**
+ * Kolom tujuan untuk percakapan baru: ketik nomor bebas, atau pilih dari
+ * percakapan yang sudah ada.
+ *
+ * Nomor telepon TIDAK tersimpan di sisi kita — id chat WhatsApp berbentuk
+ * `@lid`, bukan nomor. Jadi daftar ini bukan buku kontak ponsel; ini daftar
+ * percakapan yang sudah pernah masuk, dan yang dikirim ke server adalah id
+ * chat-nya, bukan nomornya. Untuk orang yang belum pernah menghubungi, nomor
+ * yang diketik tetap satu-satunya jalan.
+ */
+function ContactPicker({
+  query,
+  picked,
+  onQuery,
+  onPick,
+}: {
+  query: string;
+  picked: { id: string; name: string } | null;
+  onQuery: (value: string) => void;
+  onPick: (chat: { id: string; name: string }) => void;
+}) {
+  const { t } = useI18n();
+  const [results, setResults] = useState<Chat[]>([]);
+  const [open, setOpen] = useState(false);
+
+  // Daftar awal dimuat begitu kolomnya disentuh, jadi memilih orang yang baru
+  // saja chat tidak menuntut mengetik apa pun dulu.
+  useEffect(() => {
+    if (picked) { setResults([]); return; }
+    const timer = setTimeout(() => {
+      const params = new URLSearchParams({ limit: '6', offset: '0', q: query.trim(), filter: 'all' });
+      void api<{ chats?: Chat[] }>(`/v1/chats?${params}`)
+        .then((data) => setResults(data.chats || []))
+        .catch(() => setResults([]));
+    }, 220);
+    return () => clearTimeout(timer);
+  }, [query, picked]);
+
+  const terlihat = open && !picked && results.length > 0;
+
+  return (
+    <div className="grid gap-2 text-[13px] font-semibold">
+      <span>{t('new.number')}</span>
+      <div className="relative">
+        <Input
+          value={query}
+          onChange={(event) => onQuery(event.target.value)}
+          onFocus={() => setOpen(true)}
+          // Ditunda supaya klik pada daftar sempat terdaftar sebelum ditutup.
+          onBlur={() => setTimeout(() => setOpen(false), 150)}
+          inputMode="tel"
+          autoComplete="off"
+          placeholder={t('new.numberPlaceholder')}
+          aria-expanded={terlihat}
+        />
+        {terlihat ? (
+          <ul className="absolute left-0 right-0 top-full z-10 mt-1 max-h-56 list-none overflow-y-auto rounded-app border border-border bg-white p-1 shadow-lg">
+            {results.map((chat) => (
+              <li key={chat.id}>
+                <button
+                  type="button"
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => { onPick({ id: chat.id, name: chat.name }); setOpen(false); }}
+                  className="w-full cursor-pointer rounded-[8px] border-0 bg-transparent px-2 py-1.5 text-left text-xs font-normal hover:bg-warm"
+                >
+                  <span className="block truncate font-semibold">{chat.name}</span>
+                  <span className="block truncate text-[10px] text-muted">{chat.preview}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </div>
+      <small className="text-[10px] font-normal text-muted">
+        {picked ? t('new.picked', { name: picked.name }) : t('new.numberHint')}
+      </small>
+    </div>
+  );
+}
+
 function NewConversationDialog({
   open,
   onClose,
@@ -457,17 +537,30 @@ function NewConversationDialog({
   const { t } = useI18n();
   const [error, setError] = useState('');
   const [sending, setSending] = useState(false);
+  // Apa yang diketik, dan percakapan yang dipilih dari daftar — kalau ada.
+  // Keduanya dipisah karena yang dikirim ke server berbeda: percakapan yang
+  // dipilih dikirim lewat id chat-nya, ketikan bebas dikirim apa adanya.
+  const [query, setQuery] = useState('');
+  const [picked, setPicked] = useState<{ id: string; name: string } | null>(null);
+
+  // Dialog dipakai berulang kali dalam satu sesi; tanpa ini pilihan terakhir
+  // masih tertinggal saat dibuka lagi untuk orang yang berbeda.
+  useEffect(() => {
+    if (!open) { setQuery(''); setPicked(null); setError(''); }
+  }, [open]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
+    const tujuan = picked?.id || query.trim();
+    if (!tujuan) { setError(t('new.numberRequired')); return; }
     setSending(true);
     setError(t('composer.sending'));
     try {
       await api('/v1/messages/send', {
         method: 'POST',
         body: {
-          to: form.get('to'),
+          to: tujuan,
           text: String(form.get('text') || '').trim(),
           clientRequestId: crypto.randomUUID(),
         },
@@ -485,10 +578,12 @@ function NewConversationDialog({
   return (
     <DialogShell open={open} onClose={onClose} eyebrow={t('new.eyebrow')} title={t('new.title')}>
       <form onSubmit={submit} className="grid gap-4">
-        <label className="grid gap-2 text-[13px] font-semibold">
-          <span>{t('new.number')}</span>
-          <Input name="to" inputMode="tel" placeholder="0812 3456 7890" required />
-        </label>
+        <ContactPicker
+          query={query}
+          picked={picked}
+          onQuery={(value) => { setQuery(value); setPicked(null); }}
+          onPick={(chat) => { setPicked(chat); setQuery(chat.name); }}
+        />
         <label className="grid gap-2 text-[13px] font-semibold">
           <span>{t('new.firstMessage')}</span>
           <textarea

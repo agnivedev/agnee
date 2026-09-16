@@ -7,6 +7,9 @@ import { cn } from '@/lib/utils';
 import { FollowUpSection } from './FollowUpDialog';
 import type { Chat, Handoff, Lead, Note, Routing, TeamMember } from './types';
 
+/** Batasnya juga ditegakkan server-side saat menyimpan ringkasan. */
+const MAX_LABELS = 5;
+
 export function ContextPanel({
   chat,
   onClose,
@@ -27,7 +30,8 @@ export function ContextPanel({
   const [labels, setLabels] = useState<string[]>([]);
   const [editing, setEditing] = useState<'summary' | 'labels' | null>(null);
   const [draftSummary, setDraftSummary] = useState('');
-  const [draftLabels, setDraftLabels] = useState('');
+  const [draftLabels, setDraftLabels] = useState<string[]>([]);
+  const [labelInput, setLabelInput] = useState('');
   const [editedBy, setEditedBy] = useState<{ summary?: string | null; labels?: string | null }>({});
   const [routing, setRouting] = useState<Routing | null>(null);
   const [handoffs, setHandoffs] = useState<Handoff[]>([]);
@@ -195,11 +199,28 @@ export function ContextPanel({
    * menandai bahwa orang pernah menyentuhnya, dan penanda itu dibawa ke prompt
    * analisis berikutnya supaya faktanya dipertahankan.
    */
+  /**
+   * Menambah satu label ke draft.
+   *
+   * Duplikat ditolak tanpa memandang besar-kecil huruf: "Demo" dan "demo"
+   * sebagai dua chip terpisah hanya membingungkan, dan keduanya dikirim ke AI
+   * sebagai konteks yang sama.
+   */
+  function tambahLabel(mentah: string) {
+    const label = mentah.trim();
+    if (!label) return;
+    setDraftLabels((current) => {
+      if (current.length >= MAX_LABELS) return current;
+      if (current.some((x) => x.toLowerCase() === label.toLowerCase())) return current;
+      return [...current, label];
+    });
+  }
+
   async function simpanSuntingan(field: 'summary' | 'labels') {
     if (!chatId) return;
     const body: Record<string, unknown> = { locale };
     if (field === 'summary') body.summary = draftSummary.trim();
-    else body.labels = draftLabels.split(',').map((x) => x.trim()).filter(Boolean).slice(0, 5);
+    else body.labels = draftLabels.slice(0, MAX_LABELS);
     try {
       await api(`/v1/chats/${encodeURIComponent(chatId)}/summary`, { method: 'PATCH', body });
       if (field === 'summary') setSummary(String(body.summary));
@@ -428,12 +449,65 @@ export function ContextPanel({
       <Section title={t('lead.labels')} badge={editedBy.labels ? t('lead.editedBadge') : undefined}>
         {editing === 'labels' ? (
           <div className="grid gap-2">
-            <input
-              value={draftLabels}
-              onChange={(event) => setDraftLabels(event.target.value)}
-              className="w-full rounded-[10px] border border-border bg-white p-2 text-xs"
-            />
-            <small className="text-[10px] text-muted">{t('lead.labelsHint')}</small>
+            {/* Kotak berisi chip DAN kolom ketik, dibingkai seperti satu input
+                supaya label yang sudah ada terlihat sebagai benda yang bisa
+                dibuang satu per satu — bukan sebagai teks panjang yang harus
+                disunting dengan menghitung koma. */}
+            <div className="flex flex-wrap items-center gap-1.5 rounded-[10px] border border-border bg-white p-2">
+              {draftLabels.map((label) => (
+                <span
+                  key={label}
+                  className="flex items-center gap-1 rounded-[7px] bg-warm px-2 py-1 font-mono text-[10px]"
+                >
+                  {label}
+                  <button
+                    type="button"
+                    aria-label={t('lead.labelRemove', { label })}
+                    onClick={() => setDraftLabels((current) => current.filter((x) => x !== label))}
+                    className="cursor-pointer border-0 bg-transparent p-0 text-[11px] leading-none text-muted hover:text-ink"
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
+              {draftLabels.length < MAX_LABELS ? (
+                <input
+                  value={labelInput}
+                  onChange={(event) => {
+                    // Koma tetap menambah label, supaya kebiasaan lama dari
+                    // kolom dipisah-koma tidak berubah jadi salah ketik.
+                    if (event.target.value.includes(',')) {
+                      const potongan = event.target.value.split(',');
+                      const sisa = potongan.pop() || '';
+                      potongan.forEach(tambahLabel);
+                      setLabelInput(sisa);
+                      return;
+                    }
+                    setLabelInput(event.target.value);
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault();
+                      tambahLabel(labelInput);
+                      setLabelInput('');
+                      return;
+                    }
+                    // Backspace di kolom kosong membuang chip terakhir — jalan
+                    // pintas yang sudah diharapkan orang dari kolom berchip.
+                    if (event.key === 'Backspace' && labelInput === '') {
+                      setDraftLabels((current) => current.slice(0, -1));
+                    }
+                  }}
+                  onBlur={() => { tambahLabel(labelInput); setLabelInput(''); }}
+                  placeholder={t('lead.labelAdd')}
+                  maxLength={32}
+                  className="min-w-[90px] flex-1 border-0 bg-transparent p-0.5 text-xs outline-none"
+                />
+              ) : null}
+            </div>
+            <small className="text-[10px] text-muted">
+              {draftLabels.length >= MAX_LABELS ? t('lead.labelsFull') : t('lead.labelsHint')}
+            </small>
             <div className="flex gap-2">
               <Button size="sm" variant="outline" onClick={() => setEditing(null)} className="flex-1">
                 {t('common.cancel')}
@@ -460,7 +534,7 @@ export function ContextPanel({
                 size="sm"
                 variant="ghost"
                 className="mt-2 px-0"
-                onClick={() => { setDraftLabels(labels.join(', ')); setEditing('labels'); }}
+                onClick={() => { setDraftLabels(labels); setLabelInput(''); setEditing('labels'); }}
               >
                 {t('lead.editLabels')}
               </Button>

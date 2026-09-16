@@ -474,13 +474,18 @@ function ContactPicker({
   // saja chat tidak menuntut mengetik apa pun dulu.
   useEffect(() => {
     if (picked) { setResults([]); return; }
+    // `dibatalkan` menjaga hasil permintaan lama tidak menimpa yang baru.
+    // Membersihkan timer saja tidak cukup: permintaan yang SUDAH terbang tidak
+    // ikut dibatalkan, dan yang dikirim untuk kolom kosong bisa mendarat
+    // sesudah yang dikirim untuk "Nad" — daftarnya lalu tampak tidak menyaring.
+    let dibatalkan = false;
     const timer = setTimeout(() => {
       const params = new URLSearchParams({ limit: '6', offset: '0', q: query.trim(), filter: 'all' });
       void api<{ chats?: Chat[] }>(`/v1/chats?${params}`)
-        .then((data) => setResults(data.chats || []))
-        .catch(() => setResults([]));
+        .then((data) => { if (!dibatalkan) setResults(data.chats || []); })
+        .catch(() => { if (!dibatalkan) setResults([]); });
     }, 220);
-    return () => clearTimeout(timer);
+    return () => { dibatalkan = true; clearTimeout(timer); };
   }, [query, picked]);
 
   const terlihat = open && !picked && results.length > 0;

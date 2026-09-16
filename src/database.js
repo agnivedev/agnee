@@ -2107,13 +2107,30 @@ class Database {
   async listOutboundAuthors(companyId, chatId, messageIds) {
     if (!this.enabled || !messageIds?.length) return new Map();
     const result = await this.pool.query(`
-      SELECT o.message_id AS "messageId", o.author,
+      SELECT o.message_id AS "messageId", o.author, o.body,
              COALESCE(u.display_name, u.email) AS "authorName"
       FROM outbound_replies o
       LEFT JOIN users u ON u.id = o.author_user_id
       WHERE o.company_id = $1 AND o.chat_id = $2 AND o.message_id = ANY($3::TEXT[])
     `, [companyId, chatId, messageIds]);
     return new Map(result.rows.map((row) => [row.messageId, row]));
+  }
+
+  /**
+   * Isi asli pesan MASUK yang sudah dihapus (revoked), dicari lewat
+   * `wa_message_id`. Kolom itu diketahui sering kosong untuk chat `@lid`
+   * (lihat catatan di `inboundMessageId`) — pemanggil harus menerima Map
+   * yang mungkin tidak memuat semua id yang diminta, bukan menganggap
+   * kekosongannya berarti pesan tidak pernah ada.
+   */
+  async listInboundBodies(companyId, chatId, waMessageIds) {
+    if (!this.enabled || !waMessageIds?.length) return new Map();
+    const result = await this.pool.query(`
+      SELECT wa_message_id AS "waMessageId", body
+      FROM inbound_messages
+      WHERE company_id = $1 AND chat_id = $2 AND wa_message_id = ANY($3::TEXT[]) AND body IS NOT NULL AND body <> ''
+    `, [companyId, chatId, waMessageIds]);
+    return new Map(result.rows.map((row) => [row.waMessageId, row.body]));
   }
 
   /**

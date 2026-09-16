@@ -4195,8 +4195,35 @@ Aturan:
       'Gagal mengambil alih percakapan untuk pengirim'));
   }
 
+  /**
+   * Isi asli pesan yang sudah dihapus (revoked), dipulihkan dari tabel yang
+   * sudah mencatatnya SEBELUM dihapus — bukan dari WhatsApp, yang membuang isi
+   * aslinya begitu direvoke. Pesan keluar (kita sendiri) selalu tercatat di
+   * `outbound_replies`; pesan masuk (customer) tercatat di `inbound_messages`
+   * TAPI hanya kalau `wa_message_id`-nya kebetulan terisi (lihat catatan di
+   * `listInboundBodies`). Kalau tidak ketemu di keduanya, pemanggil tetap
+   * menampilkan placeholder "pesan dihapus" biasa — ini murni penambahan,
+   * bukan pengganti.
+   */
+  async function withRevokedBodies(companyId, chatId, messages) {
+    const revoked = messages.filter((m) => m.type === 'revoked' && m.id);
+    if (!revoked.length) return messages;
+    const outIds = revoked.filter((m) => m.fromMe).map((m) => m.id);
+    const inIds = revoked.filter((m) => !m.fromMe).map((m) => m.id);
+    const [outRows, inBodies] = await Promise.all([
+      outIds.length ? database.listOutboundAuthors(companyId, chatId, outIds).catch(() => new Map()) : new Map(),
+      inIds.length ? database.listInboundBodies(companyId, chatId, inIds).catch(() => new Map()) : new Map(),
+    ]);
+    return messages.map((m) => {
+      if (m.type !== 'revoked') return m;
+      const recovered = m.fromMe ? outRows.get(m.id)?.body : inBodies.get(m.id);
+      return recovered ? { ...m, revokedBody: recovered } : m;
+    });
+  }
+
   async function withReplyAuthors(companyId, chatId, messages) {
     if (!Array.isArray(messages) || !messages.length) return messages || [];
+    messages = await withRevokedBodies(companyId, chatId, messages).catch(() => messages);
     if (!canCall('listOutboundAuthors')) return messages;
     const ids = messages.filter((m) => m.fromMe && m.id).map((m) => m.id);
     if (!ids.length) return messages;

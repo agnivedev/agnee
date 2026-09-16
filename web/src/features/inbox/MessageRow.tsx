@@ -106,9 +106,14 @@ export function MessageRow({
             highlighted && 'ring-4 ring-green/40',
           )}
         >
-          <p className="m-0 text-sm text-muted italic line-through">
+          <small className="mb-1 block font-mono text-[9px] tracking-wide text-muted uppercase">
             {mine ? t('message.deletedByMe') : t('message.deletedByOther')}
-          </p>
+          </small>
+          {message.revokedBody ? (
+            <p className="m-0 text-sm leading-[1.45] whitespace-pre-wrap text-muted line-through opacity-80">
+              <InlineMarkdown text={message.revokedBody} />
+            </p>
+          ) : null}
           <time className="mt-[5px] block text-right font-mono text-[9px] text-muted">
             {formatTime(message.timestamp)}
           </time>

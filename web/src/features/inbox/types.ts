@@ -37,6 +37,10 @@ export type Message = {
   authorName?: string | null;
   quoted?: QuotedMessage | null;
   call?: { isVideo: boolean; result: string | null; duration: number | null } | null;
+  /** Only for type 'revoked': the original text, recovered from before it
+   *  was deleted (see `withRevokedBodies` server-side). Absent when we never
+   *  had a copy — the deleted placeholder is shown instead. */
+  revokedBody?: string | null;
 };
 
 export type WhatsappStatus = {

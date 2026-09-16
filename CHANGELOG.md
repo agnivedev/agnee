@@ -2,6 +2,13 @@
 
 ### Added
 
+- **Isi asli pesan yang dihapus, dicoret** — bukan cuma "Pesan ini dihapus".
+  WhatsApp membuang isi asli begitu pesan direvoke, tapi Agnee sudah mencatat
+  isi pesan KELUAR di `outbound_replies` sejak sebelum dihapus (dan pesan
+  MASUK di `inbound_messages`, kalau `wa_message_id`-nya kebetulan terisi —
+  kolom itu diketahui sering kosong untuk chat `@lid`). Kalau isinya ketemu,
+  ditampilkan dicoret; kalau tidak, tetap jatuh ke placeholder biasa.
+
 - **Prompt ganti ke mode Manusia saat ketik manual sementara chat masih AI.**
   Sebelumnya, mengetik balasan sendiri padahal chat masih mode AI langsung
   terkirim diam-diam tanpa memindah mode — AI bisa ikut membalas di atasnya,

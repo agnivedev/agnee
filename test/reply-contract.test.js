@@ -4,7 +4,7 @@ const { test } = require('node:test');
 const assert = require('node:assert');
 const {
   styleWarnings, findClaimViolations, stripClaimSentences, enforceReplyContract,
-  isAmbiguousCustomerReply, stripLinks,
+  classifyShortReply, lastTurnAlreadyClosed, ensureClosingIsRecognizable, stripLinks,
 } = require('../src/reply-style.js');
 
 const CLEAN = 'Recovery Package Rp99.000 isinya copy trade, ebook recovery, signal, dan pendampingan tim.';
@@ -101,12 +101,50 @@ test('styleWarnings ikut melaporkan klaim', () => {
 
 test('balasan pendek ambigu dikenali, yang punya rujukan tidak', () => {
   const cs = (content) => [{ role: 'assistant', content }];
-  assert.equal(isAmbiguousCustomerReply('ya', cs('Paketnya isi copy trade dan signal.')), true);
-  assert.equal(isAmbiguousCustomerReply('ya', cs('Mau aku kirimkan linknya?')), false);
-  assert.equal(isAmbiguousCustomerReply('1', cs('Ada dua jalur:\n1️⃣ Telegram\n2️⃣ Paket')), false);
-  assert.equal(isAmbiguousCustomerReply('1', cs('Paketnya lengkap kak.')), true);
-  assert.equal(isAmbiguousCustomerReply('aku mau tanya harga', cs('halo')), false);
-  assert.equal(isAmbiguousCustomerReply('oke 👍', cs('Isinya lengkap.')), true, 'emoji tidak membuatnya jelas');
+  assert.equal(classifyShortReply('ya', cs('Paketnya isi copy trade dan signal.')), 'ambiguous');
+  assert.equal(classifyShortReply('ya', cs('Mau aku kirimkan linknya?')), 'none');
+  assert.equal(classifyShortReply('1', cs('Ada dua jalur:\n1️⃣ Telegram\n2️⃣ Paket')), 'none');
+  assert.equal(classifyShortReply('1', cs('Paketnya lengkap kak.')), 'ambiguous');
+  assert.equal(classifyShortReply('aku mau tanya harga', cs('halo')), 'none');
+  assert.equal(classifyShortReply('oke 👍', cs('Isinya lengkap.')), 'ambiguous', 'emoji tidak membuatnya jelas');
+});
+
+test('mengiyakan hal yang sudah disepakati bukan teka-teki', () => {
+  const cs = (content) => [{ role: 'assistant', content }];
+
+  // Percakapan sungguhan 2026-09-16: CS menutup dengan jadwal call, customer
+  // membalas "Oke", dan CS bertanya "Maksudnya yang mana ya kak?". Customer
+  // lalu menulis "Saya krng paham" — bingung oleh pertanyaan kita sendiri.
+  const penutup = 'Siap kak, terima kasih 🙏\n\nAnya atau Rizki akan telepon kakak jam 12 siang WIB untuk bantu proses recovery akun kakak ya.';
+  assert.equal(classifyShortReply('Oke', cs(penutup)), 'acknowledged');
+  assert.equal(lastTurnAlreadyClosed(cs(penutup)), true, 'sudah ditutup, jadi tidak perlu dibalas lagi');
+
+  // Janji menghubungi tanpa ucapan terima kasih tetap terbaca sebagai penutup,
+  // tapi belum menutup — satu kalimat penutup masih pantas dikirim.
+  const janji = 'Anya akan telepon kakak jam 3 sore WIB ya.';
+  assert.equal(classifyShortReply('siap', cs(janji)), 'acknowledged');
+  assert.equal(lastTurnAlreadyClosed(cs(janji)), false);
+
+  // Pertanyaan tetap menang: balasan pendek atasnya punya rujukan.
+  assert.equal(classifyShortReply('oke', cs('Terima kasih kak. Mau aku bantu sekarang?')), 'none');
+});
+
+test('penutup selalu bisa dikenali sebagai penutup', () => {
+  const bawaan = 'Siap kak, terima kasih ya.';
+
+  // Penutup yang sudah memuat ucapan terima kasih dibiarkan apa adanya.
+  const sudah = 'Sama-sama kak, terima kasih sudah mengabari 🙏';
+  assert.equal(ensureClosingIsRecognizable(sudah, bawaan), sudah);
+
+  // Yang tidak memuatnya ditambal — kalau tidak, "oke" berikutnya kembali
+  // digolongkan ambigu dan ditanyai, dan putarannya terulang.
+  const tanpa = 'Siap kak 🙏';
+  const hasil = ensureClosingIsRecognizable(tanpa, bawaan);
+  assert.ok(hasil.startsWith(tanpa));
+  assert.ok(lastTurnAlreadyClosed([{ role: 'assistant', content: hasil }]));
+
+  // Model gagal membuat kalimat: pakai bawaannya, jangan diam tanpa apa-apa.
+  assert.equal(ensureClosingIsRecognizable('', bawaan), bawaan);
 });
 
 test('klarifikasi tidak boleh membawa link', () => {

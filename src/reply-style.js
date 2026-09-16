@@ -130,38 +130,97 @@ ${current}`;
 }
 
 /**
- * Apakah pesan customer terlalu pendek untuk dijawab tanpa menebak?
+ * Menggolongkan balasan pendek customer ("ya", "oke", "siap", "1").
  *
- * Uji funnel Anya: customer membalas "ya" setelah Anya menyebut isi paket
- * (bukan pertanyaan, bukan daftar bernomor). Model menafsirkannya sebagai
- * "setuju beli" dan langsung mengirim link checkout. Aturan di system prompt
- * tidak menghentikan ini, jadi keputusannya dibuat di kode.
+ * Uji funnel Anya: customer membalas "ya" setelah CS menyebut isi paket (bukan
+ * pertanyaan, bukan daftar bernomor). Model menafsirkannya sebagai "setuju
+ * beli" dan langsung mengirim link checkout. Aturan di system prompt tidak
+ * menghentikan ini, jadi keputusannya dibuat di kode.
  *
- * Pembedanya giliran terakhir CS: kalau di situ ada daftar bernomor atau
- * pertanyaan, balasan pendek memang punya rujukan dan bukan ambigu.
+ * Penjaga itu semula memperlakukan SEMUA balasan pendek sesudah pesan tanpa
+ * tanda tanya sebagai ambigu, dan itu merusak percakapan sungguhan: CS menutup
+ * dengan "Anya atau Rizki akan telepon kakak jam 12 siang WIB", customer
+ * membalas "Oke", dan CS bertanya "Maksudnya yang mana ya kak?" — customer
+ * lalu menulis "Saya krng paham", bingung oleh pertanyaan kita sendiri. Yang
+ * sudah disepakati ditanyakan ulang, dan percakapan berputar.
+ *
+ * Pembedanya bukan ada-tidaknya tanda tanya, melainkan apakah giliran CS
+ * terakhir MENUTUP sesuatu yang sudah disepakati — berterima kasih, atau
+ * menjanjikan tim yang akan menghubungi. Di situ "oke" berarti "saya mengerti".
+ *
+ * Selain itu tetap dianggap ambigu, seperti semula: CS yang baru menyebut isi
+ * paket lalu dibalas "ya" bisa berarti "saya ambil", dan menebaknya salah
+ * berarti mengirim link pembayaran ke orang yang belum memutuskan.
+ *
+ * @returns {'none'|'ambiguous'|'acknowledged'}
  */
 const SHORT_ACKS = new Set([
   'ya', 'iya', 'yaa', 'y', 'ok', 'oke', 'okey', 'okay', 'sip', 'siap',
   'boleh', 'itu', 'gitu', 'lanjut', 'mau', 'bisa', 'baik',
 ]);
 
-function isAmbiguousCustomerReply(message, history = []) {
+/**
+ * Giliran CS yang MENUTUP: berterima kasih, atau menjanjikan tim yang akan
+ * menghubungi. Keduanya menyatakan sesuatu yang sudah disepakati, jadi balasan
+ * pendek atasnya berarti "saya mengerti" dan bukan "saya ambil".
+ *
+ * Sengaja sempit. Default-nya tetap `ambiguous`, karena salah menebak ke arah
+ * ambigu hanya memunculkan satu pertanyaan, sedangkan salah menebak ke arah
+ * pengakuan berarti percakapan berhenti padahal customer menunggu.
+ */
+const CLOSING_MARKERS = /terima kasih|makasih|thank/i;
+const COMMITMENT_MARKERS = /\bakan\b[^.!?\n]*\b(telepon|hubungi|kontak|call|menghubungi)\b/i;
+
+function classifyShortReply(message, history = []) {
   const bare = String(message || '')
     .toLowerCase()
     .replace(/[\p{Extended_Pictographic}\p{P}\p{S}]/gu, '')
     .trim();
-  if (!bare) return false;
+  if (!bare) return 'none';
   const isNumberPick = /^[1-9]$/.test(bare);
-  if (!isNumberPick && !SHORT_ACKS.has(bare)) return false;
+  if (!isNumberPick && !SHORT_ACKS.has(bare)) return 'none';
 
   const lastCs = [...history].reverse().find((turn) => turn?.role === 'assistant');
-  if (!lastCs) return true;
+  if (!lastCs) return 'ambiguous';
   const body = String(lastCs.content || '');
   const hasNumberedOptions = /(?:^|\n)\s*(?:[1-9]\uFE0F?\u20E3|[1-9][.)])\s/.test(body);
+
   // Angka hanya bermakna kalau ada daftar bernomor untuk dirujuk.
-  if (isNumberPick) return !hasNumberedOptions;
-  // "ya"/"oke" bermakna kalau CS baru saja bertanya atau menawarkan pilihan.
-  return !hasNumberedOptions && !body.includes('?');
+  if (isNumberPick) return hasNumberedOptions ? 'none' : 'ambiguous';
+  // CS baru saja bertanya atau menawarkan pilihan: balasannya punya rujukan.
+  if (hasNumberedOptions || body.includes('?')) return 'none';
+  // Giliran terakhir menutup sesuatu yang sudah disepakati: ini pengakuan.
+  if (CLOSING_MARKERS.test(body) || COMMITMENT_MARKERS.test(body)) return 'acknowledged';
+  return 'ambiguous';
+}
+
+/**
+ * Apakah giliran CS terakhir sudah menutup percakapan?
+ *
+ * Dipakai untuk memutuskan antara menutup sekali lagi atau diam. Customer yang
+ * membalas "oke" atas ucapan terima kasih tidak meminta apa pun; membalasnya
+ * dengan terima kasih lagi hanya memancing "oke" berikutnya.
+ */
+function lastTurnAlreadyClosed(history = []) {
+  const lastCs = [...history].reverse().find((turn) => turn?.role === 'assistant');
+  if (!lastCs) return false;
+  const body = String(lastCs.content || '');
+  return !body.includes('?') && CLOSING_MARKERS.test(body);
+}
+
+/**
+ * Memastikan kalimat penutup memuat ucapan terima kasih.
+ *
+ * Bukan soal sopan santun — soal berhenti. `lastTurnAlreadyClosed` mengenali
+ * penutup lewat ucapan terima kasih, jadi penutup tanpa kata itu membuat "oke"
+ * berikutnya kembali digolongkan ambigu dan ditanyai. Penutup yang tidak bisa
+ * dikenali sebagai penutup akan memancing putaran yang sama sekali lagi.
+ */
+function ensureClosingIsRecognizable(text, fallback) {
+  const value = String(text || '').trim();
+  if (!value) return fallback;
+  if (CLOSING_MARKERS.test(value)) return value;
+  return `${value.replace(/\s+$/, '')}\n\n${fallback}`;
 }
 
 /** Balasan klarifikasi tidak boleh menawarkan atau mengirim link apa pun. */
@@ -407,7 +466,16 @@ const AGNEE_CONVERSATION_RULES = `## ATURAN PERCAKAPAN (bawaan Agnee, berlaku se
 10. Kirim link yang sesuai dengan posisi customer. Orang yang belum pernah
     melihat halaman penawaran dikirimi halaman penawaran, bukan halaman
     pembayaran. Halaman pembayaran hanya untuk orang yang sudah bilang mau
-    membeli.`;
+    membeli.
+
+11. Customer yang membalas "oke", "siap", atau "baik" atas sesuatu yang sudah
+    disepakati sedang bilang "saya mengerti". JANGAN menanyakan maksudnya.
+    Bertanya balik di situ membuat customer mengira dirinya yang salah — di
+    produksi ada yang sampai menulis "Saya krng paham" setelah ditanya begitu.
+
+12. Sesuatu yang sudah dikonfirmasi tidak dikonfirmasi ulang. Kalau jadwal call
+    sudah disepakati dan customer hanya mengiyakan, cukup satu kalimat penutup,
+    lalu berhenti. Percakapan yang sudah punya ujung tidak perlu dilanjutkan.`;
 
 /**
  * Membatasi jumlah link dalam satu balasan.
@@ -466,5 +534,5 @@ function limitLinks(text) {
 module.exports = {
   normalizeUsage, formatUsd, styleWarnings, judgeReply,
   CLAIM_PATTERNS, findClaimViolations, stripClaimSentences, enforceReplyContract,
-  isAmbiguousCustomerReply, stripLinks, AGNEE_CONVERSATION_RULES, limitLinks, MAX_LINKS_PER_REPLY,
+  classifyShortReply, lastTurnAlreadyClosed, ensureClosingIsRecognizable, stripLinks, AGNEE_CONVERSATION_RULES, limitLinks, MAX_LINKS_PER_REPLY,
 };

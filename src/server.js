@@ -14,7 +14,7 @@ const KnowledgeBase = require('./knowledge-loader.js');
 const LlmService = require('./llm-service.js');
 const {
   normalizeUsage, styleWarnings, judgeReply, enforceReplyContract,
-  isAmbiguousCustomerReply, stripLinks, AGNEE_CONVERSATION_RULES, limitLinks,
+  classifyShortReply, lastTurnAlreadyClosed, ensureClosingIsRecognizable, stripLinks, AGNEE_CONVERSATION_RULES, limitLinks,
 } = require('./reply-style.js');
 const { FollowUpScheduler, decide: followUpDecide, withManualGap } = require('./follow-up.js');
 const onedrive = require('./onedrive-sync.js');
@@ -23,6 +23,14 @@ const { buildXlsx } = require('./xlsx-writer.js');
 const Database = require('./database.js');
 const { extractPlaybookText } = require('./playbook-extractor.js');
 
+/**
+ * Penutup cadangan kalau model gagal membuatnya, dan penambal kalau penutup
+ * buatannya tidak memuat ucapan terima kasih.
+ *
+ * Masih Indonesia saja. Setelan bahasa per company belum ada, dan kalimat ini
+ * hanya dipakai di ujung percakapan yang seluruhnya sudah berbahasa Indonesia.
+ */
+const PENUTUP_BAWAAN = 'Siap kak, terima kasih ya. Kalau ada yang mau ditanyakan lagi, tinggal chat di sini.';
 process.on('unhandledRejection', (reason) => {
   console.error('Unhandled promise rejection (WhatsApp adapter kept alive):', reason);
 });
@@ -792,12 +800,38 @@ async function buildApp(overrides = {}) {
     app.log.info({ companyId, chatId: message.from, riwayat: conversationHistory.length },
       'Riwayat percakapan untuk balasan otomatis');
 
+    const jenisBalasanPendek = classifyShortReply(message.body, conversationHistory);
+
+    // Customer hanya mengiyakan sesuatu yang sudah selesai — jadwal call yang
+    // baru disepakati, misalnya. Tidak ada yang perlu ditanyakan, dan bertanya
+    // justru merusak: di produksi CS menjawab "Oke" dengan "Maksudnya yang mana
+    // ya kak?", dan customer membalas "Saya krng paham".
+    //
+    // Kalau giliran terakhir CS sudah berupa penutup, balasannya adalah DIAM.
+    // Menutup dua kali hanya memancing "oke" berikutnya, dan percakapan yang
+    // sudah punya ujung tidak perlu dilanjutkan.
+    if (jenisBalasanPendek === 'acknowledged') {
+      if (lastTurnAlreadyClosed(conversationHistory)) {
+        app.log.info({ companyId, chatId: message.from },
+          'Balasan pendek atas percakapan yang sudah ditutup — tidak dibalas');
+        return null;
+      }
+      const penutup = await llmService.generateReply(
+        `Customer membalas "${message.body}". Itu hanya tanda mengerti atas apa yang baru kamu sampaikan, bukan pertanyaan dan bukan permintaan baru.\n\nTulis SATU kalimat pendek dengan persona kamu yang menutup dengan ramah. Jangan bertanya apa pun, jangan menawarkan produk, jangan menyebut harga, jangan mengirim link, jangan mengulang yang sudah disampaikan. Keluarkan HANYA kalimatnya.`,
+        { systemPrompt: ctx.systemPrompt, history: conversationHistory, companyId, purpose: 'auto_reply' },
+      ).catch(() => null);
+      // Penutupnya harus bisa dikenali sebagai penutup pada giliran berikutnya,
+      // kalau tidak "oke" yang kedua akan ditanyai lagi.
+      const ditutup = stripLinks(penutup?.text || '');
+      return ensureClosingIsRecognizable(ditutup, PENUTUP_BAWAAN);
+    }
+
     // Balasan pendek tanpa rujukan yang jelas ("ya" setelah CS menyebut isi
     // paket, bukan setelah bertanya) sebelumnya ditebak sebagai "setuju beli"
     // dan dibalas link checkout. Tebakan yang salah memaksa customer mengulang
     // dari awal, jadi di sini kita bertanya dulu. Promptnya sengaja pendek —
     // aturan di prompt 52.000 karakter terbukti tidak dipatuhi konsisten.
-    if (isAmbiguousCustomerReply(message.body, conversationHistory)) {
+    if (jenisBalasanPendek === 'ambiguous') {
       const clarification = await llmService.generateReply(
         `Customer membalas "${message.body}". Maksudnya tidak jelas karena percakapan sebelumnya tidak memuat pilihan bernomor atau pertanyaan yang dirujuk balasan itu.\n\nTulis SATU kalimat pendek dengan persona kamu yang menanyakan maksudnya. Jangan menawarkan produk, jangan menyebut harga, jangan mengirim link, jangan menebak. Keluarkan HANYA kalimatnya.`,
         { systemPrompt: ctx.systemPrompt, history: conversationHistory, companyId, purpose: 'auto_reply' },

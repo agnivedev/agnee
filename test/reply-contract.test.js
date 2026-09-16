@@ -4,7 +4,7 @@ const { test } = require('node:test');
 const assert = require('node:assert');
 const {
   styleWarnings, findClaimViolations, stripClaimSentences, enforceReplyContract,
-  classifyShortReply, lastTurnAlreadyClosed, ensureClosingIsRecognizable, stripLinks,
+  classifyShortReply, lastTurnAlreadyClosed, alreadyThankedForAck, ensureClosingIsRecognizable, stripLinks,
 } = require('../src/reply-style.js');
 
 const CLEAN = 'Recovery Package Rp99.000 isinya copy trade, ebook recovery, signal, dan pendampingan tim.';
@@ -127,6 +127,27 @@ test('mengiyakan hal yang sudah disepakati bukan teka-teki', () => {
 
   // Pertanyaan tetap menang: balasan pendek atasnya punya rujukan.
   assert.equal(classifyShortReply('oke', cs('Terima kasih kak. Mau aku bantu sekarang?')), 'none');
+});
+
+test('"oke" dibalas sekali, "oke" kedua tidak diulang', () => {
+  const penutup = 'Siap kak, terima kasih 🙏 Anya akan telepon kakak jam 12 WIB ya.';
+
+  // Ronde pertama: customer baru menyebut jamnya, lalu CS mengkonfirmasi.
+  // "Oke" di sini pantas dibalas — mengabaikannya terasa seperti diacuhkan.
+  const rondePertama = [
+    { role: 'user', content: 'Jam 12 boleh' },
+    { role: 'assistant', content: penutup },
+  ];
+  assert.equal(classifyShortReply('Oke', rondePertama), 'acknowledged');
+  assert.equal(alreadyThankedForAck(rondePertama), false, 'belum pernah dibalas');
+
+  // Ronde kedua: "oke" sebelumnya SUDAH dibalas terima kasih. Sekali cukup.
+  const rondeKedua = [
+    ...rondePertama,
+    { role: 'user', content: 'Oke' },
+    { role: 'assistant', content: 'Sama-sama kak, terima kasih ya 🙏' },
+  ];
+  assert.equal(alreadyThankedForAck(rondeKedua), true, 'sudah dibalas sekali');
 });
 
 test('penutup selalu bisa dikenali sebagai penutup', () => {

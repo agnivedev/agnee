@@ -14,7 +14,7 @@ const KnowledgeBase = require('./knowledge-loader.js');
 const LlmService = require('./llm-service.js');
 const {
   normalizeUsage, styleWarnings, judgeReply, enforceReplyContract,
-  classifyShortReply, lastTurnAlreadyClosed, ensureClosingIsRecognizable, stripLinks, AGNEE_CONVERSATION_RULES, limitLinks,
+  classifyShortReply, alreadyThankedForAck, ensureClosingIsRecognizable, stripLinks, AGNEE_CONVERSATION_RULES, limitLinks,
 } = require('./reply-style.js');
 const { FollowUpScheduler, decide: followUpDecide, withManualGap } = require('./follow-up.js');
 const onedrive = require('./onedrive-sync.js');
@@ -803,17 +803,18 @@ async function buildApp(overrides = {}) {
     const jenisBalasanPendek = classifyShortReply(message.body, conversationHistory);
 
     // Customer hanya mengiyakan sesuatu yang sudah selesai — jadwal call yang
-    // baru disepakati, misalnya. Tidak ada yang perlu ditanyakan, dan bertanya
-    // justru merusak: di produksi CS menjawab "Oke" dengan "Maksudnya yang mana
-    // ya kak?", dan customer membalas "Saya krng paham".
+    // baru disepakati, misalnya. Balasannya adalah ucapan terima kasih, dan
+    // TIDAK PERNAH pertanyaan balik: di produksi CS menjawab "Oke" dengan
+    // "Maksudnya yang mana ya kak?", dan customer membalas "Saya krng paham".
+    // Ditanyai maksudnya padahal sudah jelas terbaca seperti diajak berdebat.
     //
-    // Kalau giliran terakhir CS sudah berupa penutup, balasannya adalah DIAM.
-    // Menutup dua kali hanya memancing "oke" berikutnya, dan percakapan yang
-    // sudah punya ujung tidak perlu dilanjutkan.
+    // Sopan santunnya diberikan sekali. Kalau "oke" sebelumnya sudah dibalas
+    // terima kasih, yang kedua tidak dibalas lagi — kalau tidak, dua pihak
+    // saling berterima kasih tanpa ujung.
     if (jenisBalasanPendek === 'acknowledged') {
-      if (lastTurnAlreadyClosed(conversationHistory)) {
+      if (alreadyThankedForAck(conversationHistory)) {
         app.log.info({ companyId, chatId: message.from },
-          'Balasan pendek atas percakapan yang sudah ditutup — tidak dibalas');
+          'Balasan pendek kedua berturut-turut — sudah pernah dibalas, tidak diulang');
         return null;
       }
       const penutup = await llmService.generateReply(
@@ -829,11 +830,17 @@ async function buildApp(overrides = {}) {
     // Balasan pendek tanpa rujukan yang jelas ("ya" setelah CS menyebut isi
     // paket, bukan setelah bertanya) sebelumnya ditebak sebagai "setuju beli"
     // dan dibalas link checkout. Tebakan yang salah memaksa customer mengulang
-    // dari awal, jadi di sini kita bertanya dulu. Promptnya sengaja pendek —
-    // aturan di prompt 52.000 karakter terbukti tidak dipatuhi konsisten.
+    // dari awal, jadi tebakannya dihindari.
+    //
+    // Tapi CARA menghindarinya diganti. Sebelumnya CS bertanya "maksudnya yang
+    // mana ya kak?" — menaruh beban pada customer dan terbaca menantang. Yang
+    // dikirim sekarang adalah pengakuan singkat plus SATU langkah lanjutan yang
+    // konkret, jadi customer tinggal memilih, bukan menjelaskan dirinya.
+    // Promptnya sengaja pendek — aturan di prompt 52.000 karakter terbukti
+    // tidak dipatuhi konsisten.
     if (jenisBalasanPendek === 'ambiguous') {
       const clarification = await llmService.generateReply(
-        `Customer membalas "${message.body}". Maksudnya tidak jelas karena percakapan sebelumnya tidak memuat pilihan bernomor atau pertanyaan yang dirujuk balasan itu.\n\nTulis SATU kalimat pendek dengan persona kamu yang menanyakan maksudnya. Jangan menawarkan produk, jangan menyebut harga, jangan mengirim link, jangan menebak. Keluarkan HANYA kalimatnya.`,
+        `Customer membalas "${message.body}". Percakapan sebelumnya tidak memuat pilihan bernomor atau pertanyaan yang dirujuk balasan itu, jadi kamu belum tahu persis maksudnya.\n\nJANGAN menanyakan apa maksudnya, jangan menulis "maksudnya yang mana", jangan memintanya menjelaskan diri. Ditanyai begitu membuat customer merasa disalahkan.\n\nTulis paling banyak DUA kalimat pendek dengan persona kamu: akui dulu balasannya dengan ramah, lalu tawarkan satu langkah lanjutan yang konkret sesuai playbook supaya customer tinggal memilih. Jangan menyebut harga, jangan mengirim link, jangan menebak dia sudah setuju membeli. Keluarkan HANYA kalimatnya.`,
         { systemPrompt: ctx.systemPrompt, history: conversationHistory, companyId, purpose: 'auto_reply' },
       ).catch(() => null);
       const asked = stripLinks(clarification?.text || '');

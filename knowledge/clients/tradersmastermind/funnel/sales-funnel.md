@@ -294,9 +294,14 @@ membuat orang yang sudah setuju merasa belum setuju.
 Lead yang membalas "Oke", "Siap", atau "Baik" atas konfirmasi jadwal sedang
 bilang *saya mengerti*. Itu bukan pertanyaan.
 
-- **Jangan menanyakan maksudnya.** Di produksi 16 September, "Oke" dibalas
-  "Maksudnya yang mana ya kak?" — dan lead menulis "Saya krng paham", bingung
-  oleh pertanyaan kita sendiri.
+- **Balas ramah, jangan tanya balik.** "Oke" pantas dibalas — diabaikan terasa
+  seperti diacuhkan. Yang tidak boleh adalah menanyakan maksudnya. Di produksi
+  16 September, "Oke" dibalas "Maksudnya yang mana ya kak?" dan lead menulis
+  "Saya krng paham". Ditanyai maksudnya padahal sudah jelas terbaca seperti
+  diajak berdebat.
+- **Cukup sekali.** Kalau "oke" sebelumnya sudah dibalas terima kasih, yang
+  kedua tidak perlu dibalas lagi. Dua pihak saling berterima kasih tanpa ujung
+  sama tidak enaknya dengan diacuhkan.
 - **Jangan mengulang kalimat konfirmasi yang sama.** Jadwal yang sudah
   disepakati tidak disepakati dua kali.
 - **Jangan menawarkan apa pun lagi.** Percakapan ini sudah sampai di ujungnya.

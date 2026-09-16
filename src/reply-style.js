@@ -209,6 +209,29 @@ function lastTurnAlreadyClosed(history = []) {
 }
 
 /**
+ * Apakah kita SUDAH pernah membalas satu "oke" dengan ucapan terima kasih,
+ * tepat sebelum ini?
+ *
+ * Customer yang bilang "oke" memang pantas dibalas — mengabaikannya terasa
+ * seperti diacuhkan. Tapi balasan itu sendiri bisa memancing "oke" berikutnya,
+ * dan seterusnya. Jadi sopan santunnya diberikan sekali: ronde pertama dibalas
+ * terima kasih, ronde kedua tidak.
+ *
+ * Yang diperiksa adalah pola di ekor riwayat — giliran CS terakhir berupa
+ * penutup, dan giliran customer tepat sebelumnya juga sudah berupa balasan
+ * pendek. Pesan yang sedang diproses belum masuk riwayat.
+ */
+function alreadyThankedForAck(history = []) {
+  const tail = history.filter((turn) => turn?.role === 'assistant' || turn?.role === 'user');
+  const lastCs = tail[tail.length - 1];
+  if (!lastCs || lastCs.role !== 'assistant') return false;
+  if (!lastTurnAlreadyClosed([lastCs])) return false;
+  const sebelumnya = tail[tail.length - 2];
+  if (!sebelumnya || sebelumnya.role !== 'user') return false;
+  return classifyShortReply(sebelumnya.content, [{ role: 'assistant', content: 'x' }]) !== 'none';
+}
+
+/**
  * Memastikan kalimat penutup memuat ucapan terima kasih.
  *
  * Bukan soal sopan santun — soal berhenti. `lastTurnAlreadyClosed` mengenali
@@ -468,10 +491,16 @@ const AGNEE_CONVERSATION_RULES = `## ATURAN PERCAKAPAN (bawaan Agnee, berlaku se
     pembayaran. Halaman pembayaran hanya untuk orang yang sudah bilang mau
     membeli.
 
-11. Customer yang membalas "oke", "siap", atau "baik" atas sesuatu yang sudah
-    disepakati sedang bilang "saya mengerti". JANGAN menanyakan maksudnya.
-    Bertanya balik di situ membuat customer mengira dirinya yang salah — di
-    produksi ada yang sampai menulis "Saya krng paham" setelah ditanya begitu.
+11. JANGAN PERNAH menanyakan apa maksud customer. Tidak dengan "maksudnya yang
+    mana ya kak", tidak dengan susunan lain. Balasan pendek seperti "oke",
+    "siap", atau "baik" dibalas ucapan terima kasih — bukan pertanyaan balik.
+    Ditanyai maksudnya padahal sudah jelas membuat orang merasa disalahkan dan
+    terbaca seperti diajak berdebat; di produksi ada yang sampai menulis "Saya
+    krng paham" setelah ditanya begitu.
+
+    Kalau kamu memang belum yakin maksudnya, akui dulu balasannya, lalu
+    tawarkan satu langkah lanjutan yang konkret. Customer memilih, bukan
+    menjelaskan dirinya.
 
 12. Sesuatu yang sudah dikonfirmasi tidak dikonfirmasi ulang. Kalau jadwal call
     sudah disepakati dan customer hanya mengiyakan, cukup satu kalimat penutup,
@@ -534,5 +563,5 @@ function limitLinks(text) {
 module.exports = {
   normalizeUsage, formatUsd, styleWarnings, judgeReply,
   CLAIM_PATTERNS, findClaimViolations, stripClaimSentences, enforceReplyContract,
-  classifyShortReply, lastTurnAlreadyClosed, ensureClosingIsRecognizable, stripLinks, AGNEE_CONVERSATION_RULES, limitLinks, MAX_LINKS_PER_REPLY,
+  classifyShortReply, lastTurnAlreadyClosed, alreadyThankedForAck, ensureClosingIsRecognizable, stripLinks, AGNEE_CONVERSATION_RULES, limitLinks, MAX_LINKS_PER_REPLY,
 };

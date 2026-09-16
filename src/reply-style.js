@@ -396,48 +396,64 @@ const AGNEE_CONVERSATION_RULES = `## ATURAN PERCAKAPAN (bawaan Agnee, berlaku se
    menyebut bahwa percakapan dialihkan ke atau dari sistem otomatis. Kamu
    berbicara sebagai orang dari tim, titik.
 
-8. Satu pesan, satu ajakan. Jangan pernah mengirim dua link dalam satu pesan —
-   customer yang diberi dua pilihan tautan sekaligus biasanya tidak membuka
-   keduanya.`;
+8. Satu pesan, satu ajakan — kecuali kamu memang menawarkan dua jalan bernomor
+   sekaligus, yang paling banyak boleh membawa dua link. Lebih dari dua tidak
+   pernah dibuka.
+
+9. Kalau kamu menyebut sebuah penawaran, linknya harus ikut di pesan yang sama.
+   Menyebut paket lalu tidak memberi cara mengambilnya memaksa customer
+   bertanya "caranya gimana" — dan itu berarti kamu membuang satu giliran.
+
+10. Kirim link yang sesuai dengan posisi customer. Orang yang belum pernah
+    melihat halaman penawaran dikirimi halaman penawaran, bukan halaman
+    pembayaran. Halaman pembayaran hanya untuk orang yang sudah bilang mau
+    membeli.`;
 
 /**
- * Menyisakan satu link saja dalam satu balasan.
+ * Membatasi jumlah link dalam satu balasan.
  *
- * Aturan "satu pesan satu ajakan" ada di playbook DAN di aturan bawaan, dan
- * model tetap sesekali mengirim dua tautan sekaligus — persis pola yang sudah
- * terbukti pada larangan klaim hasil: aturan di prompt panjang tidak dipatuhi
- * konsisten. Jadi ditegakkan di sini.
+ * Batasnya DUA, bukan satu. Batas satu terbukti merusak di produksi: balasan
+ * pembuka menawarkan dua jalan bernomor — free signal Telegram dan Recovery
+ * Package — lalu link kedua dibuang sementara kalimat penawarannya tetap
+ * tinggal. Customer membaca ajakan membeli tanpa cara membelinya, harus
+ * bertanya "caranya kak?", dan agent manusia yang akhirnya menutup. Menyebut
+ * penawaran tanpa linknya lebih buruk daripada mengirim dua link.
  *
- * Yang dibuang adalah BARIS yang memuat link kedua dan seterusnya, bukan
- * link-nya saja, supaya tidak meninggalkan panah atau kalimat menggantung.
- * Link pertama menang karena itu yang paling dekat dengan kalimat pembuka.
+ * Link ketiga dan seterusnya tetap dibuang; itu batas asli yang memang
+ * bermasalah. Yang dibuang adalah BARIS yang memuat link berlebih beserta
+ * kalimat yang memperkenalkannya, supaya tidak meninggalkan panah atau
+ * penawaran menggantung.
  *
  * @returns {{ text: string, dropped: number }}
  */
-function keepSingleLink(text) {
+const MAX_LINKS_PER_REPLY = 2;
+
+function limitLinks(text) {
   const baris = String(text || '').split('\n');
   const urlPattern = /https?:\/\/\S+/;
-  let sudahAdaLink = false;
+  let jumlahLink = 0;
   const disimpan = [];
   let dropped = 0;
 
   for (const satu of baris) {
-    const url = satu.match(urlPattern);
-    if (!url) {
+    if (!urlPattern.test(satu)) {
       disimpan.push(satu);
       continue;
     }
-    if (!sudahAdaLink) {
-      sudahAdaLink = true;
+    jumlahLink += 1;
+    if (jumlahLink <= MAX_LINKS_PER_REPLY) {
       disimpan.push(satu);
       continue;
     }
     dropped += 1;
-    // Baris pengantar tepat di atas link yang dibuang ikut dibuang kalau ia
-    // hanya memperkenalkan link itu dan bukan kalimat yang berdiri sendiri.
-    const sebelumnya = disimpan[disimpan.length - 1];
-    if (sebelumnya !== undefined && sebelumnya.trim() !== '' && !urlPattern.test(sebelumnya)
-      && /(?:ini|berikut|di sini|link|:)\s*$/i.test(sebelumnya.trim())) {
+    // Kalimat pengantar tepat di atas link yang dibuang ikut dibuang selama ia
+    // masih satu blok dengan link itu (tidak dipisah baris kosong) dan bukan
+    // baris yang memuat link lain. Kalau tidak, yang tertinggal adalah
+    // penawaran tanpa cara mengambilnya — persis kegagalan yang dihindari di
+    // atas, hanya bergeser ke link ketiga.
+    while (disimpan.length) {
+      const sebelumnya = disimpan[disimpan.length - 1];
+      if (sebelumnya.trim() === '' || urlPattern.test(sebelumnya)) break;
       disimpan.pop();
     }
   }
@@ -450,5 +466,5 @@ function keepSingleLink(text) {
 module.exports = {
   normalizeUsage, formatUsd, styleWarnings, judgeReply,
   CLAIM_PATTERNS, findClaimViolations, stripClaimSentences, enforceReplyContract,
-  isAmbiguousCustomerReply, stripLinks, AGNEE_CONVERSATION_RULES, keepSingleLink,
+  isAmbiguousCustomerReply, stripLinks, AGNEE_CONVERSATION_RULES, limitLinks, MAX_LINKS_PER_REPLY,
 };

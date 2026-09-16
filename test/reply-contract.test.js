@@ -115,8 +115,12 @@ test('klarifikasi tidak boleh membawa link', () => {
   assert.ok(out.startsWith('Maksudnya yang mana kak?'));
 });
 
-test('menyisakan satu link saja dalam satu balasan', () => {
-  const { keepSingleLink } = require('../src/reply-style');
+test('membatasi balasan pada dua link, dan link ketiga dibuang utuh', () => {
+  const { limitLinks } = require('../src/reply-style');
+
+  // Dua jalan bernomor adalah bentuk pembuka yang memang dipakai: keduanya
+  // harus lolos. Membuang yang kedua meninggalkan ajakan membeli tanpa cara
+  // membelinya, dan itu yang terjadi di produksi sampai batasnya dinaikkan.
   const dua = [
     'Oke kak, sudah aku catat.',
     '',
@@ -124,22 +128,32 @@ test('menyisakan satu link saja dalam satu balasan', () => {
     '👉 https://t.me/bzonesyndicate',
     '',
     'Atau kalau mau langsung dibantu lebih lengkap, ada Recovery Package Rp99.000:',
-    '👉 https://tradersmastermind.myr.id/pl/checkout',
+    '👉 https://tradersmastermind.myr.id/lp/trading-recovery-plan',
     '',
     'Kakak lebih nyaman mulai dari mana dulu?',
   ].join('\n');
 
-  const hasil = keepSingleLink(dua);
+  assert.deepEqual(limitLinks(dua), { text: dua, dropped: 0 });
+
+  // Link ketiga dibuang bersama kalimat yang memperkenalkannya.
+  const tiga = [
+    dua,
+    '',
+    'Kalau mau sekalian mentorship, ini paket bundelnya:',
+    '👉 https://tradersmastermind.myr.id/pl/bundle-checkout',
+  ].join('\n');
+
+  const hasil = limitLinks(tiga);
   assert.equal(hasil.dropped, 1);
   assert.ok(hasil.text.includes('t.me/bzonesyndicate'), 'link pertama bertahan');
-  assert.ok(!hasil.text.includes('myr.id'), 'link kedua dibuang');
-  // Kalimat pengantar link kedua ikut dibuang supaya tidak menggantung.
-  assert.ok(!hasil.text.includes('Atau kalau mau langsung dibantu'), 'pengantarnya ikut dibuang');
+  assert.ok(hasil.text.includes('lp/trading-recovery-plan'), 'link kedua bertahan');
+  assert.ok(!hasil.text.includes('bundle-checkout'), 'link ketiga dibuang');
+  assert.ok(!hasil.text.includes('sekalian mentorship'), 'pengantarnya ikut dibuang');
   assert.ok(hasil.text.includes('Kakak lebih nyaman mulai dari mana'), 'kalimat penutup bertahan');
 
   // Satu link saja tidak disentuh sama sekali.
   const satu = 'Ini linknya kak:\n👉 https://t.me/bzonesyndicate';
-  assert.deepEqual(keepSingleLink(satu), { text: satu, dropped: 0 });
+  assert.deepEqual(limitLinks(satu), { text: satu, dropped: 0 });
   // Tanpa link juga tidak disentuh.
-  assert.deepEqual(keepSingleLink('Halo kak'), { text: 'Halo kak', dropped: 0 });
+  assert.deepEqual(limitLinks('Halo kak'), { text: 'Halo kak', dropped: 0 });
 });

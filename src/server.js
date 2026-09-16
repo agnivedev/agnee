@@ -14,7 +14,7 @@ const KnowledgeBase = require('./knowledge-loader.js');
 const LlmService = require('./llm-service.js');
 const {
   normalizeUsage, styleWarnings, judgeReply, enforceReplyContract,
-  isAmbiguousCustomerReply, stripLinks, AGNEE_CONVERSATION_RULES, keepSingleLink,
+  isAmbiguousCustomerReply, stripLinks, AGNEE_CONVERSATION_RULES, limitLinks,
 } = require('./reply-style.js');
 const { FollowUpScheduler, decide: followUpDecide, withManualGap } = require('./follow-up.js');
 const onedrive = require('./onedrive-sync.js');
@@ -785,6 +785,13 @@ async function buildApp(overrides = {}) {
         .map(m => ({ role: m.fromMe ? 'assistant' : 'user', content: m.body }));
     } catch { /* Cloud API or unavailable — proceed without history */ }
 
+    // Panjang riwayat dicatat karena dua kali sudah salah tebak dari gejalanya.
+    // Balasan yang menyapa ulang di tengah percakapan bisa berarti riwayatnya
+    // kosong ATAU model menyalin template pembuka; angka ini yang membedakan,
+    // dan tanpa dicatat hanya bisa dikira-kira dari teks balasannya.
+    app.log.info({ companyId, chatId: message.from, riwayat: conversationHistory.length },
+      'Riwayat percakapan untuk balasan otomatis');
+
     // Balasan pendek tanpa rujukan yang jelas ("ya" setelah CS menyebut isi
     // paket, bukan setelah bertanya) sebelumnya ditebak sebagai "setuju beli"
     // dan dibalas link checkout. Tebakan yang salah memaksa customer mengulang
@@ -837,10 +844,10 @@ async function buildApp(overrides = {}) {
         warnings: enforced.warnings,
       }, 'Balasan AI diperbaiki sebelum dikirim');
     }
-    // Satu pesan, satu ajakan. Aturannya ada di playbook DAN di aturan bawaan,
-    // dan model tetap sesekali mengirim dua tautan — pola yang sama dengan
-    // larangan klaim hasil, jadi ditegakkan di sini juga.
-    const tunggal = keepSingleLink(enforced.text);
+    // Paling banyak dua link per balasan. Batasnya pernah satu, dan itu membuang
+    // link checkout dari balasan pembuka yang menawarkan dua jalan bernomor —
+    // penawaran Rp99.000 terkirim tanpa cara mengambilnya.
+    const tunggal = limitLinks(enforced.text);
     if (tunggal.dropped) {
       app.log.warn({ companyId, chatId: message.from, dropped: tunggal.dropped },
         'Link berlebih dibuang dari balasan sebelum dikirim');
@@ -2637,7 +2644,7 @@ Aturan:
           userMessage: customerMessage,
           history,
         });
-        teks = enforcedSim ? keepSingleLink(enforcedSim.text).text : null;
+        teks = enforcedSim ? limitLinks(enforcedSim.text).text : null;
       }
       if (!teks && mode === 'ai') {
         return reply.code(502).send({ error: 'Balasan AI dibuang karena melanggar kontrak keluaran.' });

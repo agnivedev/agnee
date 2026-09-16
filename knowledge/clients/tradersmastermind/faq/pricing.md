@@ -10,7 +10,7 @@
 ## FAQ-PRICE-001 — Berapa harga programnya?
 - **Status:** confirmed
 - **Intent:** harga berapa, berapa harganya, biaya, harga program, investasi berapa, berapa duit
-- **Jawaban:** Recovery Package Rp99.000. Di dalamnya sudah ada copy trade, ebook panduan recovery, signal dari tim, dan pendampingan tim selama prosesnya. Ada juga 100% money-back guarantee tanpa ditanya alasan selama 3 hari pertama, setelah itu refund 50%. Link checkout: https://tradersmastermind.myr.id/pl/trading-recovery-plan-checkout
+- **Jawaban:** Recovery Package Rp99.000. Di dalamnya sudah ada copy trade, ebook panduan recovery, signal dari tim, dan pendampingan tim selama prosesnya. Ada juga 100% money-back guarantee tanpa ditanya alasan selama 3 hari pertama, setelah itu refund 50%. Detail lengkapnya ada di halaman penawaran: https://tradersmastermind.myr.id/lp/trading-recovery-plan — link pembayarannya (https://tradersmastermind.myr.id/pl/trading-recovery-plan-checkout) hanya dikirim kalau lead sudah bilang mau ambil.
 - **Next action:** Kirim link checkout, minta lead membalas SUDAH setelah bayar.
 
 ## FAQ-PRICE-002 — Kenapa harganya cuma Rp99.000? Beneran?
@@ -34,7 +34,7 @@
 ## FAQ-PRICE-005 — Link checkout mana yang dipakai?
 - **Status:** confirmed
 - **Intent:** link checkout, link daftar, link pembayaran, mau daftar, dimana daftar, link nya
-- **Jawaban:** Recovery Package Rp99.000: https://tradersmastermind.myr.id/pl/trading-recovery-plan-checkout — Bundle dengan Mentorship Rp188.000: https://tradersmastermind.myr.id/pl/trading-recovery-mentorship-checkout
+- **Jawaban:** Recovery Package Rp99.000: https://tradersmastermind.myr.id/lp/trading-recovery-plan (halaman pembayaran https://tradersmastermind.myr.id/pl/trading-recovery-plan-checkout hanya untuk lead yang sudah siap bayar) — Bundle dengan Mentorship Rp188.000: https://tradersmastermind.myr.id/pl/trading-recovery-mentorship-checkout
 - **Next action:** Kirim satu link saja sesuai paket yang customer pilih.
 
 ## FAQ-PRICE-006 — Apakah ada refund atau garansi?

@@ -3,7 +3,7 @@
 ## FAQ-PROD-001 — Apa itu Recovery Package? Dapat apa saja?
 - **Status:** confirmed
 - **Intent:** apa itu recovery package, recovery plan, dapat apa aja, isinya apa, program apa, ini program apa, isi paket
-- **Jawaban:** Recovery Package Rp99.000 berisi empat hal: copy trade untuk bantu eksekusi, ebook panduan recovery berisi langkah dan risk management, signal dari tim supaya tidak perlu cari entry sendirian, dan pendampingan tim selama prosesnya. Semuanya sudah termasuk dalam satu paket. Checkout: https://tradersmastermind.myr.id/pl/trading-recovery-plan-checkout
+- **Jawaban:** Recovery Package Rp99.000 berisi empat hal: copy trade untuk bantu eksekusi, ebook panduan recovery berisi langkah dan risk management, signal dari tim supaya tidak perlu cari entry sendirian, dan pendampingan tim selama prosesnya. Semuanya sudah termasuk dalam satu paket. Halaman penawaran: https://tradersmastermind.myr.id/lp/trading-recovery-plan (halaman pembayaran https://tradersmastermind.myr.id/pl/trading-recovery-plan-checkout hanya untuk lead yang sudah siap bayar)
 - **Next action:** Kirim link checkout dan minta lead membalas SUDAH setelah bayar.
 
 ## FAQ-PROD-002 — Apakah ada jaminan profit?

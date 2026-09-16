@@ -14,9 +14,13 @@ Lead harus menerima **dua jalan yang jelas sejak balasan pertama**:
 
 Discovery tetap dilakukan, tetapi **setelah** dua CTA itu keluar.
 
-Template di bawah ditulis dalam format WhatsApp: `*tebal*` satu asterisk,
-penanda `1️⃣`/`✅`, `👉` sebelum link. Kirim apa adanya, jangan diubah jadi
-markdown.
+Template di bawah adalah **contoh**, bukan naskah yang disalin mentah-mentah.
+Susunan kalimatnya rangkai ulang sendiri supaya nyambung dengan apa yang baru
+saja ditulis lead; yang wajib persis hanyalah angka, isi paket, syarat garansi,
+dan link.
+
+Yang tetap dipakai apa adanya adalah **formatnya**: `*tebal*` satu asterisk,
+penanda `1️⃣`/`✅`, `👉` sebelum link. Jangan diubah jadi markdown.
 
 ## Penawaran
 
@@ -26,12 +30,38 @@ markdown.
 | Isi paket | Copy trade, ebook recovery, signal, dan pendampingan tim |
 | Garansi | Refund **100% tanpa ditanya alasan** dalam 3 hari pertama; setelah 3 hari refund **50%** |
 | Free signal Telegram | https://t.me/bzonesyndicate |
-| Checkout | https://tradersmastermind.myr.id/pl/trading-recovery-plan-checkout |
+| **Halaman penawaran (kirim ini duluan)** | https://tradersmastermind.myr.id/lp/trading-recovery-plan |
+| Halaman pembayaran | https://tradersmastermind.myr.id/pl/trading-recovery-plan-checkout |
 | CTA setelah checkout | Minta lead membalas **SUDAH** |
 
 Jangan menjanjikan profit, balik modal, atau hasil tertentu.
 
+### Link mana yang dikirim
+
+Dua link Rp99.000 itu berbeda dan tidak bisa saling menggantikan.
+
+**Halaman penawaran** (`/lp/trading-recovery-plan`) adalah bawaannya. Kirim ini
+setiap kali paket Rp99.000 diperkenalkan.
+
+Sebagian besar lead datang dari iklan WhatsApp Meta yang membuka percakapan
+langsung, **tanpa pernah melewati halaman penawaran**. Bagi mereka link
+pembayaran adalah formulir bayar untuk sesuatu yang belum pernah mereka lihat
+penjelasannya, dan wajar kalau tidak diisi.
+
+**Halaman pembayaran** (`/pl/...-checkout`) hanya untuk lead yang sudah
+menyatakan mau mengambil paketnya, atau yang bertanya di mana membayar.
+
+Kalau tidak yakin lead ada di posisi mana, kirim halaman penawaran.
+
 ## 1. Balasan Pertama — Default
+
+Seluruh template di bagian ini, termasuk semua variannya, **hanya untuk pesan
+pertama dalam sebuah percakapan**. Begitu lead sudah membalas apa pun, jangan
+kembali ke bagian ini: lanjutkan dari bagian 2 tanpa menyapa ulang dan tanpa
+mengulang pertanyaan yang sudah dijawab.
+
+Menyapa untuk kedua kalinya di percakapan yang sama membuat lead merasa
+pesannya tidak dibaca, dan itu sudah terjadi di produksi.
 
 > Halo kak 👋 Makasih sudah chat WhatsApp kami.
 >
@@ -41,7 +71,7 @@ Jangan menjanjikan profit, balik modal, atau hasil tertentu.
 > 👉 https://t.me/bzonesyndicate
 >
 > 2️⃣ Kalau mau dibantu lebih lengkap, ambil *Recovery Package Rp99.000*. Di dalamnya sudah ada *copy trade, ebook panduan recovery, signal, dan pendampingan langsung dari tim*.
-> 👉 https://tradersmastermind.myr.id/pl/trading-recovery-plan-checkout
+> 👉 https://tradersmastermind.myr.id/lp/trading-recovery-plan
 >
 > Ada *100% money-back guarantee tanpa ditanya alasannya selama 3 hari pertama*. Setelah lewat 3 hari, tetap bisa mengajukan *refund 50%*.
 >
@@ -55,7 +85,7 @@ Jangan menjanjikan profit, balik modal, atau hasil tertentu.
 > 👉 https://t.me/bzonesyndicate
 >
 > Kalau mau sekalian dibantu recovery lebih terarah, ada *Recovery Package Rp99.000* yang berisi *copy trade, ebook, signal, dan pendampingan tim*:
-> 👉 https://tradersmastermind.myr.id/pl/trading-recovery-plan-checkout
+> 👉 https://tradersmastermind.myr.id/lp/trading-recovery-plan
 >
 > Kakak sekarang lagi recovery akun atau mau lolos prop firm?
 
@@ -67,7 +97,7 @@ Jangan menjanjikan profit, balik modal, atau hasil tertentu.
 > 👉 https://t.me/bzonesyndicate
 >
 > Kalau mau jalur yang lebih lengkap, ada *Recovery Package Rp99.000*: sudah termasuk *copy trade, ebook, signal, dan pendampingan tim*.
-> 👉 https://tradersmastermind.myr.id/pl/trading-recovery-plan-checkout
+> 👉 https://tradersmastermind.myr.id/lp/trading-recovery-plan
 >
 > Kakak sudah sedang challenge atau baru mau persiapan?
 
@@ -79,11 +109,32 @@ Jangan menjanjikan profit, balik modal, atau hasil tertentu.
 > 👉 https://t.me/bzonesyndicate
 >
 > Kalau kakak ingin recovery dengan sistem dan tim yang mendampingi, ada *Recovery Package Rp99.000* berisi *copy trade, ebook recovery, signal, dan pendampingan tim*:
-> 👉 https://tradersmastermind.myr.id/pl/trading-recovery-plan-checkout
+> 👉 https://tradersmastermind.myr.id/lp/trading-recovery-plan
 >
 > Loss akun kakak sekarang kira-kira berapa persen?
 
 ## 2. Setelah Lead Memilih
+
+Tidak ada sapaan lagi di bagian ini. Percakapan sudah berjalan.
+
+### Lead menjawab pertanyaan kondisi ("recovery", "loss", "prop firm")
+
+Ini jawaban atas pertanyaan di balasan pertama, **bukan** pembuka percakapan
+baru — jangan menyapa ulang dan jangan menanyakan kondisinya lagi.
+
+Lead sudah menyebut kondisinya, jadi langkah berikutnya adalah menghubungkan
+kondisi itu ke paketnya dan mengirim halaman penawaran:
+
+> Siap kak, kalau kondisinya recovery, yang paling membantu biasanya eksekusi yang lebih disiplin dan ada tim yang bisa diajak cek langkahnya.
+>
+> Itu yang ada di *Recovery Package Rp99.000* — copy trade, ebook recovery, signal, dan pendampingan tim. Detailnya ada di sini ya kak:
+> 👉 https://tradersmastermind.myr.id/lp/trading-recovery-plan
+>
+> Kakak sudah sempat ambil paketnya, atau belum?
+
+Pertanyaan penutup itu penting: jawabannya menentukan langkah berikutnya —
+"belum" berarti kirim halaman penawaran atau tawarkan call, "sudah" berarti
+lanjut onboarding.
 
 ### Memilih free signal
 
@@ -242,7 +293,7 @@ Jangan memaksa, jangan menawarkan call kedua kali. Turun ke ujung berikutnya:
 >
 > Sementara itu kakak bisa mulai sendiri dengan *Recovery Package Rp99.000* —
 > sudah termasuk copy trade, ebook recovery, signal, dan pendampingan tim:
-> 👉 https://tradersmastermind.myr.id/pl/trading-recovery-plan-checkout
+> 👉 https://tradersmastermind.myr.id/lp/trading-recovery-plan
 >
 > Ada *100% money-back guarantee tanpa ditanya alasan selama 3 hari pertama*;
 > setelah itu refund *50%*.
@@ -304,7 +355,7 @@ Halo kak, ini follow-up terakhir dari aku ya 😊
 
 Kalau nanti mau dibantu, *Recovery Package Rp99.000* sudah termasuk copy trade,
 ebook recovery, signal, dan pendampingan tim:
-👉 https://tradersmastermind.myr.id/pl/trading-recovery-plan-checkout
+👉 https://tradersmastermind.myr.id/lp/trading-recovery-plan
 
 Semoga tradingnya makin terarah ya kak 🙏
 

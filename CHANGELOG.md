@@ -13,6 +13,27 @@
   dikeluarkan dari footer, bukan dibiarkan sebagai link mati — tapi wajib ada
   sebelum penampungan email lewat Mayar dihidupkan.
 
+### Fixed
+
+- **Placeholder template `{jam}` bocor mentah ke customer.** Instruksi call
+  Anya/Rizki di `knowledge/clients/tradersmastermind/funnel/sales-funnel.md`
+  memakai notasi `{jam}` sebagai contoh yang harus diisi model dengan jam
+  sungguhan — tapi tidak selalu diganti. Ditemukan di produksi 2026-09-16: 15
+  balasan menjanjikan jadwal call ke delapan chat berbeda, satu di antaranya
+  mengirim "...jam {jam} WIB..." apa adanya. `enforceReplyContract` sekarang
+  mendeteksi pola `{kata}` sebagai pelanggaran keras — sejajar dengan klaim
+  hasil/risiko — dan membuang kalimat yang memuatnya sebelum terkirim.
+- **Follow-up bisa menawarkan checkout ke orang yang sudah setuju dijadwalkan
+  telepon.** `checkoutAlreadySent` sudah membaca konteks, tapi tidak tahu soal
+  janji call — follow-up untuk chat yang sedang menunggu telepon Anya/Rizki
+  bisa saja menanyakan "sudah checkout?" alih-alih soal panggilannya.
+  `callPromisePending()` membaca balasan kita yang terakhir dengan pola yang
+  sama (`COMMITMENT_MARKERS`) yang sudah dipakai untuk mengenali giliran CS
+  yang menutup sesuatu — satu sumber kebenaran untuk "ini janji call", dipakai
+  di balasan customer maupun balasan kita sendiri. Kalau menggantung, follow-up
+  dilarang menawarkan apa pun yang baru dan hanya boleh menanyakan status
+  panggilannya. Ini mengalahkan `checkoutSent` kalau keduanya sama-sama benar.
+
 ### Added
 
 - **Ikon nyata (lucide-react) di seluruh navigasi**, menggantikan karakter

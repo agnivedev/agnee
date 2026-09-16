@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { FollowUpScheduler, decide, withinSendWindow, buildFollowUpPrompt, checkoutAlreadySent,
-  withManualGap, MANUAL_MIN_GAP_MINUTES } = require('../src/follow-up');
+  callPromisePending, withManualGap, MANUAL_MIN_GAP_MINUTES } = require('../src/follow-up');
 
 // Jam 14.00 WIB = 07.00 UTC, aman di dalam jendela kirim default (8-21 WIB).
 const MIDDAY = new Date('2026-09-15T07:00:00Z');
@@ -285,6 +285,37 @@ test('tanpa checkout tertunda, aturan anti-nagging tetap berlaku', () => {
   });
   assert.ok(!prompt.includes('Link checkout SUDAH dikirim'));
   assert.match(prompt, /masih di sana/, 'larangan basa-basi kosong tetap ada');
+});
+
+test('janji call yang belum ditindaklanjuti terdeteksi dari balasan kita sendiri', () => {
+  // Hanya balasan KITA yang terakhir yang menentukan — recentOutbound cuma
+  // berisi balasan kita, dan follow-up hanya jalan untuk chat yang sudah diam,
+  // jadi elemen terakhir selalu balasan sebelum keheningan itu.
+  assert.equal(callPromisePending([
+    { body: 'Boleh, jam berapa kak?' },
+    { body: 'Siap kak, terima kasih 🙏\n\nAnya atau Rizki akan telepon kakak jam 15.00 WIB untuk bantu proses recovery akun kakak ya.' },
+  ]), true);
+  assert.equal(callPromisePending([{ body: 'Boleh, jam berapa kak?' }]), false);
+  assert.equal(callPromisePending([]), false);
+  // Janji call yang SUDAH digantikan balasan kita yang lebih baru (mis. sudah
+  // ditutup) tidak lagi dianggap menggantung.
+  assert.equal(callPromisePending([
+    { body: 'Anya atau Rizki akan telepon kakak jam 15.00 WIB ya.' },
+    { body: 'Siap kak, sampai jumpa di teleponnya nanti 🙏' },
+  ]), false);
+});
+
+test('follow-up dengan janji call mengalahkan checkout, dan tidak menawarkan apa pun baru', () => {
+  const prompt = buildFollowUpPrompt({
+    dayIndex: 0, attemptInDay: 1, dayCaps: [2], previousSends: [],
+    playbookMd: '',
+    recentOutbound: [{ body: 'Anya atau Rizki akan telepon kakak jam 15.00 WIB ya.' }],
+    checkoutSent: true, // seharusnya diabaikan; janji call lebih relevan
+    callPending: true,
+  });
+  assert.match(prompt, /KAMI SUDAH MENJANJIKAN CALL/);
+  assert.match(prompt, /Jangan\s+menawarkan checkout, link, atau produk apa pun/);
+  assert.ok(!prompt.includes('Link checkout SUDAH dikirim'), 'janji call mengalahkan checkout');
 });
 
 // ── Percobaan dicatat sebelum dikirim ───────────────────────────────────────

@@ -34,6 +34,28 @@ const CLAIM_PATTERNS = [
   [/\b(?:modal|akun|dana)\w*\s+(?:kakak|kamu|anda)?\s*(?:jadi\s+)?aman\b/i, 'menilai keamanan'],
 ];
 
+/**
+ * Placeholder template yang belum diisi model — pola `{kata}` seperti `{jam}`
+ * di panduan follow-up dan penawaran call TM. Ini bukan soal gaya: kalau bocor
+ * ke customer, ia membaca instruksi internal kita mentah-mentah dan pesannya
+ * jadi tidak masuk akal ("Anya atau Rizki akan telepon kakak jam {jam} WIB").
+ *
+ * Ditemukan di produksi 2026-09-16: 15 balasan menjanjikan jadwal call ke
+ * delapan chat berbeda, satu di antaranya mengirim placeholder ini mentah.
+ * Model biasanya mengganti `{jam}` dengan jam sungguhan seperti diminta
+ * instruksinya — tapi "biasanya" tidak cukup untuk sesuatu yang langsung
+ * dibaca customer, jadi ditegakkan di kode seperti klaim hasil/risiko di atas.
+ */
+const PLACEHOLDER_LEAK_PATTERNS = [
+  [/\{[a-zA-Z_][a-zA-Z0-9_]{0,24}\}/, 'placeholder template belum diisi'],
+];
+
+/**
+ * Pelanggaran yang tidak boleh lolos sama sekali — bukan soal gaya (panjang,
+ * emoji), tapi salah dengan cara yang berbahaya kalau sampai ke customer.
+ */
+const HARD_VIOLATION_PATTERNS = [...CLAIM_PATTERNS, ...PLACEHOLDER_LEAK_PATTERNS];
+
 /** Pecah jadi kalimat, tetap menyimpan baris supaya daftar tidak hancur. */
 function splitSentences(text) {
   return String(text || '')
@@ -42,13 +64,14 @@ function splitSentences(text) {
     .filter(Boolean);
 }
 
-/** @returns {{sentence: string, label: string}[]} */
+/** @returns {{sentence: string, label: string, isPlaceholderLeak: boolean}[]} */
 function findClaimViolations(text) {
   const found = [];
   for (const sentence of splitSentences(text)) {
-    for (const [pattern, label] of CLAIM_PATTERNS) {
+    for (const [pattern, label] of HARD_VIOLATION_PATTERNS) {
       if (pattern.test(sentence)) {
-        found.push({ sentence, label });
+        const isPlaceholderLeak = PLACEHOLDER_LEAK_PATTERNS.some(([p]) => p === pattern);
+        found.push({ sentence, label, isPlaceholderLeak });
         break;
       }
     }
@@ -62,7 +85,7 @@ function findClaimViolations(text) {
  */
 function stripClaimSentences(text) {
   const kept = splitSentences(text).filter((sentence) => (
-    !CLAIM_PATTERNS.some(([pattern]) => pattern.test(sentence))
+    !HARD_VIOLATION_PATTERNS.some(([pattern]) => pattern.test(sentence))
   ));
   return kept.join('\n').trim();
 }
@@ -304,7 +327,7 @@ function styleWarnings(text, expectations = {}) {
   if ((value.match(/\?/g) || []).length > 1) warnings.push('more than one question');
   if (expectations.expectDirectHandoff && value.includes('?')) warnings.push('asks a question after explicit handoff request');
   const claim = findClaimViolations(value)[0];
-  if (claim) warnings.push(`klaim hasil/risiko: ${claim.label}`);
+  if (claim) warnings.push(claim.isPlaceholderLeak ? claim.label : `klaim hasil/risiko: ${claim.label}`);
   const canned = [
     'saya memahami',
     'terima kasih atas pertanyaannya',
@@ -572,4 +595,5 @@ module.exports = {
   normalizeUsage, formatUsd, styleWarnings, judgeReply,
   CLAIM_PATTERNS, findClaimViolations, stripClaimSentences, enforceReplyContract,
   classifyShortReply, lastTurnAlreadyClosed, countRecentAckRounds, ensureClosingIsRecognizable, stripLinks, AGNEE_CONVERSATION_RULES, limitLinks, MAX_LINKS_PER_REPLY,
+  COMMITMENT_MARKERS,
 };

@@ -31,6 +31,25 @@ test('klaim hasil dan risiko ditandai, kalimat sah tidak', () => {
   }
 });
 
+test('placeholder template yang belum diisi ditandai dan dibuang', () => {
+  // Ditemukan di produksi 2026-09-16: "Anya atau Rizki akan telepon kakak jam
+  // {jam} WIB" dikirim mentah ke customer — model tidak mengganti placeholder
+  // dari panduan follow-up dengan jam sungguhan.
+  const bocor = 'Siap kak, terima kasih 🙏\n\nAnya atau Rizki akan telepon kakak jam {jam} WIB untuk bantu proses recovery akun kakak ya.';
+  const violations = findClaimViolations(bocor);
+  assert.equal(violations.length, 1);
+  assert.equal(violations[0].isPlaceholderLeak, true);
+  assert.equal(styleWarnings(bocor)[0], 'placeholder template belum diisi');
+
+  const dipangkas = stripClaimSentences(bocor);
+  assert.ok(!dipangkas.includes('{jam}'));
+  assert.ok(dipangkas.includes('terima kasih'));
+
+  // Kurung kurawal yang bukan placeholder gaya template — mis. contoh kode
+  // atau emoji jam — tidak boleh ikut tertandai.
+  assert.deepEqual(findClaimViolations('Jadwalnya jam 15.00 kak.'), []);
+});
+
 test('hanya kalimat yang melanggar yang dibuang', () => {
   const text = `${CLEAN}\nRisiko kakak nyaris nggak ada.\nAda refund 50% setelah 3 hari.`;
   const kept = stripClaimSentences(text);

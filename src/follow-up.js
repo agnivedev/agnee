@@ -1,5 +1,7 @@
 'use strict';
 
+const { COMMITMENT_MARKERS } = require('./reply-style.js');
+
 // Semua tenant Agnee berbisnis di Indonesia, dan jam kirim di follow_up_settings
 // disimpan sebagai jam lokal mereka. Kalau nanti ada tenant di zona lain, ini
 // yang harus dipindah jadi kolom per company.
@@ -89,8 +91,26 @@ function checkoutAlreadySent(recentOutbound = [], paymentLink = '') {
   });
 }
 
+/**
+ * Apakah balasan KITA yang terakhir menjanjikan telepon yang belum
+ * ditindaklanjuti?
+ *
+ * `recentOutbound` hanya diminta untuk chat yang sudah diam (prasyarat
+ * scheduler), jadi elemen terakhirnya selalu balasan kita paling baru sebelum
+ * keheningan itu — kalau balasan itu berisi janji call, orang tersebut sedang
+ * menunggu telepon, bukan menunggu follow-up generik.
+ *
+ * Regex-nya sama persis dengan yang menutup giliran CS di `reply-style.js`
+ * (`COMMITMENT_MARKERS`) — satu sumber kebenaran untuk "ini janji call",
+ * dipakai baik untuk membaca balasan customer maupun balasan kita sendiri.
+ */
+function callPromisePending(recentOutbound = []) {
+  const last = recentOutbound[recentOutbound.length - 1];
+  return Boolean(last && COMMITMENT_MARKERS.test(String(last.body || '')));
+}
+
 function buildFollowUpPrompt({ dayIndex, attemptInDay, dayCaps, previousSends, playbookMd,
-  recentOutbound = [], checkoutSent = false }) {
+  recentOutbound = [], checkoutSent = false, callPending = false }) {
   const isLast = dayIndex === dayCaps.length - 1
     && attemptInDay === dayCaps[dayIndex];
   const previous = previousSends.length
@@ -104,14 +124,24 @@ function buildFollowUpPrompt({ dayIndex, attemptInDay, dayCaps, previousSends, p
     ? recentOutbound.map((row) => `- ${row.body}`).join('\n')
     : '(tidak ada catatan)';
 
-  const pendingAction = checkoutSent
-    ? `\nLink checkout SUDAH dikirim ke orang ini dan dia belum membalas. Untuk
+  // callPending mengalahkan checkoutSent: orang yang sudah setuju jadwal call
+  // sedang menunggu telepon, bukan menunggu link checkout. Menawarkan checkout
+  // di atas janji call yang menggantung bikin percakapan terbaca tidak
+  // membaca dirinya sendiri.
+  const pendingAction = callPending
+    ? `\nKAMI SUDAH MENJANJIKAN CALL ke orang ini dan dia belum membalas. Jangan
+menawarkan checkout, link, atau produk apa pun di follow-up ini — dia sedang
+menunggu telepon, bukan penawaran baru. Tanyakan langsung dan singkat: apakah
+sudah sempat terhubung dengan panggilannya, atau apakah jadwalnya perlu
+digeser. JANGAN mengulang kalimat janji call yang sama.\n`
+    : checkoutSent
+      ? `\nLink checkout SUDAH dikirim ke orang ini dan dia belum membalas. Untuk
 follow-up pertama, cukup tanyakan kabarnya secara langsung dan singkat —
 misalnya menanyakan apakah sudah sempat checkout, atau apakah ada yang masih
 mengganjal sebelum lanjut bayar. Pertanyaan pendek yang konkret lebih mudah
 dibalas daripada penawaran yang diulang. JANGAN mengirim ulang link yang sama
 kecuali dia menanyakannya.\n`
-    : '';
+      : '';
 
   return `Tulis SATU pesan follow-up WhatsApp untuk customer yang belum membalas.
 
@@ -276,6 +306,7 @@ class FollowUpScheduler {
       playbookMd: doc?.contentMd || '',
       recentOutbound,
       checkoutSent: checkoutAlreadySent(recentOutbound, company?.paymentLink || ''),
+      callPending: callPromisePending(recentOutbound),
     });
 
     const text = await this.deps.generate(row.companyId, row.chatId, prompt);
@@ -349,6 +380,6 @@ class FollowUpScheduler {
 }
 
 module.exports = {
-  FollowUpScheduler, decide, buildFollowUpPrompt, checkoutAlreadySent,
+  FollowUpScheduler, decide, buildFollowUpPrompt, checkoutAlreadySent, callPromisePending,
   withinSendWindow, withManualGap, BUSINESS_TZ, MANUAL_MIN_GAP_MINUTES,
 };

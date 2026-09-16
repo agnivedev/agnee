@@ -1,5 +1,17 @@
 ## [Unreleased]
 
+### Added
+
+- **Prompt ganti ke mode Manusia saat ketik manual sementara chat masih AI.**
+  Sebelumnya, mengetik balasan sendiri padahal chat masih mode AI langsung
+  terkirim diam-diam tanpa memindah mode — AI bisa ikut membalas di atasnya,
+  atau "kembalikan ke AI" berikutnya mengirim pesan penutup yang nyambung
+  aneh (ditemukan di produksi: pertanyaan AI yang belum dijawab customer
+  diikuti "terima kasih ya" semenit kemudian). Sekarang Composer bertanya
+  dulu sebelum kirim: "Ganti ke mode Manusia dan serahkan ke <nama>?" —
+  ya baru mode pindah ke Manusia (diserahkan ke diri sendiri) dan pesan
+  terkirim; batal tidak mengirim apa pun.
+
 ### Fixed
 
 - **Semua dialog (konfirmasi, hapus pesan, edit lead, dsb) nempel di pojok

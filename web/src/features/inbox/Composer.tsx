@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { api } from '@/lib/api';
 import { useI18n } from '@/lib/i18n';
+import { useSession } from '@/lib/session';
+import { useConfirm } from '@/components/ui/confirm';
 import { cn } from '@/lib/utils';
 import { formatFileSize, messagePreview } from './format';
 import type { Attachment, Chat, MediaTarget, Message } from './types';
@@ -42,6 +44,8 @@ export function Composer({
   onPreviewAttachment: (target: MediaTarget) => void;
 }) {
   const { t } = useI18n();
+  const { user } = useSession();
+  const confirm = useConfirm();
   const [text, setText] = useState('');
   const [attachment, setAttachment] = useState<Attachment | null>(null);
   const [status, setStatus] = useState<Status>({ tone: 'idle', text: '' });
@@ -83,10 +87,37 @@ export function Composer({
     }
   }
 
+  /**
+   * Typing a reply by hand while AI still owns the chat used to send
+   * silently, leaving routing at 'ai' — the AI could still auto-reply on
+   * top, or a later "return to AI" handoff would fire its closing message
+   * out of context (found in production: a customer's unanswered question
+   * followed a minute later by an unrelated "terima kasih" closing text).
+   * Ask once, upfront, instead of sending into that mismatched state.
+   */
+  async function ensureHumanHandling(): Promise<boolean> {
+    const routing = await api<{ routing: { mode: 'ai' | 'human' } }>(
+      `/v1/chats/${encodeURIComponent(chat.id)}/routing`,
+    ).catch(() => null);
+    if (!routing || routing.routing.mode !== 'ai') return true;
+    const ok = await confirm.confirm({
+      title: t('composer.handoverTitle'),
+      message: t('composer.handoverBody', { name: user?.displayName || user?.email || '' }),
+      confirmLabel: t('composer.handoverConfirm'),
+    });
+    if (!ok) return false;
+    await api(`/v1/chats/${encodeURIComponent(chat.id)}/routing`, {
+      method: 'POST',
+      body: { mode: 'human', assigneeUserId: user?.userId || null },
+    }).catch(() => null);
+    return true;
+  }
+
   async function submit(event: FormEvent) {
     event.preventDefault();
     const body = text.trim();
     if ((!body && !attachment) || sending) return;
+    if (!(await ensureHumanHandling())) return;
     setSending(true);
     if (requestText.current !== body) {
       requestId.current = crypto.randomUUID();

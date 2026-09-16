@@ -1,5 +1,25 @@
 ## [Unreleased]
 
+### Fixed
+
+- **Balasan otomatis kehilangan riwayat percakapan lewat jalur yang berbeda
+  dari UI — regresi dari perbaikan `Object.assign` sebelumnya.**
+  `generateAutoReply()` punya implementasi sendiri (`message.getChat()` +
+  `chat.fetchMessages()` langsung) tanpa fallback apa pun; kalau serialisasi
+  standar whatsapp-web.js melempar (error "r" yang sama yang sudah lama
+  muncul di jalur baca UI), catch kosong menelannya diam-diam dan riwayat
+  jatuh ke `[]` tanpa jejak. Ditemukan lewat log produksi 2026-09-16: satu
+  chat membalas dengan `riwayat:0` di giliran ke-8, dan transkripnya
+  menunjukkan akibatnya persis — pertanyaan discovery dan tawaran call yang
+  sama diulang tiga kali karena setiap balasan digenerate seolah kontak
+  pertama.
+  Sekarang `generateAutoReply()` memakai `getMessagesForUi()` yang sama
+  dengan jalur UI dan ringkasan percakapan — fungsi itu sudah punya fallback
+  snapshot lewat `pupPage.evaluate` langsung untuk persis kegagalan ini. Satu
+  jalur robust dipakai UI, ringkasan, dan balasan otomatis, bukan tiga
+  implementasi yang bisa gagal dengan cara berbeda-beda. Kegagalan yang
+  tersisa sekarang dicatat di log, bukan ditelan diam-diam.
+
 ### Planned
 
 - **Tanggal webinar belum ditentukan.** Materinya sudah ada, tapi jadwalnya

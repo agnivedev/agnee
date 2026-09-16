@@ -775,31 +775,40 @@ async function buildApp(overrides = {}) {
     const ctx = await buildReplyContext({ companyId, text: message.body, chatId: message.from });
 
     // Fetch recent conversation history so the AI knows what was already said.
-    // Uses message.getChat() which is available on whatsapp-web.js messages;
-    // Cloud API messages won't have it — we fall back to no history silently.
+    //
+    // Dulu ditulis sendiri di sini dengan `message.getChat()` +
+    // `chat.fetchMessages()` langsung, tanpa fallback. Itu jalur RAPUH: kalau
+    // serialisasi standar whatsapp-web.js melempar (error "r" yang sama yang
+    // sudah lama muncul di jalur baca UI), catch kosong menelannya diam-diam
+    // dan riwayatnya jatuh ke [] tanpa jejak. Ditemukan di produksi 2026-09-16:
+    // satu chat membalas dengan `riwayat:0` di tengah percakapan 8 giliran —
+    // AI mengulang pertanyaan discovery dan tawaran call yang sama tiga kali
+    // karena setiap balasan digenerate seolah kontak pertama.
+    //
+    // Sekarang memakai `getMessagesForUi()` yang sama dengan jalur UI/summary:
+    // ia sudah punya fallback snapshot lewat `pupPage.evaluate` langsung untuk
+    // persis kegagalan serialisasi ini. Satu jalur robust dipakai oleh UI,
+    // summary, dan balasan otomatis, bukan tiga implementasi yang bisa gagal
+    // dengan cara berbeda-beda.
     let conversationHistory = [];
     try {
-      const chat = await message.getChat();
-      const hiddenTypes = new Set(['e2e_notification', 'protocol', 'notification_template', 'gp2', 'call_log']);
-      const recent = await chat.fetchMessages({ limit: 20 });
-      // Id dibandingkan lewat `inboundMessageId`, BUKAN `m.id._serialized`.
-      //
-      // `fetchMessages` memetakan tiap pesan lewat `getMessageModel`, yang
-      // membuang getter `_serialized` untuk chat `@lid` — yaitu semua
-      // percakapan kita. Dengan `_serialized` undefined di kedua sisi,
-      // perbandingan `undefined !== undefined` bernilai false dan SETIAP pesan
-      // tersaring keluar: riwayatnya selalu kosong.
-      //
-      // Akibatnya AI membalas tiap pesan seolah kontak pertama — memperkenalkan
-      // diri berulang kali dan menanyakan hal yang baru saja dijawab. Ini
-      // penyebab tunggal kekacauan percakapan yang terlihat di produksi.
-      const currentId = inboundMessageId(message);
-      conversationHistory = recent
-        .filter(m => !hiddenTypes.has(m.type) && m.body
-          && (!currentId || inboundMessageId(m) !== currentId))
-        .slice(-10)
-        .map(m => ({ role: m.fromMe ? 'assistant' : 'user', content: m.body }));
-    } catch { /* Cloud API or unavailable — proceed without history */ }
+      const { client: wa } = await waFor(companyId, message.from);
+      if (wa) {
+        const hiddenTypes = new Set(['e2e_notification', 'protocol', 'notification_template', 'gp2', 'call_log']);
+        const { messages: recent } = await getMessagesForUi(wa, message.from, 20);
+        const currentId = inboundMessageId(message);
+        conversationHistory = recent
+          .filter(m => !hiddenTypes.has(m.type) && m.body
+            && (!currentId || inboundMessageId(m) !== currentId))
+          .slice(-10)
+          .map(m => ({ role: m.fromMe ? 'assistant' : 'user', content: m.body }));
+      }
+      // wa null berarti Cloud API — pesannya tidak lewat client whatsapp-web.js
+      // sama sekali, jadi tanpa riwayat di sini memang keadaan yang benar.
+    } catch (error) {
+      app.log.warn({ err: error, chatId: message.from },
+        'Riwayat percakapan tidak dapat diambil; balasan otomatis lanjut tanpa riwayat');
+    }
 
     // Panjang riwayat dicatat karena dua kali sudah salah tebak dari gejalanya.
     // Balasan yang menyapa ulang di tengah percakapan bisa berarti riwayatnya

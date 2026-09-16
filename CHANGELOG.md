@@ -1,5 +1,33 @@
 ## [Unreleased]
 
+### Added
+
+- **Pesan yang dihapus tetap tampil di riwayat, dicoret** — sebelumnya
+  "hapus untuk semua orang" membuat pesan hilang total dari tampilan begitu
+  riwayat dimuat ulang (WhatsApp menandai pesan sebagai `revoked` dengan isi
+  dikosongkan, dan filter riwayat membuang semua pesan berisi kosong). Sekarang
+  pesan `revoked` tetap muncul di posisinya dengan teks "Pesan ini telah
+  dihapus" (atau "Pesan ini kamu hapus" kalau kita sendiri yang menghapusnya),
+  dicoret dan miring — tanpa tombol aksi, karena tidak ada lagi yang bisa
+  dilakukan ke pesan yang sudah dihapus.
+- **Nomor WhatsApp asli untuk chat `@lid`** — chat dengan fitur privasi nomor
+  WhatsApp Business mengirim id internal buram (mis. "248627670863983"),
+  bukan nomor telepon, dan Lead List sebelumnya menampilkan id itu apa
+  adanya di kolom "Nomor WhatsApp". Sekarang di-resolve lewat API internal
+  WhatsApp (`WAWebApiContact.getPhoneNumber`, butuh koneksi yang hidup) dan
+  di-cache di tabel baru `lid_phone_map` supaya tidak ditanyakan ulang tiap
+  kali tabel dibuka. Gagal diam-diam per baris — kalau WhatsApp sedang tidak
+  siap atau resolusinya gagal, id `@lid` tetap tampil seperti sebelumnya.
+- **Menu sidebar disatukan dan bisa diciutkan.** Rail ikon di inbox dan
+  sidebar lebar di Lead List/Settings/Admin/Knowledge dulu punya daftar menu
+  BERBEDA — sidebar lebar hilang Contacts, Funnel, Train AI, Admin, dan
+  Logout sama sekali. Sekarang keduanya membaca dari satu daftar
+  (`nav-entries.ts`), jadi menunya identik di semua halaman. Sidebar lebar
+  juga bisa diciutkan jadi ikon saja (tersimpan per-browser), dengan tooltip
+  hover yang menampilkan labelnya. Sekalian: Train AI/Admin/Settings dari
+  rail pindah dari reload halaman penuh (`window.location.href`) ke navigasi
+  SPA (`navigate()`), konsisten dengan Lead List yang sudah begitu.
+
 ### Fixed
 
 - **AI menanyakan balik maksud customer, persis pola yang sudah lama dilarang

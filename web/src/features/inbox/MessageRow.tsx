@@ -91,6 +91,32 @@ export function MessageRow({
     );
   }
 
+  // Dihapus untuk semua orang (revoke) di WhatsApp tidak membuang pesannya
+  // dari riwayat, hanya mengosongkan isinya — jadi ditampilkan tetap di
+  // posisinya, dicoret, bukan menghilang seolah tidak pernah dikirim.
+  if (message.type === 'revoked') {
+    return (
+      <div
+        data-message-id={message.id}
+        className={cn('flex items-center gap-2', mine && 'justify-end')}
+      >
+        <div
+          className={cn(
+            'max-w-[min(72%,540px)] rounded-[14px] bg-white/55 px-3.5 pt-[11px] pb-2',
+            highlighted && 'ring-4 ring-green/40',
+          )}
+        >
+          <p className="m-0 text-sm text-muted italic line-through">
+            {mine ? t('message.deletedByMe') : t('message.deletedByOther')}
+          </p>
+          <time className="mt-[5px] block text-right font-mono text-[9px] text-muted">
+            {formatTime(message.timestamp)}
+          </time>
+        </div>
+      </div>
+    );
+  }
+
   const senderClass = senderTextClass(message.senderId || message.senderName);
   const showAvatar = isGroup && !mine;
   const hideAvatar = position === 'first' || position === 'middle';

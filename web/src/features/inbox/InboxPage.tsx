@@ -154,6 +154,17 @@ export function InboxPage() {
     setConnectionOpen(true);
   }, []);
 
+  // The wide sidebar on Leads/Settings/Admin/Knowledge links Contacts and
+  // Funnel here with ?panel=<id>, since both open a slide-over that only
+  // exists inside the inbox. Cleared the same way ?connect= is above.
+  useEffect(() => {
+    const requested = new URLSearchParams(window.location.search).get('panel');
+    if (requested !== 'contacts' && requested !== 'funnel') return;
+    window.history.replaceState({}, '', window.location.pathname);
+    void onRailAction(requested);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // ── Rail actions ───────────────────────────────────────────────────────────
   async function onRailAction(action: RailAction) {
     switch (action) {
@@ -207,16 +218,14 @@ export function InboxPage() {
       case 'leads':
         navigate('/leads');
         break;
-      // Train AI dan Admin dulu sama-sama membuka /admin, jadi menekan Train AI
-      // saat sudah di sana terasa tidak melakukan apa-apa.
       case 'playground':
-        window.location.href = '/knowledge';
+        navigate('/knowledge');
         break;
       case 'admin':
-        window.location.href = '/admin';
+        navigate('/admin');
         break;
       case 'settings':
-        window.location.href = '/settings';
+        navigate('/settings');
         break;
       case 'logout':
         await signOut();

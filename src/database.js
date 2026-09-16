@@ -119,6 +119,26 @@ class Database {
     return result.rows[0] || null;
   }
 
+  /** Nomor asli yang sudah pernah diresolve untuk sekumpulan id @lid. Yang
+   *  belum pernah diresolve tidak muncul di hasil — pemanggil tahu mana yang
+   *  masih perlu ditanyakan ke WhatsApp langsung. */
+  async getPhonesForLids(companyId, lids) {
+    if (!this.enabled || !lids?.length) return {};
+    const result = await this.pool.query(`
+      SELECT lid, phone FROM lid_phone_map WHERE company_id = $1 AND lid = ANY($2::text[])
+    `, [companyId, lids]);
+    return Object.fromEntries(result.rows.map((row) => [row.lid, row.phone]));
+  }
+
+  async savePhoneForLid(companyId, lid, phone) {
+    if (!this.enabled) return;
+    await this.pool.query(`
+      INSERT INTO lid_phone_map (company_id, lid, phone)
+      VALUES ($1, $2, $3)
+      ON CONFLICT (company_id, lid) DO UPDATE SET phone = EXCLUDED.phone, resolved_at = NOW()
+    `, [companyId, lid, phone]);
+  }
+
   async setPipelineStage(chatId, stage, updatedBy, companyId) {
     if (!this.enabled) return null;
     const result = await this.pool.query(`

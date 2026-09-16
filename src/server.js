@@ -1009,7 +1009,7 @@ async function buildApp(overrides = {}) {
       const chat = await wa.getChatById(chatId);
       const messages = await chat.fetchMessages({ limit: Math.min(limit * 2 + 1, 241) });
       const visible = messages.filter((message) => !hiddenTypes.includes(message.type)
-        && (message.type === 'call_log' || message.body || message.hasMedia));
+        && (message.type === 'call_log' || message.type === 'revoked' || message.body || message.hasMedia));
       const serialized = await Promise.all(visible.slice(-limit).map(async (message) => {
         let quotedMessage = null;
         let senderName = message._data?.notifyName || null;
@@ -1074,7 +1074,7 @@ async function buildApp(overrides = {}) {
         const contacts = window.require('WAWebCollections').Contact;
         const isVisible = (message) => !message.isNotification
           && !ignoredTypes.includes(message.type)
-          && (message.type === 'call_log' || Boolean(message.body) || Boolean(message.mediaData) || Boolean(message.__x_mediaData));
+          && (message.type === 'call_log' || message.type === 'revoked' || Boolean(message.body) || Boolean(message.mediaData) || Boolean(message.__x_mediaData));
         let messages = chat.msgs?.getModelsArray?.() || [];
         let visible = messages.filter(isVisible);
         const target = requestedLimit + 1;
@@ -3561,6 +3561,7 @@ Aturan:
         return !heldByOtherAgent;
       });
     }
+    await fillLidPhones(companyId, rows).catch(() => {});
     return rows.map((row) => Object.fromEntries(
       EXPORT_COLUMNS.map(([key]) => [key, exportCell(key, row[key])]),
     ));
@@ -4613,6 +4614,60 @@ Aturan:
         : Cmd.sendDeleteMsgs(chat, [msg], true));
       return { ok: true, revoked: false };
     }, messageId, Boolean(everyone));
+  }
+
+  /**
+   * Nomor telepon asli di balik id @lid — WhatsApp sendiri yang tahu
+   * pemetaannya lewat `WAWebApiContact.getPhoneNumber`, tapi hanya bisa
+   * ditanyakan lewat koneksi yang hidup.
+   *
+   * `_serialized` dibaca DI DALAM evaluate, sebelum hasilnya menyeberang ke
+   * Node — sama seperti `editWaMessage`/`deleteWaMessage` di atas. Getter itu
+   * hilang kalau objeknya sendiri yang dikembalikan (lihat `inboundMessageId`
+   * untuk kejadian aslinya), jadi yang keluar dari sini selalu string polos.
+   */
+  async function resolvePhoneForLid(wa, lidChatId) {
+    return wa.pupPage.evaluate(async (chatId) => {
+      try {
+        const result = await window.WWebJS.enforceLidAndPnRetrieval(chatId);
+        const phoneWid = result?.phone;
+        if (!phoneWid) return null;
+        return phoneWid._serialized || (phoneWid.user ? `${phoneWid.user}@c.us` : null);
+      } catch {
+        return null;
+      }
+    }, lidChatId);
+  }
+
+  /**
+   * Isi nomor asli untuk baris Lead List yang chat-nya @lid, pakai cache
+   * dulu, baru tanya WhatsApp langsung untuk yang belum pernah diresolve.
+   * Gagal diam-diam per baris — nomor id @lid tetap tampil apa adanya kalau
+   * WhatsApp sedang tidak siap atau resolusinya gagal, bukan mengosongkan
+   * kolom yang sebelumnya berhasil.
+   */
+  async function fillLidPhones(companyId, rows) {
+    const lidRows = rows.filter((row) => String(row.chatId || '').endsWith('@lid'));
+    if (!lidRows.length || !database.status().connected) return;
+    const lids = [...new Set(lidRows.map((row) => row.chatId))];
+    const cached = await database.getPhonesForLids(companyId, lids).catch(() => ({}));
+    for (const row of lidRows) {
+      if (cached[row.chatId]) row.phone = cached[row.chatId];
+    }
+    const unresolved = lidRows.filter((row) => !cached[row.chatId]);
+    if (!unresolved.length) return;
+    // Batasi per permintaan — satu evaluate per id yang belum pernah
+    // diresolve bisa menumpuk kalau ada ratusan chat baru sekaligus.
+    // Sisanya terselesaikan di permintaan berikutnya begitu ter-cache.
+    for (const row of unresolved.slice(0, 20)) {
+      const { client: wa, state } = await waFor(companyId, row.chatId).catch(() => ({ client: null, state: {} }));
+      if (!wa || state.phase !== 'ready') break;
+      const resolved = await resolvePhoneForLid(wa, row.chatId).catch(() => null);
+      if (!resolved) continue;
+      const phone = resolved.replace(/@.*$/, '');
+      row.phone = phone;
+      await database.savePhoneForLid(companyId, row.chatId, phone).catch(() => {});
+    }
   }
 
   const MESSAGE_ACTION_ERRORS = {

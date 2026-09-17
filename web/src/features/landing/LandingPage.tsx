@@ -236,8 +236,8 @@ function BandSiapaBicara() {
         yang keluar dari nomormu bawa nama penulisnya: AI, atau agent yang mana.
       </Lead>
       <DuaSisi
-        perusahaan=”Satu nomor, seluruh tim, dan riwayat yang bisa ditanya “ini tadi siapa yang janji?” — dengan jawaban.”
-        cs=”Ga bakal malu lagi gara-gara AI kirimin link checkout lima detik setelah kamu janji nelpon jam 3.”
+        perusahaan={"Satu nomor, seluruh tim, dan riwayat yang bisa ditanya “ini tadi siapa yang janji?” — dengan jawaban."}
+        cs="Ga bakal malu lagi gara-gara AI kirimin link checkout lima detik setelah kamu janji nelpon jam 3."
       />
       <img
         src="/assets/hero-dashboard.png"
@@ -256,28 +256,28 @@ function BandFollowUp() {
         Follow-up berjadwal
       </p>
       <SectionTitle>Follow-up yang lebih sopan daripada kebanyakan manusia.</SectionTitle>
-      <p className=”m-0 max-w-2xl text-[16px] leading-[1.7] text-white/65”>
+      <p className="m-0 max-w-2xl text-[16px] leading-[1.7] text-white/65">
         Agnee kejar leadmu sampai jawab — tapi ga sampai dibenci. Sebelum satu pesan boleh jalan, harus lolos tiga
         pintu: masih dalam jam kirim yang kamu tentukan, belum lewatin plafon hari itu, dan udah cukup jauh jaraknya
         dari pesan sebelumnya. Supervisor mau kirim manual di luar jadwal? Boleh — jaraknya cuma diperpendek,{' '}
-        <b className=”font-semibold text-white”>ga dihapus</b>. Rangkaian yang udah selesai pun bisa dimulai ulang,
+        <b className="font-semibold text-white">ga dihapus</b>. Rangkaian yang udah selesai pun bisa dimulai ulang,
         dengan jeda yang kamu atur sendiri.
       </p>
-      <div className=”mt-8 grid gap-4 sm:grid-cols-2”>
-        <div className=”rounded-panel border border-white/15 p-5”>
-          <p className=”m-0 mb-1.5 font-mono text-[11px] font-semibold tracking-[.12em] text-white/50 uppercase”>
+      <div className="mt-8 grid gap-4 sm:grid-cols-2">
+        <div className="rounded-panel border border-white/15 p-5">
+          <p className="m-0 mb-1.5 font-mono text-[11px] font-semibold tracking-[.12em] text-white/50 uppercase">
             Perusahaanmu dapat
           </p>
-          <p className=”m-0 text-[14px] leading-[1.65] text-white/80”>
+          <p className="m-0 text-[14px] leading-[1.65] text-white/80">
             Lead yang dingin tetap disentuh, tanpa nomormu dilaporkan.
           </p>
         </div>
-        <div className=”rounded-panel border-2 border-[#7fff4f] bg-[#7fff4f]/10 p-5”>
-          <p className=”m-0 mb-1.5 font-mono text-[11px] font-semibold tracking-[.12em] text-[#7fff4f] uppercase”>
+        <div className="rounded-panel border-2 border-[#7fff4f] bg-[#7fff4f]/10 p-5">
+          <p className="m-0 mb-1.5 font-mono text-[11px] font-semibold tracking-[.12em] text-[#7fff4f] uppercase">
             Kamu, CS, dapat
           </p>
-          <p className=”m-0 text-[14px] leading-[1.65] text-white”>
-            List “nanti dikabarin lagi” yang ga perlu lagi tinggal di kepala kamu sampai jam 11 malem.
+          <p className="m-0 text-[14px] leading-[1.65] text-white">
+            List "nanti dikabarin lagi" yang ga perlu lagi tinggal di kepala kamu sampai jam 11 malem.
           </p>
         </div>
       </div>
@@ -323,7 +323,7 @@ function UmpanEbook() {
           <div>
             <Eyebrow>Gratis — untuk kamu yang membalas</Eyebrow>
             <h2 className="m-0 mb-4 text-[clamp(26px,3.6vw,38px)] leading-[1.15] font-semibold tracking-[-.035em]">
-              “Balas Chat Tanpa Kehabisan Diri Sendiri”
+              "Balas Chat Tanpa Kehabisan Diri Sendiri"
             </h2>
             <Lead>
               Bukan untuk bosmu. Untuk kamu. Panduan tentang pekerjaan yang jarang ada bukunya: menghadapi orang marah
@@ -469,7 +469,7 @@ function GridPendukung() {
  */
 const YANG_BERUBAH: [string, string][] = [
   ['Dua CS membalas orang yang sama', 'Agent mulai mengetik, AI mundur detik itu juga'],
-  ['“Ini tadi siapa yang janji?”', 'Tiap balasan keluar membawa nama penulisnya'],
+  ['"Ini tadi siapa yang janji?"', 'Tiap balasan keluar membawa nama penulisnya'],
   ['Chat menggantung karena agent sudah pulang', 'Setelah 30 menit diam, AI mengambil alih lagi'],
   ['Follow-up yang kelewat', 'Berjadwal, dengan plafon harian dan jarak minimum'],
   ['Nomor kena report karena kebanyakan kirim', 'Tiga pintu harus lolos sebelum satu pesan berangkat'],
@@ -523,8 +523,8 @@ function UmpanWebinar() {
               Jualan Apa Pun dalam 15 Menit Chat
             </h2>
             <p className="m-0 max-w-xl text-[16px] leading-[1.7] text-white/65">
-              Kerangka lima tahap yang dipakai CS terbaik untuk membawa orang dari “nanya doang” ke “transfer ke mana
-              ya” — tanpa terdengar sedang berjualan. Kerangka yang sama yang kami tanam ke dalam Agnee.
+              Kerangka lima tahap yang dipakai CS terbaik untuk membawa orang dari "nanya doang" ke "transfer ke mana
+              ya" — tanpa terdengar sedang berjualan. Kerangka yang sama yang kami tanam ke dalam Agnee.
             </p>
             <p className="mt-3 mb-0 text-[14px] leading-[1.65] text-white/50">
               Gratis. Rekaman dibagikan ke yang mendaftar.
@@ -541,7 +541,7 @@ function UmpanWebinar() {
               ['Buka', 'Kalimat pertama yang membuat orang membalas'],
               ['Gali', 'Tiga pertanyaan yang menggantikan brosur'],
               ['Cocokkan', 'Menawarkan yang dia butuh, bukan yang kamu punya'],
-              ['Tangani keberatan', '“Mahal” hampir tidak pernah berarti mahal'],
+              ['Tangani keberatan', '"Mahal" hampir tidak pernah berarti mahal'],
               ['Tutup', 'Meminta keputusan tanpa terdengar mendesak'],
             ].map(([tahap, isi], index) => (
               <li key={tahap} className="flex gap-3">
@@ -738,7 +738,7 @@ const FAQ_ITEMS: [string, string][] = [
     'Personal untuk 1 pengguna. Company untuk 5 agent aktif. Butuh lebih banyak? Bilang ke kami lewat WhatsApp — plafonnya memang diatur per perusahaan.',
   ],
   [
-    '“Pesan AI tanpa plafon angka” itu benar-benar tanpa batas?',
+    '"Pesan AI tanpa plafon angka" itu benar-benar tanpa batas?',
     'Tidak ada angka yang memutusmu di tengah jalan, dan itu memang yang dijalankan sistemnya. Tapi kami tidak akan berpura-pura listrik itu gratis: kalau pemakaianmu jauh di atas rata-rata, kami menghubungi dulu untuk bicara. Yang tidak pernah kami lakukan adalah mematikan layananmu tiba-tiba. Rincian token dan biayanya bisa kamu lihat sendiri kapan saja.',
   ],
   [
@@ -763,7 +763,7 @@ const FAQ_ITEMS: [string, string][] = [
   ],
   [
     'Ada masa percobaan?',
-    'Agnee masih dalam fase beta. Klik “Coba Gratis” untuk membuat akun dan mulai memakainya. Kalau butuh akses yang lebih panjang atau ada kebutuhan khusus, bicarakan dengan kami lewat WhatsApp.',
+    'Agnee masih dalam fase beta. Klik "Coba Gratis" untuk membuat akun dan mulai memakainya. Kalau butuh akses yang lebih panjang atau ada kebutuhan khusus, bicarakan dengan kami lewat WhatsApp.',
   ],
   [
     'Berapa lama setup-nya?',

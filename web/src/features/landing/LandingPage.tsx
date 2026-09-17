@@ -229,7 +229,7 @@ function BandSiapaBicara() {
   return (
     <Section id="fitur" className="py-16 sm:py-20">
       <Eyebrow>Inbox multi-agent</Eyebrow>
-      <SectionTitle>Dua orang membalas satu pelanggan adalah mimpi buruk. Agnee tidak mengizinkannya.</SectionTitle>
+      <SectionTitle>Dua orang membalas satu pelanggan adalah mimpi buruk. Agnee ga izinin.</SectionTitle>
       <Lead>
         Agent mulai ngetik di chat yang lagi dijaga AI? Chat itu langsung jadi miliknya — AI mundur sendiri. Agent
         pergi tanpa pamit? Setelah 30 menit diam, chat balik ke AI, bukan nunggu orang yang udah pulang. Tiap pesan
@@ -327,11 +327,11 @@ function UmpanEbook() {
             </h2>
             <Lead>
               Bukan untuk bosmu. Untuk kamu. Panduan tentang pekerjaan yang jarang ada bukunya: menghadapi orang marah
-              tanpa ikut terbawa, membaca kapan seseorang sebenarnya sudah siap beli, dan menutup hari tanpa membawa
+              tanpa ikut terbawa, membaca kapan orang udah beneran siap beli, dan menutup hari tanpa membawa
               satu pun chat pulang.
             </Lead>
             <p className="mt-3 mb-0 text-[14px] leading-[1.65] text-[#4e6e5e] dark:text-[#7aaa8a]">
-              Boleh dibaca walaupun kantormu tidak pakai Agnee. Kami serius.
+              Boleh dibaca walaupun kantormu ga pakai Agnee. Kami serius.
             </p>
             <TombolUmpan
               mayar={MAYAR_EBOOK}
@@ -343,10 +343,10 @@ function UmpanEbook() {
           <ol className="m-0 grid list-none content-start gap-2 p-0">
             {[
               'Kenapa 200 chat terasa berat, padahal isinya cuma 12 pertanyaan',
-              'Dua belas balasan yang harusnya tidak kamu ketik ulang',
+              'Dua belas balasan yang harusnya ga perlu kamu ketik ulang',
               'Orang marah: tiga kalimat pertama yang menentukan sisanya',
               'Membaca sinyal siap beli — kapan kirim link, kapan justru jangan',
-              'Follow-up yang tidak terasa nagih',
+              'Follow-up yang ga terasa nagih',
               'Serah terima ke shift berikutnya tanpa kehilangan konteks',
               'Menutup hari: apa yang boleh ditinggal untuk besok',
               'Checklist siap cetak',
@@ -369,7 +369,7 @@ function BandKnowledge() {
   return (
     <Section className="py-16 sm:py-20">
       <Eyebrow>Knowledge</Eyebrow>
-      <SectionTitle>AI-mu tidak butuh kamu jadi penulis prompt.</SectionTitle>
+      <SectionTitle>AI-mu ga butuh kamu jadi penulis prompt.</SectionTitle>
       <Lead>
         Delapan dokumen yang nentuin cara AI-mu ngomong. Kamu ga nulis dokumen — kamu{' '}
         <b className="font-semibold text-ink dark:text-[#f4f9f0]">ngobrol</b>. Agnee yang nanya, kamu jawab kayak lagi
@@ -379,7 +379,7 @@ function BandKnowledge() {
       <div className="mt-8 flex flex-wrap gap-2">
         {[
           ['Persona', 'Siapa dia saat bicara'],
-          ['Compliance', 'Yang tidak boleh dikatakan'],
+          ['Compliance', 'Yang ga boleh disebut'],
           ['Tanya-jawab', 'Pertanyaan yang itu-itu saja'],
           ['Discovery', 'Cara menggali kebutuhan'],
           ['Objection', 'Menjawab keberatan'],
@@ -442,7 +442,7 @@ function GridPendukung() {
   return (
     <Section className="py-16 sm:py-20">
       <Eyebrow>Ikut di semua paket</Eyebrow>
-      <SectionTitle>Dan ini yang tidak dihitung terpisah</SectionTitle>
+      <SectionTitle>Dan ini yang ga dihitung terpisah</SectionTitle>
       <div className="grid gap-4 sm:grid-cols-2">
         {PENDUKUNG.map(([judul, isi]) => (
           <div
@@ -468,7 +468,7 @@ function GridPendukung() {
  * terpisah — jangan mencampur keduanya.
  */
 const YANG_BERUBAH: [string, string][] = [
-  ['Dua CS membalas orang yang sama', 'Agent mulai mengetik, AI mundur detik itu juga'],
+  ['Dua CS membalas orang yang sama', 'Agent mulai ngetik, AI mundur detik itu juga'],
   ['"Ini tadi siapa yang janji?"', 'Tiap balasan keluar membawa nama penulisnya'],
   ['Chat menggantung karena agent sudah pulang', 'Setelah 30 menit diam, AI mengambil alih lagi'],
   ['Follow-up yang kelewat', 'Berjadwal, dengan plafon harian dan jarak minimum'],
@@ -563,7 +563,7 @@ function UmpanWebinar() {
 
 const STEPS: [string, string][] = [
   ['Hubungkan WhatsApp', 'Scan QR dari dashboard Agnee. Ga perlu coding, ga perlu API berbayar, ga perlu nunggu approval.'],
-  ['Undang tim CS', 'Tambahkan agent lewat email dan atur perannya. Mereka langsung punya inbox yang sama.'],
+  ['Undang tim CS', 'Undang agent lewat email dan atur perannya. Mereka langsung punya inbox yang sama.'],
   ['Isi Knowledge lewat ngobrol', 'Agnee yang nanya, kamu yang jawab. Delapan dokumen playbook tersusun dari jawaban kamu.'],
 ];
 
@@ -606,7 +606,7 @@ const PLANS = [
       '1 dokumen playbook',
       '500 pesan AI per bulan',
       'Riwayat percakapan penuh',
-      'Dukungan via WhatsApp',
+      'Bantuan via WhatsApp',
     ],
     href: WA_PERSONAL,
     cta: 'Ambil harga promo',
@@ -621,9 +621,9 @@ const PLANS = [
     period: '/bulan',
     features: [
       '5 pengguna (agent CS)',
-      'Nomor WhatsApp tanpa plafon angka',
+      'Nomor WhatsApp tanpa batas',
       'Delapan dokumen playbook, semuanya',
-      'Pesan AI tanpa plafon angka',
+      'Pesan AI tanpa batas',
       'Follow-up berjadwal + pengaman',
       'Lead List + ekspor XLSX/CSV',
       'Rincian token dan biaya AI',
@@ -631,7 +631,7 @@ const PLANS = [
     href: WA_COMPANY,
     cta: 'Ambil harga promo',
     highlight: true,
-    note: 'Pemakaian wajar: kalau pemakaianmu jauh di atas rata-rata, kami menghubungi dulu — tidak pernah memutus tiba-tiba. Berapa pun pemakaianmu, rinciannya bisa kamu lihat sendiri.',
+    note: 'Pemakaian wajar: kalau pemakaianmu jauh di atas rata-rata, kami hubungin dulu — ga pernah putus tiba-tiba. Berapa pun pemakaianmu, rinciannya bisa kamu lihat sendiri.',
   },
   {
     badge: 'Sekali bayar',

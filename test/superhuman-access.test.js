@@ -59,6 +59,21 @@ function fakeDatabase({ liveOverrides = {} } = {}) {
     async listTeamMembers() { return users; },
     async resolveCompanyId() { return company.id; },
     async listPlatformCompanies() { return { companies: [company], total: 1 }; },
+    async getPlatformOverview() {
+      return {
+        totals: {
+          companies: 1, active: 1, suspended: 0, trial: 1,
+          members: 1, inbound30d: 0, costUsd30d: 0.5, costUsdToday: 0.1,
+        },
+        tenantGrowth: [{ month: '2026-09', added: 1, cumulative: 1 }],
+        dailyCost: [{ day: '2026-09-17', costUsd: 0.5 }],
+        dailyInbound: [{ day: '2026-09-17', count: 0 }],
+        topTenants: [{ id: company.id, slug: company.slug, name: company.name, costUsd: 0.5, calls: 3 }],
+        costByPurpose: [{ purpose: 'summary', costUsd: 0.5, calls: 3 }],
+        trialsEnding: [],
+        planMix: [{ plan: 'personal', planStatus: 'trial', count: 1 }],
+      };
+    },
     async getPlatformCompany(companyId) {
       if (companyId !== company.id) return null;
       // Salinan, bukan objek yang sama: database sungguhan mengembalikan baris
@@ -201,5 +216,34 @@ test('id tenant yang bukan UUID ditolak sebelum menyentuh database', async (t) =
     method: 'GET', url: '/v1/superhuman/companies/bukan-uuid', headers: { cookie },
   });
   assert.equal(bad.statusCode, 400);
+  assert.equal(database.audits.length, 0);
+});
+
+test('ringkasan beranda dijaga gerbang yang sama, dan tidak dicatat sebagai akses satu tenant', async (t) => {
+  const database = fakeDatabase();
+  const app = await buildApp({
+    logger: false, startupEnabled: false, demoMode: true, database, sessionSecret: 'superhuman-6',
+  });
+  t.after(() => app.close());
+
+  // Owner pelanggan: ditolak, sama seperti route lain di bawah prefix ini.
+  const ownerCookie = await signIn(app, OWNER);
+  const refused = await app.inject({
+    method: 'GET', url: '/v1/superhuman/overview', headers: { cookie: ownerCookie },
+  });
+  assert.equal(refused.statusCode, 403);
+
+  const staffCookie = await signIn(app, STAFF);
+  const overview = await app.inject({
+    method: 'GET', url: '/v1/superhuman/overview', headers: { cookie: staffCookie },
+  });
+  assert.equal(overview.statusCode, 200);
+  const body = overview.json();
+  assert.equal(body.totals.companies, 1);
+  assert.equal(body.dailyCost.length, 1);
+  assert.equal(body.topTenants[0].slug, 'pelanggan-satu');
+
+  // Angkanya gabungan lintas tenant, jadi tidak ada satu company pun yang
+  // pantas dicatat sebagai "dibuka" — dan audit_logs memang menuntut satu.
   assert.equal(database.audits.length, 0);
 });

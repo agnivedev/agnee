@@ -216,7 +216,11 @@ export function AreaChart({
   const max = Math.max(...points.map((point) => point.value), 0);
   const padTop = 14;
   const padBottom = 18;
-  const padRight = 44; // ruang untuk label ujung, supaya tidak terpotong
+  // Ruang untuk label ujung diukur dari teksnya sendiri. Angka tetap akan
+  // memotong "5 tenant" tapi kebesaran untuk "12" — dan label yang terpotong
+  // lebih buruk daripada tidak ada label sama sekali.
+  const endLabel = points.length ? formatValue(points[points.length - 1].value) : '';
+  const padRight = Math.max(44, endLabel.length * 7 + 18);
   const plot = height - padTop - padBottom;
   const innerWidth = Math.max(0, width - padRight);
   const hasData = max > 0;
@@ -359,7 +363,7 @@ export function BarList({
               ) : (
                 row.label
               )}
-              {row.sub ? <span className="ml-2 font-mono text-[11px] text-muted">{row.sub}</span> : null}
+              {row.sub ? <span className="ml-2 font-mono text-[11px] text-muted">{` ${row.sub}`}</span> : null}
             </span>
             <span className="shrink-0 font-mono text-[12px] tabular-nums">{formatValue(row.value)}</span>
           </span>

@@ -228,10 +228,15 @@ function ConsoleFrame({
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
 
-/** "2026-09" → "Sep 26" */
+/**
+ * "2026-09" → "Sep '26"
+ *
+ * Apostrofnya bukan hiasan: tanpa itu "Sep 26" terbaca sebagai tanggal 26
+ * September, persis di halaman yang juga memuat sumbu bertanggal.
+ */
 function monthLabel(value: string) {
   const [year, month] = value.split('-');
-  return `${MONTH_NAMES[Number(month) - 1] || month} ${year.slice(2)}`;
+  return `${MONTH_NAMES[Number(month) - 1] || month} '${year.slice(2)}`;
 }
 
 /** "2026-09-17" → "17 Sep" */

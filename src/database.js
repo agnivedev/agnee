@@ -384,6 +384,37 @@ class Database {
     `, [companyId, userId, status]);
   }
 
+  /**
+   * Chat yang sedang ditugaskan ke manusia — "daftar tugas" agent.
+   *
+   * conversation_routing.status/priority sudah ada sejak awal tapi tidak
+   * pernah ditampilkan di mana pun; ini yang membuatnya terlihat, bukan
+   * tabel tugas baru. Kalau assigneeId diberikan, hanya chat milik orang itu
+   * (agent melihat tugasnya sendiri); kalau tidak, semua chat manusia
+   * (supervisor melihat semuanya).
+   */
+  async listAssignedChats(companyId, { assigneeUserId = null, includeClosed = false } = {}) {
+    if (!this.enabled) return [];
+    const where = ["cr.company_id = $1", "cr.handling_mode = 'human'"];
+    const values = [companyId];
+    if (assigneeUserId) { where.push(`cr.assignee_user_id = $${values.length + 1}`); values.push(assigneeUserId); }
+    if (!includeClosed) where.push("cr.status <> 'closed'");
+    const result = await this.pool.query(`
+      SELECT cr.chat_id AS "chatId", cr.status, cr.priority,
+             cr.assigned_at AS "assignedAt", cr.updated_at AS "updatedAt",
+             u.id AS "assigneeUserId", u.display_name AS "assigneeName",
+             cn.name AS "contactName"
+      FROM conversation_routing cr
+      LEFT JOIN users u ON u.id = cr.assignee_user_id
+      LEFT JOIN contact_names cn ON cn.company_id = cr.company_id AND cn.chat_id = cr.chat_id
+      WHERE ${where.join(' AND ')}
+      ORDER BY
+        CASE cr.priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 ELSE 3 END,
+        cr.assigned_at DESC
+    `, values);
+    return result.rows;
+  }
+
   async getConversationRouting(chatId, companyId) {
     if (!this.enabled) return null;
     const result = await this.pool.query(`

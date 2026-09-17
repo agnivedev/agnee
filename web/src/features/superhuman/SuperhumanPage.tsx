@@ -21,6 +21,7 @@ import { useSession } from '@/lib/session';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
+import { AreaChart, BarList, ColumnChart } from './charts';
 
 type CompanyRow = {
   id: string;
@@ -77,6 +78,20 @@ type CompanyDetail = {
   }[];
 };
 
+type Overview = {
+  totals: {
+    companies: number; active: number; suspended: number; trial: number;
+    members: number; inbound30d: number; costUsd30d: number; costUsdToday: number;
+  };
+  tenantGrowth: { month: string; added: number; cumulative: number }[];
+  dailyCost: { day: string; costUsd: number }[];
+  dailyInbound: { day: string; count: number }[];
+  topTenants: { id: string; slug: string; name: string; costUsd: number; calls: number }[];
+  costByPurpose: { purpose: string; costUsd: number; calls: number }[];
+  trialsEnding: { id: string; slug: string; name: string; trialEndsAt: string }[];
+  planMix: { plan: string; planStatus: string; count: number }[];
+};
+
 const PLANS = ['personal', 'company', 'lifetime'];
 const PLAN_STATUSES = ['trial', 'beta', 'active', 'suspended'];
 const STATUSES = ['active', 'suspended', 'closed'];
@@ -125,6 +140,7 @@ function toDateInput(value: string | null | undefined) {
 export function SuperhumanPage() {
   usePageTitle('Agnee — Superhuman');
   const { status, user, isPlatformAdmin } = useSession();
+  const [view, setView] = useState<'dashboard' | 'tenants'>('dashboard');
   const [selected, setSelected] = useState<string | null>(null);
 
   if (status === 'loading') {
@@ -147,10 +163,15 @@ export function SuperhumanPage() {
     );
   }
 
+  // Detail sebuah tenant mengalahkan tab mana pun yang sedang aktif: ia dibuka
+  // dari beranda maupun dari daftar, dan tombol kembalinya mengembalikan ke
+  // tempat asalnya.
   return (
-    <ConsoleFrame email={user?.email}>
+    <ConsoleFrame email={user?.email} view={view} onView={setView}>
       {selected ? (
         <CompanyDetailView companyId={selected} onBack={() => setSelected(null)} />
+      ) : view === 'dashboard' ? (
+        <DashboardView onOpen={setSelected} onSeeAll={() => setView('tenants')} />
       ) : (
         <CompanyListView onOpen={setSelected} />
       )}
@@ -167,13 +188,31 @@ export function SuperhumanPage() {
  * jadi memasangnya di sini akan membuat dua kebenaran yang berbeda tampak
  * seperti bagian dari layar yang sama.
  */
-function ConsoleFrame({ children, email }: { children: React.ReactNode; email?: string }) {
+function ConsoleFrame({
+  children,
+  email,
+  view,
+  onView,
+}: {
+  children: React.ReactNode;
+  email?: string;
+  view?: 'dashboard' | 'tenants';
+  onView?: (next: 'dashboard' | 'tenants') => void;
+}) {
   return (
     <div className="min-h-dvh bg-background">
       <header className="flex flex-wrap items-center justify-between gap-3 bg-ink px-5 py-3 text-white sm:px-10">
-        <span className="flex items-baseline gap-2">
-          <span className="font-mono text-[13px] font-bold tracking-[.14em] uppercase">Superhuman</span>
-          <span className="font-mono text-[10px] tracking-[.1em] text-white/50 uppercase">Agnee platform</span>
+        <span className="flex flex-wrap items-baseline gap-x-5 gap-y-2">
+          <span className="flex items-baseline gap-2">
+            <span className="font-mono text-[13px] font-bold tracking-[.14em] uppercase">Superhuman</span>
+            <span className="font-mono text-[10px] tracking-[.1em] text-white/50 uppercase">Agnee platform</span>
+          </span>
+          {onView && view ? (
+            <span className="flex gap-1">
+              <ConsoleTab active={view === 'dashboard'} onClick={() => onView('dashboard')}>Beranda</ConsoleTab>
+              <ConsoleTab active={view === 'tenants'} onClick={() => onView('tenants')}>Tenant</ConsoleTab>
+            </span>
+          ) : null}
         </span>
         <span className="flex items-center gap-4">
           {email ? <span className="font-mono text-[11px] text-white/60">{email}</span> : null}
@@ -184,6 +223,238 @@ function ConsoleFrame({ children, email }: { children: React.ReactNode; email?: 
       </header>
       <main className="px-5 py-8 sm:px-10">{children}</main>
     </div>
+  );
+}
+
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+
+/** "2026-09" → "Sep 26" */
+function monthLabel(value: string) {
+  const [year, month] = value.split('-');
+  return `${MONTH_NAMES[Number(month) - 1] || month} ${year.slice(2)}`;
+}
+
+/** "2026-09-17" → "17 Sep" */
+function dayLabel(value: string) {
+  const [, month, day] = value.split('-');
+  return `${Number(day)} ${MONTH_NAMES[Number(month) - 1] || month}`;
+}
+
+function DashboardView({
+  onOpen,
+  onSeeAll,
+}: {
+  onOpen: (companyId: string) => void;
+  onSeeAll: () => void;
+}) {
+  const [overview, setOverview] = useState<Overview | null>(null);
+  const [error, setError] = useState('');
+
+  const load = useCallback(async () => {
+    try {
+      setOverview(await api<Overview>('/v1/superhuman/overview'));
+      setError('');
+    } catch (caught) {
+      setError(messageFromError(caught, 'Gagal memuat ringkasan.'));
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  if (error) return <p role="status" className="text-[13px] text-danger">{error}</p>;
+  if (!overview) return <p className="text-sm text-muted">Memuat…</p>;
+
+  const { totals } = overview;
+
+  return (
+    <>
+      <header className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <p className="eyebrow">BERANDA</p>
+          <h1 className="m-0 text-[28px] tracking-[-.03em]">Agnee, seluruhnya</h1>
+          <p className="mt-1.5 max-w-2xl text-sm text-muted">
+            Pertumbuhan, biaya, dan beban — dari data yang benar-benar sudah kita punya.
+          </p>
+        </div>
+        <Button variant="outline" size="sm" onClick={() => void load()}>
+          Muat ulang
+        </Button>
+      </header>
+
+      <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <Tile label="Tenant aktif" value={`${totals.active} dari ${totals.companies}`} />
+        <Tile label="Anggota aktif" value={numberFormat.format(totals.members)} />
+        <Tile label="Biaya AI 30 hari" value={formatUsd(totals.costUsd30d)} />
+        <Tile label="Biaya AI hari ini" value={formatUsd(totals.costUsdToday)} />
+      </div>
+
+      <div className="mt-6 grid gap-6 xl:grid-cols-2">
+        <Card
+          eyebrow="PERTUMBUHAN"
+          title="Tenant kumulatif"
+          description="Jumlah perusahaan terdaftar pada akhir tiap bulan, 12 bulan terakhir."
+        >
+          <AreaChart
+            points={overview.tenantGrowth.map((row) => ({ label: monthLabel(row.month), value: row.cumulative }))}
+            formatValue={(value) => `${numberFormat.format(value)} tenant`}
+            emptyMessage="Belum ada tenant."
+          />
+        </Card>
+
+        <Card
+          eyebrow="BIAYA"
+          title="Biaya AI harian"
+          description="30 hari terakhir. Hari tanpa pemakaian tetap digambar sebagai nol, supaya jeda terlihat sebagai jeda."
+        >
+          <ColumnChart
+            points={overview.dailyCost.map((row) => ({ label: dayLabel(row.day), value: row.costUsd }))}
+            formatValue={formatUsd}
+            emptyMessage="Belum ada pemakaian AI 30 hari terakhir."
+          />
+        </Card>
+
+        <Card
+          eyebrow="BEBAN"
+          title="Pesan masuk harian"
+          description="30 hari terakhir, seluruh tenant."
+        >
+          <ColumnChart
+            points={overview.dailyInbound.map((row) => ({ label: dayLabel(row.day), value: row.count }))}
+            formatValue={(value) => `${numberFormat.format(value)} pesan`}
+            emptyMessage="Belum ada pesan masuk tercatat 30 hari terakhir."
+          />
+        </Card>
+
+        <Card
+          eyebrow="BIAYA"
+          title="Tenant paling boros"
+          description="Total biaya AI 30 hari terakhir, delapan teratas."
+        >
+          <BarList
+            rows={overview.topTenants.map((row) => ({
+              label: row.name,
+              sub: `${numberFormat.format(row.calls)} panggilan`,
+              value: row.costUsd,
+            }))}
+            formatValue={formatUsd}
+            emptyMessage="Belum ada pemakaian AI 30 hari terakhir."
+            onSelect={(index) => onOpen(overview.topTenants[index].id)}
+          />
+          <button
+            type="button"
+            onClick={onSeeAll}
+            className="mt-4 cursor-pointer border-0 bg-transparent p-0 text-[13px] font-semibold text-green-dark hover:underline"
+          >
+            Lihat semua tenant →
+          </button>
+        </Card>
+
+        <Card
+          eyebrow="BIAYA"
+          title="Untuk apa biayanya keluar"
+          description="Balasan otomatis melayani customer; ringkasan, coach, dan playground adalah biaya internal kita."
+        >
+          <BarList
+            rows={overview.costByPurpose.map((row) => ({
+              label: row.purpose,
+              sub: `${numberFormat.format(row.calls)} panggilan`,
+              value: row.costUsd,
+            }))}
+            formatValue={formatUsd}
+            emptyMessage="Belum ada pemakaian AI 30 hari terakhir."
+          />
+        </Card>
+
+        <Card eyebrow="LANGGANAN" title="Sebaran paket">
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse text-[13px]">
+              <thead>
+                <tr className="border-b border-border text-left">
+                  <Th>Paket</Th><Th>Status</Th><Th>Tenant</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {overview.planMix.map((row) => (
+                  <tr key={`${row.plan}-${row.planStatus}`} className="border-b border-border/60 last:border-b-0">
+                    <Td>{row.plan}</Td>
+                    <Td><Pill tone={row.planStatus === 'suspended' ? 'bad' : row.planStatus === 'active' ? 'ok' : 'warn'}>{row.planStatus}</Pill></Td>
+                    <Td><span className="font-mono tabular-nums">{row.count}</span></Td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {totals.suspended ? (
+            <p className="mt-3 mb-0 text-[12px] text-danger">{totals.suspended} tenant berstatus suspended.</p>
+          ) : null}
+        </Card>
+      </div>
+
+      <Card
+        eyebrow="PERLU TINDAKAN"
+        title="Trial yang segera berakhir"
+        description="Dua minggu ke depan, termasuk yang sudah lewat."
+      >
+        {overview.trialsEnding.length === 0 ? (
+          <p className="m-0 text-[13px] text-muted">Tidak ada trial yang berakhir dalam dua minggu ke depan.</p>
+        ) : (
+          <ul className="m-0 grid list-none gap-2 p-0">
+            {overview.trialsEnding.map((row) => {
+              const left = daysUntil(row.trialEndsAt) ?? 0;
+              return (
+                <li
+                  key={row.id}
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-white/60 px-3 py-2"
+                >
+                  <span>
+                    <button
+                      type="button"
+                      onClick={() => onOpen(row.id)}
+                      className="cursor-pointer border-0 bg-transparent p-0 text-[13px] font-semibold text-green-dark hover:underline"
+                    >
+                      {row.name}
+                    </button>
+                    <span className="ml-2 font-mono text-[11px] text-muted">{row.slug}</span>
+                  </span>
+                  <span className="flex items-center gap-2 text-[12px]">
+                    <span className="text-muted">{formatDate(row.trialEndsAt)}</span>
+                    <Pill tone={left < 0 ? 'bad' : left <= 3 ? 'warn' : 'neutral'}>
+                      {left < 0 ? `lewat ${Math.abs(left)} hari` : `sisa ${left} hari`}
+                    </Pill>
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </Card>
+    </>
+  );
+}
+
+function ConsoleTab({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-current={active ? 'page' : undefined}
+      className={cn(
+        'cursor-pointer rounded-full border-0 px-3 py-1 text-[12px] font-semibold transition-colors',
+        active ? 'bg-white/15 text-white' : 'bg-transparent text-white/55 hover:text-white',
+      )}
+    >
+      {children}
+    </button>
   );
 }
 

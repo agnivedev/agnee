@@ -9,12 +9,15 @@ export type SessionUser = {
   role: 'owner' | 'supervisor' | 'agent' | string;
   onboarded: boolean;
   apiClient?: boolean;
+  /** Staf Agnive: akses ke /superhuman, lintas tenant. Bukan peran pelanggan. */
+  platformAdmin?: boolean;
 };
 
 type SessionState = {
   status: 'loading' | 'authenticated' | 'anonymous';
   user: SessionUser | null;
   isSupervisor: boolean;
+  isPlatformAdmin: boolean;
   refresh: () => Promise<void>;
   signOut: () => Promise<void>;
   markAuthenticated: () => Promise<void>;
@@ -71,6 +74,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       status,
       user,
       isSupervisor: isSupervisorRole(user),
+      // Sengaja tidak diturunkan dari peran: seorang owner pelanggan adalah
+      // supervisor penuh atas perusahaannya dan tetap bukan staf platform.
+      isPlatformAdmin: user?.platformAdmin === true,
       refresh,
       signOut,
       markAuthenticated: refresh,

@@ -255,6 +255,20 @@ function normalizeRole(role) {
   return PRIVILEGED_DB_ROLES.includes(role) ? 'supervisor' : 'agent';
 }
 
+/**
+ * Superadmin Agnee: staf kami, bukan peran pelanggan.
+ *
+ * Sengaja TIDAK menerima `apiClient`. Kunci API memberi hak supervisor atas
+ * satu company yang ia sebut di header — itu wajar untuk integrasi. Tapi peran
+ * ini melintasi SEMUA company, jadi kalau kunci API ikut lolos di sini, satu
+ * kunci yang bocor berubah dari "akses satu tenant" menjadi "akses seluruh
+ * pelanggan". Bendera ini hanya boleh datang dari kolom users.is_platform_admin
+ * lewat sesi seseorang yang benar-benar login.
+ */
+function isPlatformAdmin(session) {
+  return session?.platformAdmin === true;
+}
+
 function createSession(user, secret) {
   const identity = typeof user === 'string' ? { email: user } : user;
   const payload = Buffer.from(JSON.stringify({ ...identity, exp: Date.now() + 12 * 60 * 60 * 1000 })).toString('base64url');
@@ -1653,10 +1667,14 @@ async function buildApp(overrides = {}) {
   // of flashing a workspace it is about to lose.
   app.get('/', (_request, reply) => sendReactApp(reply));
   app.get('/landing', (_request, reply) => sendReactApp(reply));
-  for (const page of ['settings', 'admin', 'leads', 'tasks', 'pipeline', 'knowledge']) {
+  for (const page of ['settings', 'admin', 'leads', 'tasks', 'pipeline', 'knowledge', 'superhuman']) {
     app.get(`/${page}`, (request, reply) => {
       const session = verifySession(getCookie(request.headers.cookie, 'agnee_session'), config.sessionSecret);
       if (!session) return reply.redirect('/');
+      // Konsol platform tidak ditawarkan ke pelanggan yang menebak URL-nya.
+      // Ini lapisan kosmetik — penjagaan yang sebenarnya ada di /v1/superhuman/,
+      // yang memeriksa ulang bendera itu ke database, bukan ke cookie.
+      if (page === 'superhuman' && !isPlatformAdmin(session)) return reply.redirect('/');
       return sendReactApp(reply);
     });
   }
@@ -1816,6 +1834,7 @@ async function buildApp(overrides = {}) {
       displayName: user.displayName || user.email,
       role: normalizeRole(user.role),
       onboarded: !!user.onboardedAt,
+      platformAdmin: user.isPlatformAdmin === true,
     };
     const token = createSession(sessionUser, config.sessionSecret);
     reply.header('set-cookie', `agnee_session=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=43200${config.cookieSecure ? '; Secure' : ''}`);
@@ -1889,6 +1908,13 @@ async function buildApp(overrides = {}) {
     const suppliedKey = request.headers['x-api-key'];
     const session = verifySession(getCookie(request.headers.cookie, 'agnee_session'), config.sessionSecret);
     if (suppliedKey === config.apiKey) {
+      // Cabang ini KELUAR dari hook lebih dulu, jadi gerbang di bawah tidak
+      // pernah dijalankan untuknya. Konsol platform harus ditolak di sini juga,
+      // atau satu kunci API yang bocor berubah dari "akses satu tenant" menjadi
+      // "akses seluruh pelanggan".
+      if (request.url.startsWith('/v1/superhuman/')) {
+        return reply.code(403).send({ error: 'Konsol ini hanya untuk administrator platform Agnee.' });
+      }
       // API-key callers must name the company they act for — there is no
       // implicit default tenant to fall back to.
       const requested = request.headers['x-agnee-company'];
@@ -1924,6 +1950,10 @@ async function buildApp(overrides = {}) {
         // Refresh role from DB in case it changed — normalized, because the DB
         // stores 'owner' while authorization compares against 'supervisor'.
         session.role = normalizeRole(live.role);
+        // Dicabutnya peran platform harus menggigit tanpa menunggu cookie
+        // 12 jam itu kedaluwarsa. Sesi yang sedang berjalan kehilangan akses
+        // pada pemeriksaan berikutnya — paling lama 60 detik.
+        session.platformAdmin = live.isPlatformAdmin === true;
         sessionCheckCache.set(cacheKey, Date.now() + 60_000);
       }
     }
@@ -1931,6 +1961,12 @@ async function buildApp(overrides = {}) {
     request.agneeSession = session;
     if (request.url.startsWith('/v1/admin/') && !isSupervisor(request.agneeSession)) {
       return reply.code(403).send({ error: 'Halaman ini hanya tersedia untuk supervisor.' });
+    }
+    // Gerbang terpisah, bukan menumpang gerbang di atas. Kalau keduanya dijaga
+    // isSupervisor(), setiap owner pelanggan otomatis ikut masuk ke konsol yang
+    // melihat seluruh tenant.
+    if (request.url.startsWith('/v1/superhuman/') && !isPlatformAdmin(request.agneeSession)) {
+      return reply.code(403).send({ error: 'Konsol ini hanya untuk administrator platform Agnee.' });
     }
   });
 
@@ -2652,6 +2688,140 @@ ${thread || '(belum ada)'}`,
     database: database.status(),
     runs: await database.listPlaygroundRuns(request.query.limit || 20, request.agneeSession.companyId),
   }));
+
+  // ── /superhuman: konsol platform Agnee ────────────────────────────────────
+  //
+  // Satu-satunya bagian API ini yang sengaja melintasi batas company. Gerbangnya
+  // ada di hook onRequest (isPlatformAdmin), bukan di masing-masing route, jadi
+  // route baru di bawah prefix ini tidak bisa lupa menjaganya.
+  //
+  // Dua hal yang TIDAK ada di sini, dan sebaiknya tetap tidak ada tanpa
+  // keputusan sadar: isi percakapan pelanggan, dan tombol "masuk sebagai
+  // tenant". Keduanya mengubah konsol ini dari alat mengurus langganan menjadi
+  // pintu ke data pelanggan.
+
+  const UUID_PATTERN = '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$';
+
+  /**
+   * Jejak akses lintas tenant.
+   *
+   * Mengikuti kebiasaan recordAuditLog yang sudah ada: kegagalan mencatat tidak
+   * menggagalkan tindakannya. Bedanya di sini dicatat pada level error — sebuah
+   * tindakan platform yang tidak terekam adalah hal yang harus kita ketahui,
+   * bukan sekadar catatan yang hilang.
+   */
+  async function recordPlatformAudit(request, action, companyId, metadata = {}) {
+    if (typeof database.recordAuditLog !== 'function' || !database.status().connected) return;
+    try {
+      await database.recordAuditLog({
+        actorUserId: request.agneeSession?.userId || null,
+        action,
+        entityType: 'company',
+        entityId: companyId,
+        metadata,
+      }, companyId);
+    } catch (error) {
+      app.log.error({ err: error, action, companyId }, 'Platform audit tidak tercatat');
+    }
+  }
+
+  // Beranda konsol. Tidak dicatat di audit: yang dibacanya angka gabungan lintas
+  // tenant, bukan data satu perusahaan — dan audit_logs memang menuntut satu
+  // company_id yang di sini tidak ada.
+  app.get('/v1/superhuman/overview', async (request, reply) => {
+    if (!database.status().connected) {
+      return reply.code(503).send({ error: 'Konsol platform butuh PostgreSQL.' });
+    }
+    const overview = await database.getPlatformOverview();
+    if (!overview) return reply.code(503).send({ error: 'Ringkasan tidak tersedia.' });
+    return overview;
+  });
+
+  app.get('/v1/superhuman/companies', {
+    schema: { querystring: { type: 'object', additionalProperties: false, properties: {
+      search: { type: 'string', maxLength: 100, default: '' },
+      status: { type: 'string', enum: ['active', 'suspended', 'closed'] },
+      planStatus: { type: 'string', enum: ['trial', 'beta', 'active', 'suspended'] },
+      limit: { type: 'integer', minimum: 1, maximum: 200, default: 100 },
+      offset: { type: 'integer', minimum: 0, default: 0 },
+    } } },
+  }, async (request, reply) => {
+    if (!database.status().connected) {
+      return reply.code(503).send({ error: 'Konsol platform butuh PostgreSQL. Penyimpanan sementara tidak punya daftar tenant.' });
+    }
+    const { companies, total } = await database.listPlatformCompanies({
+      search: request.query.search || '',
+      status: request.query.status || null,
+      planStatus: request.query.planStatus || null,
+      limit: request.query.limit || 100,
+      offset: request.query.offset || 0,
+    });
+    return { companies, total, offset: request.query.offset || 0 };
+  });
+
+  app.get('/v1/superhuman/companies/:companyId', {
+    schema: { params: { type: 'object', required: ['companyId'], properties: {
+      companyId: { type: 'string', pattern: UUID_PATTERN },
+    } } },
+  }, async (request, reply) => {
+    if (!database.status().connected) {
+      return reply.code(503).send({ error: 'Konsol platform butuh PostgreSQL.' });
+    }
+    const detail = await database.getPlatformCompany(request.params.companyId);
+    if (!detail) return reply.code(404).send({ error: 'Tenant tidak ditemukan.' });
+
+    // Membuka detail tenant adalah pembacaan lintas tenant, dan itu persis
+    // jenis kejadian yang harus meninggalkan jejak — bukan hanya perubahannya.
+    await recordPlatformAudit(request, 'platform.company.viewed', detail.company.id, {
+      slug: detail.company.slug,
+    });
+    return detail;
+  });
+
+  app.patch('/v1/superhuman/companies/:companyId', {
+    schema: {
+      params: { type: 'object', required: ['companyId'], properties: {
+        companyId: { type: 'string', pattern: UUID_PATTERN },
+      } },
+      body: { type: 'object', additionalProperties: false, minProperties: 1, properties: {
+        plan: { type: 'string', enum: ['personal', 'company', 'lifetime'] },
+        planStatus: { type: 'string', enum: ['trial', 'beta', 'active', 'suspended'] },
+        status: { type: 'string', enum: ['active', 'suspended', 'closed'] },
+        trialEndsAt: { type: ['string', 'null'], maxLength: 40 },
+        aiMessageLimit: { type: 'integer', minimum: 0, maximum: 10_000_000 },
+        aiMessageCount: { type: 'integer', minimum: 0, maximum: 10_000_000 },
+        maxUsers: { type: 'integer', minimum: 0, maximum: 10_000 },
+        maxPlaybooks: { type: 'integer', minimum: 0, maximum: 10_000 },
+        maxWhatsapp: { type: 'integer', minimum: 0, maximum: 10_000 },
+      } },
+    },
+  }, async (request, reply) => {
+    if (!database.status().connected) {
+      return reply.code(503).send({ error: 'Konsol platform butuh PostgreSQL.' });
+    }
+    const before = await database.getPlatformCompany(request.params.companyId);
+    if (!before) return reply.code(404).send({ error: 'Tenant tidak ditemukan.' });
+
+    const detail = await database.updatePlatformCompany(request.params.companyId, request.body);
+    if (!detail) return reply.code(404).send({ error: 'Tenant tidak ditemukan.' });
+
+    // Hanya kolom yang benar-benar berubah yang dicatat. Menyimpan seluruh isi
+    // patch akan mengisi jejak audit dengan "nilai ini diset ke nilai yang sama",
+    // dan perubahan yang sesungguhnya jadi tenggelam di antaranya.
+    const changes = {};
+    for (const key of Object.keys(request.body)) {
+      if (String(before.company[key] ?? '') !== String(detail.company[key] ?? '')) {
+        changes[key] = { dari: before.company[key] ?? null, ke: detail.company[key] ?? null };
+      }
+    }
+    if (Object.keys(changes).length) {
+      await recordPlatformAudit(request, 'platform.company.updated', detail.company.id, {
+        slug: detail.company.slug,
+        changes,
+      });
+    }
+    return detail;
+  });
 
   // ── Reply Coach: source of truth, simulation, and grading ─────────────────
   //

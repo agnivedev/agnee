@@ -937,6 +937,272 @@ class Database {
     return this.getCompanyConfig(companyId);
   }
 
+  // ── Konsol platform (superadmin) ─────────────────────────────────────────
+  //
+  // Satu-satunya bagian berkas ini yang sengaja membaca lintas company. Setiap
+  // method di bawah diawali `Platform` supaya siapa pun yang membaca kode
+  // pemanggilnya langsung tahu batas tenant memang dilewati di sini — dan
+  // supaya sebuah grep atas kata itu menghasilkan daftar lengkap tempat yang
+  // harus diperiksa kalau isolasi tenant dipertanyakan lagi.
+  //
+  // Tidak satu pun dari method ini menerima companyId dari sesi pemanggil;
+  // route /v1/superhuman/ yang menyebut tenant mana yang dimaksud, dan hanya
+  // route itu yang boleh memanggilnya.
+
+  /**
+   * Angka ringkas untuk beranda konsol.
+   *
+   * Deret harian dan bulanan dibangun dari generate_series, bukan dari GROUP BY
+   * atas baris yang ada. Kalau hari tanpa kejadian hilang dari hasil, grafiknya
+   * memampatkan waktu: jeda seminggu tanpa pemakaian terlihat seperti seminggu
+   * yang ramai. Hari kosong harus tetap muncul sebagai nol.
+   */
+  async getPlatformOverview() {
+    if (!this.enabled) return null;
+
+    const [totals, growth, dailyCost, dailyInbound, topTenants, byPurpose, trials, planMix] = await Promise.all([
+      this.pool.query(`
+        SELECT
+          (SELECT COUNT(*) FROM companies)::int                                        AS companies,
+          (SELECT COUNT(*) FROM companies WHERE status = 'active')::int                AS active,
+          (SELECT COUNT(*) FROM companies WHERE status = 'suspended')::int             AS suspended,
+          (SELECT COUNT(*) FROM companies WHERE plan_status = 'trial')::int            AS trial,
+          (SELECT COUNT(*) FROM company_members WHERE status = 'active')::int          AS members,
+          (SELECT COUNT(*) FROM inbound_messages
+            WHERE created_at >= NOW() - INTERVAL '30 days')::int                       AS "inbound30d",
+          COALESCE((SELECT SUM(cost_usd) FROM ai_usage_logs
+            WHERE created_at >= NOW() - INTERVAL '30 days'), 0)::float8                AS "costUsd30d",
+          COALESCE((SELECT SUM(cost_usd) FROM ai_usage_logs
+            WHERE created_at >= date_trunc('day', NOW())), 0)::float8                  AS "costUsdToday"
+      `),
+      this.pool.query(`
+        SELECT to_char(m, 'YYYY-MM') AS month,
+               COUNT(c.id)::int AS added,
+               (SELECT COUNT(*) FROM companies c2
+                 WHERE c2.created_at < m + INTERVAL '1 month')::int AS cumulative
+        FROM generate_series(
+          date_trunc('month', NOW()) - INTERVAL '11 months',
+          date_trunc('month', NOW()),
+          INTERVAL '1 month'
+        ) m
+        LEFT JOIN companies c ON date_trunc('month', c.created_at) = m
+        GROUP BY m ORDER BY m
+      `),
+      this.pool.query(`
+        SELECT to_char(d, 'YYYY-MM-DD') AS day,
+               COALESCE(SUM(a.cost_usd), 0)::float8 AS "costUsd"
+        FROM generate_series(CURRENT_DATE - INTERVAL '29 days', CURRENT_DATE, INTERVAL '1 day') d
+        LEFT JOIN ai_usage_logs a
+          ON a.created_at >= d AND a.created_at < d + INTERVAL '1 day'
+        GROUP BY d ORDER BY d
+      `),
+      this.pool.query(`
+        SELECT to_char(d, 'YYYY-MM-DD') AS day, COUNT(i.id)::int AS count
+        FROM generate_series(CURRENT_DATE - INTERVAL '29 days', CURRENT_DATE, INTERVAL '1 day') d
+        LEFT JOIN inbound_messages i
+          ON i.created_at >= d AND i.created_at < d + INTERVAL '1 day'
+        GROUP BY d ORDER BY d
+      `),
+      this.pool.query(`
+        SELECT c.id, c.slug, c.name,
+               SUM(a.cost_usd)::float8 AS "costUsd",
+               COUNT(*)::int           AS calls
+        FROM ai_usage_logs a
+        JOIN companies c ON c.id = a.company_id
+        WHERE a.created_at >= NOW() - INTERVAL '30 days'
+        GROUP BY c.id, c.slug, c.name
+        ORDER BY SUM(a.cost_usd) DESC
+        LIMIT 8
+      `),
+      this.pool.query(`
+        SELECT purpose, SUM(cost_usd)::float8 AS "costUsd", COUNT(*)::int AS calls
+        FROM ai_usage_logs
+        WHERE created_at >= NOW() - INTERVAL '30 days'
+        GROUP BY purpose ORDER BY SUM(cost_usd) DESC
+      `),
+      this.pool.query(`
+        SELECT id, slug, name, trial_ends_at AS "trialEndsAt"
+        FROM companies
+        WHERE plan_status = 'trial' AND trial_ends_at IS NOT NULL
+          AND trial_ends_at < NOW() + INTERVAL '14 days'
+        ORDER BY trial_ends_at ASC
+        LIMIT 10
+      `),
+      this.pool.query(`
+        SELECT plan, plan_status AS "planStatus", COUNT(*)::int AS count
+        FROM companies GROUP BY plan, plan_status ORDER BY COUNT(*) DESC
+      `),
+    ]);
+
+    return {
+      totals: totals.rows[0],
+      tenantGrowth: growth.rows,
+      dailyCost: dailyCost.rows,
+      dailyInbound: dailyInbound.rows,
+      topTenants: topTenants.rows,
+      costByPurpose: byPurpose.rows,
+      trialsEnding: trials.rows,
+      planMix: planMix.rows,
+    };
+  }
+
+  async listPlatformCompanies({ search = '', status = null, planStatus = null, limit = 100, offset = 0 } = {}) {
+    if (!this.enabled) return { companies: [], total: 0 };
+    const result = await this.pool.query(`
+      SELECT
+        c.id, c.slug, c.name, c.plan, c.status,
+        c.plan_status        AS "planStatus",
+        c.trial_ends_at      AS "trialEndsAt",
+        c.created_at         AS "createdAt",
+        c.ai_message_count   AS "aiMessageCount",
+        c.ai_message_limit   AS "aiMessageLimit",
+        c.ai_count_reset_at  AS "aiCountResetAt",
+        c.max_users          AS "maxUsers",
+        c.max_playbooks      AS "maxPlaybooks",
+        c.max_whatsapp       AS "maxWhatsapp",
+        (SELECT COUNT(*) FROM company_members m
+          WHERE m.company_id = c.id AND m.status = 'active')::int           AS "activeUsers",
+        ((SELECT COUNT(*) FROM whatsapp_connections w WHERE w.company_id = c.id)
+         + (SELECT COUNT(*) FROM whatsapp_cloud_connections w WHERE w.company_id = c.id))::int
+                                                                            AS "whatsappNumbers",
+        (SELECT MAX(i.created_at) FROM inbound_messages i
+          WHERE i.company_id = c.id)                                        AS "lastInboundAt",
+        COALESCE((SELECT SUM(a.cost_usd) FROM ai_usage_logs a
+          WHERE a.company_id = c.id AND a.created_at >= NOW() - INTERVAL '30 days'), 0)::float8
+                                                                            AS "costUsd30d",
+        (COUNT(*) OVER ())::int                                             AS "totalCount"
+      FROM companies c
+      WHERE ($1 = '' OR c.name ILIKE '%' || $1 || '%' OR c.slug ILIKE '%' || $1 || '%')
+        AND ($2::text IS NULL OR c.status = $2)
+        AND ($3::text IS NULL OR c.plan_status = $3)
+      ORDER BY c.created_at DESC
+      LIMIT $4 OFFSET $5
+    `, [String(search || ''), status, planStatus, limit, offset]);
+
+    const total = result.rows[0]?.totalCount ?? 0;
+    return {
+      companies: result.rows.map(({ totalCount: _t, ...row }) => row),
+      total,
+    };
+  }
+
+  /**
+   * Satu tenant, cukup dalam untuk memutuskan sesuatu tanpa membuka psql —
+   * tapi sengaja TIDAK memuat satu pun isi percakapan pelanggan. Konsol ini
+   * untuk mengurus langganan dan koneksi, bukan untuk membaca chat orang.
+   */
+  async getPlatformCompany(companyId) {
+    if (!this.enabled) return null;
+    const company = await this.pool.query(`
+      SELECT
+        c.id, c.slug, c.name, c.plan, c.status, c.timezone,
+        c.plan_status        AS "planStatus",
+        c.trial_ends_at      AS "trialEndsAt",
+        c.created_at         AS "createdAt",
+        c.ai_message_count   AS "aiMessageCount",
+        c.ai_message_limit   AS "aiMessageLimit",
+        c.ai_count_reset_at  AS "aiCountResetAt",
+        c.max_users          AS "maxUsers",
+        c.max_playbooks      AS "maxPlaybooks",
+        c.max_whatsapp       AS "maxWhatsapp",
+        c.knowledge_client   AS "knowledgeClient",
+        (SELECT COUNT(*) FROM company_members m
+          WHERE m.company_id = c.id AND m.status = 'active')::int  AS "activeUsers",
+        (SELECT MAX(i.created_at) FROM inbound_messages i
+          WHERE i.company_id = c.id)                               AS "lastInboundAt",
+        (SELECT COUNT(*) FROM inbound_messages i
+          WHERE i.company_id = c.id
+            AND i.created_at >= NOW() - INTERVAL '30 days')::int   AS "inbound30d",
+        ((SELECT COUNT(*) FROM whatsapp_connections w WHERE w.company_id = c.id)
+         + (SELECT COUNT(*) FROM whatsapp_cloud_connections w WHERE w.company_id = c.id))::int
+                                                                   AS "whatsappNumbers",
+        -- Kolom yang sama dengan yang dipakai daftar tenant. Tanpa baris ini
+        -- detail memberi angka nol yang tampak sah di sebelah daftar yang
+        -- menunjukkan biaya sesungguhnya — salah yang lebih buruk daripada kosong.
+        COALESCE((SELECT SUM(a.cost_usd) FROM ai_usage_logs a
+          WHERE a.company_id = c.id AND a.created_at >= NOW() - INTERVAL '30 days'), 0)::float8
+                                                                   AS "costUsd30d"
+      FROM companies c WHERE c.id = $1
+    `, [companyId]);
+    if (!company.rows[0]) return null;
+
+    const [members, connections, usage] = await Promise.all([
+      this.pool.query(`
+        SELECT u.id, u.email, u.display_name AS "displayName", m.role, m.status,
+               u.last_login_at AS "lastLoginAt", u.is_platform_admin AS "isPlatformAdmin"
+        FROM company_members m
+        JOIN users u ON u.id = m.user_id
+        WHERE m.company_id = $1
+        ORDER BY CASE WHEN m.role IN ('owner', 'admin') THEN 0 ELSE 1 END,
+                 COALESCE(u.display_name, u.email)
+      `, [companyId]),
+      this.pool.query(`
+        SELECT id, 'whatsapp_web' AS provider, label, phone_number AS "phoneNumber",
+               status, connected_at AS "connectedAt", NULL::text AS "lastError"
+        FROM whatsapp_connections WHERE company_id = $1
+        UNION ALL
+        SELECT id, 'cloud_api' AS provider, COALESCE(label, 'Cloud API') AS label,
+               display_phone_number AS "phoneNumber",
+               status, connected_at AS "connectedAt", last_error AS "lastError"
+        FROM whatsapp_cloud_connections WHERE company_id = $1
+        ORDER BY "connectedAt" DESC NULLS LAST
+      `, [companyId]),
+      this.pool.query(`
+        SELECT purpose, model,
+               SUM(input_tokens)::int  AS "inputTokens",
+               SUM(output_tokens)::int AS "outputTokens",
+               SUM(cost_usd)::float8   AS "costUsd",
+               COUNT(*)::int           AS calls
+        FROM ai_usage_logs
+        WHERE company_id = $1 AND created_at >= NOW() - INTERVAL '30 days'
+        GROUP BY purpose, model
+        ORDER BY SUM(cost_usd) DESC
+      `, [companyId]),
+    ]);
+
+    return {
+      company: company.rows[0],
+      members: members.rows,
+      connections: connections.rows,
+      usage: usage.rows,
+    };
+  }
+
+  /**
+   * Mengubah langganan dan plafon sebuah tenant.
+   *
+   * Hanya kolom komersial yang bisa disentuh dari sini. Nama, slug, dan isi
+   * kerja tenant tetap urusan pemiliknya — konsol ini mengurus apa yang dia
+   * beli, bukan apa yang dia tulis.
+   */
+  async updatePlatformCompany(companyId, patch = {}) {
+    if (!this.enabled) return null;
+    const fields = [];
+    const values = [];
+    let i = 1;
+    const set = (column, value) => { fields.push(`${column} = $${i++}`); values.push(value); };
+
+    if (patch.plan !== undefined) set('plan', patch.plan);
+    if (patch.planStatus !== undefined) set('plan_status', patch.planStatus);
+    if (patch.status !== undefined) set('status', patch.status);
+    if (patch.trialEndsAt !== undefined) set('trial_ends_at', patch.trialEndsAt || null);
+    if (patch.aiMessageLimit !== undefined) set('ai_message_limit', patch.aiMessageLimit);
+    if (patch.aiMessageCount !== undefined) set('ai_message_count', patch.aiMessageCount);
+    if (patch.maxUsers !== undefined) set('max_users', patch.maxUsers);
+    if (patch.maxPlaybooks !== undefined) set('max_playbooks', patch.maxPlaybooks);
+    if (patch.maxWhatsapp !== undefined) set('max_whatsapp', patch.maxWhatsapp);
+    if (!fields.length) return this.getPlatformCompany(companyId);
+
+    fields.push('updated_at = NOW()');
+    values.push(companyId);
+    const result = await this.pool.query(
+      `UPDATE companies SET ${fields.join(', ')} WHERE id = $${i} RETURNING id`,
+      values,
+    );
+    if (!result.rowCount) return null;
+    return this.getPlatformCompany(companyId);
+  }
+
   async getPlaybook(companyId) {
     if (!this.enabled) return { brief: '', updatedAt: null };
     const result = await this.pool.query(`

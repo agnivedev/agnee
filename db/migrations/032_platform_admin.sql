@@ -22,3 +22,10 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS is_platform_admin BOOLEAN NOT NULL DE
 -- murah yang bisa dijalankan kapan saja saat audit.
 CREATE INDEX IF NOT EXISTS users_platform_admin_idx
   ON users (email) WHERE is_platform_admin;
+
+-- "Kapan pesan terakhir masuk" adalah kolom pertama yang dilihat di daftar
+-- tenant: itu yang membedakan pelanggan yang hidup dari yang sudah diam.
+-- Index yang ada hanya (company_id, chat_id, timestamp), jadi pertanyaan per
+-- company harus menyapu seluruh percakapannya dulu.
+CREATE INDEX IF NOT EXISTS inbound_messages_company_recent_idx
+  ON inbound_messages (company_id, created_at DESC);

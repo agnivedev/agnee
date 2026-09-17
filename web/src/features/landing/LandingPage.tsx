@@ -166,7 +166,7 @@ function Hero() {
       <div className="grid items-center gap-10 lg:grid-cols-[1.1fr_.9fr]">
         <div>
           <span className="inline-block rounded-full bg-[#dff0d6] px-3 py-1 font-mono text-[11px] font-semibold text-[#205a38] dark:bg-[#1b3028] dark:text-[#7fff4f]">
-            Beta — promo {KUOTA_PROMO} perusahaan pertama
+            Beta — kuota promo {KUOTA_PROMO} slot, belum habis
           </span>
           <h1 className="mt-4 mb-0 text-[clamp(36px,6vw,66px)] leading-[1.03] font-semibold tracking-[-.05em]">
             Pelangganmu dilayani.
@@ -174,16 +174,16 @@ function Hero() {
             CS-mu juga.
           </h1>
           <p className="mt-5 mb-0 max-w-xl text-[17px] leading-[1.6] text-[#4e6e5e] dark:text-[#7aaa8a]">
-            Semua yang lain menjual robot yang menggantikan CS. Agnee menjaga chat pelangganmu{' '}
-            <b className="font-semibold text-ink dark:text-[#f4f9f0]">dan</b> menopang orang yang membalasnya — supaya
-            tidak ada chat yang jatuh ke lantai, dan tidak ada CS yang pulang membawa kerjaan.
+            Semua yang lain jual robot yang gantiin CS. Agnee jaga chat pelangganmu{' '}
+            <b className="font-semibold text-ink dark:text-[#f4f9f0]">dan</b> orang yang membalasnya — biar ga ada yang
+            kelewat, dan ga ada CS yang pulang bawa kerjaan ke rumah.
           </p>
           <div className="mt-7 flex flex-wrap gap-3">
             <a
               href="/?signup=1"
               className="rounded-app bg-ink px-5 py-3 text-[15px] font-semibold text-white no-underline transition hover:-translate-y-0.5 dark:bg-[#7fff4f] dark:text-[#0c1912]"
             >
-              Coba Gratis
+              Coba Gratis 7 Hari
             </a>
             <a href="#ebook" className="rounded-app border border-[#c6dcc0] px-5 py-3 text-[15px] font-semibold no-underline dark:border-[#24403a]">
               Ambil ebook CS-nya dulu
@@ -204,10 +204,10 @@ function Hero() {
  *   3 pengaman — jendela jam, plafon harian, jarak minimum di src/follow-up.js
  */
 const BUKTI: [string, string][] = [
-  ['30 menit', 'Chat ditinggal selama ini, AI mengambil alih lagi sendiri'],
-  ['8 dokumen', 'Playbook yang menentukan cara AI-mu bicara, semua diisi lewat obrolan'],
-  ['2 penulis, 1 tanda', 'Tiap balasan keluar ketahuan: AI, atau agent yang mana'],
-  ['3 pengaman', 'Jendela jam, plafon harian, jarak minimum — sebelum follow-up boleh kirim'],
+  ['30 menit', 'Kamu pergi, AI jaga. Balik sendiri setelah chat segini lama diam'],
+  ['8 dokumen', 'Cara AI-mu ngomong — semuanya diisi lewat ngobrol, bukan nulis'],
+  ['2 penulis, 1 tanda', 'Tiap pesan keluar ketahuan siapa yang nulis — AI atau kamu'],
+  ['3 pengaman', 'Tiga pintu yang harus dilolos follow-up sebelum boleh berangkat'],
 ];
 
 function ProofStrip() {
@@ -231,13 +231,13 @@ function BandSiapaBicara() {
       <Eyebrow>Inbox multi-agent</Eyebrow>
       <SectionTitle>Dua orang membalas satu pelanggan adalah mimpi buruk. Agnee tidak mengizinkannya.</SectionTitle>
       <Lead>
-        Agent mulai mengetik di chat yang sedang dijaga AI? Chat itu jadi miliknya, detik itu juga — AI mundur tanpa
-        disuruh. Agent pergi tanpa pamit? Setelah 30 menit diam, chat kembali ke AI, bukan menggantung menunggu orang
-        yang sudah pulang. Dan tiap balasan yang keluar dari nomormu membawa namanya sendiri: AI, atau agent yang mana.
+        Agent mulai ngetik di chat yang lagi dijaga AI? Chat itu langsung jadi miliknya — AI mundur sendiri. Agent
+        pergi tanpa pamit? Setelah 30 menit diam, chat balik ke AI, bukan nunggu orang yang udah pulang. Tiap pesan
+        yang keluar dari nomormu bawa nama penulisnya: AI, atau agent yang mana.
       </Lead>
       <DuaSisi
-        perusahaan="Satu nomor, seluruh tim, dan riwayat yang bisa ditanya “ini tadi siapa yang janji?” — dengan jawaban."
-        cs="Tidak pernah lagi malu karena AI mengirim link checkout lima detik setelah kamu menjanjikan telepon jam 3."
+        perusahaan=”Satu nomor, seluruh tim, dan riwayat yang bisa ditanya “ini tadi siapa yang janji?” — dengan jawaban.”
+        cs=”Ga bakal malu lagi gara-gara AI kirimin link checkout lima detik setelah kamu janji nelpon jam 3.”
       />
       <img
         src="/assets/hero-dashboard.png"
@@ -256,28 +256,28 @@ function BandFollowUp() {
         Follow-up berjadwal
       </p>
       <SectionTitle>Follow-up yang lebih sopan daripada kebanyakan manusia.</SectionTitle>
-      <p className="m-0 max-w-2xl text-[16px] leading-[1.7] text-white/65">
-        Agnee mengejar leadmu sampai menjawab — tapi tidak sampai dibenci. Sebelum satu pesan boleh berangkat, dia harus
-        lolos tiga pintu: masih di dalam jam kirim yang kamu tentukan, belum melewati plafon hari itu, dan sudah cukup
-        jauh jaraknya dari pesan sebelumnya. Supervisor mau kirim manual di luar jadwal? Boleh — jaraknya diperpendek,{' '}
-        <b className="font-semibold text-white">tidak dihapus</b>. Rangkaian yang sudah selesai pun boleh dimulai ulang,
-        dengan jeda hari yang kamu tentukan sendiri.
+      <p className=”m-0 max-w-2xl text-[16px] leading-[1.7] text-white/65”>
+        Agnee kejar leadmu sampai jawab — tapi ga sampai dibenci. Sebelum satu pesan boleh jalan, harus lolos tiga
+        pintu: masih dalam jam kirim yang kamu tentukan, belum lewatin plafon hari itu, dan udah cukup jauh jaraknya
+        dari pesan sebelumnya. Supervisor mau kirim manual di luar jadwal? Boleh — jaraknya cuma diperpendek,{' '}
+        <b className=”font-semibold text-white”>ga dihapus</b>. Rangkaian yang udah selesai pun bisa dimulai ulang,
+        dengan jeda yang kamu atur sendiri.
       </p>
-      <div className="mt-8 grid gap-4 sm:grid-cols-2">
-        <div className="rounded-panel border border-white/15 p-5">
-          <p className="m-0 mb-1.5 font-mono text-[11px] font-semibold tracking-[.12em] text-white/50 uppercase">
+      <div className=”mt-8 grid gap-4 sm:grid-cols-2”>
+        <div className=”rounded-panel border border-white/15 p-5”>
+          <p className=”m-0 mb-1.5 font-mono text-[11px] font-semibold tracking-[.12em] text-white/50 uppercase”>
             Perusahaanmu dapat
           </p>
-          <p className="m-0 text-[14px] leading-[1.65] text-white/80">
+          <p className=”m-0 text-[14px] leading-[1.65] text-white/80”>
             Lead yang dingin tetap disentuh, tanpa nomormu dilaporkan.
           </p>
         </div>
-        <div className="rounded-panel border-2 border-[#7fff4f] bg-[#7fff4f]/10 p-5">
-          <p className="m-0 mb-1.5 font-mono text-[11px] font-semibold tracking-[.12em] text-[#7fff4f] uppercase">
+        <div className=”rounded-panel border-2 border-[#7fff4f] bg-[#7fff4f]/10 p-5”>
+          <p className=”m-0 mb-1.5 font-mono text-[11px] font-semibold tracking-[.12em] text-[#7fff4f] uppercase”>
             Kamu, CS, dapat
           </p>
-          <p className="m-0 text-[14px] leading-[1.65] text-white">
-            Daftar “nanti dikabarin lagi” yang tidak lagi tinggal di kepalamu sampai jam 11 malam.
+          <p className=”m-0 text-[14px] leading-[1.65] text-white”>
+            List “nanti dikabarin lagi” yang ga perlu lagi tinggal di kepala kamu sampai jam 11 malem.
           </p>
         </div>
       </div>
@@ -371,10 +371,10 @@ function BandKnowledge() {
       <Eyebrow>Knowledge</Eyebrow>
       <SectionTitle>AI-mu tidak butuh kamu jadi penulis prompt.</SectionTitle>
       <Lead>
-        Delapan dokumen menentukan bagaimana AI-mu bicara. Kamu tidak mengisinya dengan mengetik dokumen — kamu
-        mengisinya dengan <b className="font-semibold text-ink dark:text-[#f4f9f0]">mengobrol</b>. Agnee bertanya, kamu
-        menjawab seperti menjawab karyawan baru, dan dokumennya tersusun sendiri. Dan tiap kali satu percakapan nyata
-        berakhir baik, Agnee menawarkan: mau disimpan ke dokumen?
+        Delapan dokumen yang nentuin cara AI-mu ngomong. Kamu ga nulis dokumen — kamu{' '}
+        <b className="font-semibold text-ink dark:text-[#f4f9f0]">ngobrol</b>. Agnee yang nanya, kamu jawab kayak lagi
+        jelasin ke karyawan baru, dan dokumennya tersusun sendiri. Tiap percakapan yang beres bagus, Agnee nawar:
+        disimpan ke playbook?
       </Lead>
       <div className="mt-8 flex flex-wrap gap-2">
         {[
@@ -397,8 +397,8 @@ function BandKnowledge() {
         ))}
       </div>
       <DuaSisi
-        perusahaan="Playbook yang tumbuh dari percakapan yang benar-benar terjadi, bukan dari dokumen yang ditulis sekali lalu dilupakan."
-        cs="Jawaban terbaikmu tidak mati bersama satu chat — dia jadi cara AI menjawab besok."
+        perusahaan="Playbook yang tumbuh dari percakapan yang beneran terjadi, bukan dokumen yang ditulis sekali terus dilupain."
+        cs="Jawaban terbaik kamu ga mati bareng satu chat — dia jadi cara AI jawab besok."
       />
     </Section>
   );
@@ -410,12 +410,12 @@ function BandRingkasan() {
       <Eyebrow>Ringkasan &amp; label</Eyebrow>
       <SectionTitle>AI boleh menyimpulkan. Kamu boleh membantah.</SectionTitle>
       <Lead>
-        Tiap percakapan punya ringkasan dan label yang dibuat AI. Salah? Perbaiki. Suntinganmu tercatat lengkap dengan
-        namamu dan jamnya — dan AI tidak lantas dikunci. Dia tetap boleh memperbarui, tapi sekarang dengan tahu bahwa
-        manusia sudah pernah turun tangan di sini.
+        Tiap percakapan punya ringkasan dan label buatan AI. Salah? Benerin. Editanmu tercatat dengan namamu dan
+        jamnya — dan AI ga langsung dikunci. Dia tetap bisa update, tapi sekarang dia udah tahu manusia pernah turun
+        tangan di sini.
       </Lead>
       <DuaSisi
-        perusahaan="Ringkasan yang bisa dipercaya, bukan tebakan mesin yang tidak ada yang berani koreksi."
+        perusahaan="Ringkasan yang bisa dipercaya, bukan tebakan mesin yang ga ada yang berani koreksi."
         cs="Kata terakhir."
       />
     </Section>
@@ -423,18 +423,18 @@ function BandRingkasan() {
 }
 
 const PENDUKUNG: [string, string][] = [
-  ['Lead List, siap dibawa ke mana saja', 'Ekspor XLSX atau CSV kapan saja. Datamu datamu.'],
+  ['Lead List, siap dibawa ke mana saja', 'Ekspor XLSX atau CSV kapan aja. Datamu, datamu.'],
   [
     'Struk AI-mu terbuka',
-    'Tiap panggilan AI dicatat: token masuk, token keluar, model yang dipakai, dan biayanya. Per perusahaan.',
+    'Tiap panggilan AI tercatat: token masuk, token keluar, model yang dipakai, dan biayanya. Per perusahaan.',
   ],
   [
-    'Tetangga tidak bisa mengintip',
-    'Isolasi antar perusahaan diterapkan di level database, dan sudah diuji dengan probe lintas company.',
+    'Tetangga ga bisa ngintip',
+    'Isolasi antar perusahaan di level database — udah diuji dengan probe lintas company.',
   ],
   [
-    'Nomor WA yang sudah kamu punya',
-    'Scan QR, selesai. Tanpa menunggu approval Meta, tanpa biaya per pesan.',
+    'Nomor WA yang udah kamu punya',
+    'Scan QR, selesai. Ga perlu nunggu approval Meta, ga ada biaya per pesan.',
   ],
 ];
 
@@ -562,9 +562,9 @@ function UmpanWebinar() {
 }
 
 const STEPS: [string, string][] = [
-  ['Hubungkan WhatsApp', 'Scan QR dari dashboard Agnee. Tanpa coding, tanpa API berbayar, tanpa menunggu approval.'],
+  ['Hubungkan WhatsApp', 'Scan QR dari dashboard Agnee. Ga perlu coding, ga perlu API berbayar, ga perlu nunggu approval.'],
   ['Undang tim CS', 'Tambahkan agent lewat email dan atur perannya. Mereka langsung punya inbox yang sama.'],
-  ['Isi Knowledge lewat obrolan', 'Agnee bertanya, kamu menjawab. Delapan dokumen playbook tersusun dari jawabanmu.'],
+  ['Isi Knowledge lewat ngobrol', 'Agnee yang nanya, kamu yang jawab. Delapan dokumen playbook tersusun dari jawaban kamu.'],
 ];
 
 function HowItWorks() {
@@ -654,11 +654,11 @@ const PLANS = [
 function Pricing() {
   return (
     <Section id="pricing" className="py-16 sm:py-20">
-      <Eyebrow>Promo pembukaan</Eyebrow>
+      <Eyebrow>Promo pembukaan — {KUOTA_PROMO} slot total</Eyebrow>
       <SectionTitle>Harga ini berhenti di perusahaan ke-{KUOTA_PROMO}.</SectionTitle>
       <Lead>
-        Bukan hitung mundur palsu yang mengulang dirinya tiap kamu buka halaman ini. {KUOTA_PROMO} perusahaan pertama,
-        lalu harga coretnya yang berlaku.
+        Bukan hitung mundur palsu yang reset sendiri tiap kamu buka. Begitu {KUOTA_PROMO} tercapai, harga ini tutup —
+        tanpa pengumuman. Ga ada "perpanjangan mendadak".
       </Lead>
       <div className="mt-10 grid gap-4 lg:grid-cols-3">
         {PLANS.map((plan) => (
@@ -817,19 +817,19 @@ function CtaBanner() {
     <Section className="py-16 sm:py-20">
       <div className="rounded-panel bg-ink p-10 text-center text-white dark:bg-[#14241f]">
         <h2 className="m-0 text-[clamp(26px,4vw,40px)] leading-[1.15] font-semibold tracking-[-.035em]">
-          Pelangganmu sedang mengetik.
+          Pelangganmu lagi ngetik.
           <br />
-          CS-mu tidak harus sendirian.
+          CS-mu ga harus sendirian.
         </h2>
         <p className="mt-3 mb-6 text-white/65">
-          Promo {KUOTA_PROMO} perusahaan pertama. Tidak perlu kartu kredit untuk mencoba.
+          Kuota promo {KUOTA_PROMO} perusahaan — ga perlu kartu kredit. Begitu penuh, harga ini ga balik.
         </p>
         <div className="flex flex-wrap justify-center gap-3">
           <a
             href="/?signup=1"
             className="inline-block rounded-app bg-[#7fff4f] px-6 py-3 text-[15px] font-semibold text-[#0c1912] no-underline"
           >
-            Mulai Gratis Sekarang →
+            Ambil Slot Gratisku →
           </a>
           <a
             href="#ebook"

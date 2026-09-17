@@ -84,10 +84,21 @@ function today() {
   return new Date().toISOString().slice(0, 10);
 }
 
-/** Menulis ulang stempel dan sidik jari berkas, dan mengembalikan isinya. */
+/**
+ * Menulis ulang stempel dan sidik jari berkas, dan mengembalikan isinya.
+ *
+ * Stempel tidak pernah dimundurkan. `today()` memakai UTC sedangkan stempel
+ * sebelumnya mungkin ditulis menurut waktu lokal yang sudah berganti hari —
+ * tanpa penjagaan ini, menjalankan --fix pada pagi WIB justru menarik stempel
+ * satu hari ke belakang, dan seed jadi melewati dokumen yang seharusnya ia
+ * perbarui. Stempel yang sudah terlanjur di masa depan dibiarkan apa adanya;
+ * check() yang melaporkannya, karena itu keputusan yang butuh manusia.
+ */
 function restamp(sql, day = today()) {
+  const current = readStamp(sql);
+  const stamp = current && current > day ? current : day;
   let next = sql.replace(STAMP_LINE_RE, (line) =>
-    line.replace(/:= '[^']*'/, `:= '${day}'`));
+    line.replace(/:= '[^']*'/, `:= '${stamp}'`));
   // Baris sidik jari hidup tepat di atas stempelnya supaya keduanya terbaca
   // sebagai satu hal, dan supaya yang menyuntingnya dengan tangan melihat
   // bahwa ada yang harus ikut diperbarui.

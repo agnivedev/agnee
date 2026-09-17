@@ -150,3 +150,15 @@ test('berkas hasil render() sudah membawa sidik jarinya sendiri', () => {
   assert.match(readSha(stamped) || '', /^[0-9a-f]{64}$/);
   assert.equal(readSha(stamped), fingerprint(stamped));
 });
+
+test('menstempel ulang tidak pernah memundurkan stempel', (t) => {
+  const dir = tempDir(t);
+  // Stempel kemarin-menurut-UTC tapi hari-ini-menurut-WIB adalah kejadian
+  // sehari-hari bagi yang bekerja lewat tengah malam. Menariknya mundur akan
+  // membuat seed melewati dokumen yang justru ingin ia perbarui.
+  const besok = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
+  const file = seedFixture(dir, { stamp: besok });
+  fix(dir);
+  assert.equal(readStamp(fs.readFileSync(file, 'utf8')), besok);
+  assert.deepEqual(check(dir), []);
+});

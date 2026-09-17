@@ -401,6 +401,20 @@ async function buildApp(overrides = {}) {
   }
 
   /**
+   * Beri tahu penerima notifikasi lewat aliran miliknya sendiri.
+   *
+   * Isinya sengaja kosong: klien memanggil /v1/notifications untuk menariknya,
+   * jadi tidak ada isi catatan yang lewat di saluran ini. Yang dikirim hanya
+   * "ada yang baru untuk kamu" — sisanya ditarik lewat rute yang sudah
+   * memeriksa siapa pemanggilnya.
+   */
+  function notifyUsers(companyId, userIds) {
+    for (const userId of new Set(userIds || [])) {
+      manager.broadcastToUser(companyId, userId, 'notification', { at: Date.now() });
+    }
+  }
+
+  /**
    * Resolve the WA connection config for a company.
    *
    * A company must never reuse another tenant's clientId: LocalAuth derives the
@@ -1533,6 +1547,23 @@ async function buildApp(overrides = {}) {
     }
     conversationRouting.set(cacheKey, routing);
     broadcastEvent(cid, 'routing', routing);
+    // Penugasan yang berpindah ke orang lain diberitahukan ke orang itu.
+    // Ditaruh di sini, bukan di rutenya, supaya semua jalur penugasan ikut —
+    // panel chat, daftar tugas, dan penugasan otomatis.
+    const assignee = routing.assigneeUserId || null;
+    if (assignee && assignee !== previous.assigneeUserId
+      && typeof database.createTaskNotification === 'function' && database.status().connected) {
+      const notified = await database.createTaskNotification({
+        chatId: change.chatId,
+        userId: assignee,
+        actorUserId: change.actorUserId || null,
+        body: change.note || null,
+      }, cid).catch((err) => {
+        app.log.warn({ err, chatId: change.chatId }, 'Could not create task notification');
+        return [];
+      });
+      notifyUsers(cid, notified);
+    }
     return routing;
   }
 
@@ -2302,7 +2333,7 @@ async function buildApp(overrides = {}) {
    * 3. Kuota AI paket tetap dihitung. Tanpa itu, utas catatan menjadi cara
    *    memakai model di luar batas yang dibayar company.
    */
-  async function answerNoteMention({ chatId, parentId, question, companyId }) {
+  async function answerNoteMention({ chatId, parentId, question, companyId, askerUserId = null }) {
     if (!llmService.enabled) return null;
     if (coachRateLimited(companyId)) {
       app.log.warn({ companyId }, 'Note mention skipped — coach rate limit');
@@ -2348,6 +2379,24 @@ ${thread || '(belum ada)'}`,
       parentId, authorKind: 'ai',
     });
     broadcastEvent(companyId, 'note', { chatId, note });
+    // Yang bertanya belum tentu masih membuka chat itu saat jawabannya
+    // selesai — AI butuh beberapa detik. Notifikasinya menyusul ke orang itu
+    // saja, bukan ke seluruh tim.
+    if (askerUserId && typeof database.createMentionNotifications === 'function') {
+      const notified = await database.createMentionNotifications({
+        chatId,
+        noteId: note.id,
+        mentions: [{ kind: 'user', id: askerUserId }],
+        actorUserId: null,
+        actorKind: 'ai',
+        body: result.text.trim(),
+        kind: 'reply',
+      }, companyId).catch((err) => {
+        app.log.warn({ err }, 'Could not notify note mention asker');
+        return [];
+      });
+      notifyUsers(companyId, notified);
+    }
     return note;
   }
 
@@ -2427,10 +2476,11 @@ ${thread || '(belum ada)'}`,
           parentId: note.parentId || note.id,
           question: request.body.body.trim(),
           companyId: noteCompanyId,
+          askerUserId: request.agneeSession?.userId || null,
         }).catch((err) => app.log.warn({ err }, 'Could not answer note mention'));
       }
       if (mentions.length && typeof database.createMentionNotifications === 'function') {
-        await database.createMentionNotifications({
+        const notified = await database.createMentionNotifications({
           chatId: request.params.chatId,
           noteId: note.id,
           mentions,
@@ -2438,7 +2488,11 @@ ${thread || '(belum ada)'}`,
           actorKind: 'human',
           body: request.body.body.trim(),
           kind: request.body.parentId ? 'reply' : 'mention',
-        }, noteCompanyId).catch((err) => app.log.warn({ err }, 'Could not create mention notifications'));
+        }, noteCompanyId).catch((err) => {
+          app.log.warn({ err }, 'Could not create mention notifications');
+          return [];
+        });
+        notifyUsers(noteCompanyId, notified);
       }
     } else {
       note = { id: crypto.randomUUID(), body: request.body.body.trim(), authorName: request.agneeSession?.displayName, createdAt: new Date().toISOString() };
@@ -3615,6 +3669,78 @@ Aturan:
     return { tasks };
   });
 
+  /**
+   * Satu perubahan pada satu tugas: status, prioritas, atau pemegangnya.
+   *
+   * Tidak menyentuh WhatsApp sama sekali, berbeda dari POST /chats/:id/routing
+   * yang juga bisa mengirim pesan penutup. Memindahkan penugasan tidak boleh
+   * gagal hanya karena nomornya sedang tidak tersambung.
+   */
+  async function applyTaskChange({ session, chatId, patch }, reply) {
+    const companyId = session.companyId;
+    const current = await getRouting(chatId, companyId);
+    const supervisor = isSupervisor(session);
+    const wantsAssignee = patch.assigneeUserId !== undefined;
+
+    // Chat yang masih dipegang AI hanya boleh berubah lewat penugasan: tanpa
+    // itu tidak ada tugas yang bisa diubah statusnya.
+    if (current.mode !== 'human' && !wantsAssignee) {
+      return reply.code(409).send({ error: 'Chat ini tidak sedang ditugaskan ke manusia.' });
+    }
+    // Hanya pemegang tugas atau supervisor yang boleh mengubahnya — agent lain
+    // tidak boleh menandai tugas rekannya selesai atau mengambilnya diam-diam.
+    if (!supervisor && current.mode === 'human' && current.assigneeUserId
+      && current.assigneeUserId !== session.userId) {
+      return reply.code(403).send({ error: 'Ini bukan tugas kamu.' });
+    }
+
+    let assigneeUserId = wantsAssignee ? (patch.assigneeUserId || null) : current.assigneeUserId;
+    if (wantsAssignee) {
+      if (!supervisor && assigneeUserId !== session.userId) {
+        return reply.code(403).send({ error: 'Agent hanya dapat mengambil tugas untuk dirinya sendiri.' });
+      }
+      if (assigneeUserId) {
+        const members = await getTeamMembers(companyId);
+        const member = members.find((item) => item.id === assigneeUserId && item.status === 'active');
+        if (!member) return reply.code(400).send({ error: 'Pilih agent yang aktif.' });
+      }
+    }
+    // Melepas penugasan berarti mengembalikan chat ke AI, dan itu keputusan
+    // yang diambil dari panel chat, bukan dari daftar tugas. Tugas lama yang
+    // memang belum punya pemegang tetap boleh diubah statusnya.
+    if (wantsAssignee && !assigneeUserId) {
+      return reply.code(400).send({ error: 'Pilih agent yang aktif.' });
+    }
+
+    return saveRouting({
+      chatId,
+      mode: 'human',
+      assigneeUserId,
+      actorUserId: session.userId,
+      priority: patch.priority || current.priority || 'normal',
+      status: patch.status || current.status || 'open',
+    }, companyId);
+  }
+
+  app.patch('/v1/tasks/:chatId', {
+    schema: {
+      params: { type: 'object', required: ['chatId'], properties: {
+        chatId: { type: 'string', minLength: 1, maxLength: 128 },
+      } },
+      body: { type: 'object', additionalProperties: false, properties: {
+        status: { type: 'string', enum: ['open', 'pending', 'closed'] },
+        priority: { type: 'string', enum: ['low', 'normal', 'high', 'urgent'] },
+        assigneeUserId: { type: 'string', minLength: 1, maxLength: 100 },
+      } },
+    },
+  }, async (request, reply) => {
+    if (!database.status().connected) return reply.code(503).send({ error: 'Penyimpanan belum tersedia.' });
+    return applyTaskChange({
+      session: request.agneeSession, chatId: request.params.chatId, patch: request.body,
+    }, reply);
+  });
+
+  // Rute lama, dipertahankan supaya klien yang belum diperbarui tetap jalan.
   app.patch('/v1/tasks/:chatId/status', {
     schema: {
       params: { type: 'object', required: ['chatId'], properties: {
@@ -3624,24 +3750,67 @@ Aturan:
         status: { type: 'string', enum: ['open', 'pending', 'closed'] },
       } },
     },
+  }, async (request, reply) => applyTaskChange({
+    session: request.agneeSession,
+    chatId: request.params.chatId,
+    patch: { status: request.body.status },
+  }, reply));
+
+  // ── Audit: tindakan yang akibatnya di luar Agnee ──────────────────────────
+
+  /**
+   * Agent membuka percakapan di WhatsApp pribadinya lewat wa.me.
+   *
+   * Dialog di Lead List sudah memperingatkan risikonya, tapi peringatan tidak
+   * meninggalkan jejak: customer melihat nomor pribadi agent dan balasannya
+   * tidak pernah kembali ke Agnee, sementara supervisor tidak punya cara tahu
+   * itu terjadi. Baris di sini yang memberitahunya.
+   *
+   * Dicatat SEBELUM tabnya dibuka (klien menunggu balasan rute ini), dengan
+   * alasan yang sama seperti follow-up: tercatat tapi batal dibuka hanya
+   * membuat satu baris berlebih, sedangkan terbuka tanpa tercatat menghapus
+   * satu-satunya jejak yang ada.
+   */
+  app.post('/v1/audit/wa-me', {
+    schema: { body: { type: 'object', additionalProperties: false, required: ['chatId'], properties: {
+      chatId: { type: 'string', minLength: 1, maxLength: 128 },
+      phone: { type: 'string', maxLength: 32 },
+      contactName: { type: 'string', maxLength: 200 },
+    } } },
   }, async (request, reply) => {
     const session = request.agneeSession;
-    const companyId = session.companyId;
-    const chatId = request.params.chatId;
-    const current = await getRouting(chatId, companyId);
-    if (current.mode !== 'human') {
-      return reply.code(409).send({ error: 'Chat ini tidak sedang ditugaskan ke manusia.' });
+    if (!session.userId) return reply.code(403).send({ error: 'Hanya pengguna yang bisa mencatat ini.' });
+    if (!database.status().connected || typeof database.recordAuditLog !== 'function') {
+      return reply.code(503).send({ error: 'Penyimpanan belum tersedia.' });
     }
-    // Hanya pemegang tugas atau supervisor yang boleh menutupnya — agent lain
-    // tidak boleh menandai tugas rekannya selesai.
-    if (!isSupervisor(session) && current.assigneeUserId !== session.userId) {
-      return reply.code(403).send({ error: 'Ini bukan tugas kamu.' });
+    await database.recordAuditLog({
+      actorUserId: session.userId,
+      action: 'lead.open_in_whatsapp',
+      entityType: 'chat',
+      entityId: request.body.chatId,
+      metadata: {
+        phone: request.body.phone || null,
+        contactName: request.body.contactName || null,
+      },
+    }, session.companyId);
+    return reply.code(201).send({ ok: true });
+  });
+
+  app.get('/v1/audit', {
+    schema: { querystring: { type: 'object', properties: {
+      action: { type: 'string', maxLength: 64 },
+      limit: { type: 'integer', minimum: 1, maximum: 200, default: 50 },
+    } } },
+  }, async (request, reply) => {
+    // Audit adalah alat pengawasan: agent tidak melihat catatan rekannya.
+    if (!isSupervisor(request.agneeSession)) {
+      return reply.code(403).send({ error: 'Hanya supervisor.' });
     }
-    const routing = await saveRouting({
-      chatId, mode: 'human', assigneeUserId: current.assigneeUserId,
-      priority: current.priority, status: request.body.status,
-    }, companyId);
-    return routing;
+    if (!database.status().connected || typeof database.listAuditLogs !== 'function') return { entries: [] };
+    const entries = await database.listAuditLogs(request.agneeSession.companyId, {
+      action: request.query.action || null, limit: request.query.limit,
+    }).catch(() => []);
+    return { entries };
   });
 
   app.get('/v1/whatsapp/status', async (request) => {
@@ -3676,7 +3845,7 @@ Aturan:
       'x-accel-buffering': 'no',
     });
     reply.raw.write(`event: connected\ndata: ${JSON.stringify({ phase: waState.phase })}\n\n`);
-    manager.addSseClient(companyId, reply.raw);
+    manager.addSseClient(companyId, reply.raw, request.agneeSession?.userId || null);
     const heartbeat = setInterval(() => {
       if (!reply.raw.destroyed) reply.raw.write(': keepalive\n\n');
     }, 25_000);

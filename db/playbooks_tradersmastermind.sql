@@ -6,10 +6,20 @@
 --
 -- Idempoten: menjalankannya dua kali tidak menaikkan version, karena version
 -- hanya naik ketika isinya benar-benar berubah.
+--
+-- TIDAK BISA MEMUNDURKAN: tiap dokumen hanya ditimpa kalau baris di database
+-- belum disunting setelah stempel di bawah. Playbook yang lebih baru dari
+-- berkas ini dilewati dan dilaporkan lewat RAISE NOTICE, bukan ditimpa.
 
 DO $seed$
 DECLARE
   target_company UUID;
+  db_updated TIMESTAMPTZ;
+  skipped INTEGER := 0;
+  -- Stempel kapan isi berkas ini ditarik dari database. Diperiksa CI lewat
+  -- scripts/check-playbook-stamps.js: berkas yang berubah tanpa stempelnya
+  -- ikut maju akan menggagalkan build.
+  seed_written_at CONSTANT TIMESTAMPTZ := '2026-09-17'::timestamptz;
 BEGIN
   SELECT id INTO target_company FROM companies WHERE slug = $md$tradersmastermind$md$;
   IF target_company IS NULL THEN
@@ -21,8 +31,15 @@ BEGIN
     RETURN;
   END IF;
 
-  INSERT INTO playbook_docs (company_id, kind, content_md)
-  VALUES (target_company, $md$persona$md$, $md$# Persona — Anya
+  SELECT updated_at INTO db_updated FROM playbook_docs
+    WHERE company_id = target_company AND kind = $md$persona$md$;
+  IF db_updated IS NOT NULL AND db_updated > seed_written_at THEN
+    RAISE NOTICE 'playbook % lebih baru di database (% > %) — dilewati, jalankan export-playbooks.js.',
+      $md$persona$md$, db_updated, seed_written_at;
+    skipped := skipped + 1;
+  ELSE
+    INSERT INTO playbook_docs (company_id, kind, content_md)
+    VALUES (target_company, $md$persona$md$, $md$# Persona — Anya
 
 Nama customer-facing: *Anya* dari tim Trader's Mastermind. Jangan pernah sebut
 nama internal pemilik nomor WhatsApp ke customer.
@@ -64,14 +81,22 @@ link Telegram, ajak lead kembali mengabari di WhatsApp ini.
    ebook recovery, signal, dan pendampingan tim.
 4. Pertanyaan kondisi lead tetap ditanyakan, tapi ditempatkan setelah dua CTA.
 $md$)
-  ON CONFLICT (company_id, kind) DO UPDATE
-    SET content_md = EXCLUDED.content_md,
-        version    = playbook_docs.version + 1,
-        updated_at = NOW()
-    WHERE playbook_docs.content_md IS DISTINCT FROM EXCLUDED.content_md;
+    ON CONFLICT (company_id, kind) DO UPDATE
+      SET content_md = EXCLUDED.content_md,
+          version    = playbook_docs.version + 1,
+          updated_at = NOW()
+      WHERE playbook_docs.content_md IS DISTINCT FROM EXCLUDED.content_md;
+  END IF;
 
-  INSERT INTO playbook_docs (company_id, kind, content_md)
-  VALUES (target_company, $md$compliance$md$, $md$# Larangan
+  SELECT updated_at INTO db_updated FROM playbook_docs
+    WHERE company_id = target_company AND kind = $md$compliance$md$;
+  IF db_updated IS NOT NULL AND db_updated > seed_written_at THEN
+    RAISE NOTICE 'playbook % lebih baru di database (% > %) — dilewati, jalankan export-playbooks.js.',
+      $md$compliance$md$, db_updated, seed_written_at;
+    skipped := skipped + 1;
+  ELSE
+    INSERT INTO playbook_docs (company_id, kind, content_md)
+    VALUES (target_company, $md$compliance$md$, $md$# Larangan
 
 Aturan ini mengalahkan semua playbook lain. Kalau balasan yang paling menjual
 melanggar salah satu poin di bawah, jangan dikirim.
@@ -105,14 +130,22 @@ melanggar salah satu poin di bawah, jangan dikirim.
   percakapan sebelumnya tidak memuat pilihan bernomor yang jelas dirujuk,
   tanyakan dulu maksudnya. Jangan menebak lalu mengirim link checkout.
 $md$)
-  ON CONFLICT (company_id, kind) DO UPDATE
-    SET content_md = EXCLUDED.content_md,
-        version    = playbook_docs.version + 1,
-        updated_at = NOW()
-    WHERE playbook_docs.content_md IS DISTINCT FROM EXCLUDED.content_md;
+    ON CONFLICT (company_id, kind) DO UPDATE
+      SET content_md = EXCLUDED.content_md,
+          version    = playbook_docs.version + 1,
+          updated_at = NOW()
+      WHERE playbook_docs.content_md IS DISTINCT FROM EXCLUDED.content_md;
+  END IF;
 
-  INSERT INTO playbook_docs (company_id, kind, content_md)
-  VALUES (target_company, $md$qna$md$, $md$# Tanya Jawab
+  SELECT updated_at INTO db_updated FROM playbook_docs
+    WHERE company_id = target_company AND kind = $md$qna$md$;
+  IF db_updated IS NOT NULL AND db_updated > seed_written_at THEN
+    RAISE NOTICE 'playbook % lebih baru di database (% > %) — dilewati, jalankan export-playbooks.js.',
+      $md$qna$md$, db_updated, seed_written_at;
+    skipped := skipped + 1;
+  ELSE
+    INSERT INTO playbook_docs (company_id, kind, content_md)
+    VALUES (target_company, $md$qna$md$, $md$# Tanya Jawab
 
 ## Isi paket dan harga
 
@@ -172,14 +205,22 @@ konsisten dengan pilihan copy trade, Fase 3 capital preservation.
 *Harga normal Rp1.900.000:* hanya dipakai kalau lead mempertanyakan nilai paket.
 Jangan dipakai sebagai pembanding di percakapan biasa.
 $md$)
-  ON CONFLICT (company_id, kind) DO UPDATE
-    SET content_md = EXCLUDED.content_md,
-        version    = playbook_docs.version + 1,
-        updated_at = NOW()
-    WHERE playbook_docs.content_md IS DISTINCT FROM EXCLUDED.content_md;
+    ON CONFLICT (company_id, kind) DO UPDATE
+      SET content_md = EXCLUDED.content_md,
+          version    = playbook_docs.version + 1,
+          updated_at = NOW()
+      WHERE playbook_docs.content_md IS DISTINCT FROM EXCLUDED.content_md;
+  END IF;
 
-  INSERT INTO playbook_docs (company_id, kind, content_md)
-  VALUES (target_company, $md$discovery$md$, $md$# Balasan Pertama & Discovery
+  SELECT updated_at INTO db_updated FROM playbook_docs
+    WHERE company_id = target_company AND kind = $md$discovery$md$;
+  IF db_updated IS NOT NULL AND db_updated > seed_written_at THEN
+    RAISE NOTICE 'playbook % lebih baru di database (% > %) — dilewati, jalankan export-playbooks.js.',
+      $md$discovery$md$, db_updated, seed_written_at;
+    skipped := skipped + 1;
+  ELSE
+    INSERT INTO playbook_docs (company_id, kind, content_md)
+    VALUES (target_company, $md$discovery$md$, $md$# Balasan Pertama & Discovery
 
 Lead harus menerima dua jalan yang jelas sejak balasan pertama:
 
@@ -290,14 +331,22 @@ link checkout.
 
 Kalau call ditolak, baru turun ke Recovery Package, lalu ke free signal
 Telegram. Selengkapnya di bagian penutup.$md$)
-  ON CONFLICT (company_id, kind) DO UPDATE
-    SET content_md = EXCLUDED.content_md,
-        version    = playbook_docs.version + 1,
-        updated_at = NOW()
-    WHERE playbook_docs.content_md IS DISTINCT FROM EXCLUDED.content_md;
+    ON CONFLICT (company_id, kind) DO UPDATE
+      SET content_md = EXCLUDED.content_md,
+          version    = playbook_docs.version + 1,
+          updated_at = NOW()
+      WHERE playbook_docs.content_md IS DISTINCT FROM EXCLUDED.content_md;
+  END IF;
 
-  INSERT INTO playbook_docs (company_id, kind, content_md)
-  VALUES (target_company, $md$objection$md$, $md$# Objection Handling
+  SELECT updated_at INTO db_updated FROM playbook_docs
+    WHERE company_id = target_company AND kind = $md$objection$md$;
+  IF db_updated IS NOT NULL AND db_updated > seed_written_at THEN
+    RAISE NOTICE 'playbook % lebih baru di database (% > %) — dilewati, jalankan export-playbooks.js.',
+      $md$objection$md$, db_updated, seed_written_at;
+    skipped := skipped + 1;
+  ELSE
+    INSERT INTO playbook_docs (company_id, kind, content_md)
+    VALUES (target_company, $md$objection$md$, $md$# Objection Handling
 
 ## "Dapat apa aja?"
 
@@ -362,14 +411,22 @@ Aku paham banget kak, itu frustrasi yang nyata. Bedanya, program yang cuma kasih
 materi meninggalkan kakak jalan sendiri setelah selesai. Di sini eksekusinya
 dibantu: ada copy trade, signal dari tim, dan pendampingan selama prosesnya.
 $md$)
-  ON CONFLICT (company_id, kind) DO UPDATE
-    SET content_md = EXCLUDED.content_md,
-        version    = playbook_docs.version + 1,
-        updated_at = NOW()
-    WHERE playbook_docs.content_md IS DISTINCT FROM EXCLUDED.content_md;
+    ON CONFLICT (company_id, kind) DO UPDATE
+      SET content_md = EXCLUDED.content_md,
+          version    = playbook_docs.version + 1,
+          updated_at = NOW()
+      WHERE playbook_docs.content_md IS DISTINCT FROM EXCLUDED.content_md;
+  END IF;
 
-  INSERT INTO playbook_docs (company_id, kind, content_md)
-  VALUES (target_company, $md$closing$md$, $md$# Penutup — Setiap Percakapan Harus Punya Ujung
+  SELECT updated_at INTO db_updated FROM playbook_docs
+    WHERE company_id = target_company AND kind = $md$closing$md$;
+  IF db_updated IS NOT NULL AND db_updated > seed_written_at THEN
+    RAISE NOTICE 'playbook % lebih baru di database (% > %) — dilewati, jalankan export-playbooks.js.',
+      $md$closing$md$, db_updated, seed_written_at;
+    skipped := skipped + 1;
+  ELSE
+    INSERT INTO playbook_docs (company_id, kind, content_md)
+    VALUES (target_company, $md$closing$md$, $md$# Penutup — Setiap Percakapan Harus Punya Ujung
 
 Dokumen FAQ dan Q&A adalah **sumber fakta, bukan naskah**. Angka, nama produk,
 isi paket, syarat garansi, dan link wajib persis seperti tertulis. Kalimatnya
@@ -484,14 +541,22 @@ Checkout: https://tradersmastermind.myr.id/pl/trading-recovery-mentorship-checko
 
 Jangan menawarkan bundle di balasan pertama dan jangan mengirim dua link
 checkout dalam satu pesan.$md$)
-  ON CONFLICT (company_id, kind) DO UPDATE
-    SET content_md = EXCLUDED.content_md,
-        version    = playbook_docs.version + 1,
-        updated_at = NOW()
-    WHERE playbook_docs.content_md IS DISTINCT FROM EXCLUDED.content_md;
+    ON CONFLICT (company_id, kind) DO UPDATE
+      SET content_md = EXCLUDED.content_md,
+          version    = playbook_docs.version + 1,
+          updated_at = NOW()
+      WHERE playbook_docs.content_md IS DISTINCT FROM EXCLUDED.content_md;
+  END IF;
 
-  INSERT INTO playbook_docs (company_id, kind, content_md)
-  VALUES (target_company, $md$followup$md$, $md$# Follow-up
+  SELECT updated_at INTO db_updated FROM playbook_docs
+    WHERE company_id = target_company AND kind = $md$followup$md$;
+  IF db_updated IS NOT NULL AND db_updated > seed_written_at THEN
+    RAISE NOTICE 'playbook % lebih baru di database (% > %) — dilewati, jalankan export-playbooks.js.',
+      $md$followup$md$, db_updated, seed_written_at;
+    skipped := skipped + 1;
+  ELSE
+    INSERT INTO playbook_docs (company_id, kind, content_md)
+    VALUES (target_company, $md$followup$md$, $md$# Follow-up
 
 Maksimal 3 follow-up, semuanya lewat WhatsApp. Angka ini adalah *batas kirim,
 bukan kuota yang harus dihabiskan* — kalau tidak ada alasan yang bernilai untuk
@@ -539,14 +604,22 @@ Semoga tradingnya makin terarah ya kak 🙏
 - Jangan mengulang kalimat follow-up sebelumnya. Kalau tidak ada yang baru untuk
   disampaikan, lebih baik tidak mengirim.
 - Jangan menjanjikan hasil, termasuk saat menawarkan call.$md$)
-  ON CONFLICT (company_id, kind) DO UPDATE
-    SET content_md = EXCLUDED.content_md,
-        version    = playbook_docs.version + 1,
-        updated_at = NOW()
-    WHERE playbook_docs.content_md IS DISTINCT FROM EXCLUDED.content_md;
+    ON CONFLICT (company_id, kind) DO UPDATE
+      SET content_md = EXCLUDED.content_md,
+          version    = playbook_docs.version + 1,
+          updated_at = NOW()
+      WHERE playbook_docs.content_md IS DISTINCT FROM EXCLUDED.content_md;
+  END IF;
 
-  INSERT INTO playbook_docs (company_id, kind, content_md)
-  VALUES (target_company, $md$handoff$md$, $md$# Handoff ke Manusia
+  SELECT updated_at INTO db_updated FROM playbook_docs
+    WHERE company_id = target_company AND kind = $md$handoff$md$;
+  IF db_updated IS NOT NULL AND db_updated > seed_written_at THEN
+    RAISE NOTICE 'playbook % lebih baru di database (% > %) — dilewati, jalankan export-playbooks.js.',
+      $md$handoff$md$, db_updated, seed_written_at;
+    skipped := skipped + 1;
+  ELSE
+    INSERT INTO playbook_docs (company_id, kind, content_md)
+    VALUES (target_company, $md$handoff$md$, $md$# Handoff ke Manusia
 
 PIC: *ferawaty@beweidigital.com*
 
@@ -569,10 +642,15 @@ Jam kerja tim: Senin-Jumat 09.00-17.00 WIB. Balasan otomatis Anya tetap 24/7,
 tetapi kalau handoff terjadi di luar jam kerja, beritahu lead bahwa tim akan
 membalas di hari kerja berikutnya.
 $md$)
-  ON CONFLICT (company_id, kind) DO UPDATE
-    SET content_md = EXCLUDED.content_md,
-        version    = playbook_docs.version + 1,
-        updated_at = NOW()
-    WHERE playbook_docs.content_md IS DISTINCT FROM EXCLUDED.content_md;
+    ON CONFLICT (company_id, kind) DO UPDATE
+      SET content_md = EXCLUDED.content_md,
+          version    = playbook_docs.version + 1,
+          updated_at = NOW()
+      WHERE playbook_docs.content_md IS DISTINCT FROM EXCLUDED.content_md;
+  END IF;
+
+  IF skipped > 0 THEN
+    RAISE NOTICE '% playbook dilewati karena database lebih baru dari berkas ini.', skipped;
+  END IF;
 END
 $seed$;

@@ -2,12 +2,13 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Bell } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '@/lib/api';
+import { subscribeLiveEvent } from '@/lib/live-events';
 import { useI18n } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 
 type Notification = {
   id: number;
-  kind: 'mention' | 'reply';
+  kind: 'mention' | 'reply' | 'task';
   chatId: string | null;
   chatName: string | null;
   actorName: string | null;
@@ -39,11 +40,19 @@ export function NotificationBell({ className }: { className?: string }) {
 
   useEffect(() => { void load(); }, [load]);
 
-  // Ditarik berkala, bukan lewat aliran langsung: mention jarang terjadi dan
-  // menit pertama tidak mengubah apa pun, jadi tidak sepadan menambah satu
-  // saluran yang harus dijaga tetap hidup.
+  // Didorong lewat aliran SSE yang sama dengan inbox, bukan ditarik tiap menit:
+  // sejak AI ikut menjawab di catatan dan penugasan ikut memberi notifikasi,
+  // keterlambatan satu menit terasa seperti fitur yang tidak jalan.
+  //
+  // Frame-nya tidak membawa isi apa pun (server hanya mengirim penanda ke
+  // aliran milik pengguna ini), jadi daftarnya tetap ditarik lewat rute yang
+  // sudah memeriksa siapa pemanggilnya.
+  useEffect(() => subscribeLiveEvent('notification', () => { void load(); }), [load]);
+
+  // Jaring pengaman kalau alirannya putus tanpa terdeteksi: jarang, dan
+  // 5 menit cukup karena jalur utamanya sudah langsung.
   useEffect(() => {
-    const timer = setInterval(() => { void load(); }, 60_000);
+    const timer = setInterval(() => { void load(); }, 5 * 60_000);
     return () => clearInterval(timer);
   }, [load]);
 
@@ -124,7 +133,8 @@ export function NotificationBell({ className }: { className?: string }) {
                   >
                     <span className="text-[11px]">
                       <strong>{item.actorName || t('routing.system')}</strong>{' '}
-                      {t(item.kind === 'reply' ? 'notif.replied' : 'notif.mentioned')}
+                      {t(item.kind === 'task' ? 'notif.assigned'
+                        : item.kind === 'reply' ? 'notif.replied' : 'notif.mentioned')}
                       {item.chatName ? ` · ${item.chatName}` : ''}
                     </span>
                     {item.body ? (

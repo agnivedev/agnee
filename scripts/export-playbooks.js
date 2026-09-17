@@ -50,8 +50,12 @@ function dollarQuote(text) {
   return `$${tag}$${text}$${tag}$`;
 }
 
-function render(slug, rows) {
-  const stamp = new Date().toISOString().slice(0, 10);
+function render(slug, rows, writtenAt = new Date().toISOString()) {
+  // Stempel penuh sampai detik, bukan tanggal saja: seed melewati dokumen yang
+  // di database lebih baru dari stempel ini, jadi stempel yang dibulatkan ke
+  // tengah malam membuat ekspor hari ini terlihat lebih tua daripada suntingan
+  // pagi tadi — dan perubahannya diam-diam tidak pernah terpasang.
+  const stamp = writtenAt.slice(0, 10);
   const head = `-- Playbook ${slug}, ditarik dari database pada ${stamp}.
 --
 -- DIHASILKAN OLEH scripts/export-playbooks.js — jangan disunting dengan tangan.
@@ -60,10 +64,20 @@ function render(slug, rows) {
 --
 -- Idempoten: menjalankannya dua kali tidak menaikkan version, karena version
 -- hanya naik ketika isinya benar-benar berubah.
+--
+-- TIDAK BISA MEMUNDURKAN: tiap dokumen hanya ditimpa kalau baris di database
+-- belum disunting setelah stempel di bawah. Playbook yang lebih baru dari
+-- berkas ini dilewati dan dilaporkan lewat RAISE NOTICE, bukan ditimpa.
 
 DO $seed$
 DECLARE
   target_company UUID;
+  db_updated TIMESTAMPTZ;
+  skipped INTEGER := 0;
+  -- Stempel kapan isi berkas ini ditarik dari database. Diperiksa CI lewat
+  -- scripts/check-playbook-stamps.js: berkas yang berubah tanpa stempelnya
+  -- ikut maju akan menggagalkan build.
+  seed_written_at CONSTANT TIMESTAMPTZ := '${writtenAt}'::timestamptz;
 BEGIN
   SELECT id INTO target_company FROM companies WHERE slug = ${dollarQuote(slug)};
   IF target_company IS NULL THEN
@@ -77,21 +91,35 @@ BEGIN
 `;
 
   const body = rows.map((row) => `
-  INSERT INTO playbook_docs (company_id, kind, content_md)
-  VALUES (target_company, ${dollarQuote(row.kind)}, ${dollarQuote(row.contentMd)})
-  ON CONFLICT (company_id, kind) DO UPDATE
-    SET content_md = EXCLUDED.content_md,
-        version    = playbook_docs.version + 1,
-        updated_at = NOW()
-    WHERE playbook_docs.content_md IS DISTINCT FROM EXCLUDED.content_md;
+  SELECT updated_at INTO db_updated FROM playbook_docs
+    WHERE company_id = target_company AND kind = ${dollarQuote(row.kind)};
+  IF db_updated IS NOT NULL AND db_updated > seed_written_at THEN
+    RAISE NOTICE 'playbook % lebih baru di database (% > %) — dilewati, jalankan export-playbooks.js.',
+      ${dollarQuote(row.kind)}, db_updated, seed_written_at;
+    skipped := skipped + 1;
+  ELSE
+    INSERT INTO playbook_docs (company_id, kind, content_md)
+    VALUES (target_company, ${dollarQuote(row.kind)}, ${dollarQuote(row.contentMd)})
+    ON CONFLICT (company_id, kind) DO UPDATE
+      SET content_md = EXCLUDED.content_md,
+          version    = playbook_docs.version + 1,
+          updated_at = NOW()
+      WHERE playbook_docs.content_md IS DISTINCT FROM EXCLUDED.content_md;
+  END IF;
 `).join('');
 
-  return `${head}${body}END
+  const tail = `
+  IF skipped > 0 THEN
+    RAISE NOTICE '% playbook dilewati karena database lebih baru dari berkas ini.', skipped;
+  END IF;
+END
 $seed$;
 `;
+
+  return `${head}${body}${tail}`;
 }
 
-(async () => {
+async function main() {
   const args = parseArgs(process.argv.slice(2));
   if (!args.slug) {
     console.error('Pemakaian: node scripts/export-playbooks.js <slug-company> [--out berkas.sql] [--check]');
@@ -133,8 +161,11 @@ $seed$;
 
     if (args.check) {
       const current = fs.existsSync(outPath) ? fs.readFileSync(outPath, 'utf8') : null;
-      // Baris tanggal berubah tiap hari; yang diperiksa isinya, bukan stempelnya.
-      const strip = (text) => String(text).replace(/^-- Playbook .*ditarik dari database pada .*$/m, '');
+      // Dua baris tanggal berubah tiap ekspor; yang diperiksa isinya, bukan
+      // stempelnya. Stempel sendiri dijaga scripts/check-playbook-stamps.js.
+      const strip = (text) => String(text)
+        .replace(/^-- Playbook .*ditarik dari database pada .*$/m, '')
+        .replace(/^ *seed_written_at CONSTANT TIMESTAMPTZ := .*$/m, '');
       if (current !== null && strip(current) === strip(next)) {
         console.log(`✓ ${path.relative(process.cwd(), outPath)} sama dengan database.`);
         return;
@@ -151,7 +182,13 @@ $seed$;
   } finally {
     await pool.end();
   }
-})().catch((error) => {
-  console.error(error.message);
-  process.exit(1);
-});
+}
+
+module.exports = { render };
+
+if (require.main === module) {
+  main().catch((error) => {
+    console.error(error.message);
+    process.exit(1);
+  });
+}

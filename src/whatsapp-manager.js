@@ -51,6 +51,7 @@ class WhatsappManager {
     // Pendengar SSE tetap per company. Antarmukanya memang company-scoped —
     // supervisor melihat satu inbox, bukan satu inbox per nomor.
     this._sse = new Map(); // companyId -> Set<raw>
+    this._sseUsers = new WeakMap(); // raw -> userId, untuk event yang pribadi
   }
 
   _makeState(phase = 'disabled') {
@@ -177,13 +178,39 @@ class WhatsappManager {
     }
   }
 
-  addSseClient(companyId, raw) {
+  /**
+   * Kirim event ke aliran milik SATU pengguna saja.
+   *
+   * Notifikasi bersifat pribadi: siapa menyebut siapa, dan siapa ditugaskan ke
+   * chat mana, bukan sesuatu yang boleh sampai ke semua orang di company.
+   * Karena itu ini menyaring per userId, bukan memakai broadcast biasa.
+   */
+  broadcastToUser(companyId, userId, event, payload) {
+    if (!userId) return;
+    const listeners = this._sse.get(companyId);
+    if (!listeners?.size) return;
+    const frame = `event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`;
+    for (const raw of listeners) {
+      if (this._sseUsers.get(raw) !== userId) continue;
+      try {
+        raw.write(frame);
+      } catch {
+        listeners.delete(raw);
+      }
+    }
+  }
+
+  addSseClient(companyId, raw, userId = null) {
     if (!this._sse.has(companyId)) this._sse.set(companyId, new Set());
     this._sse.get(companyId).add(raw);
+    // WeakMap, bukan properti di objek stream: pemiliknya aliran itu sendiri,
+    // dan entrinya hilang sendiri begitu streamnya dikumpulkan.
+    if (userId) this._sseUsers.set(raw, userId);
   }
 
   removeSseClient(companyId, raw) {
     this._sse.get(companyId)?.delete(raw);
+    this._sseUsers.delete(raw);
   }
 
   totalSseClients() {

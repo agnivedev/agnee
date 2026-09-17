@@ -37,6 +37,16 @@ DECLARE
   bodies TEXT[];
   i INT;
   changed INT := 0;
+  skipped INT := 0;
+  db_updated TIMESTAMPTZ;
+  -- Kapan isi playbook di berkas ini terakhir ditulis. Dokumen yang di
+  -- database lebih baru dari stempel ini TIDAK ditimpa — itulah yang nyaris
+  -- terjadi 17 Sep (tiga playbook mundur lima hari).
+  --
+  -- Naikkan stempelnya setiap kali menyunting isi playbook di berkas ini.
+  -- scripts/check-playbook-stamps.js menggagalkan CI kalau berkasnya berubah
+  -- tapi stempelnya tertinggal.
+  seed_written_at CONSTANT TIMESTAMPTZ := '2026-09-17'::timestamptz;
 BEGIN
   SELECT id INTO co FROM companies WHERE slug = 'tradersmastermind';
   IF co IS NULL THEN
@@ -558,6 +568,17 @@ $md$
     -- yang kembali, jadi harus dikosongkan dulu setiap iterasi.
     doc := NULL;
 
+    -- Dokumen yang disunting di database SETELAH berkas ini ditulis tidak
+    -- boleh ditimpa: seed adalah alat pemulihan, bukan alat pemundur.
+    SELECT updated_at INTO db_updated FROM playbook_docs
+      WHERE company_id = co AND kind = kinds[i];
+    IF db_updated IS NOT NULL AND db_updated > seed_written_at THEN
+      RAISE NOTICE 'playbook % lebih baru di database (% > %) — dilewati; tarik dulu dengan scripts/export-playbooks.js',
+        kinds[i], db_updated, seed_written_at;
+      skipped := skipped + 1;
+      CONTINUE;
+    END IF;
+
     -- WHERE di DO UPDATE membuat seed ini benar-benar idempotent: menjalankan
     -- ulang dengan isi yang sama tidak menaikkan version dan tidak menumpuk
     -- snapshot identik di playbook_doc_versions. Versi adalah riwayat
@@ -578,7 +599,8 @@ $md$
     END IF;
   END LOOP;
 
-  RAISE NOTICE 'playbook_docs Trader''s Mastermind: % dokumen, % berubah', array_length(kinds, 1), changed;
+  RAISE NOTICE 'playbook_docs Trader''s Mastermind: % dokumen, % berubah, % dilewati (database lebih baru)',
+    array_length(kinds, 1), changed, skipped;
 END
 $seed$;
 

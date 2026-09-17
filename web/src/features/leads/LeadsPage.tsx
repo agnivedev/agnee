@@ -65,6 +65,15 @@ export function LeadsPage() {
     });
     if (!ok) return;
     setChoiceRow(null);
+    // Dicatat lebih dulu, baru tabnya dibuka: peringatan saja tidak
+    // meninggalkan jejak, dan supervisor tidak punya cara lain tahu bahwa
+    // percakapan ini pindah ke WhatsApp pribadi agent. Kalau pencatatannya
+    // gagal, tabnya tetap dibuka — menghalangi pekerjaan karena audit gagal
+    // adalah harga yang lebih mahal daripada satu baris yang hilang.
+    await api('/v1/audit/wa-me', {
+      method: 'POST',
+      body: { chatId: row.chatId || row.phone, phone: row.phone, contactName: row.name || '' },
+    }).catch(() => {});
     window.open(`https://wa.me/${row.phone.replace(/[^\d]/g, '')}`, '_blank', 'noopener,noreferrer');
   }
 

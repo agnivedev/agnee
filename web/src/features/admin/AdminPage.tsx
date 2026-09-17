@@ -96,9 +96,72 @@ export function AdminPage() {
           <CoachLinkCard />
           <Playground config={config} />
           <TeamSection />
+          <AuditSection />
         </div>
       </main>
     </div>
+  );
+}
+
+type AuditEntry = {
+  id: number;
+  action: string;
+  entityId: string | null;
+  metadata: { phone?: string | null; contactName?: string | null } | null;
+  createdAt: string;
+  actorName: string | null;
+};
+
+/**
+ * Percakapan yang dibuka di luar Agnee.
+ *
+ * Dialog di Lead List memperingatkan agent bahwa chat itu terkirim dari
+ * WhatsApp pribadinya dan balasannya tidak pernah kembali ke Agnee. Tanpa
+ * daftar ini, peringatan tersebut adalah satu-satunya jejak yang ada — dan
+ * hanya dilihat orang yang mengabaikannya.
+ */
+function AuditSection() {
+  const { t, locale } = useI18n();
+  const [entries, setEntries] = useState<AuditEntry[]>([]);
+  const [status, setStatus] = useState('');
+
+  const load = useCallback(async () => {
+    try {
+      const data = await api<{ entries: AuditEntry[] }>('/v1/audit?action=lead.open_in_whatsapp&limit=50');
+      setEntries(data.entries || []);
+      setStatus(data.entries?.length ? '' : t('admin.auditEmpty'));
+    } catch (error) {
+      setStatus(messageFromError(error, ''));
+    }
+  }, [t]);
+
+  useEffect(() => { void load(); }, [load]);
+
+  const dateLocale = locale === 'en' ? 'en-US' : 'id-ID';
+  return (
+    <SettingCard
+      eyebrow={t('admin.auditEyebrow')}
+      title={t('admin.auditTitle')}
+      description={t('admin.auditCopy')}
+    >
+      {entries.length ? (
+        <ul className="m-0 grid list-none gap-2 p-0">
+          {entries.map((entry) => (
+            <li key={entry.id} className="flex flex-wrap items-baseline gap-2 rounded-xl border border-border bg-white p-3 text-[13px]">
+              <strong>{entry.actorName || '—'}</strong>
+              <span className="text-muted">
+                {entry.metadata?.contactName || entry.metadata?.phone || entry.entityId}
+              </span>
+              <span className="flex-1" />
+              <time className="font-mono text-[10px] text-muted">
+                {new Date(entry.createdAt).toLocaleString(dateLocale)}
+              </time>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      <StatusLine>{status}</StatusLine>
+    </SettingCard>
   );
 }
 

@@ -271,7 +271,7 @@ class Database {
     const result = await this.pool.query(`
       SELECT u.id, u.email, u.display_name AS "displayName",
              cm.company_id AS "companyId", cm.role, c.name AS "companyName", c.slug AS "companySlug",
-             u.onboarded_at AS "onboardedAt"
+             u.onboarded_at AS "onboardedAt", u.is_platform_admin AS "isPlatformAdmin"
       FROM users u
       JOIN company_members cm ON cm.user_id = u.id AND cm.company_id = $2
       JOIN companies c ON c.id = cm.company_id
@@ -285,7 +285,7 @@ class Database {
     const result = await this.pool.query(`
       SELECT u.id, u.email, u.display_name AS "displayName", u.password_hash AS "passwordHash",
              cm.company_id AS "companyId", cm.role, c.name AS "companyName", c.slug AS "companySlug",
-             u.onboarded_at AS "onboardedAt"
+             u.onboarded_at AS "onboardedAt", u.is_platform_admin AS "isPlatformAdmin"
       FROM users u
       JOIN company_members cm ON cm.user_id = u.id
       JOIN companies c ON c.id = cm.company_id
@@ -567,22 +567,80 @@ class Database {
    * hanya membuat lonceng berbunyi tanpa isi.
    */
   async createMentionNotifications({ chatId, noteId, mentions, actorUserId, actorKind = 'human', body, kind = 'mention' }, companyId) {
-    if (!this.enabled) return 0;
+    if (!this.enabled) return [];
     const targets = [...new Set(
       (mentions || [])
         .filter((m) => m?.kind === 'user' && m.id && m.id !== actorUserId)
         .map((m) => m.id),
     )];
-    if (!targets.length) return 0;
+    if (!targets.length) return [];
     const result = await this.pool.query(`
       INSERT INTO notifications
         (company_id, user_id, kind, chat_id, note_id, actor_user_id, actor_kind, body)
       SELECT $1, m.user_id, $2, $3, $4, $5, $6, $7
       FROM company_members m
       WHERE m.company_id = $1 AND m.status = 'active' AND m.user_id = ANY($8::uuid[])
+      RETURNING user_id AS "userId"
     `, [companyId, kind, chatId, noteId, actorUserId || null, actorKind,
       String(body || '').slice(0, 500), targets]);
-    return result.rowCount;
+    // Yang dikembalikan penerimanya, bukan jumlahnya: pemanggil memakainya
+    // untuk mendorong notifikasi ke aliran SSE orang itu saja.
+    return result.rows.map((row) => row.userId);
+  }
+
+  /**
+   * Notifikasi "kamu dapat tugas".
+   *
+   * Dipisah dari mention karena pemicunya bukan teks yang ditulis seseorang,
+   * melainkan perpindahan penugasan. Penugasan ke diri sendiri tidak
+   * menghasilkan baris — agent yang mengambil chatnya sendiri sudah tahu.
+   */
+  async createTaskNotification({ chatId, userId, actorUserId, body }, companyId) {
+    if (!this.enabled) return [];
+    if (!userId || userId === actorUserId) return [];
+    const result = await this.pool.query(`
+      INSERT INTO notifications
+        (company_id, user_id, kind, chat_id, actor_user_id, actor_kind, body)
+      SELECT $1, m.user_id, 'task', $2, $3, 'human', $4
+      FROM company_members m
+      WHERE m.company_id = $1 AND m.status = 'active' AND m.user_id = $5::uuid
+      RETURNING user_id AS "userId"
+    `, [companyId, chatId, actorUserId || null, String(body || '').slice(0, 500), userId]);
+    return result.rows.map((row) => row.userId);
+  }
+
+  /**
+   * Jejak audit tindakan yang akibatnya tidak terlihat dari Agnee sendiri.
+   *
+   * Baris pertama yang memakainya: agent membuka percakapan lewat wa.me, yaitu
+   * dari WhatsApp pribadinya. Percakapan itu tidak pernah kembali ke Agnee,
+   * jadi tanpa catatan ini supervisor tidak punya cara tahu bahwa itu terjadi.
+   * Gagal mencatat tidak boleh menggagalkan tindakannya — pemanggil menelan
+   * errornya.
+   */
+  async recordAuditLog({ actorUserId, action, entityType, entityId = null, metadata = {} }, companyId) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      INSERT INTO audit_logs (company_id, actor_user_id, action, entity_type, entity_id, metadata)
+      VALUES ($1, $2, $3, $4, $5, $6::jsonb)
+      RETURNING id, created_at AS "createdAt"
+    `, [companyId, actorUserId || null, action, entityType, entityId, JSON.stringify(metadata || {})]);
+    return result.rows[0] || null;
+  }
+
+  async listAuditLogs(companyId, { action = null, limit = 50 } = {}) {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(`
+      SELECT a.id, a.action, a.entity_type AS "entityType", a.entity_id AS "entityId",
+             a.metadata, a.created_at AS "createdAt",
+             u.display_name AS "actorName", u.email AS "actorEmail"
+      FROM audit_logs a
+      LEFT JOIN users u ON u.id = a.actor_user_id
+      WHERE a.company_id = $1 ${action ? 'AND a.action = $3' : ''}
+      ORDER BY a.created_at DESC
+      LIMIT $2
+    `, action ? [companyId, limit, action] : [companyId, limit]);
+    return result.rows;
   }
 
   async listNotifications(userId, companyId, { unreadOnly = false, limit = 50 } = {}) {

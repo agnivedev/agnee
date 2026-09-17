@@ -2,6 +2,51 @@
 
 ### Added
 
+- **Seed playbook tidak bisa lagi memundurkan produksi.** Berkas seed dan
+  berkas hasil ekspor sekarang membawa stempel `seed_written_at` dan melewati
+  setiap dokumen yang di database lebih baru dari stempel itu, dengan
+  `RAISE NOTICE` yang menyebutkan dokumen mana dan selisih waktunya. Sebelum
+  ini pengamannya hanya ingatan orang: siapa pun yang menyunting playbook di
+  DB produksi harus ingat menjalankan `scripts/export-playbooks.js`, dan yang
+  lupa akan memundurkan tulisannya sendiri begitu seed dijalankan ulang.
+  `scripts/check-playbook-stamps.js` (dipasang di `npm run check`, jadi ikut
+  jalan di CI) menggagalkan build kalau isi berkas seed berubah tapi
+  stempelnya tertinggal — tanpa itu, stempelnya sendiri jadi celah baru.
+  Diverifikasi terhadap PostgreSQL sungguhan, bukan hanya dibaca: suntingan
+  yang lebih baru bertahan, dan dokumen yang lebih tua tetap diperbarui.
+- **Mengelola tugas dari halaman `/tasks`, bukan hanya melihatnya.** Supervisor
+  bisa memindahkan pemegang tugas, mengubah prioritas, dan menugaskan
+  percakapan yang belum jadi tugas lewat pencarian chat — semuanya dari
+  halaman itu. Rute barunya (`PATCH /v1/tasks/:chatId`) sengaja tidak
+  menyentuh WhatsApp sama sekali, berbeda dari `POST /v1/chats/:chatId/routing`
+  yang juga bisa mengirim pesan penutup: memindahkan penugasan tidak boleh
+  gagal hanya karena nomornya sedang tidak tersambung. Aturan aksesnya sama
+  seperti di panel chat — agent tidak bisa mengambil atau menutup tugas
+  rekannya.
+- **Notifikasi saat percakapan ditugaskan ke seseorang** (jenis `task`).
+  Dipasang di `saveRouting`, bukan di rutenya, supaya semua jalur penugasan
+  ikut: panel chat, daftar tugas, dan penugasan otomatis. Penugasan ke diri
+  sendiri tidak menghasilkan notifikasi.
+- **Notifikasi didorong lewat SSE, tidak lagi ditarik tiap 60 detik.** Frame
+  yang dikirim tidak membawa isi apa pun dan hanya masuk ke aliran milik
+  penerimanya (`broadcastToUser`) — isi catatan tetap ditarik lewat rute yang
+  sudah memeriksa siapa pemanggilnya. Satu `EventSource` dipakai bersama
+  seluruh tab (`web/src/lib/live-events.ts`); tanpa itu lonceng notifikasi
+  akan membuka koneksi kedua dan memakan jatah `SSE_MAX_CLIENTS` company lain.
+  Penarikan berkala tetap ada sebagai jaring pengaman, tapi 5 menit sekali.
+  Jawaban `@AI` di catatan ikut memberi notifikasi ke yang bertanya — AI butuh
+  beberapa detik, dan sampai sekarang jawabannya datang tanpa memberi tahu
+  siapa pun.
+- **Jejak audit untuk lead yang dibuka lewat `wa.me`.** Tabel `audit_logs` ada
+  sejak migration 002 tapi tidak pernah dipakai; baris pertamanya adalah agent
+  yang membuka percakapan dari WhatsApp pribadinya. Dicatat sebelum tabnya
+  dibuka, dengan alasan yang sama seperti follow-up — tercatat tapi batal
+  dibuka hanya menyisakan satu baris berlebih, sedangkan terbuka tanpa
+  tercatat menghapus satu-satunya jejak yang ada. Kalau pencatatannya gagal,
+  tabnya tetap dibuka: menghalangi pekerjaan karena audit gagal lebih mahal
+  daripada satu baris yang hilang. Daftarnya muncul di Admin, hanya untuk
+  supervisor.
+
 - **Nama customer + fix nomor grup di Lead List/Inbox.** Lead List dibangun
   dari database dan tidak punya sumber nama sama sekali (kolom `picName`
   adalah nama agent, bukan customer); Inbox dapat nama langsung dari WhatsApp
@@ -63,27 +108,18 @@
 
 ### Outstanding
 
-- **Playbook DB vs seed di repo, drift nyaris menyebabkan kemunduran.**
-  Tiga playbook Trader's Mastermind (closing/discovery/followup) disunting
-  langsung di DB produksi 15 Sep, tanpa ada yang menulis ulang berkas seed
-  di repo. Instruksi menjalankan ulang seed lama nyaris memundurkan ketiganya
-  lima hari — tertangkap sebelum dijalankan lewat pengukuran
-  `BEGIN`/seed/`ROLLBACK` terhadap prod. `scripts/export-playbooks.js`
-  (ditambahkan sesi ini) menutup jalur baliknya, tapi belum otomatis: siapa
-  pun yang menyunting playbook di DB produksi harus mengingat menjalankan
-  ekspornya sendiri. Belum ada hook atau CI yang memaksa itu — kalau
-  ekspornya lupa dijalankan, drift yang sama bisa terulang.
-- **Task list baru menampilkan, belum mengelola.** Halaman `/tasks` membaca
-  `conversation_routing` yang sudah ada, tapi belum ada cara membuat/memindah
-  penugasan dari halaman itu sendiri (masih lewat panel chat di Inbox), dan
-  belum ada notifikasi saat tugas baru masuk atau mendekati SLA apa pun.
-- **Notifikasi mention ditarik berkala (60 detik), bukan lewat SSE.** Cukup
-  untuk volume mention yang jarang, tapi kalau nanti dipakai untuk sesuatu
-  yang lebih real-time (misalnya AI menjawab di catatan), keterlambatan
-  sampai 60 detik akan terasa.
-- **`wa.me` tidak mencatat bahwa agent membuka jalur di luar Agnee.** Dialog
-  peringatan menjelaskan risikonya tapi tidak meninggalkan jejak audit —
-  supervisor tidak punya cara melihat siapa yang memilih opsi ini dan kapan.
+- **Belum ada SLA untuk tugas.** Notifikasi sekarang ada saat penugasan
+  berpindah, tapi tidak ada yang berbunyi ketika sebuah tugas terlalu lama
+  terbuka. Itu butuh keputusan soal ambang waktunya lebih dulu, bukan hanya
+  kode.
+- **Audit baru merekam satu jenis tindakan** (`lead.open_in_whatsapp`).
+  Tindakan lain yang akibatnya di luar Agnee — mengunduh seluruh daftar
+  customer, misalnya — belum meninggalkan baris apa pun, padahal tabelnya
+  sekarang sudah dipakai dan rutenya sudah ada.
+- **Layar baru di `/tasks` dan kartu audit di Admin belum dilihat di
+  peramban.** Dibangun tanpa error dan rutenya diuji lewat `app.inject` serta
+  dipanggil langsung ke server lokal, tapi memeriksanya di layar butuh
+  masuk akun, dan kredensialnya milik Hanny.
 
 ### Fixed
 

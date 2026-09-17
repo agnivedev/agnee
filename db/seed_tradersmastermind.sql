@@ -46,7 +46,8 @@ DECLARE
   -- Naikkan stempelnya setiap kali menyunting isi playbook di berkas ini.
   -- scripts/check-playbook-stamps.js menggagalkan CI kalau berkasnya berubah
   -- tapi stempelnya tertinggal.
-  seed_written_at CONSTANT TIMESTAMPTZ := '2026-09-18'::timestamptz;
+  -- seed_content_sha: 93ba80aa59ca4daefb83ef4c75eaa7c847e33592199af9507886e58115d27774
+  seed_written_at CONSTANT TIMESTAMPTZ := '2026-09-17'::timestamptz;
 BEGIN
   SELECT id INTO co FROM companies WHERE slug = 'tradersmastermind';
   IF co IS NULL THEN

@@ -24,6 +24,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { Pool } = require('pg');
+const { restamp } = require('./check-playbook-stamps.js');
 
 const KINDS = ['persona', 'compliance', 'qna', 'discovery', 'objection', 'closing', 'followup', 'handoff'];
 
@@ -157,7 +158,7 @@ async function main() {
     }
 
     const outPath = path.resolve(args.out || `db/playbooks_${args.slug.replace(/[^\w-]/g, '_')}.sql`);
-    const next = render(args.slug, rows);
+    const next = restamp(render(args.slug, rows));
 
     if (args.check) {
       const current = fs.existsSync(outPath) ? fs.readFileSync(outPath, 'utf8') : null;
@@ -165,6 +166,7 @@ async function main() {
       // stempelnya. Stempel sendiri dijaga scripts/check-playbook-stamps.js.
       const strip = (text) => String(text)
         .replace(/^-- Playbook .*ditarik dari database pada .*$/m, '')
+        .replace(/^ *-- seed_content_sha: [0-9a-f]{64} *$/m, '')
         .replace(/^ *seed_written_at CONSTANT TIMESTAMPTZ := .*$/m, '');
       if (current !== null && strip(current) === strip(next)) {
         console.log(`✓ ${path.relative(process.cwd(), outPath)} sama dengan database.`);

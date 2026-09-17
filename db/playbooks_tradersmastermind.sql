@@ -19,7 +19,8 @@ DECLARE
   -- Stempel kapan isi berkas ini ditarik dari database. Diperiksa CI lewat
   -- scripts/check-playbook-stamps.js: berkas yang berubah tanpa stempelnya
   -- ikut maju akan menggagalkan build.
-  seed_written_at CONSTANT TIMESTAMPTZ := '2026-09-18'::timestamptz;
+  -- seed_content_sha: 2fa0d6d156967c54795f5504189326ab979a458c0d7475d116a084b072a41105
+  seed_written_at CONSTANT TIMESTAMPTZ := '2026-09-17'::timestamptz;
 BEGIN
   SELECT id INTO target_company FROM companies WHERE slug = $md$tradersmastermind$md$;
   IF target_company IS NULL THEN

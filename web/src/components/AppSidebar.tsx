@@ -5,6 +5,7 @@ import { useI18n } from '@/lib/i18n';
 import { useSession } from '@/lib/session';
 import { cn } from '@/lib/utils';
 import { NAV_ENTRIES } from './nav-entries';
+import { NotificationBell } from '@/components/mentions/NotificationBell';
 
 const COLLAPSE_KEY = 'agnee.sidebarCollapsed';
 
@@ -119,7 +120,13 @@ export function AppSidebar() {
           )}
         </nav>
 
-        <div className="ml-auto hidden shrink-0 items-center gap-2.5 md:mt-auto md:ml-0 md:flex md:border-t md:border-white/10 md:pt-4">
+        {/* Di ponsel sidebar adalah bar horizontal, jadi lonceng ikut di baris
+            itu; di layar lebar ia duduk di atas identitas pengguna. */}
+        <div className="ml-auto shrink-0 md:mt-auto md:ml-0 md:border-t md:border-white/10 md:pt-3">
+          <NotificationBell className="text-white" />
+        </div>
+
+        <div className="hidden shrink-0 items-center gap-2.5 md:ml-0 md:flex">
           <span className="size-2 shrink-0 rounded-full bg-green shadow-[0_0_12px_var(--color-green)]" />
           {collapsed ? null : (
             <div className="hidden leading-tight lg:grid">

@@ -3,6 +3,7 @@ import { useI18n } from '@/lib/i18n';
 import { useSession } from '@/lib/session';
 import { cn } from '@/lib/utils';
 import { NAV_ENTRIES, type NavEntryId } from '@/components/nav-entries';
+import { NotificationBell } from '@/components/mentions/NotificationBell';
 
 export type RailAction = NavEntryId;
 
@@ -27,11 +28,11 @@ export function Rail({ active, onAction }: { active: RailAction; onAction: (acti
           />
         ))}
       </nav>
+      <NotificationBell className="shrink-0 md:mt-auto" />
       <RailButton
         icon={LogOut}
         label={t('nav.labelLogout')}
         ariaLabel={t('nav.logout')}
-        className="md:mt-auto"
         onClick={() => onAction('logout')}
       />
     </aside>

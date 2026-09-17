@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { api, messageFromError } from '@/lib/api';
 import { useI18n } from '@/lib/i18n';
 import { useSession } from '@/lib/session';
@@ -6,7 +6,8 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { FollowUpSection } from './FollowUpDialog';
 import { PIPELINE_STAGES, usePipelineStage } from './usePipelineStage';
-import type { Chat, Handoff, Lead, Note, PipelineStage, Routing, TeamMember } from './types';
+import { NoteThread } from '@/components/mentions/NoteThread';
+import type { Chat, Handoff, Lead, PipelineStage, Routing, TeamMember } from './types';
 
 /** Batasnya juga ditegakkan server-side saat menyimpan ringkasan. */
 const MAX_LABELS = 5;
@@ -36,7 +37,6 @@ export function ContextPanel({
   const [editedBy, setEditedBy] = useState<{ summary?: string | null; labels?: string | null }>({});
   const [routing, setRouting] = useState<Routing | null>(null);
   const [handoffs, setHandoffs] = useState<Handoff[]>([]);
-  const [notes, setNotes] = useState<Note[]>([]);
   const [team, setTeam] = useState<TeamMember[]>([]);
   const [selectedMode, setSelectedMode] = useState<'ai' | 'human'>('ai');
   const [assignee, setAssignee] = useState('');
@@ -45,7 +45,6 @@ export function ContextPanel({
   const [closingMessage, setClosingMessage] = useState('');
   const [status, setStatus] = useState('');
   const [saving, setSaving] = useState(false);
-  const [noteDraft, setNoteDraft] = useState('');
 
   const chatId = chat?.id ?? null;
 
@@ -55,16 +54,14 @@ export function ContextPanel({
       const members = team.length
         ? { members: team }
         : await api<{ members: TeamMember[] }>('/v1/team/members');
-      const [routingData, noteData] = await Promise.all([
-        api<{ routing: Routing; handoffs?: Handoff[] }>(`/v1/chats/${encodeURIComponent(chatId)}/routing`),
-        api<{ notes: Note[] }>(`/v1/chats/${encodeURIComponent(chatId)}/notes`),
-      ]);
+      const routingData = await api<{ routing: Routing; handoffs?: Handoff[] }>(
+        `/v1/chats/${encodeURIComponent(chatId)}/routing`,
+      );
       setTeam(members.members || []);
       setRouting(routingData.routing);
       setSelectedMode(routingData.routing.mode);
       setAssignee(routingData.routing.assigneeUserId || '');
       setHandoffs(routingData.handoffs || []);
-      setNotes(noteData.notes || []);
       setStatus('');
     } catch (error) {
       setStatus(messageFromError(error, ''));
@@ -154,20 +151,6 @@ export function ContextPanel({
     }
   }
 
-  async function addNote(event: FormEvent) {
-    event.preventDefault();
-    if (!chatId || !noteDraft.trim()) return;
-    try {
-      await api(`/v1/chats/${encodeURIComponent(chatId)}/notes`, {
-        method: 'POST',
-        body: { body: noteDraft.trim() },
-      });
-      setNoteDraft('');
-      await loadRouting();
-    } catch (error) {
-      setStatus(messageFromError(error, ''));
-    }
-  }
 
   async function handoff() {
     if (!chatId) return;
@@ -445,34 +428,7 @@ export function ContextPanel({
       </Section>
 
       <Section title={t('notes.title')}>
-        <div className="grid gap-2">
-          {notes.length ? (
-            notes.map((note, index) => (
-              <div key={index} className="grid gap-1 rounded-xl bg-white/70 p-2.5">
-                <strong className="text-[11px]">{note.authorName || t('routing.system')}</strong>
-                <span className="text-xs text-muted">{note.body}</span>
-                <time className="font-mono text-[9px] text-muted">
-                  {new Date(note.createdAt).toLocaleString(dateLocale)}
-                </time>
-              </div>
-            ))
-          ) : (
-            <p className="m-0 text-[11px] text-muted">{t('notes.empty')}</p>
-          )}
-        </div>
-        <form onSubmit={addNote} className="mt-2 grid gap-2">
-          <textarea
-            rows={2}
-            maxLength={2000}
-            value={noteDraft}
-            placeholder={t('notes.placeholder')}
-            onChange={(event) => setNoteDraft(event.target.value)}
-            className="w-full rounded-[10px] border border-border bg-white p-2 text-xs"
-          />
-          <Button type="submit" size="sm" variant="outline">
-            {t('notes.add')}
-          </Button>
-        </form>
+        <NoteThread chatId={chatId} reloadKey={reloadToken} />
       </Section>
 
       <Section title={t('routing.history')}>

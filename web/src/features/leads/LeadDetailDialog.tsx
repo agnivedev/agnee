@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { PIPELINE_STAGES, usePipelineStage } from '@/features/inbox/usePipelineStage';
 import type { PipelineStage } from '@/features/inbox/types';
 import { cn } from '@/lib/utils';
+import { NoteThread } from '@/components/mentions/NoteThread';
 
 type TeamMember = { id: string; displayName?: string | null; email?: string | null; role: string; status: string };
 type Row = Record<string, string>;
@@ -194,6 +195,15 @@ export function LeadDetailDialog({ row, onClose, onSaved }: { row: Row | null; o
                 </div>
               </div>
             )}
+
+            {/* Catatan yang sama dengan panel kanan Inbox: satu percakapan punya
+                satu utas, di mana pun dibuka. */}
+            <div className="mt-5 border-t border-border pt-4">
+              <h3 className="mt-0 mb-2 text-[10px] font-semibold tracking-wide text-muted uppercase">
+                {t('leads.notes')}
+              </h3>
+              <NoteThread chatId={chatId} />
+            </div>
 
             {status ? <p className="mt-3 mb-0 text-[13px] text-muted">{status}</p> : null}
 

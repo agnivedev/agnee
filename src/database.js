@@ -451,25 +451,150 @@ class Database {
     return result.rows;
   }
 
-  async addConversationNote(chatId, authorUserId, body, companyId) {
+  /**
+   * @param opts.parentId    balasan untuk catatan ini (satu tingkat saja)
+   * @param opts.mentions    [{kind:'user',id}|{kind:'chat',chatId}]
+   * @param opts.authorKind  'human' | 'ai'
+   * @param opts.kind        'note' | 'handover'
+   */
+  async addConversationNote(chatId, authorUserId, body, companyId, opts = {}) {
     if (!this.enabled) return null;
+    const { parentId = null, mentions = [], authorKind = 'human', kind = 'note' } = opts;
+    // Balasan selalu menggantung pada catatan induk, bukan pada balasan lain:
+    // kalau parentId menunjuk ke sebuah balasan, naikkan ke induknya supaya
+    // lini masa tetap datar satu tingkat.
+    let resolvedParent = parentId;
+    if (parentId) {
+      const root = await this.pool.query(
+        'SELECT COALESCE(parent_id, id) AS root FROM conversation_notes WHERE id = $1 AND company_id = $2',
+        [parentId, companyId],
+      );
+      resolvedParent = root.rows[0]?.root || null;
+    }
     const result = await this.pool.query(`
-      INSERT INTO conversation_notes (company_id, chat_id, author_user_id, body)
-      VALUES ($1, $2, $3, $4)
-      RETURNING id, body, created_at AS "createdAt"
-    `, [companyId, chatId, authorUserId || null, body]);
+      INSERT INTO conversation_notes
+        (company_id, chat_id, author_user_id, body, parent_id, mentions, author_kind, kind)
+      VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8)
+      RETURNING id, body, created_at AS "createdAt", parent_id AS "parentId",
+                mentions, author_kind AS "authorKind", kind
+    `, [companyId, chatId, authorUserId || null, body, resolvedParent,
+      JSON.stringify(mentions), authorKind, kind]);
     return result.rows[0];
   }
 
+  /**
+   * Catatan terbaru lebih dulu, tetapi balasan ikut induknya.
+   *
+   * Batas `limit` dihitung atas catatan induk, bukan atas seluruh baris: kalau
+   * dihitung atas semuanya, satu utas yang ramai akan mendorong catatan lain
+   * keluar dari daftar dan tim kehilangan konteks yang lebih lama.
+   */
   async listConversationNotes(chatId, limit = 30, companyId) {
     if (!this.enabled) return [];
     const result = await this.pool.query(`
-      SELECT n.id, n.body, n.created_at AS "createdAt", u.display_name AS "authorName"
-      FROM conversation_notes n LEFT JOIN users u ON u.id = n.author_user_id
+      WITH roots AS (
+        SELECT id, created_at
+        FROM conversation_notes
+        WHERE company_id = $1 AND chat_id = $2 AND parent_id IS NULL
+        ORDER BY created_at DESC
+        LIMIT $3
+      )
+      SELECT n.id, n.body, n.created_at AS "createdAt", n.parent_id AS "parentId",
+             n.mentions, n.author_kind AS "authorKind", n.kind,
+             n.author_user_id AS "authorUserId",
+             u.display_name AS "authorName"
+      FROM conversation_notes n
+      LEFT JOIN users u ON u.id = n.author_user_id
       WHERE n.company_id = $1 AND n.chat_id = $2
-      ORDER BY n.created_at DESC LIMIT $3
+        AND (n.id IN (SELECT id FROM roots) OR n.parent_id IN (SELECT id FROM roots))
+      ORDER BY COALESCE(n.parent_id, n.id) DESC, n.parent_id NULLS FIRST, n.created_at
     `, [companyId, chatId, limit]);
     return result.rows;
+  }
+
+  /** Rekan sekerja yang bisa di-mention. Hanya anggota aktif company ini. */
+  async listMentionableUsers(companyId) {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(`
+      SELECT u.id, u.display_name AS "displayName", u.email, m.role
+      FROM company_members m
+      JOIN users u ON u.id = m.user_id
+      WHERE m.company_id = $1 AND m.status = 'active' AND u.status = 'active'
+      ORDER BY u.display_name
+    `, [companyId]);
+    return result.rows;
+  }
+
+  /**
+   * Notifikasi untuk pengguna Agnee.
+   *
+   * Hanya mention berjenis 'user' yang menghasilkan baris. Mention berjenis
+   * 'chat' adalah tautan navigasi ke percakapan, bukan penerima — customer
+   * tidak pernah diberi tahu tentang catatan internal.
+   *
+   * Penulisnya sendiri dilewati: memberi tahu orang tentang tulisannya sendiri
+   * hanya membuat lonceng berbunyi tanpa isi.
+   */
+  async createMentionNotifications({ chatId, noteId, mentions, actorUserId, actorKind = 'human', body, kind = 'mention' }, companyId) {
+    if (!this.enabled) return 0;
+    const targets = [...new Set(
+      (mentions || [])
+        .filter((m) => m?.kind === 'user' && m.id && m.id !== actorUserId)
+        .map((m) => m.id),
+    )];
+    if (!targets.length) return 0;
+    const result = await this.pool.query(`
+      INSERT INTO notifications
+        (company_id, user_id, kind, chat_id, note_id, actor_user_id, actor_kind, body)
+      SELECT $1, m.user_id, $2, $3, $4, $5, $6, $7
+      FROM company_members m
+      WHERE m.company_id = $1 AND m.status = 'active' AND m.user_id = ANY($8::uuid[])
+    `, [companyId, kind, chatId, noteId, actorUserId || null, actorKind,
+      String(body || '').slice(0, 500), targets]);
+    return result.rowCount;
+  }
+
+  async listNotifications(userId, companyId, { unreadOnly = false, limit = 50 } = {}) {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(`
+      SELECT n.id, n.kind, n.chat_id AS "chatId", n.note_id AS "noteId",
+             n.actor_kind AS "actorKind", n.body, n.read_at AS "readAt",
+             n.created_at AS "createdAt",
+             a.display_name AS "actorName",
+             cn.name AS "chatName"
+      FROM notifications n
+      LEFT JOIN users a ON a.id = n.actor_user_id
+      LEFT JOIN contact_names cn ON cn.company_id = n.company_id AND cn.chat_id = n.chat_id
+      WHERE n.company_id = $1 AND n.user_id = $2
+        ${unreadOnly ? 'AND n.read_at IS NULL' : ''}
+      ORDER BY n.created_at DESC
+      LIMIT $3
+    `, [companyId, userId, limit]);
+    return result.rows;
+  }
+
+  async countUnreadNotifications(userId, companyId) {
+    if (!this.enabled) return 0;
+    const result = await this.pool.query(
+      'SELECT COUNT(*)::int AS n FROM notifications WHERE company_id = $1 AND user_id = $2 AND read_at IS NULL',
+      [companyId, userId],
+    );
+    return result.rows[0]?.n || 0;
+  }
+
+  /** Tanpa noteIds: tandai semua terbaca. */
+  async markNotificationsRead(userId, companyId, ids = null) {
+    if (!this.enabled) return 0;
+    const result = ids?.length
+      ? await this.pool.query(
+        'UPDATE notifications SET read_at = NOW() WHERE company_id = $1 AND user_id = $2 AND read_at IS NULL AND id = ANY($3::bigint[])',
+        [companyId, userId, ids],
+      )
+      : await this.pool.query(
+        'UPDATE notifications SET read_at = NOW() WHERE company_id = $1 AND user_id = $2 AND read_at IS NULL',
+        [companyId, userId],
+      );
+    return result.rowCount;
   }
 
   async saveLeadState(lead, companyId) {

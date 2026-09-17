@@ -2244,16 +2244,123 @@ async function buildApp(overrides = {}) {
     };
   });
 
+  /**
+   * Siapa saja yang boleh di-mention, untuk pelengkapan otomatis di editor.
+   * Hanya rekan sekerja: customer dicari lewat pencarian chat, bukan dari sini.
+   */
+  // ── Notifikasi: hanya untuk pengguna Agnee, tidak pernah untuk customer ───
+
+  app.get('/v1/notifications', {
+    schema: { querystring: { type: 'object', properties: {
+      unreadOnly: { type: 'boolean', default: false },
+      limit: { type: 'integer', minimum: 1, maximum: 100, default: 50 },
+    } } },
+  }, async (request) => {
+    const companyId = request.agneeSession.companyId;
+    const userId = request.agneeSession.userId;
+    // Pemanggil berbasis API key bukan orang: tidak ada kotak notifikasi.
+    if (!userId || !canCall('listNotifications')) return { notifications: [], unread: 0 };
+    const [notifications, unread] = await Promise.all([
+      database.listNotifications(userId, companyId, {
+        unreadOnly: request.query.unreadOnly, limit: request.query.limit,
+      }).catch(() => []),
+      database.countUnreadNotifications(userId, companyId).catch(() => 0),
+    ]);
+    return { notifications, unread };
+  });
+
+  app.post('/v1/notifications/read', {
+    schema: { body: { type: 'object', additionalProperties: false, properties: {
+      // Tanpa ids: tandai semua terbaca.
+      ids: { type: 'array', maxItems: 200, items: { type: 'integer', minimum: 1 } },
+    } } },
+  }, async (request) => {
+    const companyId = request.agneeSession.companyId;
+    const userId = request.agneeSession.userId;
+    if (!userId || !canCall('markNotificationsRead')) return { ok: true, marked: 0 };
+    const marked = await database.markNotificationsRead(userId, companyId, request.body?.ids || null)
+      .catch(() => 0);
+    return { ok: true, marked };
+  });
+
+  app.get('/v1/mentionables', async (request) => {
+    const companyId = request.agneeSession.companyId;
+    if (!canCall('listMentionableUsers')) return { users: [] };
+    return { users: await database.listMentionableUsers(companyId).catch(() => []) };
+  });
+
+  /**
+   * Menyaring mention yang dikirim klien sebelum disimpan.
+   *
+   * Klien tidak dipercaya menentukan siapa yang boleh dinotifikasi: id pengguna
+   * diperiksa terhadap keanggotaan company, sehingga sebuah mention tidak bisa
+   * dipakai memancing notifikasi ke pengguna company lain atau membuktikan
+   * keberadaan sebuah id.
+   */
+  async function sanitizeMentions(raw, companyId) {
+    const list = Array.isArray(raw) ? raw.slice(0, 20) : [];
+    const userIds = list.filter((m) => m?.kind === 'user' && m.id).map((m) => String(m.id));
+    let allowed = new Set();
+    if (userIds.length && canCall('listMentionableUsers')) {
+      const members = await database.listMentionableUsers(companyId).catch(() => []);
+      const memberIds = new Set(members.map((m) => m.id));
+      allowed = new Set(userIds.filter((id) => memberIds.has(id)));
+    }
+    const out = [];
+    const seen = new Set();
+    for (const mention of list) {
+      if (mention?.kind === 'user' && allowed.has(String(mention.id))) {
+        const key = `u:${mention.id}`;
+        if (!seen.has(key)) { seen.add(key); out.push({ kind: 'user', id: String(mention.id) }); }
+      } else if (mention?.kind === 'chat' && typeof mention.chatId === 'string' && mention.chatId) {
+        // Mention percakapan hanyalah tautan navigasi. Tidak pernah menjadi
+        // penerima notifikasi, dan tidak pernah mengirim apa pun ke customer.
+        const chatId = normalizeChatId(mention.chatId);
+        const key = `c:${chatId}`;
+        if (!seen.has(key)) { seen.add(key); out.push({ kind: 'chat', chatId }); }
+      }
+    }
+    return out;
+  }
+
   app.post('/v1/chats/:chatId/notes', {
     schema: { body: { type: 'object', additionalProperties: false, required: ['body'], properties: {
       body: { type: 'string', minLength: 1, maxLength: 2000 },
+      parentId: { type: 'integer', minimum: 1 },
+      mentions: {
+        type: 'array', maxItems: 20,
+        items: {
+          type: 'object', additionalProperties: false,
+          properties: {
+            kind: { type: 'string', enum: ['user', 'chat'] },
+            id: { type: 'string', maxLength: 64 },
+            chatId: { type: 'string', maxLength: 128 },
+          },
+          required: ['kind'],
+        },
+      },
     } } },
   }, async (request, reply) => {
     const noteCompanyId = request.agneeSession.companyId;
     let note;
     if (typeof database.addConversationNote === 'function' && database.status().connected) {
-      note = await database.addConversationNote(request.params.chatId, request.agneeSession?.userId, request.body.body.trim(), noteCompanyId);
+      const mentions = await sanitizeMentions(request.body.mentions, noteCompanyId);
+      note = await database.addConversationNote(
+        request.params.chatId, request.agneeSession?.userId, request.body.body.trim(), noteCompanyId,
+        { parentId: request.body.parentId || null, mentions },
+      );
       note.authorName = request.agneeSession?.displayName;
+      if (mentions.length && typeof database.createMentionNotifications === 'function') {
+        await database.createMentionNotifications({
+          chatId: request.params.chatId,
+          noteId: note.id,
+          mentions,
+          actorUserId: request.agneeSession?.userId || null,
+          actorKind: 'human',
+          body: request.body.body.trim(),
+          kind: request.body.parentId ? 'reply' : 'mention',
+        }, noteCompanyId).catch((err) => app.log.warn({ err }, 'Could not create mention notifications'));
+      }
     } else {
       note = { id: crypto.randomUUID(), body: request.body.body.trim(), authorName: request.agneeSession?.displayName, createdAt: new Date().toISOString() };
       const notesKey = `${noteCompanyId}:${request.params.chatId}`;

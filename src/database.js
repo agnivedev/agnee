@@ -1940,7 +1940,12 @@ class Database {
       )
       SELECT
         c.chat_id AS "chatId",
-        regexp_replace(c.chat_id, '@.*$', '') AS "phone",
+        -- Id grup bukan nomor telepon. Tanpa penjagaan ini, Lead List
+        -- menampilkan angka seperti 120363369733804176 di kolom nomor.
+        CASE WHEN c.chat_id LIKE '%@g.us' THEN NULL
+             ELSE regexp_replace(c.chat_id, '@.*$', '') END AS "phone",
+        cname.name AS "name",
+        c.chat_id LIKE '%@g.us' AS "isGroup",
         first_seen.first_at AS "firstSeenAt",
         inbound.body AS "lastInboundBody",
         inbound.timestamp AS "lastInboundAt",
@@ -2007,6 +2012,8 @@ class Database {
       LEFT JOIN cloud_chat_numbers cmap
         ON cmap.company_id = $1 AND cmap.chat_id = c.chat_id
       LEFT JOIN whatsapp_cloud_connections cnum ON cnum.id = cmap.connection_id
+      LEFT JOIN contact_names cname
+        ON cname.company_id = $1 AND cname.chat_id = c.chat_id
       ORDER BY COALESCE(inbound.timestamp, 0) DESC
       LIMIT $2
     `, [companyId, limit]);
@@ -2057,6 +2064,30 @@ class Database {
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
       ON CONFLICT (company_id, wa_message_id) DO NOTHING
     `, [companyId, chatId, connectionId, provider, waMessageId, body, messageType, timestamp]);
+    return result.rowCount > 0;
+  }
+
+  /**
+   * Menyimpan nama tampilan customer dari pesan masuk.
+   *
+   * Inbox memperolehnya langsung dari WhatsApp, tetapi Lead List dibangun dari
+   * database dan tidak punya sumber nama. Nama bisa berubah kapan saja di sisi
+   * customer, jadi yang disimpan selalu yang terakhir terlihat.
+   */
+  async upsertContactName(companyId, chatId, name) {
+    if (!this.enabled) return false;
+    const clean = String(name || '').trim().slice(0, 200);
+    if (!clean) return false;
+    // Nomor telepon sebagai "nama" bukan informasi baru — Lead List sudah
+    // menampilkan nomornya di kolom sendiri.
+    if (/^[+\d\s()-]+$/.test(clean)) return false;
+    const result = await this.pool.query(`
+      INSERT INTO contact_names (company_id, chat_id, name)
+      VALUES ($1, $2, $3)
+      ON CONFLICT (company_id, chat_id) DO UPDATE
+        SET name = EXCLUDED.name, updated_at = NOW()
+        WHERE contact_names.name IS DISTINCT FROM EXCLUDED.name
+    `, [companyId, chatId, clean]);
     return result.rowCount > 0;
   }
 

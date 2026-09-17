@@ -7,7 +7,7 @@ import { cn } from '@/lib/utils';
 import { Avatar } from './Avatar';
 import { Composer } from './Composer';
 import { MessageRow } from './MessageRow';
-import { dayKey, dayLabel, messagePreview, runPosition } from './format';
+import { dayKey, dayLabel, formatPhone, messagePreview, phoneFromChatId, runPosition } from './format';
 import type { Chat, MediaTarget, Message, WhatsappStatus } from './types';
 import type { InboxApi } from './useInbox';
 
@@ -78,6 +78,10 @@ export function ConversationPane({
     }
   }
   const [groupMeta, setGroupMeta] = useState<string>('');
+  // Nomor customer menggantikan label "lead aktif" yang tidak memberi
+  // informasi apa pun. Agent sering perlu nomornya untuk mencocokkan lead
+  // dengan catatan atau data di luar Agnee.
+  const headerPhone = formatPhone(phoneFromChatId(chat?.id));
   const [highlighted, setHighlighted] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
@@ -172,7 +176,7 @@ export function ConversationPane({
         <div className="ml-3 min-w-0 flex-1">
           <h2 className="m-0 truncate text-base">{chat?.name || t('conversation.choose')}</h2>
           <p className="mt-[3px] mb-0 truncate font-mono text-[10px] text-muted">
-            {chat ? (chat.isGroup ? groupMeta : t('conversation.activeLead')) : 'WhatsApp'}
+            {chat ? (chat.isGroup ? groupMeta : headerPhone || t('conversation.activeLead')) : 'WhatsApp'}
           </p>
         </div>
         {isSupervisor ? (

@@ -569,6 +569,13 @@ async function buildApp(overrides = {}) {
         timestamp: message.timestamp || Math.floor(Date.now() / 1000),
       }).catch((error) => app.log.warn({ err: error }, 'Could not record inbound message'));
     }
+    // Nama tampilan customer. Grup dilewati: nama grup bukan nama orang, dan
+    // Lead List memperlakukan grup sebagai barisnya sendiri tanpa nomor.
+    const senderName = meta.senderName || message._data?.notifyName || null;
+    if (senderName && !message.from.endsWith('@g.us') && canCall('upsertContactName')) {
+      await database.upsertContactName(companyId, message.from, senderName)
+        .catch((error) => app.log.warn({ err: error }, 'Could not record contact name'));
+    }
     // The customer spoke, so any follow-up sequence for this chat is over.
     // Done before the AI reply so a slow model can't leave a stale sequence
     // running long enough for the scheduler to send on top of a live reply.
@@ -1676,6 +1683,12 @@ async function buildApp(overrides = {}) {
           if (sig !== expected) { app.log.warn({ phoneNumberId }, 'Cloud API webhook: bad signature'); return reply.code(401).send('Unauthorized'); }
         }
 
+        // Meta mengirim nama profil di larik terpisah, dipasangkan lewat wa_id.
+        const contactNames = new Map(
+          (value.contacts || [])
+            .filter((c) => c?.wa_id && c?.profile?.name)
+            .map((c) => [c.wa_id, c.profile.name]),
+        );
         for (const msg of value.messages || []) {
           const chatId = msg.from;
           // Nomor yang MENERIMA pesan ini adalah kebenaran paling kuat soal
@@ -1714,6 +1727,7 @@ async function buildApp(overrides = {}) {
           };
           handleInboundMessage(conn.companyId, fakeMessage, {
             provider: 'cloud_api', connectionId: conn.id,
+            senderName: contactNames.get(chatId) || null,
           }).catch((err) => {
             app.log.warn({ err, companyId: conn.companyId }, 'Cloud API inbound pipeline error');
           });
@@ -3501,6 +3515,7 @@ Aturan:
   // mengirimnya, bukan isinya.
 
   const EXPORT_COLUMNS = [
+    ['name', 'Nama'],
     ['phone', 'Nomor WhatsApp'],
     ['servedByNumber', 'Dilayani nomor'],
     ['firstSeenAt', 'Masuk pertama'],
@@ -3569,7 +3584,11 @@ Aturan:
     // anyone downloading the sheet wants to see. Only the JSON route (the
     // Lead List page itself, to act on a row) asks for it.
     return rows.map((row) => ({
-      ...(includeChatId ? { chatId: row.chatId } : {}),
+      // isGroup ikut hanya di rute JSON, seperti chatId: halaman Lead List
+      // memakainya untuk menandai baris grup, yang tidak punya nomor dan
+      // namanya belum terekam (notifyName di pesan grup adalah nama pengirim,
+      // bukan nama grupnya).
+      ...(includeChatId ? { chatId: row.chatId, isGroup: Boolean(row.isGroup) } : {}),
       ...Object.fromEntries(EXPORT_COLUMNS.map(([key]) => [key, exportCell(key, row[key])])),
     }));
   }

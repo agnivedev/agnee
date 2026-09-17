@@ -11,7 +11,10 @@ import { LeadDetailDialog } from './LeadDetailDialog';
 import { cn } from '@/lib/utils';
 
 type Column = { key: string; label: string };
-type Row = Record<string, string>;
+// Sel tabel selalu string (server sudah memformatnya lewat exportCell), tapi
+// rute JSON menyertakan dua bidang non-kolom: chatId untuk menindaklanjuti
+// baris, dan isGroup untuk menandai baris yang tidak punya nomor.
+type Row = Record<string, string> & { chatId?: string; isGroup?: boolean };
 type SortDirection = 'asc' | 'desc';
 
 /** Numbers sort as numbers; everything else as Indonesian text. */
@@ -43,8 +46,11 @@ export function LeadsPage() {
   const [editRow, setEditRow] = useState<Row | null>(null);
 
   function openInInbox(row: Row) {
+    if (!row.chatId) return;
     setChoiceRow(null);
-    navigate(`/?chat=${encodeURIComponent(row.chatId)}&title=${encodeURIComponent(row.phone || row.chatId)}`);
+    // Judul memakai nama kalau ada: itu yang dikenali agent, bukan nomornya.
+    const title = row.name || row.phone || row.chatId;
+    navigate(`/?chat=${encodeURIComponent(row.chatId)}&title=${encodeURIComponent(title)}`);
   }
 
   const load = useCallback(async () => {
@@ -212,7 +218,16 @@ export function LeadsPage() {
                     className="group cursor-pointer"
                   >
                     {columns.map((column) => {
-                      const value = row[column.key] ?? '';
+                      const raw = row[column.key] ?? '';
+                      // Grup tidak punya nomor, dan namanya belum terekam
+                      // (notifyName di pesan grup adalah nama pengirim). Tanpa
+                      // penanda, baris grup tampil sebagai dua sel kosong dan
+                      // terbaca seperti data rusak.
+                      const isBlankIdentity = !raw && (column.key === 'name' || column.key === 'phone');
+                      const value = isBlankIdentity
+                        ? (row.isGroup ? (column.key === 'name' ? t('leads.groupRow') : '—') : t('leads.noName'))
+                        : raw;
+                      const muted = isBlankIdentity;
                       return (
                         <td
                           key={column.key}
@@ -222,6 +237,7 @@ export function LeadsPage() {
                           className={cn(
                             'max-w-[320px] overflow-hidden border-b border-border px-3 py-2 align-top text-ellipsis whitespace-nowrap group-hover:bg-[#f6f9f5]',
                             'first:sticky first:left-0 first:z-[1] first:bg-white first:font-mono first:text-xs first:font-semibold first:group-hover:bg-[#f6f9f5]',
+                            muted && 'text-muted italic',
                           )}
                         >
                           {value}
@@ -241,7 +257,7 @@ export function LeadsPage() {
           <div className="grid gap-3 p-6">
             <div className="flex items-center justify-between">
               <h2 id="row-choice-title" className="m-0 text-base">
-                {t('leads.rowChoiceTitle', { phone: choiceRow.phone })}
+                {t('leads.rowChoiceTitle', { phone: choiceRow.phone || choiceRow.name || t('leads.groupRow') })}
               </h2>
               <DialogClose onClick={() => setChoiceRow(null)} label={t('lead.close')} />
             </div>

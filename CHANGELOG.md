@@ -2,6 +2,48 @@
 
 ### Added
 
+- **Nama customer + fix nomor grup di Lead List/Inbox.** Lead List dibangun
+  dari database dan tidak punya sumber nama sama sekali (kolom `picName`
+  adalah nama agent, bukan customer); Inbox dapat nama langsung dari WhatsApp
+  tapi tidak menampilkan nomor. Nama sekarang direkam saat pesan masuk, dari
+  `notifyName` (whatsapp-web.js) dan `contacts[].profile.name` (Cloud API).
+  Baris lama tidak bisa diisi surut — namanya memang tidak pernah tersimpan.
+  Grup dilewati saat merekam (`notifyName` di pesan grup adalah nama
+  pengirim, bukan nama grup) dan `phone` untuk grup sekarang `NULL`, bukan
+  id grup yang terlihat seperti nomor tak bisa dihubungi
+  (`120363369733804176`). Header percakapan menampilkan nomor customer
+  menggantikan label "lead aktif" yang tidak memberi informasi.
+- **Mention dan notifikasi antar pengguna Agnee di catatan percakapan.**
+  Catatan bisa dibalas (satu tingkat) dan menyebut `@rekan`, `@AI`, atau
+  `@percakapan-lain`. Mention pengguna memicu notifikasi (lonceng di
+  sidebar); mention percakapan HANYA tautan navigasi — tidak pernah jadi
+  penerima, karena kalau ikut, catatan internal bisa bocor ke customer.
+  Id mention divalidasi dua lapis terhadap keanggotaan company sebelum
+  disimpan dan sebelum notifikasi dibuat.
+- **`@AI` menjawab di dalam catatan** — tidak pernah ke customer. Tiga
+  pagar: tidak ada jalur ke `sendOutbound`; isi catatan diperlakukan sebagai
+  pertanyaan/data, bukan instruksi sistem (diuji dengan prompt injection
+  sungguhan — model menolak permintaan diskon 90% "melanggar kebijakan
+  perusahaan", nol baris masuk `outbound_replies`); kuota AI paket tetap
+  dihitung supaya utas catatan bukan celah melewati batas.
+- **Ekspor playbook dari database ke repo** (`scripts/export-playbooks.js`).
+  Playbook yang disunting langsung di DB produksi sebelumnya tidak punya
+  jalur balik ke git — berkas seed diam-diam berubah dari alat pemulihan
+  jadi alat pemundur. Nyaris terjadi: instruksi menjalankan ulang seed lama
+  akan memundurkan tiga playbook Trader's Mastermind lima hari (lihat
+  Outstanding). Mode `--check` mendeteksi drift tanpa menulis apa pun.
+- **Daftar tugas** (`/tasks`) dari `conversation_routing` yang sudah ada
+  sejak awal (assignee/status/priority) tapi tak pernah tampil sebagai satu
+  daftar — bukan tabel baru. Agent hanya melihat tugasnya sendiri (dipaksa
+  dari session, bukan dari klien); supervisor melihat semua. Endpoint status
+  terpisah (`PATCH /v1/tasks/:chatId/status`) menjaga mode/assignee tetap
+  sama, hanya status yang berubah.
+- **Opsi buka di aplikasi WhatsApp** dari Lead List, di samping "Buka di
+  Inbox". Diberi peringatan dulu: chat terkirim dari WhatsApp pribadi agent
+  di perangkat itu, bukan nomor perusahaan — customer melihat nomor pribadi
+  agent dan balasannya tidak pernah kembali ke Agnee. Tidak ditawarkan untuk
+  grup (tidak punya nomor).
+
 - **Isi asli pesan yang dihapus, dicoret** — bukan cuma "Pesan ini dihapus".
   WhatsApp membuang isi asli begitu pesan direvoke, tapi Agnee sudah mencatat
   isi pesan KELUAR di `outbound_replies` sejak sebelum dihapus (dan pesan
@@ -18,6 +60,30 @@
   dulu sebelum kirim: "Ganti ke mode Manusia dan serahkan ke <nama>?" —
   ya baru mode pindah ke Manusia (diserahkan ke diri sendiri) dan pesan
   terkirim; batal tidak mengirim apa pun.
+
+### Outstanding
+
+- **Playbook DB vs seed di repo, drift nyaris menyebabkan kemunduran.**
+  Tiga playbook Trader's Mastermind (closing/discovery/followup) disunting
+  langsung di DB produksi 15 Sep, tanpa ada yang menulis ulang berkas seed
+  di repo. Instruksi menjalankan ulang seed lama nyaris memundurkan ketiganya
+  lima hari — tertangkap sebelum dijalankan lewat pengukuran
+  `BEGIN`/seed/`ROLLBACK` terhadap prod. `scripts/export-playbooks.js`
+  (ditambahkan sesi ini) menutup jalur baliknya, tapi belum otomatis: siapa
+  pun yang menyunting playbook di DB produksi harus mengingat menjalankan
+  ekspornya sendiri. Belum ada hook atau CI yang memaksa itu — kalau
+  ekspornya lupa dijalankan, drift yang sama bisa terulang.
+- **Task list baru menampilkan, belum mengelola.** Halaman `/tasks` membaca
+  `conversation_routing` yang sudah ada, tapi belum ada cara membuat/memindah
+  penugasan dari halaman itu sendiri (masih lewat panel chat di Inbox), dan
+  belum ada notifikasi saat tugas baru masuk atau mendekati SLA apa pun.
+- **Notifikasi mention ditarik berkala (60 detik), bukan lewat SSE.** Cukup
+  untuk volume mention yang jarang, tapi kalau nanti dipakai untuk sesuatu
+  yang lebih real-time (misalnya AI menjawab di catatan), keterlambatan
+  sampai 60 detik akan terasa.
+- **`wa.me` tidak mencatat bahwa agent membuka jalur di luar Agnee.** Dialog
+  peringatan menjelaskan risikonya tapi tidak meninggalkan jejak audit —
+  supervisor tidak punya cara melihat siapa yang memilih opsi ini dan kapan.
 
 ### Fixed
 

@@ -1,3 +1,11 @@
+-- CATATAN SINKRONISASI (2026-09-17)
+-- Isi discovery, closing, dan followup di sini diambil kembali dari playbook_docs
+-- produksi, bukan ditulis ulang. Ketiganya sempat diperbarui langsung di DB pada
+-- 15 Sep (tiga ujung percakapan, penawaran call Anya/Rizki, aturan jangan
+-- berputar) tanpa ikut masuk ke file ini, sehingga menjalankan seed versi lama
+-- akan memundurkan funnel produksi lima hari. Kalau playbook diubah lewat DB
+-- atau chatbox lagi, tarik ulang ke sini sebelum seed dijalankan.
+--
 -- Playbook Trader's Mastermind — funnel Recovery Package.
 --
 -- Sumber: bZone/marketing/TM-WA-RECOVERY-FUNNEL.md.
@@ -130,7 +138,7 @@ Lead harus menerima dua jalan yang jelas sejak balasan pertama:
 
 ## Balasan pertama — default
 
-Halo kak 👋 Aku Anya dari tim Trader's Mastermind. Makasih sudah chat WhatsApp kami.
+Halo kak 👋 Makasih sudah chat WhatsApp kami.
 
 Kakak bisa langsung mulai dari salah satu ini ya:
 
@@ -146,7 +154,7 @@ Biar aku bisa bantu arahkan, kondisi kakak sekarang lagi recovery dari loss atau
 
 ## Versi lebih singkat
 
-Halo kak, aku Anya dari Trader's Mastermind 👋 Makasih sudah menghubungi kami lewat WhatsApp.
+Halo kak 👋 Makasih sudah menghubungi kami lewat WhatsApp.
 
 Langsung ikut *free signal* kami di Telegram dulu ya:
 👉 https://t.me/bzonesyndicate
@@ -158,7 +166,7 @@ Kakak sekarang lagi recovery akun atau mau lolos prop firm?
 
 ## Lead dari iklan prop firm
 
-Halo kak 👋 Aku Anya dari tim Trader's Mastermind.
+Halo kak 👋
 
 Kalau targetnya mau lolos prop firm, kakak bisa mulai sekarang dari *free signal kami di Telegram*:
 👉 https://t.me/bzonesyndicate
@@ -170,7 +178,7 @@ Kakak sudah sedang challenge atau baru mau persiapan?
 
 ## Lead yang bilang sedang loss
 
-Halo kak, aku Anya dari Trader's Mastermind 👋
+Halo kak 👋
 
 Untuk mulai pelan-pelan, ikut dulu *free signal* kami di Telegram:
 👉 https://t.me/bzonesyndicate
@@ -211,7 +219,27 @@ terutama soal jumlah modal, saldo, atau data akun.
 Setelah lead menjawab, hubungkan jawabannya ke manfaat paket tanpa menjanjikan hasil:
 
 Oke kak, berarti yang paling membantu buat kondisi kakak adalah eksekusi yang lebih disiplin dan ada tim yang bisa diajak cek langkahnya. Itu sebabnya Recovery Package kami gabungkan copy trade, ebook, signal, dan pendampingan—bukan cuma kasih materi lalu kakak jalan sendiri.
-$md$,
+
+
+## Setelah dua pertanyaan discovery — TAWARKAN CALL
+
+Ini langkah wajib, bukan pilihan. Begitu lead sudah menjawab **dua** pertanyaan
+discovery, atau begitu terlihat ragu, banyak bertanya, atau bilang belum punya
+dana — **tawarkan telepon dari tim**, jangan mengirim link lagi.
+
+> Biar lebih enak dijelaskan langsung, Anya atau Rizki dari tim kami bisa
+> telepon kakak sebentar untuk bahas recovery akunnya ya.
+>
+> Kakak lebih nyaman jam 12 siang atau jam 3 sore WIB?
+
+Sebut nama orangnya. Beri dua pilihan jam konkret, jangan bertanya terbuka.
+
+Lead yang bilang **belum punya dana** adalah kandidat call yang paling kuat,
+bukan yang paling lemah — call tidak memerlukan uang. Jangan membalasnya dengan
+link checkout.
+
+Kalau call ditolak, baru turun ke Recovery Package, lalu ke free signal
+Telegram. Selengkapnya di bagian penutup.$md$,
 $md$# Objection Handling
 
 ## "Dapat apa aja?"
@@ -277,42 +305,105 @@ Aku paham banget kak, itu frustrasi yang nyata. Bedanya, program yang cuma kasih
 materi meninggalkan kakak jalan sendiri setelah selesai. Di sini eksekusinya
 dibantu: ada copy trade, signal dari tim, dan pendampingan selama prosesnya.
 $md$,
-$md$# Closing & Pembayaran
+$md$# Penutup — Setiap Percakapan Harus Punya Ujung
 
-## Pesan closing
+Dokumen FAQ dan Q&A adalah **sumber fakta, bukan naskah**. Angka, nama produk,
+isi paket, syarat garansi, dan link wajib persis seperti tertulis. Kalimatnya
+boleh disusun ulang sendiri supaya nyambung dengan apa yang baru saja ditulis
+lead. Menyalin template mentah-mentah ke percakapan yang sudah berjalan justru
+membuatnya terasa seperti mesin.
 
-Oke kak, langsung mulai lewat link ini ya:
-👉 https://tradersmastermind.myr.id/pl/trading-recovery-plan-checkout
+Yang tidak boleh diarang: harga, isi paket, syarat refund, nama broker yang
+didukung, dan janji hasil apa pun.
 
-*Rp99.000 sudah termasuk copy trade, ebook recovery, signal, dan pendampingan tim.*
+## Tiga ujung yang sah
 
-Ada *100% money-back guarantee tanpa ditanya alasan selama 3 hari pertama*; setelah itu refund *50%*.
+Setiap percakapan diarahkan ke salah satu dari tiga ini. Mana pun boleh — pilih
+yang paling dekat dengan kondisi lead saat itu, jangan memaksakan urutan:
 
-Setelah checkout, balas *SUDAH* di sini supaya aku langsung bantu onboarding 🙏
+1. **Checkout Recovery Package Rp99.000** — untuk lead yang sudah siap.
+2. **Janji call dengan Anya atau Rizki** — untuk lead yang ragu, banyak tanya,
+   atau bilang belum punya dana. Call tidak memerlukan uang, jadi ini pintu
+   yang tetap terbuka saat checkout tertutup.
+3. **Join free signal Telegram** — untuk lead yang menolak keduanya. Ini lantai
+   paling bawah; lebih baik daripada percakapan yang berhenti tanpa apa-apa.
 
-## Lead tertarik Recovery Package
+## Jangan berputar
 
-Siap kak 👍 Dengan *Rp99.000*, kakak langsung dapat:
+Aturan keras: **jangan menawarkan hal yang sama dua kali berturut-turut.**
 
-✅ Copy trade untuk membantu eksekusi
-✅ Ebook panduan recovery
-✅ Signal dari tim
-✅ Pendampingan tim selama prosesnya
+Kalau sebuah tawaran sudah disampaikan dan lead membalas tanpa menerimanya,
+naik ke ujung berikutnya — jangan mengulang kalimat yang sama dengan susunan
+berbeda. Percakapan yang mengulang tawaran identik terbaca rusak, dan lead
+berhenti membalas.
 
-Plus ada *100% money-back guarantee tanpa ditanya alasan selama 3 hari pertama*. Setelah itu, refund tetap *50%*.
+Kalau sudah tiga giliran tanpa kemajuan ke salah satu dari tiga ujung di atas,
+hentikan penawaran dan serahkan ke manusia. Diam lebih baik daripada berputar.
 
-Link checkout langsung:
-👉 https://tradersmastermind.myr.id/pl/trading-recovery-plan-checkout
+## Menawarkan call
 
-Setelah pembayaran, kirim konfirmasinya kembali di WhatsApp ini ya. Aku bantu lanjut onboarding.
+> Biar lebih enak dijelaskan langsung, Anya atau Rizki dari tim kami bisa
+> telepon kakak sebentar untuk bahas recovery akunnya ya.
+>
+> Kakak lebih nyaman jam 12 siang atau jam 3 sore WIB?
 
-## Aturan closing
+Sebut **nama orangnya** — Anya atau Rizki — jangan "tim kami" saja. Nama membuat
+janjinya terasa nyata.
 
-- Satu pesan, satu CTA. Kirim satu link saja, jangan dua sekaligus.
-- Selalu minta lead membalas *SUDAH* setelah checkout — itu penanda masuk
-  onboarding, dan onboarding tetap di WhatsApp.
-- Pembayaran lewat platform Mayar: transfer bank, virtual account, QRIS, dan
-  e-wallet, semua tersedia di halaman checkout.
+Beri **dua pilihan jam yang konkret**. Pertanyaan terbuka "kapan enaknya kak?"
+jauh lebih sering tidak dibalas daripada pilihan tertutup.
+
+## Setelah lead memilih jam
+
+**Hanya kalau lead benar-benar menyebut waktu.** Jawaban seperti "MT5",
+"Valetax", atau nama broker BUKAN pemilihan jam — itu jawaban atas pertanyaan
+lain. Jangan pernah mengkonfirmasi jadwal call yang belum dipilih.
+
+> Siap kak, terima kasih 🙏
+>
+> Anya atau Rizki akan telepon kakak jam {jam} WIB untuk bantu proses recovery
+> akun kakak ya.
+
+Sebut SATU jam — jam yang lead pilih. Menulis "jam 12 siang atau jam 3 sore"
+di pesan konfirmasi berarti tidak ada jadwal yang benar-benar disepakati.
+
+Kalau lead menjawab hal lain sementara tawaran call masih menggantung, jawab
+dulu pertanyaannya, lalu tanyakan jamnya sekali lagi — tapi jangan menulis ulang
+kalimat tawaran yang sama persis.
+
+## Kalau lead menolak call
+
+Jangan memaksa, jangan menawarkan call kedua kali. Turun ke ujung berikutnya:
+
+> Nggak apa-apa kak 🙏 Kalau nanti berubah pikiran, tinggal bilang di sini ya.
+>
+> Sementara itu kakak bisa mulai sendiri dengan *Recovery Package Rp99.000* —
+> sudah termasuk copy trade, ebook recovery, signal, dan pendampingan tim:
+> 👉 https://tradersmastermind.myr.id/pl/trading-recovery-plan-checkout
+>
+> Ada *100% money-back guarantee tanpa ditanya alasan selama 3 hari pertama*;
+> setelah itu refund *50%*.
+
+Kalau itu pun ditolak, tawarkan Telegram sekali, lalu berhenti menawarkan:
+
+> Kalau mau lihat-lihat dulu, free signal kami di Telegram terbuka kok kak:
+> 👉 https://t.me/bzonesyndicate
+
+## Checkout langsung
+
+Untuk lead yang sudah menyatakan siap membeli:
+
+> Oke kak, langsung mulai lewat link ini ya:
+> 👉 https://tradersmastermind.myr.id/pl/trading-recovery-plan-checkout
+>
+> Setelah checkout, balas *SUDAH* di sini supaya aku langsung bantu onboarding 🙏
+
+## Aturan penutup
+
+- Satu pesan, satu ajakan. Jangan mengirim dua link sekaligus.
+- Lead yang bilang belum punya dana: jangan dorong checkout lagi. Tawarkan call.
+- Jangan menjanjikan profit, balik modal, atau hasil tertentu — termasuk saat
+  menawarkan call.
 
 ## Onboarding setelah bayar
 
@@ -328,8 +419,7 @@ Master Kopingho dan tim, 15 slot per batch.
 Checkout: https://tradersmastermind.myr.id/pl/trading-recovery-mentorship-checkout
 
 Jangan menawarkan bundle di balasan pertama dan jangan mengirim dua link
-checkout dalam satu pesan.
-$md$,
+checkout dalam satu pesan.$md$,
 $md$# Tanya Jawab
 
 ## Isi paket dan harga
@@ -401,36 +491,43 @@ lead tapi seluruh nomor.
 Berhenti mengirim begitu lead membalas, minta berhenti, atau percakapan diambil
 alih manusia.
 
-## +1 jam
+**Bedanya dengan penutup percakapan aktif:** di sini lead sudah diam, jadi dia
+mungkin lupa konteksnya. Ingatkan singkat apa yang terakhir dibahas sebelum
+mengajak. Satu pesan, satu link — jangan pernah dua.
 
-Kak, ini Anya 😊 Kalau masih mau lihat dulu, join free signal kami di Telegram ya:
-👉 https://t.me/bzonesyndicate
+## +1 jam — tawarkan call
 
-Kalau ingin paket lengkapnya, Recovery Package Rp99.000 ada di sini:
-👉 https://tradersmastermind.myr.id/pl/trading-recovery-plan-checkout
+Kak, soal recovery akunnya tadi — biar lebih enak dijelaskan langsung, Anya atau
+Rizki dari tim kami bisa telepon kakak sebentar.
 
-## +24 jam
+Lebih nyaman jam 12 siang atau jam 3 sore WIB?
 
-Kak, signal saja bisa memberi arah entry, tapi recovery juga butuh disiplin eksekusi dan risk management.
+## +24 jam — call sekali lagi, cara lain
 
-Karena itu Recovery Package kami tidak cuma berisi signal—ada copy trade, ebook, dan tim yang mendampingi juga. Aksesnya Rp99.000:
-👉 https://tradersmastermind.myr.id/pl/trading-recovery-plan-checkout
+Kak, aku belum sempat dapat kabar soal jadwal teleponnya 😊
 
-## +3 hari — terakhir
+Kalau memang lebih enak lewat chat saja tidak masalah. Tapi kalau mau sekalian
+dibantu lihat kondisi akunnya, Anya atau Rizki bisa telepon — tinggal sebut jam
+yang cocok buat kakak.
+
+## +3 hari — terakhir, turun ke link
 
 Halo kak, ini follow-up terakhir dari aku ya 😊
 
-Free signal tetap bisa diikuti di:
-👉 https://t.me/bzonesyndicate
-
-Kalau nanti siap dibantu lebih lengkap, Recovery Package Rp99.000 ada di:
+Kalau nanti mau dibantu, *Recovery Package Rp99.000* sudah termasuk copy trade,
+ebook recovery, signal, dan pendampingan tim:
 👉 https://tradersmastermind.myr.id/pl/trading-recovery-plan-checkout
 
 Semoga tradingnya makin terarah ya kak 🙏
-— Anya, Trader's Mastermind
 
-Setelah follow-up ketiga tanpa respon: berhenti dan tandai cold.
-$md$,
+## Aturan
+
+- Follow-up pertama dan kedua menawarkan **call**, bukan link. Lead yang diam
+  belum tentu menolak — dia mungkin cuma belum sempat membaca link panjang.
+- Hanya follow-up terakhir yang membawa link, dan hanya SATU.
+- Jangan mengulang kalimat follow-up sebelumnya. Kalau tidak ada yang baru untuk
+  disampaikan, lebih baik tidak mengirim.
+- Jangan menjanjikan hasil, termasuk saat menawarkan call.$md$,
 $md$# Handoff ke Manusia
 
 PIC: *ferawaty@beweidigital.com*

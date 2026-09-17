@@ -3,6 +3,9 @@ import { useI18n } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import type { Mention, Mentionable } from './types';
 
+/** Id semu untuk asisten; bukan pengguna, jadi tidak pernah ada di tabel users. */
+export const AI_MENTION_ID = '__ai__';
+
 /**
  * Textarea dengan pelengkapan `@`.
  *
@@ -56,7 +59,8 @@ export function MentionInput({
   useEffect(() => { setActive(0); }, [query]);
 
   useEffect(() => {
-    onMentionsChange(picked.map((person) => ({ kind: 'user', id: person.id })));
+    onMentionsChange(picked.map((person) =>
+      (person.id === AI_MENTION_ID ? { kind: 'ai' } : { kind: 'user', id: person.id })));
   }, [picked, onMentionsChange]);
 
   /** Kata setelah `@` terdekat di kiri kursor, selama belum melewati spasi. */

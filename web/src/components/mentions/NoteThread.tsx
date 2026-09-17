@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api';
 import { useI18n } from '@/lib/i18n';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { MentionInput } from './MentionInput';
+import { AI_MENTION_ID, MentionInput } from './MentionInput';
 import type { Mention, Mentionable, NoteItem } from './types';
 
 /**
@@ -33,6 +33,12 @@ export function NoteThread({
   const [replyDraft, setReplyDraft] = useState('');
   const [replyMentions, setReplyMentions] = useState<Mention[]>([]);
   const [busy, setBusy] = useState(false);
+  // Asisten ikut di daftar yang bisa disebut. Jawabannya masuk sebagai catatan
+  // di utas ini — tidak pernah terkirim ke customer.
+  const aiEntry = useMemo<Mentionable>(
+    () => ({ id: AI_MENTION_ID, displayName: t('mention.ai'), role: t('mention.aiRole') }),
+    [t],
+  );
 
   const load = useCallback(async () => {
     if (!chatId) { setNotes([]); return; }
@@ -45,9 +51,9 @@ export function NoteThread({
 
   useEffect(() => {
     api<{ users: Mentionable[] }>('/v1/mentionables')
-      .then((data) => setPeople(data.users || []))
-      .catch(() => setPeople([]));
-  }, []);
+      .then((data) => setPeople([aiEntry, ...(data.users || [])]))
+      .catch(() => setPeople([aiEntry]));
+  }, [aiEntry]);
 
   async function post(body: string, noteMentions: Mention[], parentId: number | null) {
     if (!chatId || !body.trim() || busy) return;

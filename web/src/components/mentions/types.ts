@@ -1,4 +1,5 @@
 export type Mentionable = {
+  /** `__ai__` untuk asisten; selain itu id pengguna. */
   id: string;
   displayName?: string | null;
   email?: string | null;
@@ -11,7 +12,8 @@ export type Mentionable = {
  */
 export type Mention =
   | { kind: 'user'; id: string }
-  | { kind: 'chat'; chatId: string };
+  | { kind: 'chat'; chatId: string }
+  | { kind: 'ai' };
 
 export type NoteItem = {
   id: number;

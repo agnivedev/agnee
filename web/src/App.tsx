@@ -16,6 +16,7 @@ const PipelinePage = lazy(() => import('@/features/pipeline/PipelinePage').then(
 const SettingsPage = lazy(() => import('@/features/settings/SettingsPage').then((m) => ({ default: m.SettingsPage })));
 const KnowledgePage = lazy(() => import('@/features/knowledge/KnowledgePage').then((m) => ({ default: m.KnowledgePage })));
 const AdminPage = lazy(() => import('@/features/admin/AdminPage').then((m) => ({ default: m.AdminPage })));
+const SuperhumanPage = lazy(() => import('@/features/superhuman/SuperhumanPage').then((m) => ({ default: m.SuperhumanPage })));
 const LandingPage = lazy(() => import('@/features/landing/LandingPage').then((m) => ({ default: m.LandingPage })));
 
 /**
@@ -41,11 +42,28 @@ function BareFallback() {
 export function App() {
   // The marketing page is public: it must not wait on a session check, and a
   // visitor who is not signed in must not be bounced to the login view.
-  if (window.location.pathname === '/landing') {
+  if (window.location.pathname === '/landing' || window.location.hostname === 'agnee.agnive.co') {
     return (
       <Suspense fallback={<BareFallback />}>
         <LandingPage />
       </Suspense>
+    );
+  }
+
+  // Konsol platform berdiri sendiri, bukan satu halaman di dalam ruang kerja
+  // pelanggan: tidak ada sidebar tenant, tidak ada pemilih bahasa, dan tidak
+  // ada rute lain yang bisa dicapai dari sini. Yang dilihatnya adalah semua
+  // perusahaan sekaligus, jadi meletakkannya di dalam kerangka yang selalu
+  // terikat pada SATU perusahaan hanya akan menyesatkan.
+  if (window.location.pathname === '/superhuman') {
+    return (
+      <I18nProvider>
+        <SessionProvider>
+          <Suspense fallback={<BareFallback />}>
+            <SuperhumanPage />
+          </Suspense>
+        </SessionProvider>
+      </I18nProvider>
     );
   }
 

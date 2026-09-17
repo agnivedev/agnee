@@ -7,6 +7,7 @@ import { AppSidebar } from '@/components/AppSidebar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogClose } from '@/components/ui/dialog';
+import { useConfirm } from '@/components/ui/confirm';
 import { LeadDetailDialog } from './LeadDetailDialog';
 import { cn } from '@/lib/utils';
 
@@ -42,8 +43,30 @@ export function LeadsPage() {
   const [stage, setStage] = useState('');
   const [handling, setHandling] = useState('');
   const [sort, setSort] = useState<{ key: string; direction: SortDirection } | null>(null);
+  const { confirm } = useConfirm();
   const [choiceRow, setChoiceRow] = useState<Row | null>(null);
   const [editRow, setEditRow] = useState<Row | null>(null);
+
+  /**
+   * Membuka percakapan di aplikasi WhatsApp perangkat ini.
+   *
+   * Diberi peringatan lebih dulu karena akibatnya tidak terlihat dari tombolnya:
+   * chat terkirim dari akun WhatsApp yang terpasang di perangkat agent, bukan
+   * dari nomor perusahaan. Customer melihat nomor pribadi agent, dan balasannya
+   * tidak pernah masuk kembali ke Agnee.
+   */
+  async function openInWhatsapp(row: Row) {
+    if (!row.phone) return;
+    const ok = await confirm({
+      title: t('leads.waMeWarnTitle'),
+      message: t('leads.waMeWarnBody'),
+      confirmLabel: t('leads.waMeWarnConfirm'),
+      danger: true,
+    });
+    if (!ok) return;
+    setChoiceRow(null);
+    window.open(`https://wa.me/${row.phone.replace(/[^\d]/g, '')}`, '_blank', 'noopener,noreferrer');
+  }
 
   function openInInbox(row: Row) {
     if (!row.chatId) return;
@@ -280,6 +303,17 @@ export function LeadsPage() {
               <strong className="text-sm">{t('leads.rowEdit')}</strong>
               <span className="text-xs text-muted">{t('leads.rowEditHint')}</span>
             </button>
+            {/* Grup tidak punya nomor, jadi tidak ada yang bisa dibuka di WhatsApp. */}
+            {choiceRow.phone ? (
+              <button
+                type="button"
+                onClick={() => void openInWhatsapp(choiceRow)}
+                className="grid gap-0.5 rounded-[12px] border border-border bg-white px-4 py-3 text-left transition hover:border-green"
+              >
+                <strong className="text-sm">{t('leads.rowWaMe')}</strong>
+                <span className="text-xs text-muted">{t('leads.rowWaMeHint')}</span>
+              </button>
+            ) : null}
           </div>
         ) : null}
       </Dialog>

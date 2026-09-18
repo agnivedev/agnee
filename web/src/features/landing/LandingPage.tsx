@@ -35,7 +35,7 @@ const WA_PERSONAL = waLink('Halo, saya mau langganan Agnee Personal');
 const WA_COMPANY = waLink('Halo, saya mau langganan Agnee Company');
 const WA_LIFETIME = waLink('Halo, saya mau tanya paket Agnee Lifetime');
 const WA_WHITELABEL = waLink('Halo, saya mau tanya Agnee white label');
-const WA_EBOOK = waLink('EBOOK CS - halo, saya mau ebook "Balas Chat Tanpa Kehabisan Diri Sendiri"');
+const WA_EBOOK = waLink('EBOOK CS - halo, saya mau ebook "Balas Chat Seharian Tanpa Kena Mental"');
 const WA_WEBINAR = waLink('WEBINAR - halo, saya mau daftar kelas "Jualan Apa Pun dalam 15 Menit Chat"');
 
 /**
@@ -323,7 +323,7 @@ function UmpanEbook() {
           <div>
             <Eyebrow>Gratis — untuk kamu yang membalas</Eyebrow>
             <h2 className="m-0 mb-4 text-[clamp(26px,3.6vw,38px)] leading-[1.15] font-semibold tracking-[-.035em]">
-              "Balas Chat Tanpa Kehabisan Diri Sendiri"
+              "Balas Chat Seharian Tanpa Kena Mental"
             </h2>
             <Lead>
               Bukan untuk bosmu. Untuk kamu. Panduan tentang pekerjaan yang jarang ada bukunya: menghadapi orang marah
@@ -470,7 +470,7 @@ function GridPendukung() {
 const YANG_BERUBAH: [string, string][] = [
   ['Dua CS membalas orang yang sama', 'Agent mulai ngetik, AI mundur detik itu juga'],
   ['"Ini tadi siapa yang janji?"', 'Tiap balasan keluar membawa nama penulisnya'],
-  ['Chat menggantung karena agent sudah pulang', 'Setelah 30 menit diam, AI mengambil alih lagi'],
+  ['Chat menggantung karena agent udah pulang', 'Setelah 30 menit diam, AI ambil alih lagi'],
   ['Follow-up yang kelewat', 'Berjadwal, dengan plafon harian dan jarak minimum'],
   ['Nomor kena report karena kebanyakan kirim', 'Tiga pintu harus lolos sebelum satu pesan berangkat'],
   ['Baca ulang chat panjang dari paling atas', 'Ringkasan per percakapan, siap dibantah kalau salah'],
@@ -478,10 +478,10 @@ const YANG_BERUBAH: [string, string][] = [
   ['Mengisi setelan AI seperti menulis dokumen', 'Diisi lewat obrolan — Agnee yang bertanya'],
   ['Jawaban bagusmu mati bersama satu chat', 'Ditawarkan disimpan jadi playbook'],
   ['Data lead terkunci di dalam aplikasi', 'Ekspor XLSX atau CSV kapan saja'],
-  ['Tagihan AI yang tidak jelas dari mana', 'Token masuk, token keluar, model, biaya — per perusahaan'],
-  ['Takut data perusahaan lain kelihatan', 'Isolasi di level database, sudah diuji probe lintas company'],
-  ['Menunggu approval Meta', 'Scan QR nomor yang sudah kamu punya'],
-  ['Biaya per pesan', 'Tidak ada'],
+  ['Tagihan AI yang ga jelas dari mana', 'Token masuk, token keluar, model, biaya — per perusahaan'],
+  ['Takut data perusahaan lain kelihatan', 'Isolasi di level database, udah diuji probe lintas company'],
+  ['Menunggu approval Meta', 'Scan QR nomor yang udah kamu punya'],
+  ['Biaya per pesan', 'Ga ada'],
   ['Pindah-pindah HP antar shift', 'Satu inbox, seluruh tim'],
 ];
 
@@ -541,7 +541,7 @@ function UmpanWebinar() {
               ['Buka', 'Kalimat pertama yang membuat orang membalas'],
               ['Gali', 'Tiga pertanyaan yang menggantikan brosur'],
               ['Cocokkan', 'Menawarkan yang dia butuh, bukan yang kamu punya'],
-              ['Tangani keberatan', '"Mahal" hampir tidak pernah berarti mahal'],
+              ['Tangani keberatan', '"Mahal" hampir ga pernah berarti mahal'],
               ['Tutup', 'Meminta keputusan tanpa terdengar mendesak'],
             ].map(([tahap, isi], index) => (
               <li key={tahap} className="flex gap-3">
@@ -641,8 +641,8 @@ const PLANS = [
     period: 'sekali bayar',
     features: [
       'Semua yang ada di Company',
-      'Bayar sekali, tidak kedaluwarsa',
-      'Tidak ada tagihan bulanan, selamanya',
+      'Bayar sekali, ga kedaluwarsa',
+      'Ga ada tagihan bulanan, selamanya',
     ],
     href: WA_LIFETIME,
     cta: 'Tanya paket Lifetime',
@@ -731,27 +731,27 @@ function Pricing() {
 const FAQ_ITEMS: [string, string][] = [
   [
     'Apakah Agnee memakai WhatsApp Business API resmi?',
-    'Tidak — Agnee memakai WhatsApp Web. Artinya kamu langsung mulai dengan nomor yang sudah kamu punya, tanpa approval Meta dan tanpa biaya per pesan. Tradeoff-nya: nomor itu harus tetap terhubung. Scan QR sekali, lalu berjalan di belakang layar.',
+    'Ga — Agnee pakai WhatsApp Web. Artinya kamu langsung mulai dengan nomor yang udah kamu punya, tanpa approval Meta dan tanpa biaya per pesan. Tradeoff-nya: nomor itu harus tetap terhubung. Scan QR sekali, lalu jalan di belakang layar.',
   ],
   [
     'Berapa agent yang bisa saya tambahkan?',
     'Personal untuk 1 pengguna. Company untuk 5 agent aktif. Butuh lebih banyak? Bilang ke kami lewat WhatsApp — plafonnya memang diatur per perusahaan.',
   ],
   [
-    '"Pesan AI tanpa plafon angka" itu benar-benar tanpa batas?',
-    'Tidak ada angka yang memutusmu di tengah jalan, dan itu memang yang dijalankan sistemnya. Tapi kami tidak akan berpura-pura listrik itu gratis: kalau pemakaianmu jauh di atas rata-rata, kami menghubungi dulu untuk bicara. Yang tidak pernah kami lakukan adalah mematikan layananmu tiba-tiba. Rincian token dan biayanya bisa kamu lihat sendiri kapan saja.',
+    '"Pesan AI tanpa batas" itu beneran tanpa batas?',
+    'Ga ada angka yang mutusin kamu di tengah jalan, dan itu memang yang dijalankan sistemnya. Tapi kami ga bakal pura-pura listrik itu gratis: kalau pemakaianmu jauh di atas rata-rata, kami hubungin dulu buat ngobrol. Yang ga pernah kami lakuin: matiin layananmu tiba-tiba. Rincian token dan biayanya bisa kamu lihat sendiri kapan saja.',
   ],
   [
     'Apakah AI-nya bisa disesuaikan dengan bisnis saya?',
-    'Ada delapan dokumen yang menentukan cara dia bicara: persona, batasan, tanya-jawab, penggalian kebutuhan, penanganan keberatan, penutupan, follow-up, dan serah terima ke manusia. Kamu tidak perlu menulisnya — Agnee mewawancaraimu, dan dokumennya tersusun dari jawabanmu.',
+    'Ada delapan dokumen yang menentukan cara dia bicara: persona, batasan, tanya-jawab, penggalian kebutuhan, penanganan keberatan, penutupan, follow-up, dan serah terima ke manusia. Kamu ga perlu nulisnya — Agnee yang nanya, kamu jawab, dan dokumennya tersusun dari jawabanmu.',
   ],
   [
     'Apakah data percakapan pelanggan saya aman?',
-    'Tiap perusahaan hanya bisa mengakses datanya sendiri, dan pemisahan itu diterapkan di level database, bukan sekadar disembunyikan di tampilan. Kami sudah mengujinya dengan permintaan lintas perusahaan yang sengaja dibuat untuk menembus — dan ditolak.',
+    'Tiap perusahaan hanya bisa mengakses datanya sendiri, dan pemisahan itu diterapkan di level database, bukan sekadar disembunyikan di tampilan. Kami udah uji dengan permintaan lintas perusahaan yang sengaja dibuat untuk menembus — dan ditolak.',
   ],
   [
     'Kalau saya ambil alih chat, apakah AI berhenti total?',
-    'Berhenti di chat itu, selama kamu masih di sana. Tiga puluh menit setelah kamu diam, dia melanjutkan — supaya pelanggan tidak menunggu orang yang sudah pulang. Percakapan yang ditugaskan supervisor lewat panel tidak ikut kedaluwarsa.',
+    'Berhenti di chat itu, selama kamu masih di sana. Tiga puluh menit setelah kamu diam, dia lanjut lagi — supaya pelanggan ga nunggu orang yang udah pulang. Percakapan yang ditugaskan supervisor lewat panel ga ikut kedaluwarsa.',
   ],
   [
     'Berarti atasan saya bisa melihat semua balasan saya?',
@@ -759,7 +759,7 @@ const FAQ_ITEMS: [string, string][] = [
   ],
   [
     'Saya harus belajar aplikasi baru lagi?',
-    'Chat-nya tetap chat. Yang berubah: kamu berhenti pindah-pindah HP, dan berhenti menebak siapa yang sudah membalas siapa.',
+    'Chat-nya tetap chat. Yang berubah: kamu berhenti pindah-pindah HP, dan berhenti nebak siapa yang udah bales siapa.',
   ],
   [
     'Ada masa percobaan?',
@@ -767,7 +767,7 @@ const FAQ_ITEMS: [string, string][] = [
   ],
   [
     'Berapa lama setup-nya?',
-    'Menghubungkan WhatsApp perlu satu kali scan QR. Mengundang tim beberapa menit. Yang paling menentukan hasilnya justru mengisi Knowledge — dan itu bukan pekerjaan sepuluh menit, karena isinya cara bisnismu bicara. Kabar baiknya: kamu mengisinya dengan mengobrol, dan bisa dicicil.',
+    'Hubungin WhatsApp perlu satu kali scan QR. Undang tim beberapa menit. Yang paling menentukan hasilnya justru ngisi Knowledge — dan itu bukan pekerjaan sepuluh menit, karena isinya cara bisnismu ngomong. Kabar baiknya: kamu ngisinya sambil ngobrol, dan bisa dicicil.',
   ],
 ];
 

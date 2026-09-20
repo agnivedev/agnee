@@ -8,6 +8,28 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    # Sebagian test (inbound-log, follow-up-reenable) sengaja menyentuh Postgres
+    # asli, bukan tiruan — yang diuji adalah perilaku SQL-nya sendiri (UNIQUE,
+    # DISTINCT ON, transisi enabled false->true). Tanpa DATABASE_URL kedua test
+    # itu dilewati diam-diam, jadi tenant-isolation dan billing-gate di jalur
+    # itu tidak pernah benar-benar diperiksa CI.
+    services:
+      postgres:
+        image: postgres:17-bookworm
+        env:
+          POSTGRES_USER: agnee_ci
+          POSTGRES_PASSWORD: agnee_ci
+          POSTGRES_DB: agnee_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://agnee_ci:agnee_ci@localhost:5432/agnee_ci
+      CREDENTIALS_ENCRYPTION_KEY: ci-test-key-not-used-in-prod
     steps:
       - uses: actions/checkout@v5
 
@@ -21,6 +43,20 @@ jobs:
 
       - name: Syntax check
         run: npm run check
+
+      # Terpisah dari "Run tests" supaya schema_migrations sudah terisi penuh
+      # SEBELUM file test yang menyentuh Postgres asli jalan berbarengan —
+      # migrate() tidak pakai advisory lock, jadi dua koneksi yang sama-sama
+      # menerapkan migrasi yang sama pada saat bersamaan bisa saling tabrakan.
+      - name: Apply database migrations
+        run: |
+          node -e "
+            const Database = require('./src/database');
+            new Database({ connectionString: process.env.DATABASE_URL })
+              .connect()
+              .then(() => process.exit(0))
+              .catch((err) => { console.error(err); process.exit(1); });
+          "
 
       - name: Run tests
         run: npm test

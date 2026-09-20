@@ -80,6 +80,11 @@ test('login, list chats, read and send in demo mode', async (t) => {
     sessionSecret: 'test-session-secret',
     adminEmail: 'owner@example.com',
     adminPassword: 'strong-pass',
+    // Eksplisit, bukan mengandalkan DATABASE_URL absen di lingkungan test: CI
+    // sekarang menjalankan Postgres asli untuk file lain, dan tanpa ini login
+    // diam-diam pindah dari fallback admin-password ke database.authenticateUser
+    // yang tidak mengenal user demo di atas.
+    databaseUrl: '',
   });
   t.after(() => app.close());
 

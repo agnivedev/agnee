@@ -31,8 +31,17 @@ function verifyPassword(password, stored) {
 class Database {
   constructor(options = {}) {
     this.logger = options.logger || console;
-    this.connectionString = options.connectionString || process.env.DATABASE_URL || '';
-    this.enabled = Boolean(options.pool || this.connectionString || process.env.PGHOST);
+    // connectionString eksplisit '' HARUS berarti "matikan DB", bukan jatuh ke
+    // env ambient — kalau tidak, caller yang sengaja meminta instance nonaktif
+    // (mis. test yang tidak mau menyentuh Postgres asli) diam-diam tersambung
+    // ke DATABASE_URL proses kalau kebetulan sedang diset di lingkungan itu.
+    // Hanya ketika key-nya sama sekali tidak diberikan, env dipakai — supaya
+    // `new Database()` tanpa argumen tetap berjalan seperti sebelumnya.
+    this.connectionString = options.connectionString !== undefined
+      ? options.connectionString
+      : (process.env.DATABASE_URL || '');
+    this.enabled = Boolean(options.pool || this.connectionString
+      || (options.connectionString === undefined && process.env.PGHOST));
     this.connected = false;
     this.pool = options.pool || null;
     // Symmetric key for pgcrypto (pgp_sym_encrypt/decrypt) on per-company

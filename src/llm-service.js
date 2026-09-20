@@ -71,7 +71,13 @@ class LlmService {
       return null;
     }
 
-    const chain = this.modelChain.length ? this.modelChain : [this.model];
+    // context.modelChain adalah setting company pemanggil (lihat
+    // database.getAiSettings) — ia mengalahkan this.modelChain, yang sekarang
+    // cuma fallback platform kalau company itu belum pernah menyetel chain-nya
+    // sendiri. Tanpa ini, satu instance LlmService yang dipakai semua tenant
+    // tidak bisa membedakan model pilihan tenant A dari tenant B.
+    const companyChain = Array.isArray(context.modelChain) ? context.modelChain.filter(Boolean) : [];
+    const chain = companyChain.length ? companyChain : (this.modelChain.length ? this.modelChain : [this.model]);
     let lastError;
 
     for (const model of chain) {

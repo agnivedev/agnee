@@ -376,7 +376,7 @@ function styleWarnings(text, expectations = {}) {
  * Returns null when the LLM is unavailable or returns unusable output, so the
  * caller can still show the rule-based result on its own.
  */
-async function judgeReply(llmService, { customerMessage, reply, context, transcript = [] }) {
+async function judgeReply(llmService, { customerMessage, reply, context, transcript = [], companyId, modelChain }) {
   if (!llmService?.enabled) return null;
 
   const history = transcript.length
@@ -439,7 +439,7 @@ ${customerMessage}
 Balasan CS yang dinilai:
 ${reply}`;
 
-  const result = await llmService.generateReply(userPrompt, { systemPrompt }).catch(() => null);
+  const result = await llmService.generateReply(userPrompt, { systemPrompt, companyId, purpose: 'judge', modelChain }).catch(() => null);
   if (!result?.text) return null;
 
   const raw = String(result.text).replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();

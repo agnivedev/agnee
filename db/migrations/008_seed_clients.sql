@@ -31,8 +31,10 @@ WHERE NOT EXISTS (SELECT 1 FROM companies WHERE lower(slug) = 'beweix-digital');
 
 -- ============================================================
 -- USERS — Trader's Mastermind
--- Temp password ferafx20@gmail.com : ferafx202026
--- Temp password hannyfx20@gmail.com: hannyfx202026
+-- Password sementara sudah dirotasi — lihat catatan operasional internal,
+-- bukan git, untuk kredensial aktif. Jangan taruh password plaintext di sini
+-- lagi walau sudah diganti; komentar ini pernah memuatnya dan itu insiden
+-- tersendiri (lihat audit keamanan 2026-09-20).
 -- ============================================================
 INSERT INTO users (email, display_name, password_hash)
 SELECT
@@ -48,7 +50,8 @@ WHERE NOT EXISTS (SELECT 1 FROM users WHERE lower(email) = 'hannyfx20@gmail.com'
 
 -- ============================================================
 -- USERS — Beweix Digital
--- Temp password: beweix2026
+-- Password sementara sudah dirotasi — lihat catatan operasional internal,
+-- bukan git, untuk kredensial aktif.
 -- ============================================================
 INSERT INTO users (email, display_name, password_hash)
 SELECT

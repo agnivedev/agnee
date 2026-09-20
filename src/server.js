@@ -388,17 +388,30 @@ async function buildApp(overrides = {}) {
       }, companyId).catch(() => { /* pencatatan tidak boleh menjatuhkan balasan */ });
     },
   });
-  // Runtime AI settings — survive without restart, reset on next deploy
-  const aiSettings = {
-    enabled: llmService.enabled,
-    modelChain: [],
-  };
   const database = overrides.database || new Database({
     connectionString: config.databaseUrl,
     logger: app.log,
     credentialsEncryptionKey: config.credentialsEncryptionKey,
   });
   await database.connect();
+
+  /**
+   * Setting AI efektif untuk SATU company: gabungan saklar platform
+   * (llmService.enabled — mati kalau OPENROUTER_API_KEY tidak diset) dan
+   * saklar+model chain milik company itu sendiri (lihat migrasi 033).
+   *
+   * Tanpa ini, satu instance LlmService yang melayani semua tenant tidak
+   * bisa membedakan "tenant A minta AI dimatikan" dari "tenant B masih pakai
+   * AI" — persis bug yang membuat /v1/admin/ai-settings dulu global.
+   */
+  async function getCompanyAi(companyId) {
+    if (!companyId || !database.enabled || !database.connected || typeof database.getAiSettings !== 'function') {
+      return { enabled: llmService.enabled, modelChain: [] };
+    }
+    const settings = await database.getAiSettings(companyId).catch(() => ({ enabled: true, modelChain: [] }));
+    return { enabled: llmService.enabled && settings.enabled !== false, modelChain: settings.modelChain || [] };
+  }
+
   const cloudApiManager = new CloudApiManager(database);
   if (config.llmEnabled) await knowledgeBase.load();
   // Initialise demo company state if in demo mode
@@ -769,6 +782,8 @@ async function buildApp(overrides = {}) {
     if (!config.llmEnabled) return null;
     if (message.from.endsWith('@g.us')) return null;
     if (!message.body || !message.body.trim()) return null;
+    const companyAi = await getCompanyAi(companyId);
+    if (!companyAi.enabled) return null;
     const routing = await getRouting(message.from, companyId);
     if (routing.mode === 'human') return null;
 
@@ -881,7 +896,7 @@ async function buildApp(overrides = {}) {
         : `Customer membalas "${message.body}" lagi, dan kamu SUDAH berterima kasih di giliran sebelumnya.\n\nJangan berterima kasih lagi, jangan mengulang kalimat yang sudah kamu kirim, jangan bertanya apa pun, jangan menanyakan maksudnya, jangan menawarkan produk, jangan menyebut harga, jangan mengirim link.\n\nTulis paling banyak DUA kalimat pendek dengan persona kamu yang menambahkan satu keterangan BARU dan berguna tentang apa yang sudah disepakati — misalnya apa yang terjadi berikutnya atau apa yang bisa disiapkan. Ambil keterangannya dari playbook, jangan mengarang. Keluarkan HANYA kalimatnya.`;
 
       const lanjutan = await llmService.generateReply(perintah,
-        { systemPrompt: ctx.systemPrompt, history: conversationHistory, companyId, purpose: 'auto_reply' },
+        { systemPrompt: ctx.systemPrompt, history: conversationHistory, companyId, purpose: 'auto_reply', modelChain: companyAi.modelChain },
       ).catch(() => null);
       const teksLanjutan = stripLinks(lanjutan?.text || '');
       app.log.info({ companyId, chatId: message.from, ronde },
@@ -907,7 +922,7 @@ async function buildApp(overrides = {}) {
     if (jenisBalasanPendek === 'ambiguous') {
       const clarification = await llmService.generateReply(
         `Customer membalas "${message.body}". Percakapan sebelumnya tidak memuat pilihan bernomor atau pertanyaan yang dirujuk balasan itu, jadi kamu belum tahu persis maksudnya.\n\nJANGAN menanyakan apa maksudnya, jangan menulis "maksudnya yang mana", jangan memintanya menjelaskan diri. Ditanyai begitu membuat customer merasa disalahkan.\n\nTulis paling banyak DUA kalimat pendek dengan persona kamu: akui dulu balasannya dengan ramah, lalu tawarkan satu langkah lanjutan yang konkret sesuai playbook supaya customer tinggal memilih. Jangan menyebut harga, jangan mengirim link, jangan menebak dia sudah setuju membeli. Keluarkan HANYA kalimatnya.`,
-        { systemPrompt: ctx.systemPrompt, history: conversationHistory, companyId, purpose: 'auto_reply' },
+        { systemPrompt: ctx.systemPrompt, history: conversationHistory, companyId, purpose: 'auto_reply', modelChain: companyAi.modelChain },
       ).catch(() => null);
       const asked = stripLinks(clarification?.text || '');
       if (asked) return asked;
@@ -921,6 +936,7 @@ async function buildApp(overrides = {}) {
       history: conversationHistory,
       companyId,
       purpose: 'auto_reply',
+      modelChain: companyAi.modelChain,
     });
     if (!result?.text) return null;
 
@@ -1203,7 +1219,8 @@ async function buildApp(overrides = {}) {
     const jobKey = `${cacheKey}:${fingerprint.sourceMessageId || fingerprint.sourceTimestamp}:${fingerprint.sourceCount}`;
     if (summaryJobs.has(jobKey)) return summaryJobs.get(jobKey);
     const job = (async () => {
-      if (!llmService.enabled) throw new Error('AI summary is unavailable');
+      const companyAi = await getCompanyAi(cid);
+      if (!companyAi.enabled) throw new Error('AI summary is unavailable');
       const mediaLabels = normalizedLocale === 'en'
         ? { call_log: '[WhatsApp call]', image: '[Photo]', video: '[Video]', document: '[Document]', audio: '[Audio]', ptt: '[Voice message]', sticker: '[Sticker]' }
         : { call_log: '[Panggilan WhatsApp]', image: '[Foto]', video: '[Video]', document: '[Dokumen]', audio: '[Audio]', ptt: '[Pesan suara]', sticker: '[Stiker]' };
@@ -1234,7 +1251,7 @@ async function buildApp(overrides = {}) {
             sebelumnya.labelsEditedAt ? '\nLabel di atas ditetapkan manusia. Pertahankan; tambah label baru hanya kalau jelas diperlukan.' : ''}`)
         : '';
 
-      const result = await llmService.generateReply(transcript, { systemPrompt: systemPrompt + konteksLama, companyId: cid, purpose: 'summary' });
+      const result = await llmService.generateReply(transcript, { systemPrompt: systemPrompt + konteksLama, companyId: cid, purpose: 'summary', modelChain: companyAi.modelChain });
       if (!result?.text) throw new Error('AI did not return a summary');
       const usage = normalizeUsage(result);
       const insight = parseConversationInsight(result.text, normalizedLocale);
@@ -1726,10 +1743,13 @@ async function buildApp(overrides = {}) {
         if (!conn) { app.log.warn({ phoneNumberId }, 'Cloud API webhook: unknown phone_number_id'); continue; }
 
         // Verify HMAC signature once per entry (same raw body, same secret for all messages).
+        // A missing header must be rejected exactly like a wrong one — app_secret_enc
+        // is NOT NULL, so conn.appSecret is always set and this check is never optional.
         const sig = request.headers['x-hub-signature-256'] || '';
-        if (conn.appSecret && sig) {
-          const expected = 'sha256=' + crypto.createHmac('sha256', conn.appSecret).update(request.rawBody).digest('hex');
-          if (sig !== expected) { app.log.warn({ phoneNumberId }, 'Cloud API webhook: bad signature'); return reply.code(401).send('Unauthorized'); }
+        const expected = 'sha256=' + crypto.createHmac('sha256', conn.appSecret).update(request.rawBody).digest('hex');
+        if (!sig || !safeEqual(sig, expected)) {
+          app.log.warn({ phoneNumberId }, 'Cloud API webhook: bad signature');
+          return reply.code(401).send('Unauthorized');
         }
 
         // Meta mengirim nama profil di larik terpisah, dipasangkan lewat wa_id.
@@ -2370,7 +2390,8 @@ async function buildApp(overrides = {}) {
    *    memakai model di luar batas yang dibayar company.
    */
   async function answerNoteMention({ chatId, parentId, question, companyId, askerUserId = null }) {
-    if (!llmService.enabled) return null;
+    const companyAi = await getCompanyAi(companyId);
+    if (!companyAi.enabled) return null;
     if (coachRateLimited(companyId)) {
       app.log.warn({ companyId }, 'Note mention skipped — coach rate limit');
       return null;
@@ -2408,6 +2429,9 @@ dikirim ke customer.
 ## CATATAN SEBELUMNYA DI UTAS INI
 ${thread || '(belum ada)'}`,
       leadState: ctx.leadState,
+      companyId,
+      purpose: 'note_mention',
+      modelChain: companyAi.modelChain,
     });
     if (!result?.text) return null;
 
@@ -2569,11 +2593,10 @@ ${thread || '(belum ada)'}`,
     };
   });
 
-  app.get('/v1/admin/ai-settings', async () => ({
-    enabled: aiSettings.enabled,
-    modelChain: aiSettings.modelChain,
-    defaultModel: config.openrouterModel,
-  }));
+  app.get('/v1/admin/ai-settings', async (request) => {
+    const settings = await getCompanyAi(request.agneeSession.companyId);
+    return { enabled: settings.enabled, modelChain: settings.modelChain, defaultModel: config.openrouterModel };
+  });
 
   app.patch('/v1/admin/ai-settings', {
     schema: {
@@ -2590,16 +2613,18 @@ ${thread || '(belum ada)'}`,
         },
       },
     },
-  }, async (request) => {
-    if (typeof request.body.enabled === 'boolean') {
-      aiSettings.enabled = request.body.enabled;
-      llmService.enabled = request.body.enabled && !!llmService.apiKey;
+  }, async (request, reply) => {
+    // Disetel ke baris company milik pemanggil saja (database.setAiSettings
+    // scoped lewat companyId) — bukan lagi objek proses yang dibagi semua
+    // tenant. Lihat migrasi 033 untuk kenapa ini penting.
+    if (typeof database.setAiSettings !== 'function') {
+      return reply.code(503).send({ error: 'Penyimpanan setting AI per company belum tersedia.' });
     }
-    if (Array.isArray(request.body.modelChain)) {
-      aiSettings.modelChain = request.body.modelChain.filter(Boolean);
-      llmService.modelChain = aiSettings.modelChain;
-    }
-    return { ok: true, enabled: aiSettings.enabled, modelChain: aiSettings.modelChain };
+    const patch = {};
+    if (typeof request.body.enabled === 'boolean') patch.enabled = request.body.enabled;
+    if (Array.isArray(request.body.modelChain)) patch.modelChain = request.body.modelChain.filter(Boolean);
+    const settings = await database.setAiSettings(request.agneeSession.companyId, patch);
+    return { ok: true, enabled: settings.enabled, modelChain: settings.modelChain };
   });
 
   app.post('/v1/admin/playground/auto-reply', {
@@ -2615,7 +2640,8 @@ ${thread || '(belum ada)'}`,
       },
     },
   }, async (request, reply) => {
-    if (!llmService.enabled) {
+    const companyAi = await getCompanyAi(request.agneeSession.companyId);
+    if (!companyAi.enabled) {
       return reply.code(503).send({ error: 'OpenRouter belum aktif. Periksa LLM_ENABLED dan OPENROUTER_API_KEY.' });
     }
 
@@ -2644,6 +2670,7 @@ ${thread || '(belum ada)'}`,
       relevantFaqs,
       companyId: request.agneeSession.companyId,
       purpose: 'playground',
+      modelChain: companyAi.modelChain,
     });
     if (!result) return reply.code(502).send({ error: 'OpenRouter tidak menghasilkan balasan.' });
 
@@ -2936,8 +2963,9 @@ ${thread || '(belum ada)'}`,
       return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengubah sumber kebenaran.' });
     }
     if (!requireCoachDb(reply)) return;
-    if (!llmService.enabled) return reply.code(503).send({ error: 'AI belum aktif. Periksa OPENROUTER_API_KEY.' });
     const companyId = request.agneeSession.companyId;
+    const companyAi = await getCompanyAi(companyId);
+    if (!companyAi.enabled) return reply.code(503).send({ error: 'AI belum aktif. Periksa OPENROUTER_API_KEY.' });
     if (coachRateLimited(companyId)) {
       return reply.code(429).send({ error: 'Terlalu banyak permintaan AI. Coba lagi nanti.' });
     }
@@ -2979,7 +3007,7 @@ Aturan:
 - priority 1 = tanpa ini AI tidak bisa jual, 2 = penting, 3 = pelengkap.
 - Tanyakan hal spesifik bisnis (nama produk, harga, cara bayar, syarat), bukan hal umum.`;
 
-    const result = await llmService.generateReply('Apa lagi yang perlu Anda ketahui?', { systemPrompt, companyId: request.agneeSession.companyId, purpose: 'coach' }).catch(() => null);
+    const result = await llmService.generateReply('Apa lagi yang perlu Anda ketahui?', { systemPrompt, companyId, purpose: 'coach', modelChain: companyAi.modelChain }).catch(() => null);
     if (!result?.text) return reply.code(502).send({ error: 'AI tidak menghasilkan pertanyaan.' });
 
     const raw = String(result.text).replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
@@ -3110,7 +3138,8 @@ Aturan:
     if (mode !== 'ai' && !String(request.body.humanReply || '').trim()) {
       return reply.code(400).send({ error: 'Isi dulu balasan yang mau dinilai.' });
     }
-    if (!llmService.enabled && (mode === 'ai' || grade)) {
+    const companyAi = await getCompanyAi(companyId);
+    if (!companyAi.enabled && (mode === 'ai' || grade)) {
       return reply.code(503).send({ error: 'AI belum aktif. Periksa OPENROUTER_API_KEY.' });
     }
     if (coachRateLimited(companyId)) {
@@ -3134,6 +3163,7 @@ Aturan:
         history,
         companyId,
         purpose: 'simulate',
+        modelChain: companyAi.modelChain,
       }).catch(() => null);
       if (!generated?.text && mode === 'ai') {
         return reply.code(502).send({ error: 'AI tidak menghasilkan balasan.' });
@@ -3175,6 +3205,8 @@ Aturan:
         reply: gradedReply,
         context: await coachSourceOfTruth(companyId),
         transcript,
+        companyId,
+        modelChain: companyAi.modelChain,
       });
     }
 
@@ -3255,8 +3287,9 @@ Aturan:
       return reply.code(403).send({ error: 'Hanya supervisor yang dapat meninjau balasan agent.' });
     }
     if (!requireCoachDb(reply)) return;
-    if (!llmService.enabled) return reply.code(503).send({ error: 'AI belum aktif. Periksa OPENROUTER_API_KEY.' });
     const companyId = request.agneeSession.companyId;
+    const companyAi = await getCompanyAi(companyId);
+    if (!companyAi.enabled) return reply.code(503).send({ error: 'AI belum aktif. Periksa OPENROUTER_API_KEY.' });
     const userId = request.agneeSession.userId;
     if (coachRateLimited(companyId)) {
       return reply.code(429).send({ error: 'Terlalu banyak permintaan AI. Coba lagi nanti.' });
@@ -3283,6 +3316,8 @@ Aturan:
       reply: record.body,
       context: await coachSourceOfTruth(companyId),
       transcript: [],
+      companyId,
+      modelChain: companyAi.modelChain,
     });
 
     const newGaps = judge?.missingInfo?.length
@@ -3405,8 +3440,9 @@ Cara kerjamu:
   }, async (request, reply) => {
     if (!requireCoachSupervisor(request, reply)) return;
     if (!requireCoachDb(reply)) return;
-    if (!llmService.enabled) return reply.code(503).send({ error: 'Mesin AI belum aktif.' });
     const companyId = request.agneeSession.companyId;
+    const companyAi = await getCompanyAi(companyId);
+    if (!companyAi.enabled) return reply.code(503).send({ error: 'Mesin AI belum aktif.' });
     if (coachRateLimited(companyId)) {
       return reply.code(429).send({ error: 'Terlalu banyak permintaan. Coba lagi beberapa menit.' });
     }
@@ -3419,6 +3455,7 @@ Cara kerjamu:
       history: interview,
       companyId,
       purpose: 'playbook_chat',
+      modelChain: companyAi.modelChain,
     });
     if (!result) return reply.code(502).send({ error: 'Mesin AI tidak memberi jawaban.' });
 
@@ -3443,8 +3480,9 @@ Cara kerjamu:
   }, async (request, reply) => {
     if (!requireCoachSupervisor(request, reply)) return;
     if (!requireCoachDb(reply)) return;
-    if (!llmService.enabled) return reply.code(503).send({ error: 'Mesin AI belum aktif.' });
     const companyId = request.agneeSession.companyId;
+    const companyAi = await getCompanyAi(companyId);
+    if (!companyAi.enabled) return reply.code(503).send({ error: 'Mesin AI belum aktif.' });
     if (coachRateLimited(companyId)) {
       return reply.code(429).send({ error: 'Terlalu banyak permintaan. Coba lagi beberapa menit.' });
     }
@@ -3471,6 +3509,7 @@ Aturan:
 - Keluarkan Markdown-nya saja, tanpa pembuka atau penutup.`,
         companyId,
         purpose: 'playbook_compile',
+        modelChain: companyAi.modelChain,
       },
     );
     if (!result) return reply.code(502).send({ error: 'Mesin AI tidak dapat menyusun playbook.' });
@@ -3667,8 +3706,9 @@ Aturan:
   }, async (request, reply) => {
     if (!requireCoachSupervisor(request, reply)) return;
     if (!requireCoachDb(reply)) return;
-    if (!llmService.enabled) return reply.code(503).send({ error: 'Mesin AI belum aktif.' });
     const companyId = request.agneeSession.companyId;
+    const companyAi = await getCompanyAi(companyId);
+    if (!companyAi.enabled) return reply.code(503).send({ error: 'Mesin AI belum aktif.' });
     if (coachRateLimited(companyId)) {
       return reply.code(429).send({ error: 'Terlalu banyak permintaan. Coba lagi beberapa menit.' });
     }
@@ -5595,6 +5635,8 @@ Aturan:
         return routing?.mode === 'human';
       },
       generate: async (companyId, chatId, prompt) => {
+        const companyAi = await getCompanyAi(companyId);
+        if (!companyAi.enabled) return null;
         // The AI quota covers follow-ups too: they are messages the customer
         // receives, so they must not be a way around the plan limit.
         const usage = await database.incrementAiMessageCount(companyId).catch(() => ({ exceeded: false }));
@@ -5608,6 +5650,7 @@ Aturan:
           leadState: ctx.leadState,
           companyId,
           purpose: 'follow_up',
+          modelChain: companyAi.modelChain,
         });
         return result?.text || null;
       },

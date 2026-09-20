@@ -817,10 +817,38 @@ class Database {
              payment_method AS "paymentMethod", payment_link AS "paymentLink",
              bank_name AS "bankName", bank_account AS "bankAccount",
              bank_holder AS "bankHolder", payment_notes AS "paymentNotes",
-             whatsapp_provider AS "whatsappProvider"
+             whatsapp_provider AS "whatsappProvider",
+             ai_enabled AS "aiEnabled", ai_model_chain AS "aiModelChain"
       FROM companies WHERE id = $1
     `, [companyId]);
     return result.rows[0] || null;
+  }
+
+  /**
+   * Setting AI milik SATU company — dibaca sebelum tiap panggilan LLM supaya
+   * "matikan AI" atau "ganti model" seorang supervisor tidak pernah menembus
+   * ke company lain (lihat migrasi 033).
+   */
+  async getAiSettings(companyId) {
+    if (!this.enabled) return { enabled: true, modelChain: [] };
+    const result = await this.pool.query(
+      `SELECT ai_enabled AS "aiEnabled", ai_model_chain AS "aiModelChain" FROM companies WHERE id = $1`,
+      [companyId],
+    );
+    const row = result.rows[0];
+    return { enabled: row ? row.aiEnabled !== false : true, modelChain: row?.aiModelChain || [] };
+  }
+
+  async setAiSettings(companyId, { enabled, modelChain }) {
+    if (!this.enabled) return null;
+    const sets = [];
+    const values = [];
+    if (typeof enabled === 'boolean') { values.push(enabled); sets.push(`ai_enabled = $${values.length}`); }
+    if (Array.isArray(modelChain)) { values.push(modelChain); sets.push(`ai_model_chain = $${values.length}`); }
+    if (!sets.length) return this.getAiSettings(companyId);
+    values.push(companyId);
+    await this.pool.query(`UPDATE companies SET ${sets.join(', ')} WHERE id = $${values.length}`, values);
+    return this.getAiSettings(companyId);
   }
 
   /** Self-serve signup: creates company + owner user + WA connection slot in one transaction. */

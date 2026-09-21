@@ -149,3 +149,37 @@ test('lonceng penerima didorong lewat SSE, tanpa membawa isi notifikasinya', asy
   assert.deepEqual(dorongan[0].userIds, ['agent-1']);
   assert.equal('body' in dorongan[0], false);
 });
+
+test('stempel yang tertinggal beberapa mikrodetik tetap dianggap menutup penantian', async () => {
+  // PostgreSQL menyimpan mikrodetik, Date JavaScript hanya milidetik, jadi
+  // stempel yang ditulis balik selalu sedikit LEBIH TUA dari pesan yang
+  // ditandainya. Terukur di produksi: 814 mikrodetik. Kalau selisih sekecil itu
+  // dianggap "penantian baru", notifikasi yang sama dikirim ulang tiap lima
+  // menit sampai orangnya mematikan loncengnya.
+  const menunggu = senin(9);
+  const stempelTertinggal = new Date(menunggu.getTime() - 1); // 1 ms lebih tua
+  const db = fakeDatabase([{
+    ...tugasDasar, menungguSejak: menunggu,
+    slaWarnedAt: stempelTertinggal, slaEscalatedAt: stempelTertinggal,
+  }]);
+  const hasil = await putaranSla({ database: db, sekarangMs: senin(15).getTime() });
+
+  assert.equal(hasil.diperingatkan, 0);
+  assert.equal(hasil.dieskalasi, 0);
+  assert.equal(db.notifikasi.length, 0);
+});
+
+test('toleransi tidak membuat tugas yang belum pernah ditandai ikut terlewat', async () => {
+  const db = fakeDatabase([{ ...tugasDasar, slaWarnedAt: null, slaEscalatedAt: null }]);
+  const hasil = await putaranSla({ database: db, sekarangMs: senin(11, 5).getTime() });
+  assert.equal(hasil.diperingatkan, 1);
+});
+
+test('penantian yang benar-benar baru tetap memicu, bukan tertelan toleransi', async () => {
+  // Pesan baru 5 menit setelah stempel — jauh di atas toleransi 1 detik.
+  const db = fakeDatabase([{
+    ...tugasDasar, slaWarnedAt: senin(11, 5), menungguSejak: senin(11, 10),
+  }]);
+  const hasil = await putaranSla({ database: db, sekarangMs: senin(13, 15).getTime() });
+  assert.equal(hasil.diperingatkan, 1);
+});

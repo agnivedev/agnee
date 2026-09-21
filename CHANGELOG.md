@@ -35,6 +35,19 @@
   Diverifikasi juga terhadap PostgreSQL sungguhan, bukan hanya tiruan: satu
   percakapan uji dibuat, ditemukan query, menghasilkan satu notifikasi, stempel
   tersimpan, putaran kedua diam, lalu datanya dihapus lagi.
+  Putaran pertama di produksi memeriksa 4 tugas, memperingatkan 3, dan
+  mengeskalasi 3 — ketiganya sudah menunggu 18–29 **jam kerja**, yaitu dua
+  sampai tiga hari kerja, dan semuanya dipegang satu orang yang sama. Tidak ada
+  yang mengetahuinya sampai fitur ini hidup.
+  Satu pengerasan yang muncul dari pemeriksaan produksi itu: stempel yang
+  ditulis balik selalu beberapa ratus mikrodetik lebih tua dari pesan yang
+  ditandainya, karena PostgreSQL menyimpan mikrodetik sementara `Date`
+  JavaScript hanya milidetik (terukur 814 dan 384 mikrodetik). Hari ini
+  perbandingannya tetap imbang karena kedua nilai terpotong oleh driver yang
+  sama — tapi kalau itu bergeser sedikit saja, notifikasi yang sama dikirim
+  ulang setiap lima menit, dan lonceng yang berbunyi terus adalah lonceng yang
+  dimatikan orang. Perbandingannya sekarang memakai toleransi satu detik yang
+  ditulis eksplisit, bukan bergantung pada kebetulan.
 
 ### Added
 

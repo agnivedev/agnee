@@ -139,6 +139,13 @@ function sebagaiDurasi(menit) {
   return `${sisa} menit`;
 }
 
+/**
+ * Selisih yang masih dianggap "stempel ini menutup penantian itu". Satu detik
+ * jauh lebih besar dari beda presisi yang mungkin terjadi, dan jauh lebih kecil
+ * dari jarak antar pesan customer yang masuk akal.
+ */
+const TOLERANSI_MS = 1_000;
+
 /** Peran yang dianggap supervisor — sama dengan normalizeRole() di server. */
 const PERAN_SUPERVISOR = ['owner', 'supervisor', 'admin'];
 
@@ -161,7 +168,9 @@ async function putaranSla({ database, sekarangMs = Date.now(), log = console, on
     try {
       const menungguSejakMs = new Date(tugas.menungguSejak).getTime();
       if (!Number.isFinite(menungguSejakMs)) continue;
-      const stempel = (nilai) => (nilai ? new Date(nilai).getTime() : 0);
+      // -Infinity, bukan 0: stempel yang belum pernah ada tidak boleh menjadi
+      // "sudah diberitahukan" hanya karena toleransi di bawah.
+      const stempel = (nilai) => (nilai ? new Date(nilai).getTime() : -Infinity);
 
       const hasil = statusSla({
         prioritas: tugas.priority,
@@ -171,8 +180,17 @@ async function putaranSla({ database, sekarangMs = Date.now(), log = console, on
         // Stempel dibandingkan dengan waktu pesan yang sedang ditunggu: kalau
         // customer mengirim pesan BARU setelah peringatan terakhir, penantian
         // ini belum pernah diberitahukan.
-        sudahDiperingatkan: stempel(tugas.slaWarnedAt) >= menungguSejakMs,
-        sudahDieskalasi: stempel(tugas.slaEscalatedAt) >= menungguSejakMs,
+        //
+        // TOLERANSI_MS ada karena PostgreSQL menyimpan mikrodetik sementara
+        // Date JavaScript hanya milidetik: stempel yang ditulis balik selalu
+        // beberapa ratus mikrodetik LEBIH TUA dari pesan yang ditandainya
+        // (terukur di produksi: 814 dan 384 mikrodetik). Hari ini keduanya
+        // kebetulan sama-sama terpotong oleh driver yang sama, jadi
+        // perbandingannya imbang — tapi kalau itu bergeser sedikit saja,
+        // akibatnya notifikasi yang sama dikirim ulang setiap lima menit, dan
+        // lonceng yang berbunyi terus adalah lonceng yang dimatikan orang.
+        sudahDiperingatkan: stempel(tugas.slaWarnedAt) + TOLERANSI_MS >= menungguSejakMs,
+        sudahDieskalasi: stempel(tugas.slaEscalatedAt) + TOLERANSI_MS >= menungguSejakMs,
       });
       if (!hasil.peringatkanAgent && !hasil.eskalasiKeSupervisor) continue;
 

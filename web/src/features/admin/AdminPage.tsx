@@ -550,19 +550,24 @@ function Playground({ config }: { config: Config | null }) {
     <>
       <SettingCard eyebrow={t('admin.input')} title={t('admin.customerMessage')}>
         <form onSubmit={submit} className="grid gap-3">
-          <select
-            value={clientId}
-            onChange={(event) => setClientId(event.target.value)}
-            required
-            aria-label={t('admin.knowledgeClient')}
-            className="rounded-app border border-input bg-white/60 px-3 py-2.5 text-sm"
-          >
-            {config?.knowledgeClients.map((client) => (
-              <option key={client.id} value={client.id}>
-                {client.name}
-              </option>
-            ))}
-          </select>
+          {/* Pelanggan hanya punya satu pack — miliknya sendiri — jadi tidak ada
+              yang bisa dipilih. Pemilihnya hanya muncul untuk staf platform,
+              yang memang boleh menguji pack mana pun. */}
+          {(config?.knowledgeClients.length ?? 0) > 1 && (
+            <select
+              value={clientId}
+              onChange={(event) => setClientId(event.target.value)}
+              required
+              aria-label={t('admin.knowledgeClient')}
+              className="rounded-app border border-input bg-white/60 px-3 py-2.5 text-sm"
+            >
+              {config?.knowledgeClients.map((client) => (
+                <option key={client.id} value={client.id}>
+                  {client.name}
+                </option>
+              ))}
+            </select>
+          )}
           <textarea
             rows={6}
             maxLength={2000}

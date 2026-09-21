@@ -46,8 +46,22 @@ process.on('uncaughtException', (error) => {
   console.error('Uncaught exception (WhatsApp adapter kept alive):', error);
 });
 
+/**
+ * Alamat yang boleh dipercaya sebagai proxy di depan app ini: loopback dan
+ * jaringan bridge Docker. Ini default-nya, bukan `false`, karena setiap
+ * deployment Agnee berjalan di belakang Nginx di dalam Compose — dan `false`
+ * membuat `request.ip` menjadi IP proxy untuk SEMUA orang, sehingga rate limit
+ * login yang seharusnya per IP berubah jadi satu ember untuk seluruh platform
+ * (10 login gagal dari siapa pun mengunci semua tenant 15 menit).
+ *
+ * Aman juga untuk deployment tanpa proxy: kalau permintaan datang langsung
+ * dari alamat di luar daftar ini, allowlist tidak cocok dan yang dipakai tetap
+ * alamat soket — header X-Forwarded-For kiriman klien diabaikan.
+ */
+const DEFAULT_TRUSTED_PROXIES = '127.0.0.1,::1,172.16.0.0/12';
+
 function parseTrustProxy(value) {
-  if (value === undefined || value === '') return false;
+  if (value === undefined || value === '') return DEFAULT_TRUSTED_PROXIES;
   const raw = String(value).trim();
   if (raw === 'true') return true;
   if (raw === 'false') return false;
@@ -82,8 +96,8 @@ function loadConfig(overrides = {}) {
     databaseUrl: process.env.DATABASE_URL || '',
     credentialsEncryptionKey: process.env.CREDENTIALS_ENCRYPTION_KEY || '',
     cloudApiWebhookVerifyToken: process.env.CLOUD_API_WEBHOOK_VERIFY_TOKEN || '',
-    // Only trust X-Forwarded-For when an explicit proxy allowlist/hop count is set.
-    // Without this, any client can spoof the header and bypass IP rate limiting.
+    // X-Forwarded-For hanya dipercaya kalau permintaannya datang DARI alamat
+    // proxy yang terdaftar; header kiriman klien langsung tetap diabaikan.
     trustProxy: parseTrustProxy(process.env.TRUST_PROXY),
     ...overrides,
   };
@@ -403,6 +417,17 @@ async function buildApp(overrides = {}) {
   // daripada melayani tanpa data.
   if (process.env.NODE_ENV === 'production' && !database.enabled) {
     throw new Error('Production requires a database — set DATABASE_URL or the PG* environment variables');
+  }
+  // Dua bentuk TRUST_PROXY yang diam-diam tidak melakukan yang dikira orang.
+  // Diukur pada Fastify 5.12.1 dengan soket dari gateway Docker:
+  // `true` memakai entri PALING KIRI di X-Forwarded-For — itu kiriman klien,
+  // jadi satu header palsu per permintaan sudah melewati rate limit; angka
+  // hop justru tetap menghasilkan IP proxy, jadi tidak memperbaiki apa pun.
+  // Keduanya sah dipilih orang yang tahu risikonya, tapi tidak boleh senyap.
+  if (config.trustProxy === true) {
+    app.log.warn('TRUST_PROXY=true mempercayai seluruh rantai X-Forwarded-For — IP klien bisa dipalsukan dan rate limit login bisa dilewati. Pakai daftar alamat proxy.');
+  } else if (typeof config.trustProxy === 'number') {
+    app.log.warn('TRUST_PROXY berupa angka hop tidak menghasilkan IP klien asli pada Fastify 5 — request.ip tetap IP proxy. Pakai daftar alamat proxy.');
   }
   await database.connect();
 
@@ -2582,18 +2607,35 @@ ${thread || '(belum ada)'}`,
     agnee: 'Agnee by Agnive (internal)',
   };
 
-  app.get('/v1/admin/config', async (request) => {
-    const companyId = request.agneeSession?.companyId;
+  /**
+   * Pack knowledge yang BOLEH dipakai pemanggil ini.
+   *
+   * Isinya FAQ, harga, funnel, dan reply policy milik satu pelanggan —
+   * `ENTITLEMENT_FIELDS` di atas menyebutnya proprietary, per-customer, dan
+   * hanya staf platform yang boleh mengubahnya. Tapi daftar ini dulu memuat
+   * SEMUA pack, dan playground menerima pack mana pun dari daftar itu: satu
+   * supervisor pelanggan bisa membaca isi pack pelanggan lain lewat jawaban
+   * AI. Sekarang pelanggan hanya melihat dan hanya boleh memakai pack-nya
+   * sendiri; staf platform tetap bisa memilih semuanya untuk menguji.
+   */
+  async function knowledgeClientFor(session) {
+    const companyId = session?.companyId;
     const companyConfig = companyId && database.status().connected
       ? await database.getCompanyConfig(companyId).catch(() => null)
       : null;
-    const activeClient = companyConfig?.knowledgeClient || config.knowledgeClient;
+    return companyConfig?.knowledgeClient || config.knowledgeClient;
+  }
 
-    // Available clients: all known except 'agnee' for external companies
-    const isInternal = activeClient === 'agnee' || !companyId;
-    const knowledgeClients = Object.entries(KNOWLEDGE_CLIENT_NAMES)
-      .filter(([id]) => isInternal || id !== 'agnee')
-      .map(([id, name]) => ({ id, name }));
+  function allowedKnowledgeClients(session, activeClient) {
+    if (isPlatformAdmin(session)) {
+      return Object.entries(KNOWLEDGE_CLIENT_NAMES).map(([id, name]) => ({ id, name }));
+    }
+    return [{ id: activeClient, name: KNOWLEDGE_CLIENT_NAMES[activeClient] || activeClient }];
+  }
+
+  app.get('/v1/admin/config', async (request) => {
+    const activeClient = await knowledgeClientFor(request.agneeSession);
+    const knowledgeClients = allowedKnowledgeClients(request.agneeSession, activeClient);
 
     return {
       llmEnabled: Boolean(llmService.enabled),
@@ -2651,6 +2693,17 @@ ${thread || '(belum ada)'}`,
       },
     },
   }, async (request, reply) => {
+    // Otorisasi lebih dulu, sebelum cek ketersediaan apa pun. Enum di schema
+    // hanya memastikan pack-nya ada, bukan bahwa pack itu milik perusahaan ini
+    // — tanpa pemeriksaan ini playground jadi pembaca isi pack pelanggan lain.
+    // Kalau ditaruh setelah gerbang "OpenRouter aktif", jawaban untuk pack
+    // orang lain berubah-ubah mengikuti status LLM, dan itu sendiri sudah
+    // memberi tahu pemanggil bahwa pack itu ada.
+    const activeClient = await knowledgeClientFor(request.agneeSession);
+    if (request.body.clientId !== activeClient && !isPlatformAdmin(request.agneeSession)) {
+      return reply.code(403).send({ error: 'Playground hanya bisa memakai knowledge milik perusahaan ini.' });
+    }
+
     const companyAi = await getCompanyAi(request.agneeSession.companyId);
     if (!companyAi.enabled) {
       return reply.code(503).send({ error: 'OpenRouter belum aktif. Periksa LLM_ENABLED dan OPENROUTER_API_KEY.' });

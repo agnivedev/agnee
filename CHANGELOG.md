@@ -1,5 +1,43 @@
 ## [Unreleased]
 
+### Security
+
+- **Rate limit login berlaku untuk seluruh platform, bukan per IP.** Di
+  produksi app berada di belakang Nginx, tapi `TRUST_PROXY` tidak pernah diisi,
+  jadi `request.ip` adalah IP gateway Docker untuk SETIAP permintaan — satu
+  ember rate limit untuk semua tenant. Sepuluh login gagal dari siapa pun,
+  termasuk pemindai otomatis yang tiap hari mengetuk server, mengunci login
+  semua pelanggan selama 15 menit tanpa perlu satu akun pun.
+  `.env.example` sudah memperingatkan hal ini sejak lama; yang tidak ada adalah
+  apa pun yang menegakkannya. Sekarang defaultnya di kode
+  (`127.0.0.1,::1,172.16.0.0/12` — loopback dan bridge Docker), bukan "mati",
+  jadi deployment baru tidak bisa lagi salah diam-diam. Header
+  `X-Forwarded-For` tetap diabaikan kalau permintaannya datang langsung, bukan
+  dari alamat proxy di daftar itu.
+  Bentuk nilainya ternyata menentukan dan tidak bisa ditebak dari dokumentasi
+  — diukur pada Fastify 5.12.1: `TRUST_PROXY=1` (hitungan hop) **tidak
+  memperbaiki apa pun**, `request.ip` tetap IP proxy; `TRUST_PROXY=true`
+  malah lebih buruk karena memakai entri paling kiri yang dikirim klien, jadi
+  satu header palsu per permintaan sudah cukup melewati rate limit. Keduanya
+  sekarang menulis peringatan di log saat start.
+- **Pack knowledge pelanggan lain bisa dibaca lewat Playground.**
+  `/v1/admin/config` menyodorkan daftar SELURUH pack (bZone, Trader's
+  Mastermind, Agnee) ke dropdown Admin setiap supervisor, dan
+  `/v1/admin/playground/auto-reply` menerima pack mana pun dari daftar itu.
+  Supervisor satu pelanggan tinggal memilih pack pelanggan lain lalu membaca
+  FAQ, harga, funnel, dan reply policy-nya lewat jawaban AI. Kode sendiri
+  sudah menyebut pack ini proprietary per pelanggan (`ENTITLEMENT_FIELDS`),
+  hanya saja tidak ada yang memeriksanya. Sekarang pelanggan hanya melihat dan
+  hanya boleh memakai pack miliknya; staf platform (`is_platform_admin`) tetap
+  bisa memilih semuanya untuk menguji. Gerbangnya sengaja berjalan **sebelum**
+  cek "OpenRouter aktif": kalau sesudahnya, jawaban untuk pack orang lain
+  berubah-ubah mengikuti status LLM, dan itu sendiri sudah membocorkan bahwa
+  pack itu ada. Pemilih pack hilang dari UI untuk pelanggan, karena tidak ada
+  lagi yang bisa dipilih.
+  Keduanya ditemukan lewat audit ulang 21 Sep — audit 20 Sep tidak
+  meninggalkan laporan, jadi tidak ada yang tahu apa yang sudah dan belum
+  diperiksa.
+
 ### Fixed
 
 - **Produksi melayani 16 jam tanpa database — semua login pengguna asli

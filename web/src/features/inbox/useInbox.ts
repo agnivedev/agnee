@@ -11,6 +11,8 @@ const MESSAGE_CEILING = 600;
 
 type ChatsResponse = { chats: Chat[]; hasMore: boolean; phase?: string | null };
 type MessagesResponse = { messages: Message[]; hasMore: boolean };
+/** `seen: false` = server sengaja tidak menandainya (chat belum diambil siapa pun). */
+type MarkReadResponse = { success: boolean; seen?: boolean; reason?: string };
 
 /**
  * Owns everything the three panes read: the chat list, the open conversation's
@@ -35,9 +37,11 @@ export function useInbox() {
   const loadingChats = useRef(false);
   const pendingChatReset = useRef(false);
   const activeChatId = useRef<string | null>(null);
-  // Chats the operator opened in this tab. The server still counts them unread
-  // until it processes mark-read, and a refresh in between would make the badge
-  // reappear on a conversation that is plainly open on screen.
+  // Chats the server confirmed it marked read while this tab was open. The
+  // unread count comes from WhatsApp and lags behind the read receipt, so a
+  // refresh in between would make the badge reappear on a conversation that is
+  // plainly open on screen. Only conversations someone has taken land here —
+  // an unclaimed one stays unread on purpose, so masking it would be a lie.
   const locallyRead = useRef(new Set<string>());
 
   activeChatId.current = activeChat?.id ?? null;
@@ -113,13 +117,23 @@ export function useInbox() {
       setActiveChat(chat);
       activeChatId.current = chat.id;
       sessionStorage.setItem('agnee_active_chat', chat.id);
-      locallyRead.current.add(chat.id);
-      setChats((current) =>
-        filter === 'unread' && tab === 'inbox'
-          ? current.filter((item) => item.id !== chat.id)
-          : current.map((item) => (item.id === chat.id ? { ...item, unreadCount: 0 } : item)),
-      );
-      void api(`/v1/chats/${encodeURIComponent(chat.id)}/mark-read`, { method: 'POST' }).catch(() => {});
+      // Badge baru diturunkan setelah server memastikan chat ini memang
+      // ditandai sudah dibaca. Percakapan yang belum diambil siapa pun dijawab
+      // `seen: false`: tidak ada centang biru yang dikirim ke customer dan
+      // hitungan unread-nya tetap, karena percakapannya masih menunggu
+      // seseorang. Menurunkan badge-nya lebih dulu hanya membuat ia melompat
+      // balik begitu daftarnya dimuat ulang.
+      void api<MarkReadResponse>(`/v1/chats/${encodeURIComponent(chat.id)}/mark-read`, { method: 'POST' })
+        .then((result) => {
+          if (!result?.seen) return;
+          locallyRead.current.add(chat.id);
+          setChats((current) =>
+            filter === 'unread' && tab === 'inbox'
+              ? current.filter((item) => item.id !== chat.id)
+              : current.map((item) => (item.id === chat.id ? { ...item, unreadCount: 0 } : item)),
+          );
+        })
+        .catch(() => {});
       await loadMessages(chat.id);
     },
     [filter, tab, loadMessages],

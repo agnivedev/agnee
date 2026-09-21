@@ -35,26 +35,49 @@
   dibedakan: "terlalu banyak tab terbuka untuk perusahaan ini" dan "server
   sedang penuh" adalah dua keadaan berbeda dengan tindakan berbeda.
 
+### Changed
+
+- **Centang biru hanya untuk percakapan yang sudah diambil orang.** Membuka
+  chat di inbox memanggil `mark-read`, dan di produksi itu berarti
+  `sendSeen()` — centang biru ke customer. Untuk percakapan yang belum
+  dipegang siapa pun, itu janji yang tidak ditepati: customer melihat
+  pesannya "sudah dibaca" lalu menunggu jawaban, padahal yang terjadi cuma
+  seseorang mengintip sebentar dan menutupnya lagi. Rutenya sekarang menjawab
+  `200 {"seen": false, "reason": "unclaimed"}` tanpa memanggil `sendSeen`.
+  Aturannya soal **keadaan chat, bukan peran**: supervisor yang mengintip chat
+  yang belum diambil juga tidak mengirim centang biru.
+  Konsekuensinya badge unread-nya memang tetap menyala walau chatnya jelas
+  terbuka di layar — dan itu benar, percakapannya masih menunggu seseorang,
+  dan seluruh tim perlu melihat itu. Yang **sudah** diambil tidak berubah, dan
+  membalas tetap ikut menandai sudah dibaca (`sendTextForUi` memanggil
+  `sendSeen` sendiri) — di situ memang ada orang atau AI yang menjawab, jadi
+  centangnya jujur.
+  UI ikut disamakan: badge baru diturunkan setelah server memastikan
+  `seen: true`. Dulu ia diturunkan optimistis sebelum jawaban datang, yang
+  sekarang berarti badge melompat balik begitu daftarnya dimuat ulang.
+
 ### Fixed
 
-- **Agent membuka chat yang belum diambil siapa pun, dan badge unread-nya
-  bohong.** Membuka percakapan yang belum dipegang siapa pun memicu tiga
+- **Agent membuka chat yang belum diambil siapa pun dan dapat tiga 403.**
+  Membuka percakapan yang belum dipegang siapa pun memicu tiga
   `403 Forbidden` untuk `POST /v1/chats/:chatId/mark-read` di console peramban,
   sementara semua GET-nya (messages, notes, lead, summary, routing) 200.
   Penyebabnya gerbang "ambil alih dulu": aturannya sengaja *membaca boleh,
   menulis harus mengambil alih*, dan `mark-read` kebetulan sebuah POST jadi ia
-  ikut tertolak. Yang lebih merugikan bukan barisan merah di console, tapi
-  akibatnya: server tetap menghitung chat itu belum dibaca padahal agent sudah
-  membacanya, jadi badge unread-nya muncul lagi setiap reload — UI menutupinya
-  hanya selama tab itu terbuka. Menandai-sudah-dibaca sekarang mengikuti aturan
-  MEMBACA, bukan MENULIS: ia pembukuan dari membaca, bukan aksi baru, dan
-  membaca chat itu memang sudah diizinkan.
+  ikut tertolak. Menandai-sudah-dibaca sekarang mengikuti aturan MEMBACA,
+  bukan MENULIS: ia pembukuan dari membaca, bukan aksi baru, dan membaca chat
+  itu memang sudah diizinkan. Rutenya yang memutuskan apa yang pantas
+  dilakukan (lihat catatan centang biru di atas), bukan UI yang menebak-nebak
+  kapan boleh memanggilnya.
   Pengecualiannya sempit dan tidak melonggarkan apa pun yang lain — **membalas
   tetap harus mengambil alih dulu**, dan percakapan yang dipegang agent lain
-  tetap tertutup rapat, termasuk untuk mark-read. Diverifikasi di localhost
-  dengan akun agent sungguhan (demo mode, port 4100): mark-read 200, badge
-  chat itu turun 2 → 0, `POST notes` dan `POST /v1/messages/send` tetap 403,
-  dan mark-read ke chat milik agent lain tetap 403.
+  tetap tertutup rapat, termasuk untuk mark-read.
+  Diverifikasi di localhost (demo mode, port 4100), lewat API dan di peramban:
+  chat belum diambil → mark-read 200 `seen: false`, badge tetap 2, tidak ada
+  baris merah di console; chat sudah diambil → `seen: true`, badge 2 → 0;
+  `POST notes` dan `POST /v1/messages/send` tetap 403; mark-read ke chat milik
+  agent lain tetap 403; supervisor pun dapat `seen: false` untuk chat yang
+  belum diambil.
 
 - **Healthcheck melaporkan sehat selama database mati.** Rute `/health` selalu
   menjawab 200, dan `docker compose` hanya melihat status HTTP-nya — itulah

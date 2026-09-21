@@ -1,19 +1,25 @@
 'use strict';
 
 /**
- * Menandai-sudah-dibaca mengikuti aturan MEMBACA, bukan aturan MENULIS.
+ * Dua aturan yang bertemu di `POST /v1/chats/:chatId/mark-read`.
  *
- * Agent boleh membuka percakapan yang belum dipegang siapa pun — itu memang
- * aturannya, karena dia harus membacanya dulu sebelum memutuskan mau mengambil
- * alih atau tidak. Tapi `mark-read` kebetulan sebuah POST, jadi dulu ia ikut
- * tertolak gerbang "ambil alih dulu": tiga baris 403 di console peramban setiap
- * kali agent membuka chat, dan — yang lebih merugikan — badge unread yang
- * bohong. Server tetap menghitung chat itu belum dibaca padahal agent sudah
- * membacanya, jadi badge-nya muncul lagi begitu halaman di-reload.
+ * 1. Rutenya mengikuti aturan MEMBACA, bukan MENULIS. Agent boleh membuka
+ *    percakapan yang belum dipegang siapa pun — dia harus membacanya dulu
+ *    sebelum memutuskan mau mengambil alih. Tapi `mark-read` kebetulan sebuah
+ *    POST, jadi dulu ia ikut tertolak gerbang "ambil alih dulu": tiga baris
+ *    403 di console peramban setiap kali agent membuka chat.
  *
- * Pengecualiannya sempit: hanya rute mark-read, dan hanya untuk percakapan yang
- * belum dipegang siapa pun. Mengirim pesan tetap harus mengambil alih dulu, dan
- * percakapan milik agent lain tetap tertutup rapat.
+ * 2. Centang birunya hanya untuk percakapan yang sudah diambil orang. Selama
+ *    belum ada yang memegangnya, membukanya cuma mengintip — customer tidak
+ *    boleh melihat "sudah dibaca", karena itu menjanjikan ada orang yang
+ *    menangani padahal belum. Jadi rutenya menjawab 200 `seen: false` tanpa
+ *    memanggil `sendSeen`, dan badge unread-nya sengaja TETAP menyala:
+ *    percakapannya memang masih menunggu seseorang.
+ *
+ * Keduanya aturan tentang keadaan chat, bukan tentang perannya — supervisor
+ * yang mengintip chat yang belum diambil juga tidak mengirim centang biru.
+ * Mengirim pesan tetap harus mengambil alih dulu, dan percakapan milik agent
+ * lain tetap tertutup rapat.
  */
 
 const test = require('node:test');
@@ -23,18 +29,18 @@ const { buildApp } = require('../src/server');
 const UNCLAIMED = '6281200000001@c.us'; // demoDataset: unreadCount 2
 const HELD_BY_OTHER = '6281200000003@c.us';
 
-function buildDatabase(routes, agent, otherAgent) {
-  const byId = new Map([[agent.id, agent], [otherAgent.id, otherAgent]]);
+function buildDatabase(routes, members) {
+  const byId = new Map(members.map((user) => [user.id, user]));
   return {
     connected: true, companyId: 'company-1',
     async connect() {}, async close() {}, status() { return { driver: 'postgresql', connected: true }; },
     async authenticateUser(email, password) {
-      const found = [agent, otherAgent].find((user) => user.email === email);
+      const found = members.find((user) => user.email === email);
       return found && password === 'agent-pass-123' ? found : null;
     },
     async getActiveSessionUser(userId) { return byId.get(userId) || null; },
     async setPresence() {},
-    async listTeamMembers() { return [{ ...agent, status: 'active' }, { ...otherAgent, status: 'active' }]; },
+    async listTeamMembers() { return members.map((user) => ({ ...user, status: 'active' })); },
     async getConversationRouting(chatId) { return routes.get(chatId) || null; },
     async saveConversationRouting(change) {
       const member = byId.get(change.assigneeUserId);
@@ -59,12 +65,13 @@ function buildDatabase(routes, agent, otherAgent) {
 async function setup(t) {
   const agent = { id: 'agent-1', userId: 'agent-1', companyId: 'company-1', email: 'agent1@example.com', displayName: 'Agent 1', role: 'agent' };
   const otherAgent = { id: 'agent-2', userId: 'agent-2', companyId: 'company-1', email: 'agent2@example.com', displayName: 'Agent 2', role: 'agent' };
+  const supervisor = { id: 'supervisor-1', userId: 'supervisor-1', companyId: 'company-1', email: 'owner@example.com', displayName: 'Supervisor', role: 'supervisor' };
   const routes = new Map();
   const app = await buildApp({
     logger: false,
     startupEnabled: false,
     demoMode: true,
-    database: buildDatabase(routes, agent, otherAgent),
+    database: buildDatabase(routes, [agent, otherAgent, supervisor]),
     sessionSecret: 'mark-read-secret',
   });
   t.after(() => app.close());
@@ -73,7 +80,12 @@ async function setup(t) {
     assert.equal(login.statusCode, 200);
     return login.headers['set-cookie'].split(';')[0];
   };
-  return { app, routes, agent, otherAgent, cookie: await signIn(agent), otherCookie: await signIn(otherAgent) };
+  return {
+    app, routes, agent, otherAgent, supervisor,
+    cookie: await signIn(agent),
+    otherCookie: await signIn(otherAgent),
+    supervisorCookie: await signIn(supervisor),
+  };
 }
 
 const unreadOf = async (app, cookie, chatId) => {
@@ -84,7 +96,7 @@ const unreadOf = async (app, cookie, chatId) => {
   return chat.unreadCount;
 };
 
-test('agent boleh menandai-dibaca percakapan yang belum dipegang siapa pun', async (t) => {
+test('chat yang belum diambil: tidak ditolak, tapi juga tidak dikirimi centang biru', async (t) => {
   const { app, cookie } = await setup(t);
 
   // Prasyarat: chat ini memang belum diklaim, terlihat di inbox, dan unread.
@@ -92,12 +104,43 @@ test('agent boleh menandai-dibaca percakapan yang belum dipegang siapa pun', asy
   const read = await app.inject({ method: 'GET', url: `/v1/chats/${UNCLAIMED}/messages`, headers: { cookie } });
   assert.equal(read.statusCode, 200);
 
+  // Tidak lagi 403 — tidak ada baris merah di console, dan UI tidak perlu
+  // menebak-nebak kapan boleh memanggil rutenya.
   const markRead = await app.inject({ method: 'POST', url: `/v1/chats/${UNCLAIMED}/mark-read`, headers: { cookie } });
   assert.equal(markRead.statusCode, 200);
 
-  // Inti perbaikannya: badge ikut turun. Dengan 403 yang lama badge tetap 2,
-  // jadi ia muncul lagi setiap reload padahal agent sudah membacanya.
+  // Tapi jawabannya jujur: tidak ada yang ditandai, jadi tidak ada centang
+  // biru yang terkirim ke customer.
+  assert.equal(markRead.json().seen, false);
+  assert.equal(markRead.json().reason, 'unclaimed');
+
+  // Dan karena itu badge-nya sengaja tetap menyala — percakapannya masih
+  // menunggu seseorang, dan itulah yang harus dilihat seluruh tim.
+  assert.equal(await unreadOf(app, cookie, UNCLAIMED), 2);
+});
+
+test('centang biru terkirim begitu chatnya diambil', async (t) => {
+  const { app, agent, cookie } = await setup(t);
+
+  const claim = await app.inject({
+    method: 'POST', url: `/v1/chats/${UNCLAIMED}/routing`, headers: { cookie },
+    payload: { mode: 'human', assigneeUserId: agent.id },
+  });
+  assert.equal(claim.statusCode, 200);
+
+  const markRead = await app.inject({ method: 'POST', url: `/v1/chats/${UNCLAIMED}/mark-read`, headers: { cookie } });
+  assert.equal(markRead.statusCode, 200);
+  assert.equal(markRead.json().seen, true);
   assert.equal(await unreadOf(app, cookie, UNCLAIMED), 0);
+});
+
+test('aturannya soal keadaan chat, bukan peran — supervisor pun tidak mengintip diam-diam', async (t) => {
+  const { app, supervisorCookie } = await setup(t);
+
+  const markRead = await app.inject({ method: 'POST', url: `/v1/chats/${UNCLAIMED}/mark-read`, headers: { cookie: supervisorCookie } });
+  assert.equal(markRead.statusCode, 200);
+  assert.equal(markRead.json().seen, false);
+  assert.equal(await unreadOf(app, supervisorCookie, UNCLAIMED), 2);
 });
 
 test('mark-read tidak melonggarkan aturan ambil-alih untuk aksi lain', async (t) => {
@@ -130,7 +173,8 @@ test('percakapan yang dipegang agent lain tetap tertutup, termasuk untuk mark-re
   assert.equal(markRead.statusCode, 403);
   assert.match(markRead.json().error, /agent lain/);
 
-  // Dan yang memegangnya tentu saja boleh.
+  // Dan yang memegangnya tentu saja boleh — di situ centang birunya jujur.
   const ownMarkRead = await app.inject({ method: 'POST', url: `/v1/chats/${HELD_BY_OTHER}/mark-read`, headers: { cookie: otherCookie } });
   assert.equal(ownMarkRead.statusCode, 200);
+  assert.equal(ownMarkRead.json().seen, true);
 });

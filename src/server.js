@@ -5307,16 +5307,30 @@ Aturan:
   }, async (request, reply) => {
     const companyId = request.agneeSession.companyId;
     const { chatId } = request.params;
+
+    // Centang biru hanya untuk percakapan yang sudah diambil orang. Selama
+    // belum ada yang memegangnya, membukanya di inbox cuma mengintip: customer
+    // tidak boleh melihat "sudah dibaca" — itu menjanjikan ada orang yang
+    // menangani padahal belum. Konsekuensinya badge unread-nya memang tetap
+    // menyala, dan itu benar: percakapannya masih menunggu seseorang.
+    //
+    // Yang sudah diambil tetap seperti biasa, dan membalas tetap ikut menandai
+    // sudah dibaca (`sendTextForUi`) — di situ memang ada orang atau AI yang
+    // menjawab, jadi centangnya jujur.
+    const routing = await getRouting(chatId, companyId);
+    const claimed = routing.mode === 'human' && Boolean(routing.assigneeUserId);
+    if (!claimed) return { success: true, seen: false, reason: 'unclaimed' };
+
     const { client: wa, state: waState } = await waFor(companyId, chatId);
     if (config.demoMode) {
       const chat = demo.chats.find((c) => c.id === chatId);
       if (chat) chat.unreadCount = 0;
-      return { success: true };
+      return { success: true, seen: true };
     }
     if (waState.phase !== 'ready') return reply.code(503).send({ error: 'WhatsApp is not ready', phase: waState.phase });
     try {
       await wa.sendSeen(chatId);
-      return { success: true };
+      return { success: true, seen: true };
     } catch (error) {
       app.log.warn({ err: error, chatId }, 'Failed to mark chat as read');
       return reply.code(500).send({ error: 'Failed to mark chat as read' });

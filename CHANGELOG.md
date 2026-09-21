@@ -1,5 +1,60 @@
 ## [Unreleased]
 
+### Fixed
+
+- **Produksi melayani 16 jam tanpa database — semua login pengguna asli
+  ditolak "Email atau password salah".** Perbaikan sebelumnya menjadikan
+  `connectionString: ''` berarti "matikan DB", supaya satu test demo-mode
+  tidak diam-diam menyentuh Postgres CI. Tapi `''` persis yang dikirim
+  produksi: Compose mengoper `PGHOST`/`PGUSER`/`PGPASSWORD` dan membiarkan
+  `DATABASE_URL` kosong, jadi `config.databaseUrl` di sana memang string
+  kosong. Sejak deploy 21 Sep 00:34 WIB `database.enabled` false, dan login
+  jatuh ke fallback admin yang tidak mengenal satu pun pengguna asli; pesan
+  masuk tidak tercatat dan follow-up tidak jalan. Sekarang hanya `null` yang
+  mematikan DB — string kosong berarti "pakai env ambient", sama seperti tidak
+  diberikan. Dua pagar tambahan: **di produksi app menolak start kalau database
+  tidak menyala** (lebih baik deploy merah daripada melayani tanpa data tanpa
+  satu pun alarm), dan `test/database-enabled.test.js` mengunci keempat
+  kombinasi termasuk kondisi produksi yang kemarin tidak terwakili tes mana pun.
+
+### Security
+
+- **Signature webhook Meta yang kosong sekarang ditolak.** Sebelumnya, kalau
+  header `x-hub-signature-256` tidak ada sama sekali, verifikasi dilewati
+  diam-diam — siapa pun yang tahu URL-nya bisa menyuntikkan pesan masuk.
+  Perbandingannya juga pindah ke `safeEqual`, bukan `!==`.
+- **Setelan AI (enabled/model) bocor lintas tenant.** Nilainya hidup di objek
+  proses global, jadi supervisor company mana pun bisa mematikan AI atau
+  mengganti model untuk SELURUH tenant lain lewat `/v1/admin/ai-settings`.
+  Sekarang kolom per company (migrasi `033_per_company_ai_settings.sql`),
+  dengan tes regresi yang membuktikan isolasinya.
+- **Password plaintext dihapus dari komentar migrasi 008** (kredensialnya
+  sudah dirotasi).
+- **Test tenant-isolation dan billing sebelumnya tidak benar-benar jalan di
+  CI** — tidak ada Postgres di sana, jadi keduanya lewat tanpa menguji apa pun.
+  Workflow deploy sekarang menyalakan service Postgres.
+
+### Added
+
+- **Konsol platform `/superhuman`** — satu-satunya tempat yang sengaja
+  melintasi isolasi tenant, untuk staf Agnive. Perannya di
+  `users.is_platform_admin` (migrasi `032_platform_admin.sql`), diberikan hanya
+  lewat `scripts/grant-platform-admin.js`; tidak ada halaman yang bisa
+  mengangkat superadmin, jadi bug otorisasi di halaman mana pun tidak bisa jadi
+  eskalasi ke peran ini. Tiga gerbang, semuanya perlu — dan cabang kunci API
+  keluar dari hook lebih dulu sehingga harus ditolak terpisah di dalam cabang
+  itu (ditemukan oleh tes, bukan oleh review): tanpa itu satu kunci API bocor =
+  akses seluruh pelanggan. Berandanya menampilkan tenant kumulatif, biaya AI
+  harian, tenant paling boros, sebaran paket, dan trial yang segera berakhir,
+  dengan grafik SVG tulisan sendiri (bundel ini ikut diunduh pelanggan).
+  Sengaja belum ada: isi percakapan pelanggan dan tombol "masuk sebagai tenant".
+
+### Changed
+
+- **Copy landing page dan login dikasualkan** — "ga/udah/ngetik" menggantikan
+  bahasa formal, plus audit menyeluruh yang membuang sisa "tidak"/"Anda"/
+  "ditangguhkan" di seluruh UI.
+
 ### Added
 
 - **Seed playbook tidak bisa lagi memundurkan produksi.** Berkas seed dan

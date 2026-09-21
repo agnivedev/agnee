@@ -43,6 +43,15 @@ function resolveBrowserExecutable() {
  *   { log, onMessage(companyId, message, { connectionId }), onStatusUpdate(companyId, status, phoneNumber) }
  */
 class WhatsappManager {
+  // Satu aliran per tab peramban (satu `EventSource` dipakai bersama di dalam
+  // tab, lihat web/src/lib/live-events.ts), jadi 25 sudah longgar untuk tim
+  // terbesar yang ada sekarang. Plafon global melindungi proses, dan sengaja
+  // jauh di atas plafon per company supaya satu tenant tidak bisa mencapainya
+  // sendiri.
+  static SSE_MAX_PER_COMPANY = 25;
+
+  static SSE_MAX_TOTAL = 200;
+
   constructor() {
     // Kunci entry adalah connectionId (satu baris whatsapp_connections), BUKAN
     // companyId: satu company boleh punya beberapa nomor, masing-masing dengan
@@ -217,6 +226,31 @@ class WhatsappManager {
     let n = 0;
     for (const listeners of this._sse.values()) n += listeners.size;
     return n;
+  }
+
+  /** Berapa aliran SSE hidup milik SATU company. */
+  sseClientCount(companyId) {
+    return this._sse.get(companyId)?.size || 0;
+  }
+
+  /**
+   * Boleh tidak company ini menambah satu aliran SSE lagi.
+   *
+   * Plafonnya dulu satu angka global (50 untuk seluruh server), jadi company
+   * yang ramai menghabiskan jatah company lain: pelanggan yang tidak melakukan
+   * apa pun kehilangan pembaruan realtime karena tetangganya membuka banyak
+   * tab. Sekarang plafon per company yang menggigit lebih dulu — yang kena
+   * batas adalah yang menyebabkannya — dan plafon global tetap ada di atasnya
+   * untuk melindungi proses, bukan untuk membagi jatah antar tenant.
+   */
+  canAcceptSseClient(companyId) {
+    if (this.sseClientCount(companyId) >= WhatsappManager.SSE_MAX_PER_COMPANY) {
+      return { ok: false, reason: 'company' };
+    }
+    if (this.totalSseClients() >= WhatsappManager.SSE_MAX_TOTAL) {
+      return { ok: false, reason: 'total' };
+    }
+    return { ok: true };
   }
 
   /**

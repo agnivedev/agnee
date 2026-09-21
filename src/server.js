@@ -342,7 +342,6 @@ async function buildApp(overrides = {}) {
   const demo = demoDataset();
   const manager = new WhatsappManager();
   let demoQr = null;
-  const SSE_MAX_CLIENTS = 50;
   const sendReceipts = new Map();
   // chatKey -> last inbound customer message body. Lets an outgoing human reply
   // record what it was answering without slowing the send path down with an
@@ -4161,8 +4160,17 @@ Aturan:
 
   app.get('/v1/events', async (request, reply) => {
     const companyId = request.agneeSession.companyId;
-    if (manager.totalSseClients() >= SSE_MAX_CLIENTS) {
-      return reply.code(503).send({ error: 'Too many event stream connections' });
+    // Plafon per company menggigit lebih dulu: yang kehabisan jatah harus
+    // company yang membukanya, bukan tetangganya. Plafon global di belakangnya
+    // melindungi proses.
+    const admission = manager.canAcceptSseClient(companyId);
+    if (!admission.ok) {
+      app.log.warn({ companyId, reason: admission.reason }, 'Aliran SSE ditolak — plafon tercapai');
+      return reply.code(503).send({
+        error: admission.reason === 'company'
+          ? 'Terlalu banyak tab terbuka untuk perusahaan ini. Tutup salah satu lalu muat ulang.'
+          : 'Server sedang penuh. Coba muat ulang sebentar lagi.',
+      });
     }
     const primary = await primaryWaConn(companyId);
     const waState = primary?.id ? manager.getState(primary.id) : { phase: 'disabled' };
@@ -4184,7 +4192,13 @@ Aturan:
     });
   });
 
+  // QR pairing bukan sekadar tampilan status: siapa pun yang memegangnya bisa
+  // memindainya dengan WhatsApp PRIBADInya, dan sejak itu nomor pribadi
+  // itulah yang terpasang di Agnee — chat pribadinya masuk ke inbox
+  // perusahaan, dan percakapan perusahaan berhenti. `/v1/whatsapp/status`
+  // sengaja tetap terbuka untuk agent: header inbox memang menampilkannya.
   app.get('/v1/whatsapp/qr', async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengelola koneksi WhatsApp.' });
     const companyId = request.agneeSession.companyId;
     if (config.demoMode) {
       demoQr ||= await QRCode.toDataURL('AGNEE-DEMO-PAIRING', { margin: 1, width: 320, color: { dark: '#173A30', light: '#FFFFFF' } });
@@ -4201,6 +4215,7 @@ Aturan:
   });
 
   app.post('/v1/whatsapp/qr-refresh', async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengelola koneksi WhatsApp.' });
     const companyId = request.agneeSession.companyId;
     if (database.status().connected) {
       // The plan limit caps how many connections a company may CREATE. This
@@ -4711,7 +4726,11 @@ Aturan:
     return { ok: true };
   });
 
+  // Ditemukan saat mengerjakan #4 dan lebih berat dari QR-nya sendiri: tanpa
+  // pagar ini, satu agent bisa memutus nomor WhatsApp perusahaan dan
+  // menghentikan seluruh percakapan masuk maupun keluar untuk semua orang.
   app.post('/v1/whatsapp/logout', async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengelola koneksi WhatsApp.' });
     const companyId = request.agneeSession.companyId;
     if (config.demoMode) return reply.code(409).send({ error: 'Cannot logout in demo mode' });
     // Tanpa `connectionId`, yang diputus adalah nomor utama.

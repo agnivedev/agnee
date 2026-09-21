@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, messageFromError } from '@/lib/api';
+import { isSupervisorRole, useSession } from '@/lib/session';
 import { useI18n } from '@/lib/i18n';
 import { Dialog, DialogClose } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
@@ -9,7 +10,12 @@ type View =
   | { kind: 'connected'; account: string }
   | { kind: 'qr'; dataUrl?: string; note: string }
   | { kind: 'syncing'; percent?: number; restoring: boolean }
-  | { kind: 'error'; detail?: string };
+  | { kind: 'error'; detail?: string }
+  // Agent boleh melihat status koneksi — header inbox memang menampilkannya —
+  // tapi pairing-nya milik supervisor: server menolak /v1/whatsapp/qr,
+  // qr-refresh, dan logout untuk peran lain. Tanpa tampilan ini, agent yang
+  // membuka dialog ini hanya melihat 403 tanpa keterangan.
+  | { kind: 'locked' };
 
 /**
  * WhatsApp pairing. One company can hold several numbers, so `connectionId`
@@ -34,6 +40,8 @@ export function ConnectionDialog({
   onReady: () => void;
 }) {
   const { t } = useI18n();
+  const { user } = useSession();
+  const canPair = isSupervisorRole(user);
   const [view, setView] = useState<View>({ kind: 'qr', note: '' });
   const [refreshing, setRefreshing] = useState(false);
   const [changingNumber, setChangingNumber] = useState(false);
@@ -83,8 +91,12 @@ export function ConnectionDialog({
       setView({ kind: 'error', detail: whatsapp?.lastError });
       return;
     }
+    if (!canPair) {
+      setView({ kind: 'locked' });
+      return;
+    }
     void requestQr();
-  }, [open, phase, whatsapp, requestQr, t]);
+  }, [open, phase, whatsapp, requestQr, canPair, t]);
 
   // Follow the live phase while the dialog stays open.
   useEffect(() => {
@@ -126,7 +138,9 @@ export function ConnectionDialog({
           : t('wa.syncTitle')
         : view.kind === 'error'
           ? t('wa.connectionSlow')
-          : t('wa.connect');
+          : view.kind === 'locked'
+            ? t('wa.pairingLocked')
+            : t('wa.connect');
 
   const copy =
     view.kind === 'connected'
@@ -137,7 +151,9 @@ export function ConnectionDialog({
           : t('wa.scanned')
         : view.kind === 'error'
           ? view.detail?.trim() || t('wa.connectionSlowCopy')
-          : t('wa.scan');
+          : view.kind === 'locked'
+            ? t('wa.pairingLockedCopy')
+            : t('wa.scan');
 
   return (
     <Dialog open={open} onClose={onClose} labelledBy="connectionDialogTitle">
@@ -213,7 +229,7 @@ export function ConnectionDialog({
           {view.kind === 'qr' ? view.note : view.kind === 'connected' ? view.account : view.kind === 'error' ? t('wa.refresh') : ''}
         </p>
 
-        {view.kind === 'connected' ? (
+        {view.kind === 'connected' && canPair ? (
           <button
             type="button"
             disabled={changingNumber}

@@ -1,5 +1,40 @@
 ## [Unreleased]
 
+### Security
+
+- **Pairing WhatsApp sekarang urusan supervisor.** Tiga rute terbuka untuk
+  agent mana pun di company: `GET /v1/whatsapp/qr`,
+  `POST /v1/whatsapp/qr-refresh`, dan `POST /v1/whatsapp/logout`. Yang paling
+  berat justru bukan QR-nya — **`logout` membuat satu agent bisa memutus nomor
+  WhatsApp perusahaan dan menghentikan seluruh percakapan masuk maupun keluar
+  untuk semua orang**, dan itu baru terlihat saat memasang pagar untuk QR-nya.
+  QR sendiri cukup berbahaya: siapa pun yang memegangnya bisa memindainya
+  dengan WhatsApp pribadinya, dan sejak itu nomor pribadi itulah yang terpasang
+  di Agnee — chat pribadinya masuk ke inbox perusahaan, percakapan perusahaan
+  berhenti. `GET /v1/whatsapp/status` sengaja TETAP terbuka: header inbox
+  menampilkan status koneksi, dan itu memang perlu dilihat agent.
+  Tombolnya di header memang sudah disembunyikan untuk agent, tapi dialognya
+  masih bisa dibuka lewat URL `?connect=<id>`, dan rutenya terbuka untuk
+  siapa pun yang memanggilnya langsung. UI-nya disamakan dengan server:
+  agent yang membuka dialog itu sekarang melihat keterangan bahwa pairing
+  dilakukan supervisor, bukan QR yang gagal dimuat atau tombol yang mati.
+  Diverifikasi di peramban dengan dua akun: agent melihat keterangan itu dan
+  tidak memanggil satu pun rute yang digerbang; supervisor tetap mendapat QR
+  seperti biasa.
+
+### Changed
+
+- **Plafon aliran SSE dihitung per company, bukan satu angka untuk seluruh
+  server.** `SSE_MAX_CLIENTS = 50` berlaku global, jadi company yang ramai
+  menghabiskan jatah company lain: pelanggan yang tidak melakukan apa pun
+  kehilangan pembaruan realtime karena tetangganya membuka banyak tab. Sekarang
+  25 aliran per company (satu aliran per tab peramban) yang menggigit lebih
+  dulu — yang kena batas adalah yang menyebabkannya — dengan plafon global 200
+  di atasnya untuk melindungi proses, sengaja jauh di atas plafon per company
+  supaya satu tenant tidak bisa mencapainya sendiri. Pesan penolakannya juga
+  dibedakan: "terlalu banyak tab terbuka untuk perusahaan ini" dan "server
+  sedang penuh" adalah dua keadaan berbeda dengan tindakan berbeda.
+
 ### Fixed
 
 - **Healthcheck melaporkan sehat selama database mati.** Rute `/health` selalu

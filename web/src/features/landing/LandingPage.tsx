@@ -913,15 +913,17 @@ function Footer() {
           ))}
         </div>
 
-        {/*
-          Kebijakan Privasi dan Syarat & Ketentuan sengaja belum dipasang di sini:
-          keduanya belum ada halamannya, dan link mati ke "#" pada halaman yang
-          mengumpulkan email lebih buruk daripada tidak ada link sama sekali.
-          Pasang begitu halamannya jadi — wajib sebelum penampungan email hidup.
-        */}
         <div className="mt-10 flex flex-wrap items-center justify-between gap-3 border-t border-[#c6dcc0] pt-5 text-[12px] text-[#4e6e5e] dark:border-[#24403a] dark:text-[#7aaa8a]">
           <span>© 2026 Agnive. Hak cipta dilindungi.</span>
-          <span>Dibuat di Indonesia 🇮🇩</span>
+          <span className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            <a href="/privasi" className="text-[#4e6e5e] no-underline hover:text-ink dark:text-[#7aaa8a] dark:hover:text-[#f4f9f0]">
+              Kebijakan Privasi
+            </a>
+            <a href="/ketentuan" className="text-[#4e6e5e] no-underline hover:text-ink dark:text-[#7aaa8a] dark:hover:text-[#f4f9f0]">
+              Syarat &amp; Ketentuan
+            </a>
+            <span>Dibuat di Indonesia 🇮🇩</span>
+          </span>
         </div>
       </div>
     </footer>

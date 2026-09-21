@@ -1,5 +1,41 @@
 ## [Unreleased]
 
+### Added
+
+- **Halaman Kebijakan Privasi (`/privasi`) dan Syarat & Ketentuan
+  (`/ketentuan`).** Keduanya publik tanpa sesi — orang memutuskan mau mendaftar
+  atau tidak justru sebelum punya akun — dan tautannya sekarang ada di footer
+  halaman depan, menggantikan catatan "belum ada halamannya".
+  Isinya diturunkan dari apa yang sistem ini benar-benar lakukan, bukan dari
+  template: daftar data mengikuti tabel yang ada di `db/migrations`, daftar
+  pihak ketiga mengikuti endpoint yang benar-benar dipanggil `src/`, dan lokasi
+  penyimpanan mengikuti tempat produksi berjalan. Yang muncul dari penelusuran
+  itu dan sebelumnya tidak pernah tertulis di mana pun: **server produksi ada
+  di UpCloud Singapura, jadi data pelanggan disimpan di luar Indonesia** —
+  keterangan yang wajib ada dan sekarang disebut terus terang. Begitu juga
+  Google Fonts, yang membuat alamat IP pengunjung sampai ke server Google.
+  Dua hal yang sengaja TIDAK dijanjikan berlebihan: kami tidak mengaku bisa
+  bicara atas nama penyedia model soal pelatihan data (yang kami janjikan hanya
+  bahwa kami sendiri tidak memakainya untuk melatih model kami), dan Syarat &
+  Ketentuan menyebut apa adanya bahwa jalur QR memakai WhatsApp Web yang tidak
+  resmi, bisa berhenti bekerja, dan nomor bisa diblokir Meta — risiko yang
+  harus diketahui orang sebelum membayar, bukan sesudah.
+  Keputusan yang diambil Hanny: entitas ditulis "Agnive"; kanal permintaan data
+  `privasi@agnive.co`; data dihapus 90 hari setelah akun ditutup; pengembalian
+  dana penuh dalam 7 hari sejak pembayaran pertama.
+
+### Outstanding
+
+- **`privasi@agnive.co` belum dibuat.** Halaman privasi menyebutnya sebagai
+  kanal resmi dan menjanjikan jawaban dalam 7 hari kerja. Alamat itu harus ada
+  dan dipantau (atau diteruskan ke kotak yang dibaca) **sebelum** halaman ini
+  dipromosikan — halaman privasi yang menyebut alamat mati lebih buruk daripada
+  yang menyebut alamat biasa.
+- **Penghapusan 90 hari belum punya mekanismenya.** Tidak ada satu pun rutin
+  penghapusan otomatis di kode hari ini, dan belum ada alur "menutup akun" sama
+  sekali; janji 90 hari itu baru bisa ditagih saat ada akun pertama yang
+  ditutup. Bangun jalurnya sebelum itu terjadi, bukan sesudah.
+
 ### Security
 
 - **Pairing WhatsApp sekarang urusan supervisor.** Tiga rute terbuka untuk
@@ -478,9 +514,9 @@
   dan `MAYAR_WEBINAR` di `LandingPage.tsx` sengaja dikosongkan: selama kosong,
   tombolnya jatuh ke jalur WhatsApp yang memang sudah hidup. Perhatikan bahwa
   akun Mayar yang terhubung ke repo ini milik Traders Mastermind, bukan Agnive.
-- **Halaman Kebijakan Privasi dan Syarat & Ketentuan belum ada.** Keduanya
-  dikeluarkan dari footer, bukan dibiarkan sebagai link mati — tapi wajib ada
-  sebelum penampungan email lewat Mayar dihidupkan.
+- ~~**Halaman Kebijakan Privasi dan Syarat & Ketentuan belum ada.**~~
+  **SELESAI 2026-09-21** — keduanya ada di `/privasi` dan `/ketentuan`, dan
+  tautannya sudah dipasang di footer.
 
 ### Fixed
 

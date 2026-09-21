@@ -1744,6 +1744,12 @@ async function buildApp(overrides = {}) {
   // of flashing a workspace it is about to lose.
   app.get('/', (_request, reply) => sendReactApp(reply));
   app.get('/landing', (_request, reply) => sendReactApp(reply));
+  // Kebijakan Privasi dan Syarat & Ketentuan: publik seperti /landing, tanpa
+  // sesi. Keduanya harus bisa dibaca orang yang BELUM punya akun — itu justru
+  // saat orang memutuskan mau mendaftar atau tidak — jadi tidak boleh ikut
+  // daftar halaman ber-redirect di bawah.
+  app.get('/privasi', (_request, reply) => sendReactApp(reply));
+  app.get('/ketentuan', (_request, reply) => sendReactApp(reply));
   for (const page of ['settings', 'admin', 'leads', 'tasks', 'pipeline', 'knowledge', 'superhuman']) {
     app.get(`/${page}`, (request, reply) => {
       const session = verifySession(getCookie(request.headers.cookie, 'agnee_session'), config.sessionSecret);

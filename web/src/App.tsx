@@ -18,6 +18,7 @@ const KnowledgePage = lazy(() => import('@/features/knowledge/KnowledgePage').th
 const AdminPage = lazy(() => import('@/features/admin/AdminPage').then((m) => ({ default: m.AdminPage })));
 const SuperhumanPage = lazy(() => import('@/features/superhuman/SuperhumanPage').then((m) => ({ default: m.SuperhumanPage })));
 const LandingPage = lazy(() => import('@/features/landing/LandingPage').then((m) => ({ default: m.LandingPage })));
+const LegalPage = lazy(() => import('@/features/legal/LegalPage').then((m) => ({ default: m.LegalPage })));
 
 /**
  * Held while a route chunk downloads.
@@ -42,6 +43,18 @@ function BareFallback() {
 export function App() {
   // The marketing page is public: it must not wait on a session check, and a
   // visitor who is not signed in must not be bounced to the login view.
+  // Halaman hukum diperiksa SEBELUM landing: di agnee.agnive.co pemeriksaan
+  // landing menangkap semua path, jadi /privasi di sana akan menampilkan
+  // halaman depan kalau urutannya dibalik. Keduanya publik — orang yang belum
+  // punya akun harus bisa membacanya sebelum memutuskan mendaftar.
+  if (window.location.pathname === '/privasi' || window.location.pathname === '/ketentuan') {
+    return (
+      <Suspense fallback={<BareFallback />}>
+        <LegalPage halaman={window.location.pathname === '/privasi' ? 'privasi' : 'ketentuan'} />
+      </Suspense>
+    );
+  }
+
   if (window.location.pathname === '/landing' || window.location.hostname === 'agnee.agnive.co') {
     return (
       <Suspense fallback={<BareFallback />}>

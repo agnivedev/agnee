@@ -75,4 +75,17 @@ jobs:
           echo "$DEPLOY_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H $DEPLOY_HOST >> ~/.ssh/known_hosts 2>/dev/null
-          ssh -i ~/.ssh/deploy_key $DEPLOY_USER@$DEPLOY_HOST "cd /opt/agnee && git pull origin main && docker compose build app mcp && docker compose up -d app mcp"
+          # Build-nya berjalan DI DALAM sesi SSH ini, jadi nasib deploy terikat
+          # pada satu koneksi TCP yang harus bertahan selama build. Pada 21 Sep
+          # koneksi itu putus di menit ke-13 (`Broken pipe`, exit 255) saat
+          # Chromium sedang diunduh ulang dari mirror Debian yang merangkak.
+          # Keepalive menahan koneksi menganggur, dan batas 20x30 detik memberi
+          # ruang 10 menit tanpa balasan sebelum menyerah.
+          #
+          # Langkah di server ada di deploy/remote-deploy.sh — `git pull` di
+          # bawah ini membawa versinya yang terbaru sebelum dijalankan.
+          ssh -i ~/.ssh/deploy_key \
+              -o ServerAliveInterval=30 \
+              -o ServerAliveCountMax=20 \
+              $DEPLOY_USER@$DEPLOY_HOST \
+              "cd /opt/agnee && git pull origin main && bash deploy/remote-deploy.sh"

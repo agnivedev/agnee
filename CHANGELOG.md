@@ -60,6 +60,33 @@
 
 ### Changed
 
+- **Deploy tidak lagi bisa "berhasil separuh" tanpa ketahuan.** Run
+  21 Sep untuk `abe470f` gagal dengan `Broken pipe` (exit 255) setelah
+  13 menit. Penyebabnya berlapis: `node:22-bookworm-slim` dipakai lewat tag
+  mengambang, upstream me-retag-nya, digest berubah, dan itu membatalkan layer
+  `apt-get install chromium` yang biasanya dari cache — jadi Chromium diunduh
+  ulang dari `deb.debian.org` yang sedang merangkak (paket `systemd` 3 MB
+  butuh ~206 detik), sampai koneksi SSH-nya putus di tengah build.
+  Yang paling berbahaya bukan gagalnya, tapi **bagaimana** ia gagal:
+  `git pull` sudah berhasil di detik ke-7, rantai `&&`-nya baru putus di
+  `docker compose build`, jadi `up -d` tidak pernah jalan. Selama 19 menit
+  berikutnya `git rev-parse HEAD` di server menjawab commit baru sementara
+  container masih melayani yang lama — dan yang memperbaikinya cuma kebetulan
+  ada push berikutnya. Ini pola yang sama dengan `a2239f1` pada 18 Sep.
+  Tiga perbaikan: (1) base image **dipaku ke digest**, jadi retag upstream
+  tidak lagi membatalkan layer Chromium yang mahal dan naik versi jadi
+  keputusan sadar; (2) `ServerAliveInterval=30` / `ServerAliveCountMax=20` di
+  perintah ssh, memberi 10 menit tanpa balasan sebelum menyerah; (3) langkah
+  **verifikasi**: commit yang membangun image ditanam sebagai `/app/.git-sha`,
+  dan setelah `up -d` setiap container ditanya langsung apakah isinya memang
+  commit itu — "perintahnya tidak error" bukan bukti kode baru sudah dilayani.
+  Langkah di server pindah dari satu baris di dalam workflow ke
+  `deploy/remote-deploy.sh`, supaya bisa dibaca dan diubah lewat review biasa.
+  Mekanisme barunya diuji di server: `ARG` sebelum `FROM` dengan digest pin
+  membangun dan menanam SHA yang benar (terbaca sebagai user `node`), dan
+  jalur gagalnya diuji terhadap container produksi yang belum punya sidik jari
+  itu — keduanya dilaporkan mismatch dan keluar dengan kode 1.
+
 - **Plafon aliran SSE dihitung per company, bukan satu angka untuk seluruh
   server.** `SSE_MAX_CLIENTS = 50` berlaku global, jadi company yang ramai
   menghabiskan jatah company lain: pelanggan yang tidak melakukan apa pun

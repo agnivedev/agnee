@@ -9,6 +9,7 @@ const fastifyStatic = require('@fastify/static');
 const fastifyMultipart = require('@fastify/multipart');
 const QRCode = require('qrcode');
 const { WhatsappManager } = require('./whatsapp-manager.js');
+const { putaranSla } = require('./sla');
 const { CloudApiManager } = require('./cloud-api-manager.js');
 const KnowledgeBase = require('./knowledge-loader.js');
 const LlmService = require('./llm-service.js');
@@ -5921,6 +5922,39 @@ Aturan:
    * penugasan yang dipilih supervisor tetap berlaku sampai dia sendiri
    * melepasnya.
    */
+  /**
+   * Penjadwal SLA: memberi tahu saat customer sudah menunggu terlalu lama.
+   *
+   * Lima menit sekali, sama seperti penyapu di bawah. Presisinya memang
+   * setingkat itu — ambang terketat 15 menit, jadi peringatan bisa telat
+   * paling lama lima menit, dan itu tidak sebanding dengan ongkos memeriksa
+   * tiap menit.
+   */
+  function startSlaSweeper() {
+    const jalankan = async () => {
+      const hasil = await putaranSla({
+        database,
+        log: app.log,
+        // Notifikasinya didorong ke lonceng orang yang bersangkutan saja,
+        // seperti notifikasi mention: frame-nya tidak membawa isi apa pun.
+        onNotifikasi: ({ companyId, userIds }) => {
+          for (const userId of new Set(userIds)) {
+            manager.broadcastToUser(companyId, userId, 'notification', {});
+          }
+        },
+      }).catch((error) => {
+        app.log.warn({ err: error }, 'Penjadwal SLA gagal');
+        return null;
+      });
+      if (hasil && (hasil.diperingatkan || hasil.dieskalasi)) {
+        app.log.info(hasil, 'SLA tugas: peringatan dikirim');
+      }
+    };
+    void jalankan();
+    const timer = setInterval(() => { jalankan().catch(() => {}); }, 5 * 60_000);
+    timer.unref?.();
+  }
+
   function startAutoAssignSweeper() {
     const jalankan = async () => {
       const kembali = await database.returnIdleAutoAssignedToAi(AUTO_ASSIGN_IDLE_MINUTES)
@@ -5951,6 +5985,7 @@ Aturan:
     if (database.enabled && database.connected) followUpScheduler.start();
     if (database.enabled && database.connected) startOneDriveSyncLoop();
     if (database.enabled && database.connected) startAutoAssignSweeper();
+    if (database.enabled && database.connected) startSlaSweeper();
 
     // No default company to boot: resume exactly those companies whose last
     // known session was live. Everyone else starts on demand when a supervisor

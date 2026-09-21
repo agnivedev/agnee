@@ -609,17 +609,17 @@ class Database {
    * melainkan perpindahan penugasan. Penugasan ke diri sendiri tidak
    * menghasilkan baris — agent yang mengambil chatnya sendiri sudah tahu.
    */
-  async createTaskNotification({ chatId, userId, actorUserId, body }, companyId) {
+  async createTaskNotification({ chatId, userId, actorUserId, body, kind = 'task' }, companyId) {
     if (!this.enabled) return [];
     if (!userId || userId === actorUserId) return [];
     const result = await this.pool.query(`
       INSERT INTO notifications
         (company_id, user_id, kind, chat_id, actor_user_id, actor_kind, body)
-      SELECT $1, m.user_id, 'task', $2, $3, 'human', $4
+      SELECT $1, m.user_id, $6, $2, $3, 'human', $4
       FROM company_members m
       WHERE m.company_id = $1 AND m.status = 'active' AND m.user_id = $5::uuid
       RETURNING user_id AS "userId"
-    `, [companyId, chatId, actorUserId || null, String(body || '').slice(0, 500), userId]);
+    `, [companyId, chatId, actorUserId || null, String(body || '').slice(0, 500), userId, kind]);
     return result.rows.map((row) => row.userId);
   }
 
@@ -2627,6 +2627,69 @@ class Database {
    *
    * @returns {Promise<Array<{companyId:string, chatId:string}>>}
    */
+  /**
+   * Tugas yang sedang menunggu dibalas manusia, untuk penjadwal SLA.
+   *
+   * Lintas tenant seperti `listDueFollowUps` dan `returnIdleAutoAssignedToAi`:
+   * dipanggil HANYA oleh penjadwal di dalam proses, tidak pernah dari rute mana
+   * pun, jadi tidak ada jalan bagi satu company untuk membaca milik company
+   * lain lewat sini.
+   *
+   * "Menunggu dibalas" = pesan customer terakhir lebih baru daripada balasan
+   * MANUSIA terakhir. Balasan AI sengaja tidak dihitung: chat yang sudah
+   * diserahkan ke manusia tapi masih dijawab AI bukan berarti orangnya sudah
+   * menangani. Tugas yang sudah dibalas dan tinggal menunggu customer tidak
+   * muncul di sini sama sekali — bolanya memang bukan di tim.
+   */
+  async listTasksAwaitingReply({ maxUmurHari = 30 } = {}) {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(`
+      SELECT r.company_id AS "companyId", r.chat_id AS "chatId",
+             r.assignee_user_id AS "assigneeUserId", r.priority,
+             r.sla_warned_at AS "slaWarnedAt", r.sla_escalated_at AS "slaEscalatedAt",
+             c.timezone AS "timezone",
+             i.terakhir AS "menungguSejak"
+      FROM conversation_routing r
+      JOIN companies c ON c.id = r.company_id
+      JOIN LATERAL (
+        SELECT MAX(m.created_at) AS terakhir
+        FROM inbound_messages m
+        WHERE m.company_id = r.company_id AND m.chat_id = r.chat_id
+      ) i ON TRUE
+      WHERE r.handling_mode = 'human'
+        AND r.status <> 'closed'
+        AND r.assignee_user_id IS NOT NULL
+        AND i.terakhir IS NOT NULL
+        AND i.terakhir > NOW() - ($1 || ' days')::INTERVAL
+        AND NOT EXISTS (
+          SELECT 1 FROM outbound_replies o
+          WHERE o.company_id = r.company_id AND o.chat_id = r.chat_id
+            AND o.author = 'human'
+            AND o.created_at > i.terakhir
+        )
+    `, [String(maxUmurHari)]);
+    return result.rows;
+  }
+
+  /**
+   * Menandai bahwa SLA untuk penantian ini sudah diberitahukan.
+   *
+   * Nilainya adalah waktu pesan customer yang sedang ditunggu, bukan NOW():
+   * itulah yang membuat penantian berikutnya memasang ulang SLA-nya sendiri
+   * tanpa ada yang perlu membersihkan kolomnya.
+   */
+  async markTaskSla({ chatId, menungguSejak, warned = false, escalated = false }, companyId) {
+    if (!this.enabled || (!warned && !escalated)) return false;
+    const sets = [];
+    if (warned) sets.push('sla_warned_at = $3');
+    if (escalated) sets.push('sla_escalated_at = $3');
+    const result = await this.pool.query(`
+      UPDATE conversation_routing SET ${sets.join(', ')}
+      WHERE company_id = $1 AND chat_id = $2
+    `, [companyId, chatId, menungguSejak]);
+    return result.rowCount > 0;
+  }
+
   async returnIdleAutoAssignedToAi(idleMinutes) {
     if (!this.enabled) return [];
     const result = await this.pool.query(`

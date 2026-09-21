@@ -8,7 +8,7 @@ import { cn } from '@/lib/utils';
 
 type Notification = {
   id: number;
-  kind: 'mention' | 'reply' | 'task';
+  kind: 'mention' | 'reply' | 'task' | 'sla';
   chatId: string | null;
   chatName: string | null;
   actorName: string | null;
@@ -134,6 +134,7 @@ export function NotificationBell({ className }: { className?: string }) {
                     <span className="text-[11px]">
                       <strong>{item.actorName || t('routing.system')}</strong>{' '}
                       {t(item.kind === 'task' ? 'notif.assigned'
+                        : item.kind === 'sla' ? 'notif.overdue'
                         : item.kind === 'reply' ? 'notif.replied' : 'notif.mentioned')}
                       {item.chatName ? ` · ${item.chatName}` : ''}
                     </span>

@@ -2,6 +2,42 @@
 
 ### Added
 
+- **SLA tugas: pemberitahuan saat customer menunggu terlalu lama.** Notifikasi
+  penugasan (migrasi 031) hanya berbunyi saat tugas BERPINDAH; tugas yang sudah
+  dipegang lalu dibiarkan tidak pernah membunyikan apa pun, dan satu-satunya
+  cara mengetahuinya adalah membuka daftar tugas — yang justru tidak dilakukan
+  orang yang sedang sibuk.
+  Yang dihitung adalah **waktu sejak pesan customer terakhir yang belum dibalas
+  manusia**, bukan sejak tugas ditugaskan: tugas yang sudah dibalas dan tinggal
+  menunggu jawaban customer tidak menahan siapa pun, jadi tidak pantas dihitung
+  telat. Balasan AI tidak menghentikan hitungan — chat yang sudah diserahkan ke
+  manusia tapi masih dijawab AI bukan berarti orangnya sudah menangani.
+  Waktunya dihitung dalam **jam kerja** (09:00–18:00, Senin–Sabtu, zona waktu
+  masing-masing company yang memang sudah tersimpan sejak migrasi 002), bukan
+  waktu dinding. Tanpa itu, chat yang masuk jam 22:00 sudah telat 11 jam saat
+  tim datang pagi, seluruh papan merah setiap hari, dan papan yang selalu merah
+  berhenti dibaca.
+  Ambangnya per prioritas — urgent 15 menit, high 30 menit, normal 2 jam, low 8
+  jam — memakai kolom `priority` yang sudah ada. Lewat ambang: pemegang tugas
+  diberi tahu. Lewat dua kali ambang: supervisor ikut diberi tahu, karena
+  tugas yang benar-benar terlantar harus sampai ke orang yang bisa
+  memindahkannya. Masing-masing hanya sekali per penantian.
+  Migrasi `034_task_sla.sql` menambahkan jenis notifikasi `sla` dan dua stempel
+  di `conversation_routing`. Stempelnya menyimpan **waktu pesan yang sedang
+  ditunggu**, bukan bendera benar/salah: dengan begitu penantian baru (customer
+  mengirim lagi setelah dibalas) memasang ulang SLA-nya sendiri tanpa ada yang
+  perlu membersihkan kolomnya, dan tidak ada balapan antara penjadwal yang
+  menulis dan agent yang membalas.
+  Hitungan jam kerjanya murni dan diuji sendiri (`src/sla.js`, 13 tes): lintas
+  akhir pekan, sebelum jam buka, setelah jam tutup, dan zona waktu selain
+  Jakarta. Perilaku penjadwalnya diuji terpisah (8 tes) — termasuk bahwa satu
+  tugas dengan data rusak tidak menghentikan pemeriksaan tugas lain.
+  Diverifikasi juga terhadap PostgreSQL sungguhan, bukan hanya tiruan: satu
+  percakapan uji dibuat, ditemukan query, menghasilkan satu notifikasi, stempel
+  tersimpan, putaran kedua diam, lalu datanya dihapus lagi.
+
+### Added
+
 - **Halaman Kebijakan Privasi (`/privasi`) dan Syarat & Ketentuan
   (`/ketentuan`).** Keduanya publik tanpa sesi — orang memutuskan mau mendaftar
   atau tidak justru sebelum punya akun — dan tautannya sekarang ada di footer
@@ -393,10 +429,6 @@
 
 ### Outstanding
 
-- **Belum ada SLA untuk tugas.** Notifikasi sekarang ada saat penugasan
-  berpindah, tapi tidak ada yang berbunyi ketika sebuah tugas terlalu lama
-  terbuka. Itu butuh keputusan soal ambang waktunya lebih dulu, bukan hanya
-  kode.
 - **Audit baru merekam satu jenis tindakan** (`lead.open_in_whatsapp`).
   Tindakan lain yang akibatnya di luar Agnee — mengunduh seluruh daftar
   customer, misalnya — belum meninggalkan baris apa pun, padahal tabelnya

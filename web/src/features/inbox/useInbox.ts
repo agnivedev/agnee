@@ -11,7 +11,7 @@ const MESSAGE_CEILING = 600;
 
 type ChatsResponse = { chats: Chat[]; hasMore: boolean; phase?: string | null };
 type MessagesResponse = { messages: Message[]; hasMore: boolean };
-/** `seen: false` = server sengaja tidak menandainya (chat belum diambil siapa pun). */
+/** `seen: false` = server sengaja tidak menandainya (agent mengintip chat yang belum diambil). */
 type MarkReadResponse = { success: boolean; seen?: boolean; reason?: string };
 
 /**
@@ -40,8 +40,9 @@ export function useInbox() {
   // Chats the server confirmed it marked read while this tab was open. The
   // unread count comes from WhatsApp and lags behind the read receipt, so a
   // refresh in between would make the badge reappear on a conversation that is
-  // plainly open on screen. Only conversations someone has taken land here —
-  // an unclaimed one stays unread on purpose, so masking it would be a lie.
+  // plainly open on screen. Not every opened chat lands here: an agent peeking
+  // at a conversation nobody has taken leaves it unread on purpose, so masking
+  // that one would be a lie.
   const locallyRead = useRef(new Set<string>());
 
   activeChatId.current = activeChat?.id ?? null;
@@ -118,11 +119,11 @@ export function useInbox() {
       activeChatId.current = chat.id;
       sessionStorage.setItem('agnee_active_chat', chat.id);
       // Badge baru diturunkan setelah server memastikan chat ini memang
-      // ditandai sudah dibaca. Percakapan yang belum diambil siapa pun dijawab
-      // `seen: false`: tidak ada centang biru yang dikirim ke customer dan
-      // hitungan unread-nya tetap, karena percakapannya masih menunggu
-      // seseorang. Menurunkan badge-nya lebih dulu hanya membuat ia melompat
-      // balik begitu daftarnya dimuat ulang.
+      // ditandai sudah dibaca. Agent yang mengintip percakapan yang belum
+      // diambil siapa pun dijawab `seen: false`: tidak ada centang biru yang
+      // dikirim ke customer dan hitungan unread-nya tetap, karena
+      // percakapannya masih menunggu seseorang. Menurunkan badge-nya lebih
+      // dulu hanya membuat ia melompat balik begitu daftarnya dimuat ulang.
       void api<MarkReadResponse>(`/v1/chats/${encodeURIComponent(chat.id)}/mark-read`, { method: 'POST' })
         .then((result) => {
           if (!result?.seen) return;

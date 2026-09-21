@@ -9,15 +9,18 @@
  *    POST, jadi dulu ia ikut tertolak gerbang "ambil alih dulu": tiga baris
  *    403 di console peramban setiap kali agent membuka chat.
  *
- * 2. Centang birunya hanya untuk percakapan yang sudah diambil orang. Selama
- *    belum ada yang memegangnya, membukanya cuma mengintip — customer tidak
- *    boleh melihat "sudah dibaca", karena itu menjanjikan ada orang yang
- *    menangani padahal belum. Jadi rutenya menjawab 200 `seen: false` tanpa
- *    memanggil `sendSeen`, dan badge unread-nya sengaja TETAP menyala:
- *    percakapannya memang masih menunggu seseorang.
+ * 2. Tapi AGENT yang mengintip percakapan yang belum dipegang siapa pun tidak
+ *    mengirim centang biru. Dia belum memutuskan mau menanganinya atau tidak,
+ *    dan customer yang melihat "sudah dibaca" akan menunggu jawaban yang belum
+ *    tentu datang. Rutenya menjawab 200 `seen: false` tanpa memanggil
+ *    `sendSeen`, dan badge unread-nya sengaja TETAP menyala: percakapannya
+ *    memang masih menunggu seseorang.
  *
- * Keduanya aturan tentang keadaan chat, bukan tentang perannya — supervisor
- * yang mengintip chat yang belum diambil juga tidak mengirim centang biru.
+ *    Supervisor dikecualikan — inbox itu memang miliknya, jadi "supervisor
+ *    sudah membacanya" sama saja dengan "perusahaan sudah membacanya". Kalau
+ *    dia pun tidak menandai, badge inbox tidak pernah bisa dibersihkan oleh
+ *    siapa pun yang berhak membersihkannya.
+ *
  * Mengirim pesan tetap harus mengambil alih dulu, dan percakapan milik agent
  * lain tetap tertutup rapat.
  */
@@ -96,7 +99,7 @@ const unreadOf = async (app, cookie, chatId) => {
   return chat.unreadCount;
 };
 
-test('chat yang belum diambil: tidak ditolak, tapi juga tidak dikirimi centang biru', async (t) => {
+test('agent membuka chat yang belum diambil: tidak ditolak, tapi juga tidak dikirimi centang biru', async (t) => {
   const { app, cookie } = await setup(t);
 
   // Prasyarat: chat ini memang belum diklaim, terlihat di inbox, dan unread.
@@ -134,13 +137,16 @@ test('centang biru terkirim begitu chatnya diambil', async (t) => {
   assert.equal(await unreadOf(app, cookie, UNCLAIMED), 0);
 });
 
-test('aturannya soal keadaan chat, bukan peran — supervisor pun tidak mengintip diam-diam', async (t) => {
+test('supervisor tetap menandai sudah dibaca, walau chatnya belum diambil siapa pun', async (t) => {
+  // Inbox itu memang miliknya. Kalau dia pun tidak menandai, badge inbox tidak
+  // pernah bisa dibersihkan oleh siapa pun yang berhak membersihkannya.
   const { app, supervisorCookie } = await setup(t);
 
+  assert.equal(await unreadOf(app, supervisorCookie, UNCLAIMED), 2);
   const markRead = await app.inject({ method: 'POST', url: `/v1/chats/${UNCLAIMED}/mark-read`, headers: { cookie: supervisorCookie } });
   assert.equal(markRead.statusCode, 200);
-  assert.equal(markRead.json().seen, false);
-  assert.equal(await unreadOf(app, supervisorCookie, UNCLAIMED), 2);
+  assert.equal(markRead.json().seen, true);
+  assert.equal(await unreadOf(app, supervisorCookie, UNCLAIMED), 0);
 });
 
 test('mark-read tidak melonggarkan aturan ambil-alih untuk aksi lain', async (t) => {

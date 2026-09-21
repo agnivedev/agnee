@@ -73,24 +73,28 @@
 
 ### Changed
 
-- **Centang biru hanya untuk percakapan yang sudah diambil orang.** Membuka
-  chat di inbox memanggil `mark-read`, dan di produksi itu berarti
-  `sendSeen()` — centang biru ke customer. Untuk percakapan yang belum
-  dipegang siapa pun, itu janji yang tidak ditepati: customer melihat
-  pesannya "sudah dibaca" lalu menunggu jawaban, padahal yang terjadi cuma
-  seseorang mengintip sebentar dan menutupnya lagi. Rutenya sekarang menjawab
-  `200 {"seen": false, "reason": "unclaimed"}` tanpa memanggil `sendSeen`.
-  Aturannya soal **keadaan chat, bukan peran**: supervisor yang mengintip chat
-  yang belum diambil juga tidak mengirim centang biru.
-  Konsekuensinya badge unread-nya memang tetap menyala walau chatnya jelas
-  terbuka di layar — dan itu benar, percakapannya masih menunggu seseorang,
-  dan seluruh tim perlu melihat itu. Yang **sudah** diambil tidak berubah, dan
+- **Agent yang mengintip chat yang belum diambil tidak mengirim centang
+  biru.** Membuka chat di inbox memanggil `mark-read`, dan di produksi itu
+  berarti `sendSeen()` — centang biru ke customer. Untuk agent yang membuka
+  percakapan yang belum dipegang siapa pun, itu janji yang tidak ditepati:
+  customer melihat pesannya "sudah dibaca" lalu menunggu jawaban, padahal yang
+  terjadi cuma seseorang mengintip sebentar dan menutupnya lagi — dia belum
+  memutuskan mau menanganinya atau tidak. Rutenya sekarang menjawab
+  `200 {"seen": false, "reason": "unclaimed"}` tanpa memanggil `sendSeen`, dan
+  badge unread-nya tetap menyala walau chatnya terbuka di layar: percakapannya
+  memang masih menunggu seseorang.
+  **Supervisor tidak berubah** — inbox itu memang miliknya, dia yang menyisir
+  percakapan masuk dan membagikannya, jadi "supervisor sudah membacanya" sama
+  saja dengan "perusahaan sudah membacanya". Kalau dia pun tidak menandai,
+  badge inbox tidak akan pernah bisa dibersihkan oleh siapa pun yang berhak
+  membersihkannya. Chat yang **sudah** diambil juga tidak berubah, dan
   membalas tetap ikut menandai sudah dibaca (`sendTextForUi` memanggil
-  `sendSeen` sendiri) — di situ memang ada orang atau AI yang menjawab, jadi
-  centangnya jujur.
+  `sendSeen` sendiri) untuk semua — di situ memang ada orang atau AI yang
+  menjawab, jadi centangnya jujur.
   UI ikut disamakan: badge baru diturunkan setelah server memastikan
   `seen: true`. Dulu ia diturunkan optimistis sebelum jawaban datang, yang
-  sekarang berarti badge melompat balik begitu daftarnya dimuat ulang.
+  untuk kasus agent di atas berarti badge melompat balik begitu daftarnya
+  dimuat ulang.
 
 ### Fixed
 
@@ -109,11 +113,11 @@
   tetap harus mengambil alih dulu**, dan percakapan yang dipegang agent lain
   tetap tertutup rapat, termasuk untuk mark-read.
   Diverifikasi di localhost (demo mode, port 4100), lewat API dan di peramban:
-  chat belum diambil → mark-read 200 `seen: false`, badge tetap 2, tidak ada
-  baris merah di console; chat sudah diambil → `seen: true`, badge 2 → 0;
-  `POST notes` dan `POST /v1/messages/send` tetap 403; mark-read ke chat milik
-  agent lain tetap 403; supervisor pun dapat `seen: false` untuk chat yang
-  belum diambil.
+  agent membuka chat yang belum diambil → mark-read 200 `seen: false`, badge
+  tetap 2, tidak ada baris merah di console; chat sudah diambil → `seen: true`,
+  badge 2 → 0; supervisor di chat yang belum diambil → `seen: true`, badge
+  2 → 0; `POST notes` dan `POST /v1/messages/send` tetap 403; mark-read ke chat
+  milik agent lain tetap 403.
 
 - **Healthcheck melaporkan sehat selama database mati.** Rute `/health` selalu
   menjawab 200, dan `docker compose` hanya melihat status HTTP-nya — itulah

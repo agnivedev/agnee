@@ -5314,18 +5314,26 @@ Aturan:
     const companyId = request.agneeSession.companyId;
     const { chatId } = request.params;
 
-    // Centang biru hanya untuk percakapan yang sudah diambil orang. Selama
-    // belum ada yang memegangnya, membukanya di inbox cuma mengintip: customer
-    // tidak boleh melihat "sudah dibaca" — itu menjanjikan ada orang yang
-    // menangani padahal belum. Konsekuensinya badge unread-nya memang tetap
-    // menyala, dan itu benar: percakapannya masih menunggu seseorang.
+    // Agent yang membuka percakapan yang belum dipegang siapa pun cuma
+    // mengintip: dia belum memutuskan mau menanganinya atau tidak. Customer
+    // tidak boleh melihat "sudah dibaca" di situ — itu menjanjikan ada orang
+    // yang menangani padahal belum. Konsekuensinya badge unread-nya tetap
+    // menyala walau chatnya terbuka di layar, dan itu benar: percakapannya
+    // masih menunggu seseorang.
     //
-    // Yang sudah diambil tetap seperti biasa, dan membalas tetap ikut menandai
-    // sudah dibaca (`sendTextForUi`) — di situ memang ada orang atau AI yang
-    // menjawab, jadi centangnya jujur.
+    // Supervisor dikecualikan. Inbox itu memang miliknya — dia yang menyisir
+    // percakapan masuk dan membagikannya, jadi "supervisor sudah membacanya"
+    // sama saja dengan "perusahaan sudah membacanya", dan centangnya jujur.
+    // Kalau dia pun tidak menandai, badge inbox tidak pernah bisa dibersihkan
+    // oleh siapa pun yang berhak membersihkannya.
+    //
+    // Membalas tetap ikut menandai sudah dibaca lewat `sendTextForUi`, berlaku
+    // untuk semua — di situ memang ada orang atau AI yang menjawab.
     const routing = await getRouting(chatId, companyId);
     const claimed = routing.mode === 'human' && Boolean(routing.assigneeUserId);
-    if (!claimed) return { success: true, seen: false, reason: 'unclaimed' };
+    if (!claimed && !isSupervisor(request.agneeSession)) {
+      return { success: true, seen: false, reason: 'unclaimed' };
+    }
 
     const { client: wa, state: waState } = await waFor(companyId, chatId);
     if (config.demoMode) {

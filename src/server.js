@@ -440,12 +440,44 @@ async function buildApp(overrides = {}) {
    * bisa membedakan "tenant A minta AI dimatikan" dari "tenant B masih pakai
    * AI" — persis bug yang membuat /v1/admin/ai-settings dulu global.
    */
+  /**
+   * Setelan AI efektif untuk satu company, termasuk status paketnya.
+   *
+   * Paket yang berhenti dulu hanya mematikan balasan otomatis — satu-satunya
+   * jalur yang memeriksanya. Ringkasan percakapan, coach, simulate, playground,
+   * dan playbook chat/compile tetap memanggil model dan tetap menagih biaya ke
+   * kita untuk perusahaan yang sudah tidak membayar. Karena setiap pemanggil
+   * getCompanyAi sudah berhenti sendiri saat `enabled` false, menimbangnya di
+   * sini menutup kedua belas jalur sekaligus, bukan satu per satu.
+   *
+   * `reason` ada supaya rutenya bisa mengatakan yang sebenarnya: "paketnya
+   * berhenti" dan "OPENROUTER_API_KEY belum diisi" adalah dua masalah berbeda
+   * dengan dua tindakan berbeda.
+   */
   async function getCompanyAi(companyId) {
     if (!companyId || !database.enabled || !database.connected || typeof database.getAiSettings !== 'function') {
-      return { enabled: llmService.enabled, modelChain: [] };
+      return { enabled: llmService.enabled, modelChain: [], reason: llmService.enabled ? null : 'off' };
     }
     const settings = await database.getAiSettings(companyId).catch(() => ({ enabled: true, modelChain: [] }));
-    return { enabled: llmService.enabled && settings.enabled !== false, modelChain: settings.modelChain || [] };
+    const companyConfig = typeof database.getCompanyConfig === 'function'
+      ? await database.getCompanyConfig(companyId).catch(() => null)
+      : null;
+    const suspended = companyConfig?.planStatus === 'suspended';
+    const enabled = llmService.enabled && settings.enabled !== false && !suspended;
+    return {
+      enabled,
+      modelChain: settings.modelChain || [],
+      reason: suspended ? 'suspended' : (enabled ? null : 'off'),
+    };
+  }
+
+  /** Satu jawaban untuk semua rute AI, supaya alasannya tidak tertukar. */
+  function aiUnavailable(reply, companyAi) {
+    return reply.code(503).send({
+      error: companyAi?.reason === 'suspended'
+        ? 'Paket perusahaan ini sedang berhenti, jadi AI ikut berhenti. Aktifkan paketnya lebih dulu.'
+        : 'Mesin AI belum aktif. Periksa OPENROUTER_API_KEY.',
+    });
   }
 
   const cloudApiManager = new CloudApiManager(database);
@@ -844,16 +876,9 @@ async function buildApp(overrides = {}) {
       }
     }
 
-    // Trial/plan gate: a suspended company (trial expired without upgrade, or
-    // manually suspended) gets no AI-generated replies. Human agents can still
-    // reply manually — only this auto-reply path is gated.
-    if (database.enabled && database.connected) {
-      const companyConfig = await database.getCompanyConfig(companyId).catch(() => null);
-      if (companyConfig?.planStatus === 'suspended') {
-        app.log.warn({ companyId }, 'AI auto-reply blocked — company plan is suspended');
-        return null;
-      }
-    }
+    // Paket yang berhenti sudah dihentikan di getCompanyAi() di atas — berlaku
+    // untuk semua jalur AI, bukan cuma yang ini. Agent manusia tetap bisa
+    // membalas manual seperti sebelumnya.
 
     // Check AI usage limit (personal tier cap)
     if (database.enabled && database.connected) {
@@ -1735,12 +1760,26 @@ async function buildApp(overrides = {}) {
   // Health is tenant-agnostic: there is no default company whose WhatsApp state
   // could stand in for the deployment. Per-company state lives at
   // GET /v1/whatsapp/status, which is scoped to the caller's session.
-  app.get('/health', async () => ({
-    ok: true,
-    service: 'agnee-app',
-    database: database.status(),
-    whatsapp: { demoMode: config.demoMode, activeCompanies: manager.activeCompanyCount() },
-  }));
+  // Healthcheck Compose memanggil rute ini tiap 15 detik dan hanya melihat
+  // status HTTP-nya. Dulu selalu 200: 21 Sep container dilaporkan `healthy`
+  // selama 16 jam sementara app berjalan tanpa database sama sekali. Sekarang
+  // database yang seharusnya hidup tapi tidak menjawab = 503, dan kondisinya
+  // diukur lewat query sungguhan, bukan bendera yang dipasang sekali saat
+  // start. Database yang memang sengaja dimatikan (demo/lokal) tetap 200 —
+  // di sana ketiadaan DB bukan kerusakan.
+  app.get('/health', async (_request, reply) => {
+    const db = typeof database.ping === 'function'
+      ? await database.ping().catch(() => ({ driver: 'postgresql', connected: false, enabled: true }))
+      : { ...database.status(), enabled: Boolean(database.enabled) };
+    const healthy = !db.enabled || db.connected;
+    if (!healthy) reply.code(503);
+    return {
+      ok: healthy,
+      service: 'agnee-app',
+      database: { driver: db.driver, connected: db.connected },
+      whatsapp: { demoMode: config.demoMode, activeCompanies: manager.activeCompanyCount() },
+    };
+  });
 
   // ── Meta Cloud API webhook — public, no session ────────────────────────────
   // GET: Meta's hub verification challenge (one-time setup).
@@ -1864,6 +1903,16 @@ async function buildApp(overrides = {}) {
       reply.header('retry-after', String(retryAfter));
       return reply.code(429).send({ error: 'Terlalu banyak percobaan login. Coba lagi nanti.' });
     }
+    // Database yang SEHARUSNYA hidup tapi sedang putus bukan alasan untuk
+    // jatuh ke fallback admin: pengguna asli lalu ditolak "Email atau password
+    // salah", yang menyalahkan orangnya untuk kerusakan kita sendiri. Itu yang
+    // dilihat semua orang selama 16 jam pada 21 Sep. Fallback hanya sah kalau
+    // memang tidak ada database (demo/lokal).
+    if (database.enabled && !database.status().connected) {
+      app.log.error('Login ditolak — database aktif tapi sedang tidak tersambung');
+      return reply.code(503).send({ error: 'Layanan sedang bermasalah, bukan password. Coba lagi sebentar lagi.' });
+    }
+
     let user = null;
     if (typeof database.authenticateUser === 'function' && database.status().connected) {
       user = await database.authenticateUser(request.body.email, request.body.password);
@@ -2706,7 +2755,13 @@ ${thread || '(belum ada)'}`,
 
     const companyAi = await getCompanyAi(request.agneeSession.companyId);
     if (!companyAi.enabled) {
-      return reply.code(503).send({ error: 'OpenRouter belum aktif. Periksa LLM_ENABLED dan OPENROUTER_API_KEY.' });
+      return aiUnavailable(reply, companyAi);
+    }
+    // Satu-satunya rute AI yang dulu sama sekali tanpa batas: tiap kiriman
+    // memanggil model, dan tidak menagih kuota (kuota berarti pesan ke
+    // customer). Rem yang sama dengan coach/playbook — per company, per jam.
+    if (coachRateLimited(request.agneeSession.companyId)) {
+      return reply.code(429).send({ error: 'Terlalu banyak permintaan AI. Coba lagi nanti.' });
     }
 
     const message = request.body.message.trim();
@@ -3029,7 +3084,7 @@ ${thread || '(belum ada)'}`,
     if (!requireCoachDb(reply)) return;
     const companyId = request.agneeSession.companyId;
     const companyAi = await getCompanyAi(companyId);
-    if (!companyAi.enabled) return reply.code(503).send({ error: 'AI belum aktif. Periksa OPENROUTER_API_KEY.' });
+    if (!companyAi.enabled) return aiUnavailable(reply, companyAi);
     if (coachRateLimited(companyId)) {
       return reply.code(429).send({ error: 'Terlalu banyak permintaan AI. Coba lagi nanti.' });
     }
@@ -3204,7 +3259,7 @@ Aturan:
     }
     const companyAi = await getCompanyAi(companyId);
     if (!companyAi.enabled && (mode === 'ai' || grade)) {
-      return reply.code(503).send({ error: 'AI belum aktif. Periksa OPENROUTER_API_KEY.' });
+      return aiUnavailable(reply, companyAi);
     }
     if (coachRateLimited(companyId)) {
       return reply.code(429).send({ error: 'Terlalu banyak permintaan AI. Coba lagi nanti.' });
@@ -3353,7 +3408,7 @@ Aturan:
     if (!requireCoachDb(reply)) return;
     const companyId = request.agneeSession.companyId;
     const companyAi = await getCompanyAi(companyId);
-    if (!companyAi.enabled) return reply.code(503).send({ error: 'AI belum aktif. Periksa OPENROUTER_API_KEY.' });
+    if (!companyAi.enabled) return aiUnavailable(reply, companyAi);
     const userId = request.agneeSession.userId;
     if (coachRateLimited(companyId)) {
       return reply.code(429).send({ error: 'Terlalu banyak permintaan AI. Coba lagi nanti.' });
@@ -3506,7 +3561,7 @@ Cara kerjamu:
     if (!requireCoachDb(reply)) return;
     const companyId = request.agneeSession.companyId;
     const companyAi = await getCompanyAi(companyId);
-    if (!companyAi.enabled) return reply.code(503).send({ error: 'Mesin AI belum aktif.' });
+    if (!companyAi.enabled) return aiUnavailable(reply, companyAi);
     if (coachRateLimited(companyId)) {
       return reply.code(429).send({ error: 'Terlalu banyak permintaan. Coba lagi beberapa menit.' });
     }
@@ -3546,7 +3601,7 @@ Cara kerjamu:
     if (!requireCoachDb(reply)) return;
     const companyId = request.agneeSession.companyId;
     const companyAi = await getCompanyAi(companyId);
-    if (!companyAi.enabled) return reply.code(503).send({ error: 'Mesin AI belum aktif.' });
+    if (!companyAi.enabled) return aiUnavailable(reply, companyAi);
     if (coachRateLimited(companyId)) {
       return reply.code(429).send({ error: 'Terlalu banyak permintaan. Coba lagi beberapa menit.' });
     }
@@ -3772,7 +3827,7 @@ Aturan:
     if (!requireCoachDb(reply)) return;
     const companyId = request.agneeSession.companyId;
     const companyAi = await getCompanyAi(companyId);
-    if (!companyAi.enabled) return reply.code(503).send({ error: 'Mesin AI belum aktif.' });
+    if (!companyAi.enabled) return aiUnavailable(reply, companyAi);
     if (coachRateLimited(companyId)) {
       return reply.code(429).send({ error: 'Terlalu banyak permintaan. Coba lagi beberapa menit.' });
     }

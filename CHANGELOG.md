@@ -1,5 +1,53 @@
 ## [Unreleased]
 
+### Fixed
+
+- **Healthcheck melaporkan sehat selama database mati.** Rute `/health` selalu
+  menjawab 200, dan `docker compose` hanya melihat status HTTP-nya — itulah
+  sebabnya container dilaporkan `healthy` selama 16 jam pada 21 Sep sementara
+  app melayani tanpa database sama sekali, dan yang pertama tahu adalah orang
+  yang tidak bisa login. Sekarang database yang seharusnya hidup tapi tidak
+  menjawab membuat rute ini 503. Kondisinya juga **diukur**, bukan dibaca dari
+  bendera: `database.connected` dulu dipasang sekali di `connect()` dan tidak
+  pernah ditinjau lagi, jadi Postgres yang mati setelah app menyala tetap
+  dilaporkan tersambung selamanya. `ping()` menjalankan `SELECT 1` (hasilnya
+  di-cache 5 detik supaya pemantau tidak jadi beban sendiri) dan mengoreksi
+  benderanya dua arah — termasuk kembali hidup saat databasenya pulih. Pesan
+  error pg hanya masuk log, tidak ikut ke jawaban: `/health` terbuka tanpa
+  autentikasi dan error pg kadang memuat host, user, dan nama database.
+  Database yang memang sengaja tidak dipakai (demo/lokal) tetap 200 — di sana
+  ketiadaan DB bukan kerusakan.
+- **Login menjawab "Email atau password salah" untuk kerusakan kita sendiri.**
+  Kalau database yang seharusnya ada sedang putus, login jatuh ke fallback
+  admin dan menolak setiap pengguna asli dengan pesan yang menyalahkan
+  orangnya — persis yang dilihat semua orang selama outage 21 Sep. Sekarang
+  kondisi itu menjawab 503 "Layanan sedang bermasalah, bukan password", dan
+  fallback admin pun tidak membuka pintu selama database aktif tapi putus.
+  Fallback tetap sah kalau memang tidak ada database sama sekali (demo/lokal).
+
+### Changed
+
+- **Paket yang berhenti sekarang mematikan SEMUA jalur AI, bukan cuma balasan
+  otomatis.** Sebelumnya hanya `generateAutoReply()` yang memeriksa
+  `planStatus === 'suspended'`; ringkasan percakapan, coach, simulate,
+  playground, dan playbook chat/compile tetap memanggil model, jadi perusahaan
+  yang sudah tidak membayar tetap menghasilkan tagihan OpenRouter untuk kita.
+  Pemeriksaannya pindah ke `getCompanyAi()` yang sudah dipanggil kedua belas
+  jalur itu, jadi tertutup sekaligus, bukan satu per satu. Rutenya juga
+  berhenti menyalahkan hal yang salah: "paketnya berhenti" dan
+  "OPENROUTER_API_KEY belum diisi" dua masalah berbeda dengan dua tindakan
+  berbeda, dan sebelumnya keduanya dijawab dengan kalimat yang sama.
+- **Playground dapat rem yang sama dengan coach dan playbook** (per company,
+  per jam). Itu satu-satunya rute AI yang sebelumnya tanpa batas apa pun.
+- **Kuota "Pesan AI bulan ini" tetap berarti pesan ke customer** — keputusan
+  Hanny, 21 Sep. Ringkasan percakapan (di produksi 199 panggilan berbanding 62
+  balasan otomatis — tiga kali lebih sering) dan alat internal sengaja TIDAK
+  menagih kuota, supaya angka yang dilihat pelanggan tetap berarti pekerjaan
+  yang sampai ke customer-nya. Biayanya tidak hilang dari pandangan: semua
+  panggilan LLM tercatat di `ai_usage_logs` lengkap dengan company dan purpose,
+  dan terlihat per purpose di konsol `/superhuman`. Yang menahan jalur-jalur
+  itu sekarang status paket dan rate limit, bukan kuota.
+
 ### Security
 
 - **Rate limit login berlaku untuk seluruh platform, bukan per IP.** Di

@@ -2966,6 +2966,40 @@ class Database {
     };
   }
 
+  /**
+   * Apakah database MASIH hidup — bukan apakah ia pernah tersambung.
+   *
+   * `this.connected` dipasang sekali di `connect()` dan tidak pernah ditinjau
+   * lagi, jadi Postgres yang mati setelah app menyala tetap dilaporkan
+   * tersambung selamanya, dan `/health` ikut bilang sehat. Itu persis yang
+   * menyembunyikan insiden 21 Sep selama 16 jam: container dilaporkan healthy
+   * sementara tidak ada satu baris pun yang bisa ditulis.
+   *
+   * Hasilnya di-cache sebentar supaya pemantau yang mengetuk tiap beberapa
+   * detik tidak berubah jadi beban sendiri, dan `connected` ikut dikoreksi —
+   * termasuk kembali ke true kalau databasenya pulih.
+   */
+  async ping({ maxAgeMs = 5_000 } = {}) {
+    if (!this.enabled) return { driver: 'memory', connected: false, enabled: false };
+    const now = Date.now();
+    if (this._lastPing && now - this._lastPing.at < maxAgeMs) return this._lastPing.result;
+
+    let result;
+    try {
+      await this.pool.query('SELECT 1');
+      this.connected = true;
+      result = { driver: 'postgresql', connected: true, enabled: true };
+    } catch (error) {
+      this.connected = false;
+      // Pesan errornya hanya ke log: error pg kadang memuat host, user, dan
+      // nama database, dan /health terbuka tanpa autentikasi.
+      this.logger.warn?.({ err: error }, 'PostgreSQL ping gagal — database dianggap putus');
+      result = { driver: 'postgresql', connected: false, enabled: true };
+    }
+    this._lastPing = { at: now, result };
+    return result;
+  }
+
   async close() {
     if (this.pool) await this.pool.end();
     this.connected = false;

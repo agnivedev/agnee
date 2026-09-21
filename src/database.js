@@ -31,17 +31,22 @@ function verifyPassword(password, stored) {
 class Database {
   constructor(options = {}) {
     this.logger = options.logger || console;
-    // connectionString eksplisit '' HARUS berarti "matikan DB", bukan jatuh ke
-    // env ambient — kalau tidak, caller yang sengaja meminta instance nonaktif
-    // (mis. test yang tidak mau menyentuh Postgres asli) diam-diam tersambung
-    // ke DATABASE_URL proses kalau kebetulan sedang diset di lingkungan itu.
-    // Hanya ketika key-nya sama sekali tidak diberikan, env dipakai — supaya
-    // `new Database()` tanpa argumen tetap berjalan seperti sebelumnya.
-    this.connectionString = options.connectionString !== undefined
-      ? options.connectionString
-      : (process.env.DATABASE_URL || '');
-    this.enabled = Boolean(options.pool || this.connectionString
-      || (options.connectionString === undefined && process.env.PGHOST));
+    // `null` HARUS berarti "matikan DB" — itu satu-satunya cara mematikannya,
+    // dan hanya caller yang memang meminta instance nonaktif (mis. test yang
+    // tidak mau menyentuh Postgres asli) yang menuliskannya.
+    //
+    // String kosong TIDAK boleh berarti itu. Produksi berjalan lewat Compose
+    // yang mengoper PGHOST/PGUSER/PGPASSWORD dan membiarkan DATABASE_URL
+    // kosong, jadi `config.databaseUrl` di sana memang '' — pernah dianggap
+    // "matikan DB" dan produksi jalan 16 jam tanpa database: setiap login
+    // pengguna asli jatuh ke fallback admin dan ditolak "Email atau password
+    // salah". Kosong = "pakai env ambient", sama seperti tidak diberikan.
+    const explicitlyDisabled = options.connectionString === null;
+    this.connectionString = explicitlyDisabled
+      ? ''
+      : (options.connectionString || process.env.DATABASE_URL || '');
+    this.enabled = !explicitlyDisabled
+      && Boolean(options.pool || this.connectionString || process.env.PGHOST);
     this.connected = false;
     this.pool = options.pool || null;
     // Symmetric key for pgcrypto (pgp_sym_encrypt/decrypt) on per-company

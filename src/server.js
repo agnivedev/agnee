@@ -389,10 +389,21 @@ async function buildApp(overrides = {}) {
     },
   });
   const database = overrides.database || new Database({
+    // '' berarti "pakai PG* ambient" (jalur Compose di produksi), BUKAN
+    // "matikan DB". Hanya `null` yang mematikannya — dipakai test yang memang
+    // ingin menguji fallback tanpa database.
     connectionString: config.databaseUrl,
     logger: app.log,
     credentialsEncryptionKey: config.credentialsEncryptionKey,
   });
+  // Tanpa database, app tetap menyala tapi lumpuh diam-diam: login pengguna
+  // asli jatuh ke fallback admin dan ditolak, pesan masuk tidak tercatat, dan
+  // follow-up tidak jalan. Persis itu yang terjadi 20-21 Sep selama 16 jam dan
+  // tidak ada satu pun alarm berbunyi. Di produksi, gagal keras lebih baik
+  // daripada melayani tanpa data.
+  if (process.env.NODE_ENV === 'production' && !database.enabled) {
+    throw new Error('Production requires a database — set DATABASE_URL or the PG* environment variables');
+  }
   await database.connect();
 
   /**

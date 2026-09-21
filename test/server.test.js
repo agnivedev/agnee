@@ -83,8 +83,10 @@ test('login, list chats, read and send in demo mode', async (t) => {
     // Eksplisit, bukan mengandalkan DATABASE_URL absen di lingkungan test: CI
     // sekarang menjalankan Postgres asli untuk file lain, dan tanpa ini login
     // diam-diam pindah dari fallback admin-password ke database.authenticateUser
-    // yang tidak mengenal user demo di atas.
-    databaseUrl: '',
+    // yang tidak mengenal user demo di atas. `null`, bukan '': string kosong
+    // adalah yang dioper produksi (Compose memakai PG*, DATABASE_URL kosong),
+    // jadi kalau '' dipakai untuk mematikan DB, produksi ikut mati.
+    databaseUrl: null,
   });
   t.after(() => app.close());
 

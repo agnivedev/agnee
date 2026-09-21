@@ -37,6 +37,25 @@
 
 ### Fixed
 
+- **Agent membuka chat yang belum diambil siapa pun, dan badge unread-nya
+  bohong.** Membuka percakapan yang belum dipegang siapa pun memicu tiga
+  `403 Forbidden` untuk `POST /v1/chats/:chatId/mark-read` di console peramban,
+  sementara semua GET-nya (messages, notes, lead, summary, routing) 200.
+  Penyebabnya gerbang "ambil alih dulu": aturannya sengaja *membaca boleh,
+  menulis harus mengambil alih*, dan `mark-read` kebetulan sebuah POST jadi ia
+  ikut tertolak. Yang lebih merugikan bukan barisan merah di console, tapi
+  akibatnya: server tetap menghitung chat itu belum dibaca padahal agent sudah
+  membacanya, jadi badge unread-nya muncul lagi setiap reload — UI menutupinya
+  hanya selama tab itu terbuka. Menandai-sudah-dibaca sekarang mengikuti aturan
+  MEMBACA, bukan MENULIS: ia pembukuan dari membaca, bukan aksi baru, dan
+  membaca chat itu memang sudah diizinkan.
+  Pengecualiannya sempit dan tidak melonggarkan apa pun yang lain — **membalas
+  tetap harus mengambil alih dulu**, dan percakapan yang dipegang agent lain
+  tetap tertutup rapat, termasuk untuk mark-read. Diverifikasi di localhost
+  dengan akun agent sungguhan (demo mode, port 4100): mark-read 200, badge
+  chat itu turun 2 → 0, `POST notes` dan `POST /v1/messages/send` tetap 403,
+  dan mark-read ke chat milik agent lain tetap 403.
+
 - **Healthcheck melaporkan sehat selama database mati.** Rute `/health` selalu
   menjawab 200, dan `docker compose` hanya melihat status HTTP-nya — itulah
   sebabnya container dilaporkan `healthy` selama 16 jam pada 21 Sep sementara

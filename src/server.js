@@ -2074,6 +2074,20 @@ async function buildApp(overrides = {}) {
     }
   });
 
+  // MENULIS ke percakapan yang belum dipegang harus mengambil alih dulu, dengan
+  // dua pengecualian yang bukan "menulis ke percakapan":
+  //
+  //   routing   — klaim itu sendiri. Tanpa ini tidak ada jalan keluar.
+  //   mark-read — pembukuan dari membaca, bukan aksi baru. Membuka chat yang
+  //               belum dipegang sudah boleh (aturan GET di bawah), jadi
+  //               menolak pencatatannya hanya bikin badge unread bohong:
+  //               server tetap menganggapnya belum dibaca padahal agent sudah
+  //               membacanya, dan badge-nya muncul lagi setiap reload.
+  const CLAIM_EXEMPT_ROUTES = new Set([
+    '/v1/chats/:chatId/routing',
+    '/v1/chats/:chatId/mark-read',
+  ]);
+
   app.addHook('preHandler', async (request, reply) => {
     if (isSupervisor(request.agneeSession)) return;
     const chatId = request.params?.chatId;
@@ -2099,8 +2113,7 @@ async function buildApp(overrides = {}) {
     // lebih dulu. Aturan baca di sini sengaja sama dengan aturan daftar chat.
     if (request.method === 'GET') return;
 
-    // MENULIS harus mengambil alih dulu. Satu pengecualian: klaim itu sendiri.
-    if (request.method === 'POST' && request.routeOptions?.url === '/v1/chats/:chatId/routing') return;
+    if (request.method === 'POST' && CLAIM_EXEMPT_ROUTES.has(request.routeOptions?.url)) return;
 
     return reply.code(403).send({ error: 'Ambil alih chat ini sebelum membalas.' });
   });

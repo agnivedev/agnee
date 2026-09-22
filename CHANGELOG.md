@@ -1,5 +1,40 @@
 ## [Unreleased]
 
+### Fixed
+
+- **Rotasi nomor bisa menempelkan percakapan baru ke nomor yang tidak bisa
+  mengirim — permanen.** Pemilihan nomor menyaring `is_active` saja, sementara
+  kembaran Cloud API-nya sudah menuntut `status = 'connected'`. Karena
+  percakapan yang sudah menempel **tidak pernah dipindah** (balasan dari nomor
+  lain terbaca sebagai chat dari orang asing di sisi customer dan riwayatnya
+  pecah), satu pilihan yang salah berarti percakapan itu tidak bisa dibalas
+  selamanya. Di produksi hari ini tiga dari empat company nomornya persis dalam
+  keadaan itu — `waiting_for_qr` atau `disconnected` tapi tetap `is_active`.
+  Kesiapan sekarang dibaca dari keadaan hidup di manager, bukan dari kolom
+  `status` di database yang bisa tertinggal. Kalau tidak ada satu pun nomor
+  siap, percakapan itu **sengaja tidak ditempelkan ke mana pun**: menempel ke
+  nomor mati sekarang berarti tidak akan pernah bisa dibalas walau nanti ada
+  nomor sehat.
+- **Gagal kirim tidak lagi diam.** Kalau nomor yang memegang percakapan sedang
+  tidak tersambung, pengiriman dulu jatuh ke `sendTextForUi(undefined, …)` dan
+  pesannya tidak menyebut apa pun tentang penyebabnya. Sekarang gagal dengan
+  menyebut nomor mana yang perlu disambungkan lagi, plus alasan kenapa
+  percakapannya tidak dipindahkan ke nomor lain.
+
+### Added
+
+- **Saklar rotasi nomor** (Pengaturan → Nomor WhatsApp). Sebelumnya rotasi
+  selalu hidup begitu sebuah company punya lebih dari satu nomor aktif, tanpa
+  cara mematikannya — padahal ada saat orang ingin semua percakapan baru keluar
+  dari satu nomor: nomor kedua baru dipasang dan belum mau dipakai, atau satu
+  nomor sedang bermasalah di sisi WhatsApp dan ingin diistirahatkan tanpa
+  dicabut dari rotasi. Default menyala, jadi perilaku company yang sudah ada
+  tidak berubah diam-diam. Migrasi `035_rotation_toggle.sql`.
+  Logika pemilihannya dipindah ke `src/rotator.js` sebagai fungsi murni
+  (kesiapan nomor dioper, bukan dibaca sendiri dari manager) dengan delapan tes
+  — termasuk kasus yang jadi akar bug ini: nomor paling ringan yang belum siap
+  harus dilewati, bukan dipakai.
+
 ### Added
 
 - **Jejak audit tidak lagi merekam satu tindakan saja.** Sejak migrasi 031

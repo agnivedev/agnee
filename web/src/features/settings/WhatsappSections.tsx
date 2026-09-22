@@ -36,6 +36,7 @@ export function WhatsappNumbersSection() {
   const [label, setLabel] = useState('');
   const [status, setStatus] = useState('');
   const [busy, setBusy] = useState(false);
+  const [rotasi, setRotasi] = useState(true);
 
   const load = useCallback(async () => {
     try {
@@ -44,7 +45,25 @@ export function WhatsappNumbersSection() {
     } catch {
       setNumbers(null);
     }
+    try {
+      const config = await api<{ rotationEnabled?: boolean }>('/v1/admin/company');
+      setRotasi(config?.rotationEnabled !== false);
+    } catch {
+      // Saklarnya tetap tampil menyala: itu perilaku bawaannya, dan gagal
+      // membaca setelan bukan alasan menampilkan keadaan yang salah.
+    }
   }, []);
+
+  async function ubahRotasi(aktif: boolean) {
+    setRotasi(aktif);
+    setStatus('');
+    try {
+      await api('/v1/admin/company', { method: 'PATCH', body: { rotationEnabled: aktif } });
+    } catch (error) {
+      setRotasi(!aktif);
+      setStatus(messageFromError(error, ''));
+    }
+  }
 
   useEffect(() => {
     void load();
@@ -80,6 +99,19 @@ export function WhatsappNumbersSection() {
       badge={t('wa.numbersConnected', { ready, total: numbers.length })}
       description={t('wa.numbersCopy')}
     >
+      {/* Label menyebut apa yang terjadi kalau dicentang, bukan status saat ini —
+          sama seperti saklar tindak lanjut. */}
+      <label className="mb-1.5 flex items-center gap-2.5 text-[13px] font-semibold">
+        <input
+          type="checkbox"
+          checked={rotasi}
+          onChange={(event) => void ubahRotasi(event.target.checked)}
+          className="size-4 accent-green"
+        />
+        <span>{t('wa.rotationEnable')}</span>
+      </label>
+      <p className="mt-0 mb-4 text-[11px] text-muted">{t('wa.rotationHint')}</p>
+
       <div className="grid gap-2">
         {numbers.map((number) => (
           <Row key={number.id}>

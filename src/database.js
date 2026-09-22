@@ -827,6 +827,7 @@ class Database {
              ai_message_limit AS "aiMessageLimit", ai_message_count AS "aiMessageCount",
              ai_count_reset_at AS "aiCountResetAt", max_users AS "maxUsers",
              max_playbooks AS "maxPlaybooks", max_whatsapp AS "maxWhatsapp", name, slug,
+             rotation_enabled AS "rotationEnabled",
              trial_ends_at AS "trialEndsAt",
              payment_method AS "paymentMethod", payment_link AS "paymentLink",
              bank_name AS "bankName", bank_account AS "bankAccount",
@@ -953,7 +954,7 @@ class Database {
     return result.rows[0] || null;
   }
 
-  async updateCompanyConfig({ plan, planStatus, knowledgeClient, aiMessageLimit, maxUsers, maxPlaybooks, maxWhatsapp, paymentMethod, paymentLink, bankName, bankAccount, bankHolder, paymentNotes, whatsappProvider }, companyId) {
+  async updateCompanyConfig({ plan, planStatus, knowledgeClient, aiMessageLimit, maxUsers, maxPlaybooks, maxWhatsapp, paymentMethod, paymentLink, bankName, bankAccount, bankHolder, paymentNotes, whatsappProvider, rotationEnabled }, companyId) {
     if (!this.enabled) return null;
     const fields = [];
     const values = [];
@@ -972,6 +973,7 @@ class Database {
     if (bankHolder !== undefined) { fields.push(`bank_holder = $${i++}`); values.push(bankHolder || null); }
     if (paymentNotes !== undefined) { fields.push(`payment_notes = $${i++}`); values.push(paymentNotes || null); }
     if (whatsappProvider !== undefined) { fields.push(`whatsapp_provider = $${i++}`); values.push(whatsappProvider); }
+    if (rotationEnabled !== undefined) { fields.push(`rotation_enabled = $${i++}`); values.push(rotationEnabled); }
     if (!fields.length) return this.getCompanyConfig(companyId);
     fields.push(`updated_at = NOW()`);
     values.push(companyId);

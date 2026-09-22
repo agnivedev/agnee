@@ -10,6 +10,7 @@ const fastifyMultipart = require('@fastify/multipart');
 const QRCode = require('qrcode');
 const { WhatsappManager } = require('./whatsapp-manager.js');
 const { putaranSla } = require('./sla');
+const { pilihNomorUntukPercakapanBaru } = require('./rotator');
 const { CloudApiManager } = require('./cloud-api-manager.js');
 const KnowledgeBase = require('./knowledge-loader.js');
 const LlmService = require('./llm-service.js');
@@ -585,22 +586,57 @@ async function buildApp(overrides = {}) {
     return primaryWaConn(companyId);
   }
 
+  /** Nomor ini benar-benar bisa mengirim sekarang? */
+  function waSiapKirim(connectionId) {
+    return manager.getState(connectionId)?.phase === 'ready';
+  }
+
   /**
-   * Nomor untuk mengirim ke percakapan ini. Kalau belum menempel, pilih nomor
-   * aktif dengan beban paling ringan lalu tempelkan — supaya nomor yang
-   * ditambah belakangan ikut menyerap percakapan baru.
+   * Nomor untuk mengirim ke percakapan ini.
+   *
+   * Percakapan yang sudah menempel TIDAK pernah dipindah — di sisi customer,
+   * balasan dari nomor lain adalah chat baru dari orang asing dan riwayatnya
+   * pecah. Yang dipilih di sini hanya untuk percakapan yang belum punya nomor.
+   *
+   * Pilihannya WAJIB nomor yang sedang siap kirim, bukan sekadar yang
+   * `is_active`. Sebelum ini penyaringnya hanya `is_active`, sementara kembaran
+   * Cloud API-nya sudah menuntut `status = 'connected'` — akibatnya percakapan
+   * baru bisa menempel permanen ke nomor yang sedang `waiting_for_qr` atau
+   * `disconnected`, dan karena tempelan tidak pernah pindah, percakapan itu
+   * tidak bisa dibalas selamanya. Di produksi hari ini tiga dari empat company
+   * nomornya persis dalam keadaan itu.
+   *
+   * Kesiapan dibaca dari manager (keadaan hidup), bukan dari kolom `status` di
+   * database yang bisa tertinggal.
    */
   async function waConnForOutbound(companyId, chatId) {
     if (!canCall('getWhatsappChatNumber')) return primaryWaConn(companyId);
     const attached = await database.getWhatsappChatNumber(companyId, chatId).catch(() => null);
     if (attached) return attached;
 
-    const counts = canCall('countWhatsappChatsPerConnection')
+    const rows = await listWaConns(companyId);
+    const utama = await primaryWaConn(companyId);
+
+    // Saklar mati: semua percakapan baru keluar dari nomor utama saja.
+    const companyConfig = canCall('getCompanyConfig')
+      ? await database.getCompanyConfig(companyId).catch(() => null)
+      : null;
+    const rotasiHidup = companyConfig?.rotationEnabled !== false;
+
+    const counts = rotasiHidup && canCall('countWhatsappChatsPerConnection')
       ? await database.countWhatsappChatsPerConnection(companyId).catch(() => [])
       : [];
-    const rows = await listWaConns(companyId);
-    const chosen = rows.find((row) => row.id === counts[0]?.id) || await primaryWaConn(companyId);
-    if (!chosen?.id) return chosen;
+    const { nomor: chosen, alasan } = pilihNomorUntukPercakapanBaru({
+      counts, connections: rows, primary: utama, rotationEnabled: rotasiHidup, siapKirim: waSiapKirim,
+    });
+    // Tidak ada nomor yang siap: kembalikan nomor utama apa adanya supaya
+    // sendOutbound bisa menyebut namanya dalam pesan gagalnya — tanpa
+    // menempelkan percakapan ini ke nomor mana pun.
+    if (!chosen?.id) {
+      app.log.warn({ companyId, chatId, alasan }, 'Rotasi nomor: tidak ada nomor yang siap mengirim');
+      return utama || null;
+    }
+
     if (canCall('assignWhatsappChatNumber')) {
       await database.assignWhatsappChatNumber(companyId, chatId, chosen.id).catch(() => {});
     }
@@ -650,7 +686,21 @@ async function buildApp(overrides = {}) {
     // Percakapan baru menempel ke nomor aktif yang bebannya paling ringan;
     // percakapan lama tetap di nomornya.
     const outConn = await waConnForOutbound(companyId, chatId);
-    const wa = manager.getClient(outConn?.id);
+    // Percakapan lama bisa memegang nomor yang sekarang mati. Memindahkannya ke
+    // nomor lain BUKAN pilihan — di sisi customer itu chat baru dari nomor
+    // asing dan riwayatnya pecah — jadi yang benar adalah gagal dengan
+    // menyebutkan nomor mana yang perlu disambungkan lagi. Sebelum ini
+    // pengiriman jatuh ke `sendTextForUi(undefined, ...)` dan pesannya tidak
+    // memberi tahu apa pun tentang penyebabnya.
+    if (!outConn?.id || !waSiapKirim(outConn.id)) {
+      const nama = outConn?.label || outConn?.phoneNumber || null;
+      const error = new Error(nama
+        ? `Nomor "${nama}" yang memegang percakapan ini sedang tidak tersambung. Sambungkan lagi nomor itu — memindahkan percakapan ke nomor lain akan terlihat sebagai chat dari nomor asing di sisi customer.`
+        : 'Belum ada nomor WhatsApp yang siap mengirim. Sambungkan nomor lebih dulu di Pengaturan.');
+      error.statusCode = 409;
+      throw error;
+    }
+    const wa = manager.getClient(outConn.id);
     return sendTextForUi(wa, chatId, text, options);
   }
 
@@ -2300,6 +2350,7 @@ async function buildApp(overrides = {}) {
       bankAccount: { type: 'string', maxLength: 50 },
       bankHolder: { type: 'string', maxLength: 100 },
       paymentNotes: { type: 'string', maxLength: 500 },
+      rotationEnabled: { type: 'boolean' },
     } } },
   }, async (request, reply) => {
     if (!database.status().connected) return reply.code(503).send({ error: 'Tidak tersedia.' });

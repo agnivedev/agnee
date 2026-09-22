@@ -2137,6 +2137,39 @@ async function buildApp(overrides = {}) {
     return { ok: true };
   });
 
+  /**
+   * Jejak audit untuk tindakan yang akibatnya keluar dari Agnee.
+   *
+   * Kriterianya sama seperti baris pertama tabel ini (`lead.open_in_whatsapp`):
+   * yang dicatat adalah tindakan yang akibatnya tidak bisa ditelusuri dari
+   * dalam Agnee sendiri — data yang pindah keluar, uang yang bisa diarahkan,
+   * akses yang berubah, layanan yang dihentikan. Pekerjaan sehari-hari
+   * (membalas, menandai dibaca, memindahkan tahap) TIDAK dicatat: jejak yang
+   * memuat segalanya sama tidak bergunanya dengan jejak yang kosong.
+   *
+   * Gagal mencatat tidak boleh menggagalkan tindakannya — menghalangi pekerjaan
+   * karena audit gagal lebih mahal daripada satu baris yang hilang.
+   *
+   * PENTING: `metadata` masuk ke database dan terbaca supervisor. Jangan pernah
+   * memasukkan nilai rahasia ke dalamnya — nomor rekening, token, kata sandi.
+   * Yang dicatat adalah NAMA kolom yang berubah, bukan isinya.
+   */
+  async function catatAudit(request, action, { entityType, entityId = null, metadata = {} } = {}) {
+    const companyId = request.agneeSession?.companyId;
+    if (!companyId || !database.status().connected || typeof database.recordAuditLog !== 'function') return;
+    try {
+      await database.recordAuditLog({
+        actorUserId: request.agneeSession?.userId || null,
+        action,
+        entityType,
+        entityId,
+        metadata,
+      }, companyId);
+    } catch (error) {
+      app.log.warn({ err: error, action, companyId }, 'Audit tidak tercatat');
+    }
+  }
+
   app.get('/v1/team/members', async (request) => {
     const members = await getTeamMembers(request.agneeSession?.companyId);
     if (!isSupervisor(request.agneeSession)) {
@@ -2176,6 +2209,10 @@ async function buildApp(overrides = {}) {
       throw error;
     }
     broadcastEvent(teamCompanyId, 'team', { action: 'created', member });
+    await catatAudit(request, 'team.member_added', {
+      entityType: 'user', entityId: member.id,
+      metadata: { email: member.email, role: member.role },
+    });
     return reply.code(201).send({ member });
   });
 
@@ -2190,6 +2227,10 @@ async function buildApp(overrides = {}) {
     const member = await database.updateTeamMemberRole(request.params.userId, request.body.role, request.agneeSession?.companyId);
     if (!member) return reply.code(404).send({ error: 'Anggota tidak ditemukan atau tidak dapat diubah.' });
     broadcastEvent(request.agneeSession.companyId, 'team', { action: 'updated', member });
+    await catatAudit(request, 'team.role_changed', {
+      entityType: 'user', entityId: request.params.userId,
+      metadata: { email: member.email, role: request.body.role },
+    });
     return { member };
   });
 
@@ -2219,6 +2260,9 @@ async function buildApp(overrides = {}) {
     if (!database.status().connected) return reply.code(503).send({ error: 'Penyimpanan belum tersedia.' });
     await database.deactivateTeamMember(request.params.userId, request.agneeSession?.companyId);
     broadcastEvent(request.agneeSession.companyId, 'team', { action: 'removed', userId: request.params.userId });
+    await catatAudit(request, 'team.member_removed', {
+      entityType: 'user', entityId: request.params.userId,
+    });
     return { ok: true };
   });
 
@@ -2267,7 +2311,20 @@ async function buildApp(overrides = {}) {
         return reply.code(403).send({ error: 'Paket dan batas langganan hanya dapat diubah oleh tim Agnee.' });
       }
     }
-    return await database.updateCompanyConfig(request.body, request.agneeSession.companyId);
+    const hasil = await database.updateCompanyConfig(request.body, request.agneeSession.companyId);
+    // Hanya NAMA kolom yang dicatat, bukan isinya: nomor rekening dan link
+    // pembayaran tidak boleh mengendap di jejak audit yang dibaca lewat API.
+    // Yang perlu ditelusuri adalah "siapa mengubah rekening, kapan" — bukan
+    // rekening lamanya.
+    const kolomPembayaran = ['paymentMethod', 'paymentLink', 'bankName', 'bankAccount', 'bankHolder', 'paymentNotes'];
+    const berubah = kolomPembayaran.filter((kolom) => request.body[kolom] !== undefined);
+    if (berubah.length) {
+      await catatAudit(request, 'payment.changed', {
+        entityType: 'company', entityId: request.agneeSession.companyId,
+        metadata: { fields: berubah, method: request.body.paymentMethod ?? null },
+      });
+    }
+    return hasil;
   });
 
   // ── Playbook: per-company AI brief + reference documents/media ─────────────
@@ -4408,6 +4465,12 @@ Aturan:
     const stamp = new Date().toISOString().slice(0, 10);
     reply.header('content-type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     reply.header('content-disposition', `attachment; filename="agnee-lead-${stamp}.xlsx"`);
+    // Seluruh daftar customer baru saja pindah ke laptop seseorang. Sejak itu
+    // Agnee tidak punya kendali apa pun atas salinannya, jadi satu-satunya yang
+    // bisa kita tinggalkan adalah catatan bahwa itu terjadi.
+    await catatAudit(request, 'contacts.exported', {
+      entityType: 'export', metadata: { format: 'xlsx', rows: rows.length },
+    });
     return reply.send(file);
   });
 
@@ -4423,6 +4486,9 @@ Aturan:
     reply.header('content-disposition', `attachment; filename="agnee-kontak-${stamp}.csv"`);
     // BOM supaya Excel membaca UTF-8 dengan benar; tanpa ini nama dengan
     // aksen dan emoji tampil rusak saat file dibuka langsung di Excel.
+    await catatAudit(request, 'contacts.exported', {
+      entityType: 'export', metadata: { format: 'csv', rows: rows.length },
+    });
     return reply.send(`\uFEFF${csv}`);
   });
 
@@ -4497,6 +4563,12 @@ Aturan:
         driveId: workbook.driveId, itemId: workbook.itemId,
         worksheetName, fileName: workbook.fileName, webUrl: workbook.webUrl,
       });
+      // Sejak baris ini, daftar customer mengalir keluar sendiri tiap putaran
+      // sinkronisasi. Yang dicatat nama integrasinya, bukan kredensialnya.
+      await catatAudit(request, 'integration.connected', {
+        entityType: 'integration', entityId: 'onedrive',
+        metadata: { integration: 'onedrive', fileName: workbook.fileName || null },
+      });
       return reply.code(201).send({ ok: true, fileName: workbook.fileName, webUrl: workbook.webUrl, worksheetName: saved.worksheetName });
     } catch (error) {
       return reply.code(422).send({ error: error.message });
@@ -4536,6 +4608,9 @@ Aturan:
     if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengatur ekspor.' });
     if (!canCall('deleteOneDriveConnection')) return reply.code(503).send({ error: 'Database tidak tersedia.' });
     await database.deleteOneDriveConnection(request.agneeSession.companyId);
+    await catatAudit(request, 'integration.disconnected', {
+      entityType: 'integration', entityId: 'onedrive', metadata: { integration: 'onedrive' },
+    });
     return { ok: true };
   });
 
@@ -4617,6 +4692,10 @@ Aturan:
       const saved = await database.upsertGsheetsConnection(companyId, {
         clientEmail, privateKey, spreadsheetId, sheetName, spreadsheetTitle: title,
       });
+      await catatAudit(request, 'integration.connected', {
+        entityType: 'integration', entityId: 'gsheets',
+        metadata: { integration: 'gsheets', spreadsheetTitle: title || null },
+      });
       return reply.code(201).send({
         ok: true, clientEmail, spreadsheetId,
         spreadsheetTitle: title, sheetName: saved.sheetName,
@@ -4659,6 +4738,9 @@ Aturan:
     if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengatur ekspor.' });
     if (!canCall('deleteGsheetsConnection')) return reply.code(503).send({ error: 'Database tidak tersedia.' });
     await database.deleteGsheetsConnection(request.agneeSession.companyId);
+    await catatAudit(request, 'integration.disconnected', {
+      entityType: 'integration', entityId: 'gsheets', metadata: { integration: 'gsheets' },
+    });
     return { ok: true };
   });
 
@@ -4772,6 +4854,13 @@ Aturan:
       manager.broadcast(companyId, 'whatsapp_phase', { phase: 'starting', connectionId: connConfig.id });
       await manager.startFor(connConfig.id, connConfig, makeWaCallbacks());
     }
+    // Memutus nomor menghentikan pesan masuk dan keluar untuk SEMUA orang di
+    // company ini, dan dari dalam Agnee bekasnya cuma tampak seperti "koneksi
+    // sedang bermasalah".
+    await catatAudit(request, 'whatsapp.disconnected', {
+      entityType: 'whatsapp_connection', entityId: connConfig.id,
+      metadata: { label: connConfig.label || null },
+    });
     return { ok: true };
   });
 
@@ -4801,6 +4890,12 @@ Aturan:
       // dikunci pada (company_id, phone_number_id).
       const conn = await cloudApiManager.connect(companyId, { phoneNumberId, wabaId, accessToken, appSecret, label: label || null });
       await database.updateCompanyConfig({ whatsappProvider: 'cloud_api' }, companyId);
+      // Nomor pengirim berubah, dan token yang bisa mengirim atas nama
+      // perusahaan ini baru saja disimpan. Isi tokennya tidak pernah dicatat.
+      await catatAudit(request, 'integration.connected', {
+        entityType: 'integration', entityId: 'cloud_api',
+        metadata: { integration: 'cloud_api', phoneNumberId: conn.phoneNumberId || null },
+      });
       return { ok: true, id: conn.id, phoneNumberId: conn.phoneNumberId, wabaId: conn.wabaId, displayPhoneNumber: conn.displayPhoneNumber, label: conn.label, isActive: conn.isActive };
     } catch (err) {
       return reply.code(422).send({ error: err.message });
@@ -4860,6 +4955,9 @@ Aturan:
     const companyId = request.agneeSession.companyId;
     await database.updateCloudApiStatus(companyId, 'disconnected');
     await database.updateCompanyConfig({ whatsappProvider: 'whatsapp_web' }, companyId);
+    await catatAudit(request, 'integration.disconnected', {
+      entityType: 'integration', entityId: 'cloud_api', metadata: { integration: 'cloud_api' },
+    });
     return { ok: true };
   });
 

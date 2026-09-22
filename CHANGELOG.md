@@ -2,6 +2,40 @@
 
 ### Added
 
+- **Jejak audit tidak lagi merekam satu tindakan saja.** Sejak migrasi 031
+  tabelnya dipakai, tapi hanya oleh `lead.open_in_whatsapp` — mengunduh seluruh
+  daftar customer, mengubah rekening tujuan pembayaran, memutus nomor
+  perusahaan, dan mengubah siapa yang punya akses tidak meninggalkan baris apa
+  pun. Sekarang sembilan jenis tindakan tercatat: `contacts.exported`,
+  `payment.changed`, `whatsapp.disconnected`, `team.member_added`,
+  `team.role_changed`, `team.member_removed`, `integration.connected`,
+  `integration.disconnected`, dan yang sudah ada sebelumnya.
+  Kriterianya sama seperti baris pertama tabel itu: yang dicatat adalah
+  tindakan yang **akibatnya tidak bisa ditelusuri dari dalam Agnee sendiri** —
+  data yang pindah keluar, uang yang bisa diarahkan, akses yang berubah,
+  layanan yang dihentikan. Pekerjaan sehari-hari sengaja tidak dicatat, dan
+  satu contoh konkretnya: rute JSON `/v1/export/contacts` TIDAK dicatat karena
+  itu yang dipanggil halaman Lead List setiap kali dibuka — jejak yang memuat
+  segalanya sama tidak bergunanya dengan jejak yang kosong. Yang dicatat hanya
+  unduhan XLSX dan CSV, yaitu saat file benar-benar keluar.
+  **`payment.changed` mencatat NAMA kolom yang berubah, bukan isinya.** Jejak
+  audit dibaca lewat API oleh setiap supervisor, jadi menaruh nomor rekening di
+  sana menambah tempat kebocoran baru — padahal yang perlu ditelusuri cuma
+  "siapa mengubah rekening, kapan". Ada tes yang memastikan nomor rekening
+  tidak muncul di baris auditnya, dan itu diverifikasi juga terhadap data
+  sungguhan.
+  **Kartu audit di Admin dulu memaku `?action=lead.open_in_whatsapp`**, jadi
+  tindakan baru tidak akan pernah terlihat di sana walau barisnya ada di
+  database. Sekarang semuanya ditampilkan dengan label yang bisa dibaca orang
+  (ID dan EN), plus penyaring per jenis tindakan — karena pertanyaan supervisor
+  biasanya spesifik: "siapa yang mengunduh daftar customer bulan ini".
+  Enam tes baru, empat di antaranya terbukti gagal terhadap kode sebelum ini.
+  Diverifikasi di peramban dengan akun sungguhan: kartunya menampilkan
+  ketiga tindakan uji, penyaringnya menyempitkan ke satu jenis, dan nomor
+  rekening yang dipakai saat menguji tidak muncul di mana pun.
+
+### Added
+
 - **SLA tugas: pemberitahuan saat customer menunggu terlalu lama.** Notifikasi
   penugasan (migrasi 031) hanya berbunyi saat tugas BERPINDAH; tugas yang sudah
   dipegang lalu dibiarkan tidak pernah membunyikan apa pun, dan satu-satunya
@@ -442,10 +476,8 @@
 
 ### Outstanding
 
-- **Audit baru merekam satu jenis tindakan** (`lead.open_in_whatsapp`).
-  Tindakan lain yang akibatnya di luar Agnee — mengunduh seluruh daftar
-  customer, misalnya — belum meninggalkan baris apa pun, padahal tabelnya
-  sekarang sudah dipakai dan rutenya sudah ada.
+- ~~**Audit baru merekam satu jenis tindakan**~~ **SELESAI 2026-09-22** —
+  sembilan jenis tindakan sekarang tercatat, lihat bagian Added.
 - **Layar baru di `/tasks` dan kartu audit di Admin belum dilihat di
   peramban.** Dibangun tanpa error dan rutenya diuji lewat `app.inject` serta
   dipanggil langsung ke server lokal, tapi memeriksanya di layar butuh

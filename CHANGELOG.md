@@ -13,6 +13,9 @@
   (pola yang sama dengan tooltip sidebar di `AppSidebar.tsx`), jadi lolos
   dari clipping ancestor dan selalu di dalam viewport — termasuk membuka ke
   atas otomatis kalau bell-nya dekat tepi bawah layar.
+- **Panel notifikasi tidak memakai token desain app.** `rounded-xl`/`bg-white`/
+  `shadow-lg` yang lepas dari sistem, beda dengan Card/Dialog/halaman lain yang
+  semuanya `rounded-panel`/`bg-card`/`shadow-panel`. Disamakan.
 - **Rotasi nomor bisa menempelkan percakapan baru ke nomor yang tidak bisa
   mengirim — permanen.** Pemilihan nomor menyaring `is_active` saja, sementara
   kembaran Cloud API-nya sudah menuntut `status = 'connected'`. Karena
@@ -34,6 +37,10 @@
 
 ### Added
 
+- **Halaman "Lihat semua notifikasi"** (`/notifications`). Dropdown lonceng
+  cuma menampilkan 8 notifikasi terbaru, sekarang dengan tautan ke halaman
+  penuh yang menarik sampai 100 (batas server). Data dan aksi (tandai semua
+  terbaca, buka percakapan) sama persis dengan dropdown, cuma tempatnya beda.
 - **Saklar rotasi nomor** (Pengaturan → Nomor WhatsApp). Sebelumnya rotasi
   selalu hidup begitu sebuah company punya lebih dari satu nomor aktif, tanpa
   cara mematikannya — padahal ada saat orang ingin semua percakapan baru keluar

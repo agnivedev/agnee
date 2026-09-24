@@ -12,6 +12,7 @@ import { InboxPage } from '@/features/inbox/InboxPage';
 // must feel instant. The rest load when someone actually opens them.
 const LeadsPage = lazy(() => import('@/features/leads/LeadsPage').then((m) => ({ default: m.LeadsPage })));
 const TasksPage = lazy(() => import('@/features/tasks/TasksPage').then((m) => ({ default: m.TasksPage })));
+const NotificationsPage = lazy(() => import('@/features/notifications/NotificationsPage').then((m) => ({ default: m.NotificationsPage })));
 const PipelinePage = lazy(() => import('@/features/pipeline/PipelinePage').then((m) => ({ default: m.PipelinePage })));
 const SettingsPage = lazy(() => import('@/features/settings/SettingsPage').then((m) => ({ default: m.SettingsPage })));
 const KnowledgePage = lazy(() => import('@/features/knowledge/KnowledgePage').then((m) => ({ default: m.KnowledgePage })));
@@ -108,6 +109,7 @@ function Shell() {
         <Route path="/" element={<InboxPage />} />
         <Route path="/leads" element={<LeadsPage />} />
         <Route path="/tasks" element={<TasksPage />} />
+        <Route path="/notifications" element={<NotificationsPage />} />
         <Route path="/pipeline" element={<PipelinePage />} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="/knowledge" element={<KnowledgePage />} />

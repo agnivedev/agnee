@@ -135,23 +135,32 @@ export function NotificationBell({ className }: { className?: string }) {
       {open && panelStyle ? (
         <div
           style={panelStyle}
-          className="z-30 max-h-[70vh] overflow-auto rounded-xl border border-border bg-white p-2 shadow-lg"
+          className="z-30 max-h-[70vh] overflow-auto rounded-panel border border-border bg-card p-2 shadow-panel"
         >
-          <div className="mb-1 flex items-center justify-between px-1">
+          <div className="mb-1 flex items-center justify-between gap-2 px-1">
             <strong className="text-xs">{t('notif.title')}</strong>
-            {unread ? (
+            <div className="flex items-center gap-2">
+              {unread ? (
+                <button
+                  type="button"
+                  onClick={() => void markAllRead()}
+                  className="cursor-pointer border-0 bg-transparent p-0 text-[10px] text-muted underline"
+                >
+                  {t('notif.markAllRead')}
+                </button>
+              ) : null}
               <button
                 type="button"
-                onClick={() => void markAllRead()}
-                className="cursor-pointer border-0 bg-transparent p-0 text-[10px] text-muted underline"
+                onClick={() => { setOpen(false); navigate('/notifications'); }}
+                className="cursor-pointer border-0 bg-transparent p-0 text-[10px] font-semibold text-green-dark underline"
               >
-                {t('notif.markAllRead')}
+                {t('notif.viewAll')}
               </button>
-            ) : null}
+            </div>
           </div>
           {items.length ? (
             <ul className="grid gap-1">
-              {items.map((item) => (
+              {items.slice(0, 8).map((item) => (
                 <li key={item.id}>
                   <button
                     type="button"

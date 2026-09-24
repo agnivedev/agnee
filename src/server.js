@@ -1801,7 +1801,7 @@ async function buildApp(overrides = {}) {
   // daftar halaman ber-redirect di bawah.
   app.get('/privasi', (_request, reply) => sendReactApp(reply));
   app.get('/ketentuan', (_request, reply) => sendReactApp(reply));
-  for (const page of ['settings', 'admin', 'leads', 'tasks', 'pipeline', 'knowledge', 'superhuman']) {
+  for (const page of ['settings', 'admin', 'leads', 'tasks', 'notifications', 'pipeline', 'knowledge', 'superhuman']) {
     app.get(`/${page}`, (request, reply) => {
       const session = verifySession(getCookie(request.headers.cookie, 'agnee_session'), config.sessionSecret);
       if (!session) return reply.redirect('/');

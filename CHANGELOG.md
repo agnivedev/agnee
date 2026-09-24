@@ -37,6 +37,22 @@
 
 ### Added
 
+- **Integrasi Mayar sebagai sumber lead ke-5 di Lead List** (Pengaturan →
+  Ekspor Data → Tarik lead dari Mayar). Customer dan transaksi Mayar
+  (webinar, ebook, payment link) sekarang muncul di Lead List, per company —
+  satu supervisor tempel API key sekali, seluruh tim company itu kebagian
+  datanya, terisolasi penuh dari company lain (pola yang sama dengan
+  OneDrive/Google Sheets sync). Kalau nomor HP-nya cocok dengan chat
+  WhatsApp yang sudah ada, digabung jadi satu baris ("Sumber: WhatsApp +
+  Mayar") alih-alih duplikat; kalau tidak, tetap tampil sendiri ("Sumber:
+  Mayar") — tanpa "Buka di Inbox"/"Edit" (belum ada percakapan WhatsApp),
+  tapi tetap bisa "Buka di WhatsApp" karena nomornya sudah diketahui.
+  Migrasi `036_mayar_leads.sql`, service sinkron di `src/mayar-sync.js`.
+  API key divalidasi ke Mayar dulu sebelum disimpan (ditolak dengan pesan
+  jelas kalau salah), dan terenkripsi di database sama seperti kredensial
+  integrasi lain. Memutuskan integrasinya TIDAK menghapus lead yang sudah
+  masuk. Sinkron manual lewat tombol "Sync now"; belum ada jadwal otomatis
+  berkala (dianggap nice-to-have, bisa ditambah nanti kalau perlu).
 - **Halaman "Lihat semua notifikasi"** (`/notifications`). Dropdown lonceng
   cuma menampilkan 8 notifikasi terbaru, sekarang dengan tautan ke halaman
   penuh yang menarik sampai 100 (batas server). Data dan aksi (tandai semua

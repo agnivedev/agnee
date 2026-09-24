@@ -21,6 +21,7 @@ const {
 const { FollowUpScheduler, decide: followUpDecide, withManualGap } = require('./follow-up.js');
 const onedrive = require('./onedrive-sync.js');
 const gsheets = require('./gsheets-sync.js');
+const mayarSync = require('./mayar-sync.js');
 const { buildXlsx } = require('./xlsx-writer.js');
 const Database = require('./database.js');
 const { extractPlaybookText } = require('./playbook-extractor.js');
@@ -4401,6 +4402,8 @@ Aturan:
   const EXPORT_COLUMNS = [
     ['name', 'Nama'],
     ['phone', 'Nomor WhatsApp'],
+    ['source', 'Sumber'],
+    ['mayarProducts', 'Produk Mayar'],
     ['servedByNumber', 'Dilayani nomor'],
     ['firstSeenAt', 'Masuk pertama'],
     ['lastInboundAt', 'Pesan customer terakhir'],
@@ -4430,6 +4433,7 @@ Aturan:
     if (value === null || value === undefined) return '';
     if (key === 'handlingMode') return value === 'ai' ? 'AI' : 'Manusia';
     if (key === 'lastOutboundAuthor') return value === 'ai' ? 'AI' : 'Manusia';
+    if (key === 'source') return value === 'mayar' ? 'Mayar' : value === 'both' ? 'WhatsApp + Mayar' : 'WhatsApp';
     if (typeof value === 'boolean') return value ? 'Ya' : 'Tidak';
     // Kolom waktu pesan masuk disimpan sebagai detik epoch. Driver Postgres
     // mengembalikan BIGINT sebagai string, bukan number — mengecek typeof
@@ -4471,8 +4475,14 @@ Aturan:
       // isGroup ikut hanya di rute JSON, seperti chatId: halaman Lead List
       // memakainya untuk menandai baris grup, yang tidak punya nomor dan
       // namanya belum terekam (notifyName di pesan grup adalah nama pengirim,
-      // bukan nama grupnya).
-      ...(includeChatId ? { chatId: row.chatId, isGroup: Boolean(row.isGroup) } : {}),
+      // bukan nama grupnya). mayarTotalAmount juga JSON-only, angka mentah
+      // (bukan lewat exportCell) supaya dialog detail bisa memformatnya
+      // sebagai Rupiah — spreadsheet ekspor sudah cukup dengan nama produknya.
+      ...(includeChatId ? {
+        chatId: row.chatId,
+        isGroup: Boolean(row.isGroup),
+        mayarTotalAmount: row.mayarTotalAmount === null ? null : Number(row.mayarTotalAmount),
+      } : {}),
       ...Object.fromEntries(EXPORT_COLUMNS.map(([key]) => [key, exportCell(key, row[key])])),
     }));
   }
@@ -4791,6 +4801,103 @@ Aturan:
     await database.deleteGsheetsConnection(request.agneeSession.companyId);
     await catatAudit(request, 'integration.disconnected', {
       entityType: 'integration', entityId: 'gsheets', metadata: { integration: 'gsheets' },
+    });
+    return { ok: true };
+  });
+
+  // ── Integrasi Mayar: customer & transaksi jadi lead ke-5 di Lead List ──────
+  //
+  // Beda dari OneDrive/Sheets: ini bukan TUJUAN export (Agnee menulis keluar),
+  // tapi SUMBER lead (Agnee menarik masuk). Hasil sinkronnya disimpan di
+  // `mayar_leads` dan ikut muncul di `listContactExportRows` — lihat komentar
+  // di database.js untuk cara penggabungannya dengan chat WhatsApp yang sudah
+  // ada (dicocokkan lewat nomor HP).
+
+  /** Satu putaran sinkronisasi untuk satu company. Melempar dengan pesan jelas. */
+  async function syncMayarFor(companyId, apiKey) {
+    const leads = await mayarSync.fetchMayarLeads(apiKey);
+    const count = await database.upsertMayarLeads(companyId, leads);
+    await database.recordMayarSync(companyId, { error: null });
+    return { count };
+  }
+
+  app.get('/v1/integrations/mayar', async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengatur integrasi.' });
+    if (!canCall('getMayarConnection')) return { connected: false };
+    const conn = await database.getMayarConnection(request.agneeSession.companyId);
+    if (!conn) return { connected: false };
+    // apiKey sengaja tidak dikembalikan: browser tidak pernah perlu melihatnya lagi.
+    const leadCount = canCall('countMayarLeads') ? await database.countMayarLeads(request.agneeSession.companyId) : 0;
+    return {
+      connected: true, enabled: conn.enabled,
+      lastSyncedAt: conn.lastSyncedAt, lastError: conn.lastError, leadCount,
+    };
+  });
+
+  app.post('/v1/integrations/mayar', {
+    schema: {
+      body: {
+        type: 'object', required: ['apiKey'], additionalProperties: false,
+        properties: { apiKey: { type: 'string', minLength: 8, maxLength: 512 } },
+      },
+    },
+  }, async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengatur integrasi.' });
+    if (!canCall('upsertMayarConnection')) return reply.code(503).send({ error: 'Database tidak tersedia.' });
+    const companyId = request.agneeSession.companyId;
+    const { apiKey } = request.body;
+    try {
+      // Diverifikasi ke Mayar SEBELUM disimpan, pola yang sama dengan OneDrive/
+      // Sheets: kredensial salah lebih baik ditolak sekarang daripada diam-diam
+      // gagal tiap putaran sinkron nanti.
+      const { total } = await mayarSync.verifyApiKey(apiKey);
+      await database.upsertMayarConnection(companyId, apiKey);
+      const { count } = await syncMayarFor(companyId, apiKey);
+      await catatAudit(request, 'integration.connected', {
+        entityType: 'integration', entityId: 'mayar', metadata: { integration: 'mayar' },
+      });
+      return reply.code(201).send({ ok: true, customerTotal: total, leadCount: count });
+    } catch (error) {
+      return reply.code(422).send({ error: error.message });
+    }
+  });
+
+  app.post('/v1/integrations/mayar/sync', async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengatur integrasi.' });
+    if (!canCall('getMayarConnection')) return reply.code(503).send({ error: 'Database tidak tersedia.' });
+    const companyId = request.agneeSession.companyId;
+    const conn = await database.getMayarConnection(companyId);
+    if (!conn) return reply.code(409).send({ error: 'Hubungkan Mayar dulu.' });
+    try {
+      const { count } = await syncMayarFor(companyId, conn.apiKey);
+      return { ok: true, leadCount: count };
+    } catch (error) {
+      await database.recordMayarSync(companyId, { error: error.message }).catch(() => {});
+      return reply.code(502).send({ error: error.message });
+    }
+  });
+
+  app.patch('/v1/integrations/mayar', {
+    schema: {
+      body: {
+        type: 'object', required: ['enabled'], additionalProperties: false,
+        properties: { enabled: { type: 'boolean' } },
+      },
+    },
+  }, async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengatur integrasi.' });
+    if (!canCall('setMayarEnabled')) return reply.code(503).send({ error: 'Database tidak tersedia.' });
+    const updated = await database.setMayarEnabled(request.agneeSession.companyId, request.body.enabled);
+    if (!updated) return reply.code(404).send({ error: 'Belum ada Mayar yang terhubung.' });
+    return { ok: true, enabled: updated.enabled };
+  });
+
+  app.delete('/v1/integrations/mayar', async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengatur integrasi.' });
+    if (!canCall('deleteMayarConnection')) return reply.code(503).send({ error: 'Database tidak tersedia.' });
+    await database.deleteMayarConnection(request.agneeSession.companyId);
+    await catatAudit(request, 'integration.disconnected', {
+      entityType: 'integration', entityId: 'mayar', metadata: { integration: 'mayar' },
     });
     return { ok: true };
   });

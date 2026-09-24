@@ -2356,6 +2356,113 @@ class Database {
     return result.rowCount > 0;
   }
 
+  // ── Integrasi Mayar ───────────────────────────────────────────────────────
+  // api_key dienkripsi pgcrypto, pola yang sama dengan kredensial OneDrive.
+
+  async getMayarConnection(companyId) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      SELECT company_id AS "companyId",
+             pgp_sym_decrypt(api_key_enc, $2) AS "apiKey",
+             enabled, last_synced_at AS "lastSyncedAt", last_error AS "lastError"
+      FROM mayar_connections WHERE company_id = $1
+    `, [companyId, this.credentialsEncryptionKey]);
+    return result.rows[0] || null;
+  }
+
+  /** Semua koneksi yang menyala — dipakai penjadwal sinkronisasi. */
+  async listEnabledMayarConnections() {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(`
+      SELECT m.company_id AS "companyId",
+             pgp_sym_decrypt(m.api_key_enc, $1) AS "apiKey"
+      FROM mayar_connections m
+      JOIN companies c ON c.id = m.company_id
+      WHERE m.enabled AND COALESCE(c.plan_status, 'beta') <> 'suspended'
+      ORDER BY COALESCE(m.last_synced_at, 'epoch'::timestamptz) ASC
+    `, [this.credentialsEncryptionKey]);
+    return result.rows;
+  }
+
+  async upsertMayarConnection(companyId, apiKey) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      INSERT INTO mayar_connections (company_id, api_key_enc)
+      VALUES ($1, pgp_sym_encrypt($2, $3))
+      ON CONFLICT (company_id) DO UPDATE SET
+        api_key_enc = EXCLUDED.api_key_enc,
+        enabled = true,
+        last_error = NULL,
+        updated_at = NOW()
+      RETURNING company_id AS "companyId"
+    `, [companyId, apiKey, this.credentialsEncryptionKey]);
+    return result.rows[0] || null;
+  }
+
+  async recordMayarSync(companyId, { error = null }) {
+    if (!this.enabled) return;
+    await this.pool.query(`
+      UPDATE mayar_connections SET
+        last_synced_at = CASE WHEN $2::text IS NULL THEN NOW() ELSE last_synced_at END,
+        last_error = $2,
+        updated_at = NOW()
+      WHERE company_id = $1
+    `, [companyId, error]);
+  }
+
+  async setMayarEnabled(companyId, enabled) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(
+      'UPDATE mayar_connections SET enabled = $2, updated_at = NOW() WHERE company_id = $1 RETURNING enabled',
+      [companyId, enabled],
+    );
+    return result.rows[0] || null;
+  }
+
+  async deleteMayarConnection(companyId) {
+    if (!this.enabled) return false;
+    // mayar_leads TIDAK ikut dihapus: memutus koneksi menghentikan sinkronisasi
+    // berikutnya, bukan membuang data yang sudah ditarik.
+    const result = await this.pool.query('DELETE FROM mayar_connections WHERE company_id = $1', [companyId]);
+    return result.rowCount > 0;
+  }
+
+  async countMayarLeads(companyId) {
+    if (!this.enabled) return 0;
+    const result = await this.pool.query(
+      'SELECT COUNT(*)::int AS count FROM mayar_leads WHERE company_id = $1',
+      [companyId],
+    );
+    return result.rows[0]?.count || 0;
+  }
+
+  /**
+   * Upsert satu batch ringkasan customer Mayar (satu baris per customer,
+   * sudah diagregasi dari transaksinya oleh `src/mayar-sync.js`).
+   */
+  async upsertMayarLeads(companyId, leads) {
+    if (!this.enabled || !leads.length) return 0;
+    let count = 0;
+    for (const lead of leads) {
+      await this.pool.query(`
+        INSERT INTO mayar_leads
+          (company_id, mayar_customer_id, name, email, phone,
+           total_transactions, total_amount, products, last_transaction_at, synced_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+        ON CONFLICT (company_id, mayar_customer_id) DO UPDATE SET
+          name = EXCLUDED.name, email = EXCLUDED.email, phone = EXCLUDED.phone,
+          total_transactions = EXCLUDED.total_transactions,
+          total_amount = EXCLUDED.total_amount,
+          products = EXCLUDED.products,
+          last_transaction_at = EXCLUDED.last_transaction_at,
+          synced_at = NOW()
+      `, [companyId, lead.mayarCustomerId, lead.name, lead.email, lead.phone,
+          lead.totalTransactions, lead.totalAmount, lead.products, lead.lastTransactionAt]);
+      count += 1;
+    }
+    return count;
+  }
+
   // ── Sinkronisasi Google Sheets ───────────────────────────────────────────
   // private_key dienkripsi pgcrypto, sama seperti kredensial lain.
 
@@ -2452,6 +2559,16 @@ class Database {
    *
    * Semua digabung di satu query. Versi per-kontak akan menjadi ratusan query
    * tiap sinkronisasi, dan export ini dijalankan berulang.
+   *
+   * Sumber ke-5, `mayar_leads`, ikut digabung lewat UNION ALL terpisah
+   * (bukan lewat CTE `chats`): baris Mayar TIDAK PUNYA `chat_id` WhatsApp,
+   * jadi tidak bisa ikut CTE yang berbasis chat_id. Kalau nomor HP-nya cocok
+   * dengan chat yang sudah ada, `LEFT JOIN mayar_leads` di cabang WhatsApp
+   * menempelkan datanya ke baris yang sama (`source = 'both'`); kalau tidak
+   * ada yang cocok, baris Mayar tampil sendiri lewat cabang `mayar_only`
+   * (`source = 'mayar'`, `chatId` NULL — "Buka di Inbox" otomatis
+   * tersembunyi lewat guard `!row.chatId` yang sudah ada di frontend,
+   * "Buka di WhatsApp" otomatis tetap muncul karena `phone` tetap terisi).
    */
   async listContactExportRows(companyId, limit = 5000) {
     if (!this.enabled) return [];
@@ -2461,84 +2578,141 @@ class Database {
         UNION SELECT DISTINCT chat_id FROM outbound_replies WHERE company_id = $1
         UNION SELECT DISTINCT chat_id FROM lead_states WHERE company_id = $1
         UNION SELECT DISTINCT chat_id FROM conversation_routing WHERE company_id = $1
-      )
-      SELECT
-        c.chat_id AS "chatId",
-        -- Id grup bukan nomor telepon. Tanpa penjagaan ini, Lead List
-        -- menampilkan angka seperti 120363369733804176 di kolom nomor.
-        CASE WHEN c.chat_id LIKE '%@g.us' THEN NULL
-             ELSE regexp_replace(c.chat_id, '@.*$', '') END AS "phone",
-        cname.name AS "name",
-        c.chat_id LIKE '%@g.us' AS "isGroup",
-        first_seen.first_at AS "firstSeenAt",
-        inbound.body AS "lastInboundBody",
-        inbound.timestamp AS "lastInboundAt",
-        outbound.body AS "lastOutboundBody",
-        outbound.author AS "lastOutboundAuthor",
-        outbound.created_at AS "lastOutboundAt",
-        summary.summary AS "summary",
-        routing.handling_mode AS "handlingMode",
-        routing.status AS "status",
-        routing.priority AS "priority",
-        pic.display_name AS "picName",
-        pic.email AS "picEmail",
-        lead.stage AS "leadStage",
-        lead.score AS "leadScore",
-        lead.title AS "leadTitle",
-        lead.detail AS "leadDetail",
-        fu.sent_total AS "followUpSent",
-        fu.stopped_at IS NULL AND fu.chat_id IS NOT NULL AS "followUpRunning",
-        fu.stop_reason AS "followUpStopReason",
-        COALESCE(wnum.label, cnum.label, cnum.display_phone_number) AS "servedByNumber",
-        counts.inbound_count AS "inboundCount",
-        counts.outbound_count AS "outboundCount"
-      FROM chats c
-      LEFT JOIN LATERAL (
-        SELECT MIN(t) AS first_at FROM (
-          SELECT MIN(to_timestamp(timestamp)) AS t FROM inbound_messages
-            WHERE company_id = $1 AND chat_id = c.chat_id
-          UNION ALL
-          SELECT MIN(created_at) FROM outbound_replies
-            WHERE company_id = $1 AND chat_id = c.chat_id
-        ) x
-      ) first_seen ON TRUE
-      LEFT JOIN LATERAL (
-        SELECT body, timestamp FROM inbound_messages
-        WHERE company_id = $1 AND chat_id = c.chat_id
-        ORDER BY timestamp DESC, id DESC LIMIT 1
-      ) inbound ON TRUE
-      LEFT JOIN LATERAL (
-        SELECT body, author, created_at FROM outbound_replies
-        WHERE company_id = $1 AND chat_id = c.chat_id
-        ORDER BY created_at DESC LIMIT 1
-      ) outbound ON TRUE
-      LEFT JOIN LATERAL (
-        SELECT summary FROM conversation_summaries
-        WHERE company_id = $1 AND chat_id = c.chat_id AND locale = 'id' LIMIT 1
-      ) summary ON TRUE
-      LEFT JOIN LATERAL (
+      ),
+      whatsapp_rows AS (
         SELECT
-          (SELECT COUNT(*)::int FROM inbound_messages
-             WHERE company_id = $1 AND chat_id = c.chat_id) AS inbound_count,
-          (SELECT COUNT(*)::int FROM outbound_replies
-             WHERE company_id = $1 AND chat_id = c.chat_id) AS outbound_count
-      ) counts ON TRUE
-      LEFT JOIN conversation_routing routing
-        ON routing.company_id = $1 AND routing.chat_id = c.chat_id
-      LEFT JOIN users pic ON pic.id = routing.assignee_user_id
-      LEFT JOIN lead_states lead
-        ON lead.company_id = $1 AND lead.chat_id = c.chat_id
-      LEFT JOIN follow_up_state fu
-        ON fu.company_id = $1 AND fu.chat_id = c.chat_id
-      LEFT JOIN whatsapp_chat_numbers wmap
-        ON wmap.company_id = $1 AND wmap.chat_id = c.chat_id
-      LEFT JOIN whatsapp_connections wnum ON wnum.id = wmap.connection_id
-      LEFT JOIN cloud_chat_numbers cmap
-        ON cmap.company_id = $1 AND cmap.chat_id = c.chat_id
-      LEFT JOIN whatsapp_cloud_connections cnum ON cnum.id = cmap.connection_id
-      LEFT JOIN contact_names cname
-        ON cname.company_id = $1 AND cname.chat_id = c.chat_id
-      ORDER BY COALESCE(inbound.timestamp, 0) DESC
+          c.chat_id AS "chatId",
+          -- Id grup bukan nomor telepon. Tanpa penjagaan ini, Lead List
+          -- menampilkan angka seperti 120363369733804176 di kolom nomor.
+          CASE WHEN c.chat_id LIKE '%@g.us' THEN NULL
+               ELSE regexp_replace(c.chat_id, '@.*$', '') END AS "phone",
+          -- Nama dari pesan WhatsApp diutamakan (paling segar); nama Mayar
+          -- jadi cadangan saat chat-nya belum pernah mengirim pesan yang
+          -- merekam nama (contact_names kosong untuk chat itu).
+          COALESCE(cname.name, ml.name) AS "name",
+          c.chat_id LIKE '%@g.us' AS "isGroup",
+          first_seen.first_at AS "firstSeenAt",
+          inbound.body AS "lastInboundBody",
+          inbound.timestamp AS "lastInboundAt",
+          outbound.body AS "lastOutboundBody",
+          outbound.author AS "lastOutboundAuthor",
+          outbound.created_at AS "lastOutboundAt",
+          summary.summary AS "summary",
+          routing.handling_mode AS "handlingMode",
+          routing.status AS "status",
+          routing.priority AS "priority",
+          pic.display_name AS "picName",
+          pic.email AS "picEmail",
+          lead.stage AS "leadStage",
+          lead.score AS "leadScore",
+          lead.title AS "leadTitle",
+          lead.detail AS "leadDetail",
+          fu.sent_total AS "followUpSent",
+          fu.stopped_at IS NULL AND fu.chat_id IS NOT NULL AS "followUpRunning",
+          fu.stop_reason AS "followUpStopReason",
+          COALESCE(wnum.label, cnum.label, cnum.display_phone_number) AS "servedByNumber",
+          counts.inbound_count AS "inboundCount",
+          counts.outbound_count AS "outboundCount",
+          CASE WHEN ml.id IS NOT NULL THEN 'both' ELSE 'whatsapp' END AS "source",
+          ml.products AS "mayarProducts",
+          ml.total_amount AS "mayarTotalAmount",
+          COALESCE(inbound.timestamp, 0) AS "sortAt"
+        FROM chats c
+        LEFT JOIN LATERAL (
+          SELECT MIN(t) AS first_at FROM (
+            SELECT MIN(to_timestamp(timestamp)) AS t FROM inbound_messages
+              WHERE company_id = $1 AND chat_id = c.chat_id
+            UNION ALL
+            SELECT MIN(created_at) FROM outbound_replies
+              WHERE company_id = $1 AND chat_id = c.chat_id
+          ) x
+        ) first_seen ON TRUE
+        LEFT JOIN LATERAL (
+          SELECT body, timestamp FROM inbound_messages
+          WHERE company_id = $1 AND chat_id = c.chat_id
+          ORDER BY timestamp DESC, id DESC LIMIT 1
+        ) inbound ON TRUE
+        LEFT JOIN LATERAL (
+          SELECT body, author, created_at FROM outbound_replies
+          WHERE company_id = $1 AND chat_id = c.chat_id
+          ORDER BY created_at DESC LIMIT 1
+        ) outbound ON TRUE
+        LEFT JOIN LATERAL (
+          SELECT summary FROM conversation_summaries
+          WHERE company_id = $1 AND chat_id = c.chat_id AND locale = 'id' LIMIT 1
+        ) summary ON TRUE
+        LEFT JOIN LATERAL (
+          SELECT
+            (SELECT COUNT(*)::int FROM inbound_messages
+               WHERE company_id = $1 AND chat_id = c.chat_id) AS inbound_count,
+            (SELECT COUNT(*)::int FROM outbound_replies
+               WHERE company_id = $1 AND chat_id = c.chat_id) AS outbound_count
+        ) counts ON TRUE
+        LEFT JOIN conversation_routing routing
+          ON routing.company_id = $1 AND routing.chat_id = c.chat_id
+        LEFT JOIN users pic ON pic.id = routing.assignee_user_id
+        LEFT JOIN lead_states lead
+          ON lead.company_id = $1 AND lead.chat_id = c.chat_id
+        LEFT JOIN follow_up_state fu
+          ON fu.company_id = $1 AND fu.chat_id = c.chat_id
+        LEFT JOIN whatsapp_chat_numbers wmap
+          ON wmap.company_id = $1 AND wmap.chat_id = c.chat_id
+        LEFT JOIN whatsapp_connections wnum ON wnum.id = wmap.connection_id
+        LEFT JOIN cloud_chat_numbers cmap
+          ON cmap.company_id = $1 AND cmap.chat_id = c.chat_id
+        LEFT JOIN whatsapp_cloud_connections cnum ON cnum.id = cmap.connection_id
+        LEFT JOIN contact_names cname
+          ON cname.company_id = $1 AND cname.chat_id = c.chat_id
+        LEFT JOIN mayar_leads ml
+          ON ml.company_id = $1
+         AND ml.phone = (CASE WHEN c.chat_id LIKE '%@g.us' THEN NULL
+                              ELSE regexp_replace(c.chat_id, '@.*$', '') END)
+      ),
+      mayar_only AS (
+        SELECT
+          NULL::text AS "chatId",
+          ml.phone AS "phone",
+          ml.name AS "name",
+          FALSE AS "isGroup",
+          ml.last_transaction_at AS "firstSeenAt",
+          NULL::text AS "lastInboundBody",
+          NULL::bigint AS "lastInboundAt",
+          NULL::text AS "lastOutboundBody",
+          NULL::text AS "lastOutboundAuthor",
+          NULL::timestamptz AS "lastOutboundAt",
+          NULL::text AS "summary",
+          NULL::text AS "handlingMode",
+          NULL::text AS "status",
+          NULL::text AS "priority",
+          NULL::text AS "picName",
+          NULL::text AS "picEmail",
+          NULL::text AS "leadStage",
+          NULL::smallint AS "leadScore",
+          NULL::text AS "leadTitle",
+          NULL::text AS "leadDetail",
+          NULL::integer AS "followUpSent",
+          NULL::boolean AS "followUpRunning",
+          NULL::text AS "followUpStopReason",
+          NULL::text AS "servedByNumber",
+          0::integer AS "inboundCount",
+          0::integer AS "outboundCount",
+          'mayar'::text AS "source",
+          ml.products AS "mayarProducts",
+          ml.total_amount AS "mayarTotalAmount",
+          COALESCE(extract(epoch FROM ml.last_transaction_at)::bigint, 0) AS "sortAt"
+        FROM mayar_leads ml
+        WHERE ml.company_id = $1
+          AND ml.phone IS NOT NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM chats c2
+            WHERE (CASE WHEN c2.chat_id LIKE '%@g.us' THEN NULL
+                        ELSE regexp_replace(c2.chat_id, '@.*$', '') END) = ml.phone
+          )
+      )
+      SELECT * FROM whatsapp_rows
+      UNION ALL
+      SELECT * FROM mayar_only
+      ORDER BY "sortAt" DESC
       LIMIT $2
     `, [companyId, limit]);
     return result.rows;

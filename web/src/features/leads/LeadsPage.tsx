@@ -15,7 +15,7 @@ type Column = { key: string; label: string };
 // Sel tabel selalu string (server sudah memformatnya lewat exportCell), tapi
 // rute JSON menyertakan dua bidang non-kolom: chatId untuk menindaklanjuti
 // baris, dan isGroup untuk menandai baris yang tidak punya nomor.
-type Row = Record<string, string> & { chatId?: string; isGroup?: boolean };
+type Row = Record<string, string> & { chatId?: string; isGroup?: boolean; mayarTotalAmount?: number | null };
 type SortDirection = 'asc' | 'desc';
 
 /** Numbers sort as numbers; everything else as Indonesian text. */
@@ -235,14 +235,19 @@ export function LeadsPage() {
                 </tr>
               </thead>
               <tbody>
-                {visibleRows.map((row, index) => (
+                {visibleRows.map((row, index) => {
+                  // Baris Mayar-murni tidak punya chatId (belum ada percakapan
+                  // WhatsApp), tapi tetap punya phone — jadi tetap bisa diklik
+                  // untuk "Buka di WhatsApp", hanya tidak untuk "Buka di Inbox".
+                  const clickable = Boolean(row.chatId || row.phone);
+                  return (
                   <tr
                     key={row.chatId || index}
                     role="button"
                     tabIndex={0}
-                    onClick={() => row.chatId && setChoiceRow(row)}
+                    onClick={() => clickable && setChoiceRow(row)}
                     onKeyDown={(event) => {
-                      if ((event.key === 'Enter' || event.key === ' ') && row.chatId) {
+                      if ((event.key === 'Enter' || event.key === ' ') && clickable) {
                         event.preventDefault();
                         setChoiceRow(row);
                       }
@@ -272,12 +277,13 @@ export function LeadsPage() {
                             muted && 'text-muted italic',
                           )}
                         >
-                          {value}
+                          {column.key === 'source' && value ? <SourceBadge source={value} /> : value}
                         </td>
                       );
                     })}
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -293,25 +299,43 @@ export function LeadsPage() {
               </h2>
               <DialogClose onClick={() => setChoiceRow(null)} label={t('lead.close')} />
             </div>
-            <button
-              type="button"
-              onClick={() => openInInbox(choiceRow)}
-              className="grid gap-0.5 rounded-[12px] border border-border bg-white px-4 py-3 text-left transition hover:border-green"
-            >
-              <strong className="text-sm">{t('leads.rowGoInbox')}</strong>
-              <span className="text-xs text-muted">{t('leads.rowGoInboxHint')}</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setEditRow(choiceRow);
-                setChoiceRow(null);
-              }}
-              className="grid gap-0.5 rounded-[12px] border border-border bg-white px-4 py-3 text-left transition hover:border-green"
-            >
-              <strong className="text-sm">{t('leads.rowEdit')}</strong>
-              <span className="text-xs text-muted">{t('leads.rowEditHint')}</span>
-            </button>
+            {/* Baris Mayar-murni belum punya percakapan WhatsApp — tidak ada
+                chatId, jadi tidak ada inbox untuk dibuka dan tidak ada
+                lead_state untuk diedit. Satu-satunya aksi yang masuk akal
+                adalah menghubunginya lewat WhatsApp (di bawah). */}
+            {choiceRow.mayarProducts ? (
+              <p className="m-0 rounded-[10px] bg-[#eef5ee] px-3 py-2 text-xs text-ink">
+                {t('leads.fromMayar', {
+                  products: choiceRow.mayarProducts,
+                  amount: choiceRow.mayarTotalAmount
+                    ? new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(choiceRow.mayarTotalAmount)
+                    : '—',
+                })}
+              </p>
+            ) : null}
+            {choiceRow.chatId ? (
+              <button
+                type="button"
+                onClick={() => openInInbox(choiceRow)}
+                className="grid gap-0.5 rounded-[12px] border border-border bg-white px-4 py-3 text-left transition hover:border-green"
+              >
+                <strong className="text-sm">{t('leads.rowGoInbox')}</strong>
+                <span className="text-xs text-muted">{t('leads.rowGoInboxHint')}</span>
+              </button>
+            ) : null}
+            {choiceRow.chatId ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setEditRow(choiceRow);
+                  setChoiceRow(null);
+                }}
+                className="grid gap-0.5 rounded-[12px] border border-border bg-white px-4 py-3 text-left transition hover:border-green"
+              >
+                <strong className="text-sm">{t('leads.rowEdit')}</strong>
+                <span className="text-xs text-muted">{t('leads.rowEditHint')}</span>
+              </button>
+            ) : null}
             {/* Grup tidak punya nomor, jadi tidak ada yang bisa dibuka di WhatsApp. */}
             {choiceRow.phone ? (
               <button
@@ -329,6 +353,21 @@ export function LeadsPage() {
 
       <LeadDetailDialog row={editRow} onClose={() => setEditRow(null)} onSaved={() => void load()} />
     </div>
+  );
+}
+
+/** Sumber baris: hijau untuk WhatsApp (bawaan), warna lain untuk Mayar. */
+function SourceBadge({ source }: { source: string }) {
+  const isWhatsappOnly = source === 'WhatsApp';
+  return (
+    <span
+      className={cn(
+        'inline-block rounded-full px-2 py-0.5 font-mono text-[10px] font-semibold whitespace-nowrap',
+        isWhatsappOnly ? 'bg-green/10 text-green-dark' : 'bg-lime/40 text-ink',
+      )}
+    >
+      {source}
+    </span>
   );
 }
 

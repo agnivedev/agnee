@@ -8,6 +8,7 @@ import { PlanAndPayment } from './PlanAndPayment';
 import { FollowUpSection } from './FollowUpSection';
 import { CoachSection } from './CoachSection';
 import { ExportSection } from './ExportSection';
+import { MayarSection } from './MayarSection';
 import { WhatsappNumbersSection, CloudApiSection } from './WhatsappSections';
 import { AccountSection, TeamSection } from './TeamSection';
 
@@ -157,7 +158,12 @@ export function SettingsPage() {
               <CoachSection />
             </>
           ) : null}
-          {activeTab === 'data' && isSupervisor ? <ExportSection /> : null}
+          {activeTab === 'data' && isSupervisor ? (
+            <>
+              <ExportSection />
+              <MayarSection />
+            </>
+          ) : null}
           {activeTab === 'tim' ? (
             <>
               <TeamSection />

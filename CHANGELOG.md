@@ -2,6 +2,17 @@
 
 ### Fixed
 
+- **Panel notifikasi (lonceng) meluncur keluar layar, kepotong jadi bentuk
+  aneh di pojok.** Panelnya dianchor `absolute right-0` ke wrapper bell-nya
+  sendiri, dan wrapper itu hidup di dalam rail navigasi sempit yang menempel
+  di tepi layar (sidebar kiri maupun bottom bar mobile). Panel selebar
+  320px yang dianchor ke wrapper sesempit itu terdorong sampai `x: -259px`
+  — jauh di luar viewport, cuma sisa sudut membulatnya yang kelihatan. Rail
+  versi mobile juga punya `overflow-hidden` yang ikut memotongnya. Posisi
+  sekarang dihitung dari rect tombol bell dan dirender `position: fixed`
+  (pola yang sama dengan tooltip sidebar di `AppSidebar.tsx`), jadi lolos
+  dari clipping ancestor dan selalu di dalam viewport — termasuk membuka ke
+  atas otomatis kalau bell-nya dekat tepi bawah layar.
 - **Rotasi nomor bisa menempelkan percakapan baru ke nomor yang tidak bisa
   mengirim — permanen.** Pemilihan nomor menyaring `is_active` saja, sementara
   kembaran Cloud API-nya sudah menuntut `status = 'connected'`. Karena

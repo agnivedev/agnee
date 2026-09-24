@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
 import { Bell } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '@/lib/api';
@@ -29,6 +29,14 @@ export function NotificationBell({ className }: { className?: string }) {
   const [items, setItems] = useState<Notification[]>([]);
   const [unread, setUnread] = useState(0);
   const boxRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  // Posisi panel dihitung dari rect tombol bell, bukan CSS `absolute` yang
+  // terikat ke wrapper-nya sendiri — bell ini hidup di dalam rail navigasi
+  // sempit yang menempel di tepi layar (Rail.tsx dan AppSidebar.tsx), dan
+  // panel selebar 320px yang di-anchor `right-0` ke wrapper sesempit itu
+  // meluncur jauh ke luar viewport. `fixed` juga lolos dari `overflow-hidden`
+  // rail mobile, sama seperti pola tooltip di AppSidebar.tsx.
+  const [panelStyle, setPanelStyle] = useState<CSSProperties | null>(null);
 
   const load = useCallback(async () => {
     const data = await api<{ notifications: Notification[]; unread: number }>('/v1/notifications?limit=30')
@@ -72,6 +80,24 @@ export function NotificationBell({ className }: { className?: string }) {
     };
   }, [open]);
 
+  function toggleOpen() {
+    setOpen((current) => {
+      const next = !current;
+      if (next && buttonRef.current) {
+        const rect = buttonRef.current.getBoundingClientRect();
+        const width = Math.min(320, window.innerWidth * 0.88);
+        const left = Math.min(Math.max(8, rect.left), window.innerWidth - width - 8);
+        const opensUp = window.innerHeight - rect.bottom < rect.top;
+        setPanelStyle(
+          opensUp
+            ? { position: 'fixed', left, bottom: window.innerHeight - rect.top + 4, width }
+            : { position: 'fixed', left, top: rect.bottom + 4, width },
+        );
+      }
+      return next;
+    });
+  }
+
   async function markAllRead() {
     await api('/v1/notifications/read', { method: 'POST', body: {} }).catch(() => {});
     await load();
@@ -91,8 +117,9 @@ export function NotificationBell({ className }: { className?: string }) {
   return (
     <div ref={boxRef} className={cn('relative', className)}>
       <button
+        ref={buttonRef}
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={toggleOpen}
         aria-label={t('notif.title')}
         aria-expanded={open}
         className="relative flex cursor-pointer items-center justify-center rounded-full border-0 bg-transparent p-2"
@@ -105,8 +132,11 @@ export function NotificationBell({ className }: { className?: string }) {
         ) : null}
       </button>
 
-      {open ? (
-        <div className="absolute right-0 z-30 mt-1 max-h-[70vh] w-[min(88vw,320px)] overflow-auto rounded-xl border border-border bg-white p-2 shadow-lg">
+      {open && panelStyle ? (
+        <div
+          style={panelStyle}
+          className="z-30 max-h-[70vh] overflow-auto rounded-xl border border-border bg-white p-2 shadow-lg"
+        >
           <div className="mb-1 flex items-center justify-between px-1">
             <strong className="text-xs">{t('notif.title')}</strong>
             {unread ? (

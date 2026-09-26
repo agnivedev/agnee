@@ -82,6 +82,28 @@ function Field({ label, ...props }: { label: string } & React.InputHTMLAttribute
   );
 }
 
+/** Sama seperti `Field`, plus mata untuk tampil/sembunyi — pola yang sama dengan `SecretField` di settings/parts.tsx. */
+function PasswordField({ label, ...props }: { label: string } & Omit<React.InputHTMLAttributes<HTMLInputElement>, 'type'>) {
+  const { t } = useI18n();
+  const [visible, setVisible] = useState(false);
+  return (
+    <label className="grid gap-2 text-[13px] font-semibold">
+      <span>{label}</span>
+      <span className="relative flex">
+        <Input {...props} type={visible ? 'text' : 'password'} className="pr-11" />
+        <button
+          type="button"
+          onClick={() => setVisible((current) => !current)}
+          aria-label={visible ? t('settings.hideSecret') : t('settings.showSecret')}
+          className="absolute inset-y-0 right-0 w-11 cursor-pointer rounded-r-app border-0 bg-transparent text-sm"
+        >
+          {visible ? '🙈' : '👁'}
+        </button>
+      </span>
+    </label>
+  );
+}
+
 function FormError({ children }: { children?: string }) {
   return (
     <p role="alert" className="-my-2.5 min-h-[18px] text-[13px] text-danger">
@@ -130,10 +152,9 @@ function LoginForm({ onAuthenticated, onSwitch }: { onAuthenticated: () => void;
         <p className="mt-2 text-muted">{t('login.subtitle')}</p>
       </div>
       <Field label={t('login.email')} name="email" type="email" autoComplete="username" required />
-      <Field
+      <PasswordField
         label={t('login.password')}
         name="password"
-        type="password"
         autoComplete="current-password"
         minLength={6}
         required
@@ -229,10 +250,9 @@ function SignupForm({ onAuthenticated, onSwitch }: { onAuthenticated: () => void
         required
       />
       <Field label={t('login.email')} name="email" type="email" autoComplete="username" required />
-      <Field
+      <PasswordField
         label={t('login.password')}
         name="password"
-        type="password"
         autoComplete="new-password"
         minLength={8}
         required

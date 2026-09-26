@@ -2,6 +2,10 @@
 
 ### Fixed
 
+- **Halaman login/signup tidak punya mata tampil/sembunyi di field password**
+  (semua form lain yang punya secret — API key, client secret, dll — sudah
+  punya ini). Ditambahkan `PasswordField` di `LoginView.tsx`, pola yang sama
+  dengan `SecretField` di settings.
 - **Panel notifikasi (lonceng) meluncur keluar layar, kepotong jadi bentuk
   aneh di pojok.** Panelnya dianchor `absolute right-0` ke wrapper bell-nya
   sendiri, dan wrapper itu hidup di dalam rail navigasi sempit yang menempel

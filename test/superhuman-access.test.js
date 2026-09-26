@@ -131,15 +131,20 @@ test('owner sebuah tenant tidak bisa masuk konsol platform', async (t) => {
 
 test('kunci API tidak pernah menjadi akses platform', async (t) => {
   const database = fakeDatabase();
+  // Eksplisit, bukan mengandalkan default 'dev-api-key': kalau proses test
+  // mewarisi API_KEY dari lingkungan (mis. shell yang sudah source .env),
+  // config.apiKey diam-diam berbeda dari header di bawah, permintaan gagal
+  // di pengecekan sesi (401) sebelum sempat menyentuh gerbang platform (403).
   const app = await buildApp({
     logger: false, startupEnabled: false, demoMode: true, database, sessionSecret: 'superhuman-2',
+    apiKey: 'test-api-key',
   });
   t.after(() => app.close());
 
   // Kunci API memberi hak supervisor atas satu company yang ia sebut. Kalau
   // gerbang platform ikut menerimanya, satu kunci yang bocor berubah dari
   // "akses satu tenant" menjadi "akses seluruh pelanggan".
-  const headers = { 'x-api-key': 'dev-api-key', 'x-agnee-company': 'pelanggan-satu' };
+  const headers = { 'x-api-key': 'test-api-key', 'x-agnee-company': 'pelanggan-satu' };
   const asKey = await app.inject({ method: 'GET', url: '/v1/superhuman/companies', headers });
   assert.equal(asKey.statusCode, 403);
 });

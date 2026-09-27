@@ -18,6 +18,32 @@ function normalizePhone(raw) {
   return digits;
 }
 
+/**
+ * Mayar tidak punya endpoint profil merchant publik, tapi CLI resminya
+ * (`mayar whoami`) men-decode identitas dari API key itu sendiri secara
+ * lokal — key-nya berbentuk JWT, klaimnya dibaca tanpa panggilan API.
+ *
+ * Best-effort murni: kalau key-nya bukan JWT, atau klaimnya tidak memuat
+ * nama/email yang dikenal, kembalikan null dan layar Settings jatuh ke
+ * label generik "Mayar" — tidak pernah melempar.
+ */
+function decodeApiKeyIdentity(apiKey) {
+  try {
+    const parts = String(apiKey).split('.');
+    if (parts.length < 2) return null;
+    const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4);
+    const claims = JSON.parse(Buffer.from(padded, 'base64').toString('utf8'));
+    const name = claims.merchantName || claims.businessName || claims.storeName
+      || claims.unitName || claims.name || null;
+    const email = claims.email || claims.merchantEmail || null;
+    if (!name && !email) return null;
+    return { name: name ? String(name) : null, email: email ? String(email) : null };
+  } catch {
+    return null;
+  }
+}
+
 async function mayarGet(path, apiKey, fetchImpl = fetch) {
   const response = await fetchImpl(`${MAYAR}${path}`, {
     headers: { authorization: `Bearer ${apiKey}` },
@@ -34,7 +60,7 @@ async function mayarGet(path, apiKey, fetchImpl = fetch) {
 async function verifyApiKey(apiKey, fetchImpl = fetch) {
   const data = await mayarGet('/hl/v2/customers?limit=1', apiKey, fetchImpl);
   if (typeof data?.total !== 'number') throw new Error('Balasan Mayar tidak dikenali — periksa kembali API key-nya.');
-  return { total: data.total };
+  return { total: data.total, identity: decodeApiKeyIdentity(apiKey) };
 }
 
 async function fetchAllPages(path, apiKey, fetchImpl) {
@@ -116,4 +142,4 @@ async function fetchMayarLeads(apiKey, fetchImpl = fetch) {
     }));
 }
 
-module.exports = { normalizePhone, verifyApiKey, fetchAllPages, fetchMayarLeads, MAYAR };
+module.exports = { normalizePhone, decodeApiKeyIdentity, verifyApiKey, fetchAllPages, fetchMayarLeads, MAYAR };

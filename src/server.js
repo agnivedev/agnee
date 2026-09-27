@@ -4831,6 +4831,7 @@ Aturan:
     return {
       connected: true, enabled: conn.enabled,
       lastSyncedAt: conn.lastSyncedAt, lastError: conn.lastError, leadCount,
+      accountName: conn.accountName, accountEmail: conn.accountEmail,
     };
   });
 
@@ -4850,13 +4851,15 @@ Aturan:
       // Diverifikasi ke Mayar SEBELUM disimpan, pola yang sama dengan OneDrive/
       // Sheets: kredensial salah lebih baik ditolak sekarang daripada diam-diam
       // gagal tiap putaran sinkron nanti.
-      const { total } = await mayarSync.verifyApiKey(apiKey);
-      await database.upsertMayarConnection(companyId, apiKey);
+      const { total, identity } = await mayarSync.verifyApiKey(apiKey);
+      await database.upsertMayarConnection(companyId, apiKey, {
+        accountName: identity?.name || null, accountEmail: identity?.email || null,
+      });
       const { count } = await syncMayarFor(companyId, apiKey);
       await catatAudit(request, 'integration.connected', {
         entityType: 'integration', entityId: 'mayar', metadata: { integration: 'mayar' },
       });
-      return reply.code(201).send({ ok: true, customerTotal: total, leadCount: count });
+      return reply.code(201).send({ ok: true, customerTotal: total, leadCount: count, accountName: identity?.name || null });
     } catch (error) {
       return reply.code(422).send({ error: error.message });
     }

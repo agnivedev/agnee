@@ -1,5 +1,20 @@
 ## [Unreleased]
 
+### Added
+
+- **Identitas akun Mayar di layar Settings.** Section "Tarik lead dari
+  Mayar" sebelumnya cuma menampilkan label generik "Mayar" begitu
+  terhubung — tidak ada cara tahu akun/bisnis Mayar MANA yang tersambung,
+  beda dari OneDrive (nama file) atau Google Sheets (judul spreadsheet).
+  Mayar tidak punya endpoint profil merchant publik, tapi API key-nya
+  sendiri berbentuk JWT dan CLI resmi Mayar (`mayar whoami`) membaca
+  identitasnya dari situ, bukan lewat panggilan API — ditiru dengan
+  `decodeApiKeyIdentity()` di `src/mayar-sync.js` (murni parsing lokal,
+  tidak ada request tambahan). Nama/email disimpan sekali saat connect
+  (migrasi `037_mayar_account_identity.sql`) dan ditampilkan di section-nya.
+  Best-effort: kalau key-nya bukan JWT atau klaimnya tidak dikenal, jatuh
+  ke label generik seperti semula — tidak pernah gagal connect karena ini.
+
 ### Fixed
 
 - **Halaman login/signup tidak punya mata tampil/sembunyi di field password**

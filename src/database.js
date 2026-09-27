@@ -2364,7 +2364,8 @@ class Database {
     const result = await this.pool.query(`
       SELECT company_id AS "companyId",
              pgp_sym_decrypt(api_key_enc, $2) AS "apiKey",
-             enabled, last_synced_at AS "lastSyncedAt", last_error AS "lastError"
+             enabled, last_synced_at AS "lastSyncedAt", last_error AS "lastError",
+             account_name AS "accountName", account_email AS "accountEmail"
       FROM mayar_connections WHERE company_id = $1
     `, [companyId, this.credentialsEncryptionKey]);
     return result.rows[0] || null;
@@ -2384,18 +2385,20 @@ class Database {
     return result.rows;
   }
 
-  async upsertMayarConnection(companyId, apiKey) {
+  async upsertMayarConnection(companyId, apiKey, { accountName = null, accountEmail = null } = {}) {
     if (!this.enabled) return null;
     const result = await this.pool.query(`
-      INSERT INTO mayar_connections (company_id, api_key_enc)
-      VALUES ($1, pgp_sym_encrypt($2, $3))
+      INSERT INTO mayar_connections (company_id, api_key_enc, account_name, account_email)
+      VALUES ($1, pgp_sym_encrypt($2, $3), $4, $5)
       ON CONFLICT (company_id) DO UPDATE SET
         api_key_enc = EXCLUDED.api_key_enc,
+        account_name = EXCLUDED.account_name,
+        account_email = EXCLUDED.account_email,
         enabled = true,
         last_error = NULL,
         updated_at = NOW()
       RETURNING company_id AS "companyId"
-    `, [companyId, apiKey, this.credentialsEncryptionKey]);
+    `, [companyId, apiKey, this.credentialsEncryptionKey, accountName, accountEmail]);
     return result.rows[0] || null;
   }
 

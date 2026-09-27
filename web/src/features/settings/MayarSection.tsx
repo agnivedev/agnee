@@ -11,6 +11,8 @@ type Mayar = {
   lastSyncedAt?: string | null;
   lastError?: string | null;
   leadCount?: number;
+  accountName?: string | null;
+  accountEmail?: string | null;
 };
 
 function lastSyncLabel(mayar: Mayar, t: (k: string, v?: Record<string, string | number>) => string) {
@@ -77,8 +79,18 @@ export function MayarSection() {
           <>
             <Row className="mb-3">
               <span className="grid min-w-0 flex-1 gap-0.5">
-                <strong className="truncate text-[13px]">{t('mayar.leadCount', { count: state.leadCount ?? 0 })}</strong>
-                <small className="truncate font-mono text-[11px] text-muted">{lastSyncLabel(state, t)}</small>
+                {/* Nama akun berasal dari klaim di dalam API key-nya sendiri
+                    (Mayar tidak punya endpoint profil merchant) — bisa saja
+                    kosong kalau key-nya tidak memuat klaim yang dikenal.
+                    Tanpanya, jumlah lead jadi baris utama seperti semula. */}
+                <strong className="truncate text-[13px]">
+                  {state.accountName || t('mayar.leadCount', { count: state.leadCount ?? 0 })}
+                </strong>
+                <small className="truncate font-mono text-[11px] text-muted">
+                  {/* lastSyncLabel sudah menyertakan jumlah lead sendiri — tidak
+                      diulang di sini supaya tidak tampil dua kali. */}
+                  {[state.accountEmail, lastSyncLabel(state, t)].filter(Boolean).join(' · ')}
+                </small>
               </span>
             </Row>
             {state.lastError ? <StatusLine tone="error">{state.lastError}</StatusLine> : null}

@@ -11,6 +11,7 @@ const QRCode = require('qrcode');
 const { WhatsappManager } = require('./whatsapp-manager.js');
 const { putaranSla } = require('./sla');
 const { pilihNomorUntukPercakapanBaru } = require('./rotator');
+const { neutralizeFormula } = require('./formula-guard');
 const { CloudApiManager } = require('./cloud-api-manager.js');
 const KnowledgeBase = require('./knowledge-loader.js');
 const LlmService = require('./llm-service.js');
@@ -680,6 +681,23 @@ async function buildApp(overrides = {}) {
     if (!connectionId) return primaryWaConn(companyId);
     const rows = await listWaConns(companyId);
     return rows.find((row) => row.id === connectionId) || null;
+  }
+
+  /**
+   * Satu pemeriksaan plafon nomor untuk semua jalan menambah nomor: QR,
+   * tambah nomor, dan Cloud API. Hitungannya (`getCompanyUsage`) sudah
+   * menjumlahkan nomor WhatsApp Web dan Cloud API; dulu hanya dua jalan pertama
+   * yang menanyakannya, jadi Cloud API bisa menambah nomor tanpa batas.
+   * Mengembalikan pesan penolakan, atau null bila masih ada jatah.
+   */
+  async function whatsappCapacityError(companyId) {
+    const usage = typeof database.getCompanyUsage === 'function'
+      ? await database.getCompanyUsage(companyId).catch(() => null)
+      : null;
+    if (usage && usage.maxWhatsapp > 0 && usage.currentWhatsapp >= usage.maxWhatsapp) {
+      return `Batas koneksi WhatsApp tercapai (${usage.maxWhatsapp}). Upgrade paket untuk menambah nomor.`;
+    }
+    return null;
   }
 
   /** Client + state untuk satu nomor. `chatId` null berarti nomor utama. */
@@ -2377,6 +2395,24 @@ async function buildApp(overrides = {}) {
     }
   }
 
+  /**
+   * Sesama supervisor tidak boleh saling mengganti login, peran, atau
+   * menonaktifkan — itu jalan satu supervisor mengambil alih ruang kerja dari
+   * yang lain. Owner boleh; mengubah diri sendiri juga boleh. Peran di sesi
+   * sudah dinormalisasi jadi 'supervisor', jadi peran mentahnya dibaca dari
+   * daftar anggota. Mengembalikan pesan penolakan, atau null.
+   */
+  async function peerSupervisorError(session, targetUserId) {
+    if (targetUserId === session.userId) return null;
+    const members = await getTeamMembers(session.companyId);
+    const actor = members.find((member) => member.id === session.userId);
+    const target = members.find((member) => member.id === targetUserId);
+    if (!target || actor?.role === 'owner') return null;
+    return PRIVILEGED_DB_ROLES.includes(target.role)
+      ? 'Hanya owner yang dapat mengubah atau menonaktifkan sesama supervisor.'
+      : null;
+  }
+
   app.get('/v1/team/members', async (request) => {
     const members = await getTeamMembers(request.agneeSession?.companyId);
     if (!isSupervisor(request.agneeSession)) {
@@ -2432,6 +2468,8 @@ async function buildApp(overrides = {}) {
   }, async (request, reply) => {
     if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengubah peran anggota.' });
     if (!database.status().connected) return reply.code(503).send({ error: 'Penyimpanan belum tersedia.' });
+    const peerRole = await peerSupervisorError(request.agneeSession, request.params.userId);
+    if (peerRole) return reply.code(403).send({ error: peerRole });
     const member = await database.updateTeamMemberRole(request.params.userId, request.body.role, request.agneeSession?.companyId);
     if (!member) return reply.code(404).send({ error: 'Anggota tidak ditemukan atau tidak dapat diubah.' });
     broadcastEvent(request.agneeSession.companyId, 'team', { action: 'updated', member });
@@ -2451,6 +2489,8 @@ async function buildApp(overrides = {}) {
   }, async (request, reply) => {
     if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengubah anggota.' });
     if (!database.status().connected) return reply.code(503).send({ error: 'Penyimpanan belum tersedia.' });
+    const peerEdit = await peerSupervisorError(request.agneeSession, request.params.userId);
+    if (peerEdit) return reply.code(403).send({ error: peerEdit });
     let member;
     try {
       member = await database.updateTeamMember(request.params.userId, request.body, request.agneeSession?.companyId);
@@ -2472,6 +2512,8 @@ async function buildApp(overrides = {}) {
   app.delete('/v1/team/members/:userId', async (request, reply) => {
     if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat menonaktifkan anggota.' });
     if (!database.status().connected) return reply.code(503).send({ error: 'Penyimpanan belum tersedia.' });
+    const peerRemove = await peerSupervisorError(request.agneeSession, request.params.userId);
+    if (peerRemove) return reply.code(403).send({ error: peerRemove });
     await database.deactivateTeamMember(request.params.userId, request.agneeSession?.companyId);
     broadcastEvent(request.agneeSession.companyId, 'team', { action: 'removed', userId: request.params.userId });
     await catatAudit(request, 'team.member_removed', {
@@ -4539,10 +4581,8 @@ Aturan:
         ? true
         : await database.getWhatsappConnection(companyId).catch(() => null);
       if (!existing) {
-        const usage = await database.getCompanyUsage(companyId);
-        if (usage && usage.maxWhatsapp > 0 && usage.currentWhatsapp >= usage.maxWhatsapp) {
-          return reply.code(403).send({ error: `Batas koneksi WhatsApp tercapai (${usage.maxWhatsapp}). Upgrade plan untuk menambah lebih banyak.` });
-        }
+        const capacityError = await whatsappCapacityError(companyId);
+        if (capacityError) return reply.code(403).send({ error: capacityError });
       }
     }
     if (config.demoMode) {
@@ -4670,7 +4710,12 @@ Aturan:
 
   /** RFC 4180: kutip kalau ada koma, kutip, atau baris baru; kutip digandakan. */
   function toCsv(header, rows) {
-    const escape = (value) => (/[",\n\r]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value);
+    // neutralizeFormula dulu: pesan customer berawalan `=` tidak boleh
+    // dieksekusi sebagai formula saat file ini dibuka di Excel.
+    const escape = (raw) => {
+      const value = neutralizeFormula(raw);
+      return /[",\n\r]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
+    };
     const lines = [header.map(escape).join(',')];
     for (const row of rows) lines.push(row.map(escape).join(','));
     return lines.join('\r\n');
@@ -5359,10 +5404,8 @@ Aturan:
     const companyId = request.agneeSession.companyId;
 
     // Plafon paket membatasi berapa nomor yang boleh dibuat.
-    const usage = await database.getCompanyUsage(companyId).catch(() => null);
-    if (usage && usage.maxWhatsapp > 0 && usage.currentWhatsapp >= usage.maxWhatsapp) {
-      return reply.code(403).send({ error: `Batas koneksi WhatsApp tercapai (${usage.maxWhatsapp}). Upgrade paket untuk menambah nomor.` });
-    }
+    const capacityError = await whatsappCapacityError(companyId);
+    if (capacityError) return reply.code(403).send({ error: capacityError });
 
     const added = await database.addWhatsappConnection(companyId, {
       sessionPath: config.sessionPath,
@@ -5466,6 +5509,13 @@ Aturan:
     if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengonfigurasi koneksi.' });
     const companyId = request.agneeSession.companyId;
     const { phoneNumberId, wabaId, accessToken, appSecret, label } = request.body;
+    // Memperbarui token nomor yang sudah ada (upsert pada phone_number_id)
+    // bukan menambah nomor, jadi tidak dihitung ke plafon.
+    const known = await cloudApiManager.listConnections(companyId).catch(() => []);
+    if (!known.some((row) => row.phoneNumberId === phoneNumberId)) {
+      const capacityError = await whatsappCapacityError(companyId);
+      if (capacityError) return reply.code(403).send({ error: capacityError });
+    }
     try {
       // Menambah nomor kedua dan seterusnya lewat route yang sama: sejak
       // migration 018 satu company boleh punya banyak nomor, dan upsert-nya

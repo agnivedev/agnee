@@ -17,6 +17,35 @@
 
 ### Fixed
 
+- **[KEAMANAN] Rate limit dan kunci login MCP bisa dilewati, sekaligus bisa
+  dipakai mengunci semua orang.** `mcp-http` memakai entri X-Forwarded-For
+  paling kiri — kiriman klien — jadi header palsu memberi ember baru tiap
+  permintaan. Sebaliknya semua login MCP sampai di backend dari IP container
+  yang sama: 10 password salah dari satu orang mengunci login MCP semua user
+  15 menit. Sekarang X-Real-IP / entri paling kanan (yang ditambahkan Nginx),
+  alamat itu diteruskan ke backend, dan 429 dari backend tampil sebagai "terlalu
+  banyak percobaan", bukan "password salah".
+- **[KEAMANAN] Pendaftaran OAuth client MCP tanpa batas.** Sekarang 10 per jam
+  per alamat, plafon 1000 client, dan client yang tidak pernah dipakai login
+  dibuang setelah sehari.
+- **[KEAMANAN] Formula injection di ekspor CSV dan OneDrive.** Pesan customer
+  berawalan `= + - @` bisa dieksekusi sebagai formula saat file dibuka. Sekarang
+  diberi apostrof (`src/formula-guard.js`); nomor HP dan angka tidak disentuh.
+  Google Sheets (RAW) dan XLSX (`inlineStr`) memang sudah aman.
+- **Anonimisasi salinan Agnive Hub bisa terbalik.** Kiriman lama yang datang
+  terlambat mengisi lagi data pribadi dan menghapus `anonymized_at`. Sekarang
+  anonimisasi permanen, keadaan yang lebih lama tidak menimpa yang lebih baru,
+  dan pesan yang hilang di sumber ikut dihapus.
+- **Nomor Cloud API tidak dihitung ke plafon `maxWhatsapp`.** Satu pemeriksaan
+  `whatsappCapacityError()` sekarang dipakai QR, tambah nomor, dan Cloud API
+  (memperbarui token nomor yang sudah ada tidak dihitung).
+- **Agent yang mengetik `/admin` atau `/knowledge` mendarat di halaman penuh
+  error.** Kedua rute sekarang mengalihkan agent ke inbox.
+- **Supervisor bisa mengganti password, peran, atau menonaktifkan supervisor
+  lain.** Sekarang hanya owner; tombolnya di Settings → Tim ikut disembunyikan.
+- **Jendela kirim follow-up dipaku ke Asia/Jakarta**, sementara SLA memakai
+  `companies.timezone`. Follow-up sekarang memakai zona company juga.
+
 - **[KEAMANAN] Akun siapa pun bisa diambil alih lewat "tambah anggota tim".**
   Baris `users` dipakai bersama semua company, dan `createTeamMember`
   meng-upsert email yang sudah terdaftar — termasuk menimpa password-nya.

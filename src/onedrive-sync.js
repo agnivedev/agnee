@@ -1,5 +1,7 @@
 'use strict';
 
+const { neutralizeFormula } = require('./formula-guard');
+
 const GRAPH = 'https://graph.microsoft.com/v1.0';
 const LOGIN = 'https://login.microsoftonline.com';
 
@@ -96,7 +98,7 @@ async function writeRange(accessToken, { driveId, itemId, worksheetName, address
   const response = await fetchImpl(url, {
     method: 'PATCH',
     headers: { authorization: `Bearer ${accessToken}`, 'content-type': 'application/json' },
-    body: JSON.stringify({ values }),
+    body: JSON.stringify({ values: values.map((row) => row.map(neutralizeFormula)) }),
     signal: AbortSignal.timeout(30_000),
   });
   if (!response.ok) {

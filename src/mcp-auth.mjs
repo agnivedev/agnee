@@ -5,9 +5,41 @@ import { READ_SCOPE, WRITE_SCOPE } from './mcp-context.mjs';
 
 const SCOPES = [READ_SCOPE, WRITE_SCOPE];
 
+/**
+ * Alamat klien untuk rate limit dan kunci login.
+ *
+ * Entri PALING KANAN X-Forwarded-For, bukan paling kiri: Nginx menambahkan
+ * alamat klien di ujung kanan (`$proxy_add_x_forwarded_for`) dan mempertahankan
+ * apa pun yang dikirim klien di sebelah kirinya. Dulu entri kiri yang dipakai —
+ * header palsu memberi ember baru tiap permintaan, jadi plafon per menit dan
+ * kunci login gagal sama-sama bisa dilewati. X-Real-IP lebih dulu: Nginx
+ * menimpanya penuh dengan `$remote_addr`.
+ */
+export function clientAddressOf(headers, remoteAddress, trustProxy) {
+  if (trustProxy) {
+    const realIp = String(headers['x-real-ip'] || '').trim();
+    if (realIp) return realIp;
+    const chain = String(headers['x-forwarded-for'] || '').split(',').map((part) => part.trim()).filter(Boolean);
+    if (chain.length) return chain[chain.length - 1];
+  }
+  return remoteAddress || 'unknown';
+}
+
 /** Failed sign-ins per client address before the form stops answering. */
 const LOGIN_WINDOW_MS = 15 * 60_000;
 const LOGIN_MAX_FAILURES = 5;
+
+/*
+ * Pendaftaran client terbuka tanpa login (begitulah Dynamic Client
+ * Registration bekerja), jadi dulu siapa pun bisa menulis client tanpa batas ke
+ * oauth.json — tiap pendaftaran menulis ulang seluruh berkas secara sinkron.
+ * Tiga rem: jatah per alamat, plafon total, dan client yang tidak pernah
+ * dipakai login dibuang setelah sehari.
+ */
+const REGISTER_WINDOW_MS = 60 * 60_000;
+const REGISTER_MAX_PER_ADDRESS = 10;
+const MAX_CLIENTS = 1000;
+const UNUSED_CLIENT_TTL_MS = 24 * 60 * 60_000;
 
 function base64url(value) {
   return Buffer.from(value).toString('base64url');
@@ -66,7 +98,8 @@ function redirectAllowed(value) {
  * bound to that member and that member's company. There is no shared admin
  * login and no default tenant.
  *
- *   authenticate(email, password) → { userId, companyId, displayName } | null
+ *   authenticate(email, password, clientIp) → { userId, companyId, displayName }
+ *     | { rateLimited: true } | null
  *   legacyBearerToken + legacyIdentity — an optional static token for the
  *     deployment smoke test. Read-only, and only when legacyIdentity names
  *     the member it acts as; without that it is not accepted at all.
@@ -79,6 +112,32 @@ export function createMcpOAuth({ publicUrl, legacyBearerToken, legacyIdentity, s
   const codes = new Map();
   const refreshTokens = new Map();
   const loginFailures = new Map();
+  const registrations = new Map();
+
+  function registrationBlocked(ip) {
+    const now = Date.now();
+    const record = registrations.get(ip);
+    if (!record || record.resetAt < now) {
+      registrations.set(ip, { count: 1, resetAt: now + REGISTER_WINDOW_MS });
+      if (registrations.size > 5000) registrations.clear();
+      return false;
+    }
+    record.count += 1;
+    return record.count > REGISTER_MAX_PER_ADDRESS;
+  }
+
+  /** Client yang tidak pernah dipakai login dan sudah lewat sehari dibuang. */
+  function pruneUnusedClients() {
+    const cutoff = Math.floor((Date.now() - UNUSED_CLIENT_TTL_MS) / 1000);
+    let removed = 0;
+    for (const [id, client] of clients) {
+      if (!client.authorized_at && client.client_id_issued_at < cutoff) {
+        clients.delete(id);
+        removed += 1;
+      }
+    }
+    return removed;
+  }
 
   function loginBlocked(ip) {
     const record = loginFailures.get(ip);
@@ -205,6 +264,14 @@ export function createMcpOAuth({ publicUrl, legacyBearerToken, legacyIdentity, s
     }
 
     if (request.method === 'POST' && url.pathname === '/oauth/register') {
+      if (registrationBlocked(clientIp)) {
+        json(response, 429, { error: 'too_many_requests' }, { 'retry-after': '3600' });
+        return true;
+      }
+      if (clients.size >= MAX_CLIENTS && pruneUnusedClients() === 0 && clients.size >= MAX_CLIENTS) {
+        json(response, 503, { error: 'temporarily_unavailable' });
+        return true;
+      }
       try {
         const input = JSON.parse(await readBody(request));
         const redirectUris = Array.isArray(input.redirect_uris) ? input.redirect_uris.filter(redirectAllowed) : [];
@@ -261,11 +328,24 @@ export function createMcpOAuth({ publicUrl, legacyBearerToken, legacyIdentity, s
         json(response, 429, { error: 'access_denied', error_description: 'Terlalu banyak percobaan login. Coba lagi dalam 15 menit.' }, { 'retry-after': '900' });
         return true;
       }
-      const member = await authenticate(String(params.get('email') || ''), String(params.get('password') || '')).catch(() => null);
+      const member = await authenticate(String(params.get('email') || ''), String(params.get('password') || ''), clientIp).catch(() => null);
+      // Backend menolak karena terlalu banyak percobaan: katakan itu, jangan
+      // "password salah" — yang terakhir membuat orang mengetik ulang dan
+      // menambah hitungannya.
+      if (member?.rateLimited) {
+        json(response, 429, { error: 'access_denied', error_description: 'Terlalu banyak percobaan login. Coba lagi dalam 15 menit.' }, { 'retry-after': '900' });
+        return true;
+      }
       if (!member?.userId || !member?.companyId) {
         loginFailed(clientIp);
         json(response, 401, { error: 'access_denied', error_description: 'Email atau password salah.' });
         return true;
+      }
+      // Tandai client ini pernah dipakai, supaya tidak ikut dibuang
+      // pruneUnusedClients().
+      if (!validated.client.authorized_at) {
+        validated.client.authorized_at = Math.floor(Date.now() / 1000);
+        saveState();
       }
       const code = randomToken(32);
       codes.set(code, {

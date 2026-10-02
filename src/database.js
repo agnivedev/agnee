@@ -1717,7 +1717,7 @@ class Database {
              s.sent_total AS "sentTotal", s.sent_per_day AS "sentPerDay",
              f.day_caps AS "dayCaps", f.min_gap_minutes AS "minGapMinutes",
              f.send_from_hour AS "sendFromHour", f.send_to_hour AS "sendToHour",
-             c.slug AS "companySlug"
+             c.slug AS "companySlug", c.timezone AS "timezone"
       FROM follow_up_state s
       JOIN follow_up_settings f ON f.company_id = s.company_id AND f.enabled
       JOIN companies c ON c.id = s.company_id
@@ -1748,9 +1748,11 @@ class Database {
              s.restart_count AS "restartCount",
              f.enabled, f.day_caps AS "dayCaps", f.min_gap_minutes AS "minGapMinutes",
              f.send_from_hour AS "sendFromHour", f.send_to_hour AS "sendToHour",
-             f.restart_after_days AS "restartAfterDays"
+             f.restart_after_days AS "restartAfterDays",
+             c.timezone AS "timezone"
       FROM follow_up_state s
       LEFT JOIN follow_up_settings f ON f.company_id = s.company_id
+      JOIN companies c ON c.id = s.company_id
       WHERE s.company_id = $1 AND s.chat_id = $2
     `, [companyId, chatId]);
     return result.rows[0] || null;
@@ -2519,13 +2521,37 @@ class Database {
           anonymized_at = EXCLUDED.anonymized_at,
           last_message_at = EXCLUDED.last_message_at,
           received_at = NOW()
+        -- Kiriman bisa datang tidak berurutan (Insight mengulang sampai 2xx).
+        -- Anonimisasi tidak boleh terbalik: setelah salinannya dikosongkan,
+        -- kiriman lama berisi data pribadi tidak boleh mengisinya lagi. Dan
+        -- keadaan yang lebih lama dari yang sudah tersimpan tidak menimpanya.
+        WHERE external_threads.anonymized_at IS NULL
+          AND (EXCLUDED.anonymized_at IS NOT NULL
+               OR EXCLUDED.last_message_at >= external_threads.last_message_at)
         RETURNING id
       `, [
         companyId, source, thread.externalId, thread.status,
         thread.contact.name, thread.contact.email, thread.contact.organization,
         JSON.stringify(thread.context), thread.anonymizedAt, thread.startedAt, thread.lastMessageAt,
       ]);
+      if (!saved.rows.length) {
+        // Ditolak WHERE di atas: salinan yang tersimpan sudah lebih baru atau
+        // sudah dianonimkan. Jawab tetap 200 supaya pengirim berhenti mengulang.
+        const existing = await client.query(
+          'SELECT id FROM external_threads WHERE company_id = $1 AND source = $2 AND external_id = $3',
+          [companyId, source, thread.externalId],
+        );
+        await client.query('COMMIT');
+        return existing.rows[0]?.id || null;
+      }
       const threadId = saved.rows[0].id;
+      // Setiap kiriman membawa keadaan LENGKAP thread-nya: pesan yang tidak ikut
+      // lagi (dihapus di sumber) dihapus juga di sini — termasuk sisa isi
+      // pribadi yang tidak ikut dikosongkan oleh kiriman anonimisasi.
+      await client.query(
+        'DELETE FROM external_messages WHERE thread_id = $1 AND NOT (external_id = ANY($2::text[]))',
+        [threadId, thread.messages.map((message) => message.externalId)],
+      );
       for (const message of thread.messages) {
         await client.query(`
           INSERT INTO external_messages (thread_id, external_id, author, author_name, body, occurred_at)

@@ -536,3 +536,12 @@ test('plafon absolut tetap menahan di dalam satu rangkaian', async () => {
   assert.equal(prepared.reason, 'exhausted');
   assert.equal(state.stopReason, 'exhausted');
 });
+
+test('follow-up: jendela kirim memakai zona waktu company, sama dengan SLA', () => {
+  // 09.00 WIB = 11.00 WIT. Jendela 10–21: di Jakarta belum buka, di Jayapura sudah.
+  const nineWib = new Date('2026-09-15T02:00:00Z');
+  assert.equal(withinSendWindow(10, 21, nineWib, 'Asia/Jakarta'), false);
+  assert.equal(withinSendWindow(10, 21, nineWib, 'Asia/Jayapura'), true);
+  // Zona yang tidak dikenal jatuh ke Jakarta, tidak melempar.
+  assert.equal(withinSendWindow(10, 21, nineWib, 'Bukan/Zona'), false);
+});

@@ -63,7 +63,10 @@ export function TeamSection() {
           const name = member.displayName || member.email;
           const isOwner = member.role === 'owner';
           const isSelf = member.id === user?.userId;
-          const canManage = isSupervisor && !isOwner && !isSelf;
+          // Sama dengan server: sesama supervisor hanya bisa diubah owner. Peran
+          // di sesi sudah dinormalisasi, jadi "saya owner?" dibaca dari daftar ini.
+          const actorIsOwner = members.some((item) => item.id === user?.userId && item.role === 'owner');
+          const canManage = isSupervisor && !isOwner && !isSelf && (actorIsOwner || member.role === 'agent');
 
           if (editing === member.id) {
             return <MemberEditor key={member.id} member={member} onDone={() => void load()} onStatus={setStatus} />;

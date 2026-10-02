@@ -2,21 +2,28 @@
 
 const { COMMITMENT_MARKERS } = require('./reply-style.js');
 
-// Semua tenant Agnee berbisnis di Indonesia, dan jam kirim di follow_up_settings
-// disimpan sebagai jam lokal mereka. Kalau nanti ada tenant di zona lain, ini
-// yang harus dipindah jadi kolom per company.
+// Jam kirim di follow_up_settings adalah jam lokal company — zona waktunya
+// `companies.timezone`, kolom yang sama yang dipakai SLA. Dulu zona ini dipaku
+// ke Jakarta di sini, jadi follow-up dan SLA bisa berbeda pendapat soal "jam
+// kerja" untuk company yang sama. Jakarta tinggal jadi cadangan.
 const BUSINESS_TZ = 'Asia/Jakarta';
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-/** Jam (0-23) di zona bisnis, bukan jam server. */
-function hourInBusinessTz(now = new Date()) {
-  return Number(new Intl.DateTimeFormat('en-GB', {
-    timeZone: BUSINESS_TZ, hour: '2-digit', hour12: false,
+/** Jam (0-23) di zona company, bukan jam server. */
+function hourInBusinessTz(now = new Date(), timeZone = BUSINESS_TZ) {
+  const format = (zone) => Number(new Intl.DateTimeFormat('en-GB', {
+    timeZone: zone, hour: '2-digit', hour12: false,
   }).format(now));
+  try {
+    return format(timeZone || BUSINESS_TZ);
+  } catch {
+    // Nama zona yang tidak dikenal Intl tidak boleh menghentikan sweeper.
+    return format(BUSINESS_TZ);
+  }
 }
 
-function withinSendWindow(fromHour, toHour, now = new Date()) {
-  const hour = hourInBusinessTz(now);
+function withinSendWindow(fromHour, toHour, now = new Date(), timeZone = BUSINESS_TZ) {
+  const hour = hourInBusinessTz(now, timeZone);
   // Jendela yang melewati tengah malam (mis. 21→8) tetap ditangani benar.
   return fromHour <= toHour ? hour >= fromHour && hour < toHour : hour >= fromHour || hour < toHour;
 }
@@ -56,7 +63,7 @@ function withManualGap(state) {
  */
 function decide(state, now = new Date()) {
   const { sequenceStartedAt, sentPerDay = [], dayCaps, minGapMinutes, lastSentAt,
-    sendFromHour, sendToHour } = state;
+    sendFromHour, sendToHour, timezone } = state;
 
   const dayIndex = Math.floor((now - new Date(sequenceStartedAt)) / DAY_MS);
   if (dayIndex < 0) return { send: false, skip: 'clock_skew' };
@@ -65,7 +72,7 @@ function decide(state, now = new Date()) {
   if (lastSentAt && now - new Date(lastSentAt) < minGapMinutes * 60_000) {
     return { send: false, skip: 'gap_not_elapsed' };
   }
-  if (!withinSendWindow(sendFromHour, sendToHour, now)) {
+  if (!withinSendWindow(sendFromHour, sendToHour, now, timezone)) {
     return { send: false, skip: 'outside_send_window' };
   }
 

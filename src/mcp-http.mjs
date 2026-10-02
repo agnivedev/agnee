@@ -1,7 +1,7 @@
 import http from 'node:http';
 import { createMcpHandler } from '@modelcontextprotocol/server';
 import { toNodeHandler } from '@modelcontextprotocol/node';
-import { createMcpOAuth } from './mcp-auth.mjs';
+import { createMcpOAuth, clientAddressOf } from './mcp-auth.mjs';
 import { buildMcpServer } from './mcp-server.mjs';
 import { mcpContext } from './mcp-context.mjs';
 
@@ -22,13 +22,20 @@ const legacyIdentity = process.env.MCP_LEGACY_USER_ID && process.env.AGNEE_COMPA
 
 /** Signs in through the backend's own login: same passwords, same rules,
  *  same "inactive member cannot get in". */
-async function authenticate(email, password) {
+async function authenticate(email, password, clientIp) {
+  // Semua login MCP datang ke backend dari IP container ini. Tanpa alamat
+  // aslinya, backend menghitung semuanya dalam SATU ember: 10 password salah
+  // dari satu orang mengunci login MCP untuk semua user. Container ini ada di
+  // jaringan proxy yang dipercaya backend, jadi X-Forwarded-For darinya dibaca.
+  const headers = { 'content-type': 'application/json' };
+  if (clientIp && clientIp !== 'unknown') headers['x-forwarded-for'] = clientIp;
   const response = await fetch(`${apiBaseUrl}/v1/auth/login`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers,
     body: JSON.stringify({ email, password }),
     signal: AbortSignal.timeout(10_000),
   });
+  if (response.status === 429) return { rateLimited: true };
   if (!response.ok) return null;
   const { user } = await response.json().catch(() => ({}));
   return user?.userId && user?.companyId
@@ -58,10 +65,7 @@ function applySecurityHeaders(response) {
 const trustProxy = ['1', 'true', 'yes'].includes(String(process.env.TRUST_PROXY || '').toLowerCase());
 
 function clientAddress(request) {
-  const forwarded = trustProxy
-    ? String(request.headers['x-forwarded-for'] || '').split(',')[0].trim()
-    : '';
-  return forwarded || request.socket.remoteAddress || 'unknown';
+  return clientAddressOf(request.headers, request.socket.remoteAddress, trustProxy);
 }
 
 function rateLimited(request) {

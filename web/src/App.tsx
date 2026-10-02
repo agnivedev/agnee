@@ -1,4 +1,4 @@
-import { Suspense, lazy } from 'react';
+import { Suspense, lazy, type ReactNode } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { I18nProvider, useI18n } from '@/lib/i18n';
 import { SessionProvider, useSession } from '@/lib/session';
@@ -112,16 +112,22 @@ function Shell() {
         <Route path="/notifications" element={<NotificationsPage />} />
         <Route path="/pipeline" element={<PipelinePage />} />
         <Route path="/settings" element={<SettingsPage />} />
-        <Route path="/knowledge" element={<KnowledgePage />} />
-        <Route path="/admin" element={<AdminPage />} />
-        {/* Pages still served by the vanilla frontend. Each one moves here as it
-            is ported; until then a hard navigation hands the URL back to it. */}
-        <Route path="*" element={<LegacyRedirect />} />
+        <Route path="/knowledge" element={<SupervisorOnly><KnowledgePage /></SupervisorOnly>} />
+        <Route path="/admin" element={<SupervisorOnly><AdminPage /></SupervisorOnly>} />
+        {/* Path yang tidak dikenal kembali ke inbox. */}
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Suspense>
   );
 }
 
-function LegacyRedirect() {
-  return <Navigate to="/" replace />;
+/**
+ * Halaman milik supervisor. Menyembunyikan entri nav-nya saja tidak cukup:
+ * agent yang mengetik URL-nya mendapat halaman penuh 403 dari server. Server
+ * tetap penjaga sebenarnya; ini hanya supaya agent tidak mendarat di halaman
+ * rusak.
+ */
+function SupervisorOnly({ children }: { children: ReactNode }) {
+  const { isSupervisor } = useSession();
+  return isSupervisor ? <>{children}</> : <Navigate to="/" replace />;
 }

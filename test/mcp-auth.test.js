@@ -98,3 +98,36 @@ test('token statis hanya berlaku kalau menyebut anggota, dan hanya untuk membaca
   assert.deepEqual(withId.oauth.verifyAccessToken('statis-panjang', 'whatsapp:read'), { userId: 'user-1', companyId: 'agnive', scopes: ['whatsapp:read'] });
   assert.equal(withId.oauth.verifyAccessToken('statis-panjang', 'whatsapp:write'), null);
 });
+
+test('alamat klien: entri X-Forwarded-For yang ditambahkan Nginx, bukan kiriman klien', async () => {
+  const { clientAddressOf } = await import('../src/mcp-auth.mjs');
+  // Penyerang mengirim XFF palsu; Nginx menambahkan alamat aslinya di kanan.
+  assert.equal(clientAddressOf({ 'x-forwarded-for': '1.2.3.4, 203.0.113.10' }, '172.24.0.1', true), '203.0.113.10');
+  assert.equal(clientAddressOf({ 'x-real-ip': '203.0.113.10', 'x-forwarded-for': '9.9.9.9' }, '172.24.0.1', true), '203.0.113.10');
+  assert.equal(clientAddressOf({ 'x-forwarded-for': '1.2.3.4' }, '198.51.100.1', false), '198.51.100.1');
+});
+
+test('login MCP meneruskan alamat klien ke backend, dan 429 backend tidak dilaporkan sebagai password salah', async (t) => {
+  const seen = [];
+  const { base, client } = await setup(t, {
+    authenticate: async (email, password, clientIp) => { seen.push(clientIp); return { rateLimited: true }; },
+  });
+  const res = await signIn({ base, client }, 'whatsapp:read');
+  assert.equal(res.status, 429);
+  assert.deepEqual(seen, ['198.51.100.7']);
+});
+
+test('pendaftaran client dibatasi per alamat', async (t) => {
+  const { base } = await setup(t);
+  const statuses = [];
+  // setup() sudah mendaftar satu; jatahnya 10 per jam per alamat.
+  for (let i = 0; i < 10; i += 1) {
+    const res = await fetch(`${base}/oauth/register`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ client_name: `Banjir ${i}`, redirect_uris: ['http://localhost/cb'] }),
+    });
+    statuses.push(res.status);
+  }
+  assert.deepEqual(statuses.slice(0, 9), Array(9).fill(201));
+  assert.equal(statuses[9], 429);
+});

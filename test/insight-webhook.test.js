@@ -167,4 +167,37 @@ test('syncExternalThread: menimpa, tidak menggandakan, dan anonimisasi ikut', { 
 
   const list = await db.listExternalThreads(companyId, { source: 'hub' });
   assert.ok(list.some((row) => row.id === id && row.messageCount === 3));
+
+  // Kiriman lama berisi data pribadi datang terlambat (diulang, atau diputar
+  // ulang dalam jendela 5 menit): anonimisasi tidak boleh terbalik.
+  const replay = await db.syncExternalThread(companyId, 'hub', parsed({ ...base, status: 'closed', lastMessageAt: third.occurredAt, messages: [...base.messages, third] }));
+  assert.equal(replay, id);
+  thread = await db.getExternalThread(companyId, id);
+  assert.ok(thread.anonymizedAt, 'tetap anonim');
+  assert.equal(thread.contactEmail, '');
+  assert.deepEqual(thread.messages.filter((m) => m.author === 'contact').map((m) => m.body), ['', '']);
+});
+
+test('syncExternalThread: kiriman yang lebih lama tidak menimpa, pesan yang hilang di sumber ikut hilang', { skip: !process.env.DATABASE_URL && 'DATABASE_URL tidak diset' }, async (t) => {
+  const db = new Database({ connectionString: process.env.DATABASE_URL });
+  await db.connect();
+  const companyId = await db.resolveCompanyId('tradersmastermind');
+  const externalId = `test-hub-order-${Date.now()}`;
+  t.after(async () => {
+    await db.pool.query('DELETE FROM external_threads WHERE external_id = $1', [externalId]);
+    await db.close();
+  });
+  const base = payload({ externalId }).thread;
+  const parsed = (thread) => ({ ...thread, contact: { ...thread.contact } });
+  const third = { externalId: 'msg-2', author: 'contact', authorName: 'Rina', body: 'Rabu cocok.', occurredAt: '2026-10-02T08:30:00.000Z' };
+
+  const id = await db.syncExternalThread(companyId, 'hub', parsed({ ...base, status: 'closed', lastMessageAt: third.occurredAt, messages: [...base.messages, third] }));
+  await db.syncExternalThread(companyId, 'hub', parsed(base)); // lebih lama
+  let thread = await db.getExternalThread(companyId, id);
+  assert.equal(thread.status, 'closed');
+  assert.equal(thread.messages.length, 3);
+
+  await db.syncExternalThread(companyId, 'hub', parsed({ ...base, lastMessageAt: third.occurredAt, messages: [base.messages[0]] }));
+  thread = await db.getExternalThread(companyId, id);
+  assert.equal(thread.messages.length, 1);
 });

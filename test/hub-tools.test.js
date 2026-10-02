@@ -37,7 +37,7 @@ const THREAD = {
   ],
 };
 
-async function setup(t) {
+async function setup(t, { hubToolsEnabled = true } = {}) {
   const insight = http.createServer((req, res) => {
     res.setHeader('content-type', 'application/json');
     if (req.url === '/api/hub/listings') return res.end(JSON.stringify({ listings: LISTINGS }));
@@ -68,7 +68,7 @@ async function setup(t) {
     async getActiveSessionUser(userId) { return [owner, agent].find((u) => u.id === userId) || null; },
     async setPresence() {},
     async getAiSettings() { return { enabled: true, modelChain: [] }; },
-    async getCompanyConfig() { return { planStatus: 'active' }; },
+    async getCompanyConfig() { return { planStatus: 'active', hubToolsEnabled }; },
     async incrementAiMessageCount() { quotaCalls += 1; return { exceeded: false }; },
     async getExternalThread(_c, id) { return id === THREAD.id ? THREAD : null; },
     async listExternalThreads() { return [THREAD]; },
@@ -90,6 +90,22 @@ test('mencari listing: teks, sektor, TRL minimum, nominal maksimum', async (t) =
   const byText = await get('?q=pinang');
   assert.equal(byText.listings[0].slug, 'pinara');
   assert.equal(byText.listings[0].url, 'https://hub.insight.agnive.co/listing/pinara');
+});
+
+test('listing Hub hanya untuk company yang Hub-nya aktif; slug divalidasi', async (t) => {
+  // Datanya publik, tapi fiturnya milik Agnive: company pelanggan biasa tidak
+  // bisa memakai Agnee sebagai pintu ke Agnive Hub.
+  const { app, as } = await setup(t, { hubToolsEnabled: false });
+  const list = await app.inject({ method: 'GET', url: '/v1/hub/listings', headers: as(agent) });
+  assert.equal(list.statusCode, 403);
+  const one = await app.inject({ method: 'GET', url: '/v1/hub/listings/pinara', headers: as(agent) });
+  assert.equal(one.statusCode, 403);
+  const { app: open, as: asOpen } = await setup(t);
+  const odd = await open.inject({ method: 'GET', url: '/v1/hub/listings/Pinara%20!', headers: asOpen(agent) });
+  assert.equal(odd.statusCode, 400);
+  // `..` tidak pernah sampai ke Insight, apa pun rute yang menolaknya.
+  const traversal = await open.inject({ method: 'GET', url: '/v1/hub/listings/%2E%2E', headers: asOpen(agent) });
+  assert.ok([400, 403, 404].includes(traversal.statusCode), String(traversal.statusCode));
 });
 
 test('membaca satu listing; slug yang tidak ada = 404', async (t) => {

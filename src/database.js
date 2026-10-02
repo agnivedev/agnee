@@ -28,6 +28,9 @@ function verifyPassword(password, stored) {
   return actual.length === expected.length && crypto.timingSafeEqual(actual, expected);
 }
 
+// Kunci advisory untuk migrasi; angkanya sembarang, asal tetap.
+const MIGRATION_LOCK_KEY = 4_100_2026;
+
 class Database {
   constructor(options = {}) {
     this.logger = options.logger || console;
@@ -94,29 +97,37 @@ class Database {
   async migrate() {
     const migrationDir = path.join(__dirname, '..', 'db', 'migrations');
     const migrations = fs.readdirSync(migrationDir).filter((file) => file.endsWith('.sql')).sort();
-    await this.pool.query(`
-      CREATE TABLE IF NOT EXISTS schema_migrations (
-        name TEXT PRIMARY KEY,
-        applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-      )
-    `);
-
-    for (const name of migrations) {
-      const alreadyApplied = await this.pool.query('SELECT 1 FROM schema_migrations WHERE name = $1', [name]);
-      if (alreadyApplied.rowCount > 0) continue;
-      const sql = fs.readFileSync(path.join(migrationDir, name), 'utf8');
-      const client = await this.pool.connect();
-      try {
-        await client.query('BEGIN');
-        await client.query(sql);
-        await client.query('INSERT INTO schema_migrations (name) VALUES ($1)', [name]);
-        await client.query('COMMIT');
-      } catch (error) {
-        await client.query('ROLLBACK');
-        throw error;
-      } finally {
-        client.release();
+    // Satu koneksi memegang advisory lock selama seluruh migrasi. Tanpa ini dua
+    // proses yang menyala bersamaan (proses test paralel, atau dua container
+    // saat deploy bertumpuk) sama-sama melihat migrasi baru "belum diterapkan",
+    // sama-sama menjalankannya, dan yang kedua gagal di INSERT
+    // schema_migrations — connect() melempar dan prosesnya mati.
+    const client = await this.pool.connect();
+    try {
+      await client.query('SELECT pg_advisory_lock($1)', [MIGRATION_LOCK_KEY]);
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS schema_migrations (
+          name TEXT PRIMARY KEY,
+          applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `);
+      for (const name of migrations) {
+        const alreadyApplied = await client.query('SELECT 1 FROM schema_migrations WHERE name = $1', [name]);
+        if (alreadyApplied.rowCount > 0) continue;
+        const sql = fs.readFileSync(path.join(migrationDir, name), 'utf8');
+        try {
+          await client.query('BEGIN');
+          await client.query(sql);
+          await client.query('INSERT INTO schema_migrations (name) VALUES ($1)', [name]);
+          await client.query('COMMIT');
+        } catch (error) {
+          await client.query('ROLLBACK');
+          throw error;
+        }
       }
+    } finally {
+      await client.query('SELECT pg_advisory_unlock($1)', [MIGRATION_LOCK_KEY]).catch(() => {});
+      client.release();
     }
   }
 
@@ -2553,7 +2564,7 @@ class Database {
     return result.rows.map((row) => row.userId);
   }
 
-  async listExternalThreads(companyId, { source, limit = 30, offset = 0 } = {}) {
+  async listExternalThreads(companyId, { source, limit = 30, offset = 0, status, awaitingTeam, excludeAnonymized } = {}) {
     if (!this.enabled) return [];
     const result = await this.pool.query(`
       SELECT t.id, t.source, t.external_id AS "externalId", t.status,
@@ -2565,9 +2576,14 @@ class Database {
                 ORDER BY m.occurred_at DESC LIMIT 1) AS "lastAuthor"
       FROM external_threads t
       WHERE t.company_id = $1 AND ($2::text IS NULL OR t.source = $2)
+        AND ($5::text IS NULL OR t.status = $5)
+        AND (NOT $6::boolean OR t.anonymized_at IS NULL)
+        AND (NOT $7::boolean OR (t.status = 'open' AND (
+          SELECT m.author FROM external_messages m WHERE m.thread_id = t.id
+          ORDER BY m.occurred_at DESC LIMIT 1) = 'contact'))
       ORDER BY t.last_message_at DESC
       LIMIT $3 OFFSET $4
-    `, [companyId, source || null, limit, offset]);
+    `, [companyId, source || null, limit, offset, status || null, Boolean(excludeAnonymized), Boolean(awaitingTeam)]);
     return result.rows;
   }
 

@@ -2431,7 +2431,17 @@ async function buildApp(overrides = {}) {
     return reply.code(403).send({ error: 'Ambil alih chat ini sebelum membalas.' });
   });
 
-  app.get('/v1/auth/session', async (request) => ({ authenticated: true, user: request.agneeSession }));
+  app.get('/v1/auth/session', async (request) => {
+    // `onboarded` dibaca segar dari database: cookie sesi membawa nilai saat
+    // login, jadi tanpa ini daftar periksa onboarding muncul lagi setelah
+    // "Selesai" sampai orangnya login ulang.
+    const user = { ...request.agneeSession };
+    if (user.userId && user.companyId && database.status().connected && typeof database.getActiveSessionUser === 'function') {
+      const live = await database.getActiveSessionUser(user.userId, user.companyId).catch(() => null);
+      if (live) user.onboarded = Boolean(live.onboardedAt);
+    }
+    return { authenticated: true, user };
+  });
 
   app.post('/v1/auth/onboarded', async (request) => {
     await database.markOnboarded(request.agneeSession.userId);
@@ -4829,43 +4839,74 @@ Aturan:
     }
   });
 
-  app.post('/v1/export/onedrive/sync', async (request, reply) => {
-    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengatur ekspor.' });
-    if (!canCall('getOneDriveConnection')) return reply.code(503).send({ error: 'Database tidak tersedia.' });
-    const conn = await database.getOneDriveConnection(request.agneeSession.companyId);
-    if (!conn) return reply.code(409).send({ error: 'Hubungkan file Excel dulu.' });
-    try {
-      const result = await syncOneDriveFor({ ...conn, companyId: request.agneeSession.companyId });
-      return { ok: true, rowCount: result.rowCount, blanked: result.blanked };
-    } catch (error) {
-      await database.recordOneDriveSync(request.agneeSession.companyId, { error: error.message }).catch(() => {});
-      return reply.code(502).send({ error: publicErrorMessage(error) });
-    }
-  });
+  /**
+   * Tiga rute siklus hidup yang sama untuk setiap integrasi data: sinkron
+   * sekarang, jeda/lanjutkan, dan putuskan. Dulu OneDrive, Google Sheets, dan
+   * Mayar masing-masing menulis ketiganya sendiri — sembilan handler yang
+   * hanya berbeda nama fungsi database dan pesannya. Rute GET dan POST
+   * (status dan sambungkan) tetap per integrasi, karena bentuk kredensial dan
+   * jawabannya memang berbeda.
+   */
+  function registerIntegrationLifecycle({
+    base, integration, gateMessage, notConnected, missingForToggle,
+    get, sync, record, setEnabled, remove,
+  }) {
+    const gate = (request, reply) => {
+      if (isSupervisor(request.agneeSession)) return true;
+      reply.code(403).send({ error: gateMessage });
+      return false;
+    };
 
-  app.patch('/v1/export/onedrive', {
-    schema: {
-      body: {
-        type: 'object', required: ['enabled'], additionalProperties: false,
-        properties: { enabled: { type: 'boolean' } },
-      },
-    },
-  }, async (request, reply) => {
-    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengatur ekspor.' });
-    if (!canCall('setOneDriveEnabled')) return reply.code(503).send({ error: 'Database tidak tersedia.' });
-    const updated = await database.setOneDriveEnabled(request.agneeSession.companyId, request.body.enabled);
-    if (!updated) return reply.code(404).send({ error: 'Belum ada file yang terhubung.' });
-    return { ok: true, enabled: updated.enabled };
-  });
-
-  app.delete('/v1/export/onedrive', async (request, reply) => {
-    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengatur ekspor.' });
-    if (!canCall('deleteOneDriveConnection')) return reply.code(503).send({ error: 'Database tidak tersedia.' });
-    await database.deleteOneDriveConnection(request.agneeSession.companyId);
-    await catatAudit(request, 'integration.disconnected', {
-      entityType: 'integration', entityId: 'onedrive', metadata: { integration: 'onedrive' },
+    app.post(`${base}/sync`, async (request, reply) => {
+      if (!gate(request, reply)) return;
+      if (!canCall(get)) return reply.code(503).send({ error: 'Database tidak tersedia.' });
+      const companyId = request.agneeSession.companyId;
+      const conn = await database[get](companyId);
+      if (!conn) return reply.code(409).send({ error: notConnected });
+      try {
+        return { ok: true, ...(await sync(companyId, conn)) };
+      } catch (error) {
+        await database[record](companyId, { error: error.message }).catch(() => {});
+        return reply.code(502).send({ error: publicErrorMessage(error) });
+      }
     });
-    return { ok: true };
+
+    app.patch(base, {
+      schema: {
+        body: {
+          type: 'object', required: ['enabled'], additionalProperties: false,
+          properties: { enabled: { type: 'boolean' } },
+        },
+      },
+    }, async (request, reply) => {
+      if (!gate(request, reply)) return;
+      if (!canCall(setEnabled)) return reply.code(503).send({ error: 'Database tidak tersedia.' });
+      const updated = await database[setEnabled](request.agneeSession.companyId, request.body.enabled);
+      if (!updated) return reply.code(404).send({ error: missingForToggle });
+      return { ok: true, enabled: updated.enabled };
+    });
+
+    app.delete(base, async (request, reply) => {
+      if (!gate(request, reply)) return;
+      if (!canCall(remove)) return reply.code(503).send({ error: 'Database tidak tersedia.' });
+      await database[remove](request.agneeSession.companyId);
+      await catatAudit(request, 'integration.disconnected', {
+        entityType: 'integration', entityId: integration, metadata: { integration },
+      });
+      return { ok: true };
+    });
+  }
+
+  registerIntegrationLifecycle({
+    base: '/v1/export/onedrive', integration: 'onedrive',
+    gateMessage: 'Hanya supervisor yang dapat mengatur ekspor.',
+    notConnected: 'Hubungkan file Excel dulu.', missingForToggle: 'Belum ada file yang terhubung.',
+    get: 'getOneDriveConnection', record: 'recordOneDriveSync',
+    setEnabled: 'setOneDriveEnabled', remove: 'deleteOneDriveConnection',
+    sync: async (companyId, conn) => {
+      const result = await syncOneDriveFor({ ...conn, companyId });
+      return { rowCount: result.rowCount, blanked: result.blanked };
+    },
   });
 
   // ── Sinkronisasi ke Google Sheets ─────────────────────────────────────────
@@ -4959,43 +5000,16 @@ Aturan:
     }
   });
 
-  app.post('/v1/export/gsheets/sync', async (request, reply) => {
-    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengatur ekspor.' });
-    if (!canCall('getGsheetsConnection')) return reply.code(503).send({ error: 'Database tidak tersedia.' });
-    const conn = await database.getGsheetsConnection(request.agneeSession.companyId);
-    if (!conn) return reply.code(409).send({ error: 'Hubungkan Google Sheet dulu.' });
-    try {
-      const result = await syncGsheetsFor({ ...conn, companyId: request.agneeSession.companyId });
-      return { ok: true, rowCount: result.rowCount, cleared: result.cleared };
-    } catch (error) {
-      await database.recordGsheetsSync(request.agneeSession.companyId, { error: error.message }).catch(() => {});
-      return reply.code(502).send({ error: publicErrorMessage(error) });
-    }
-  });
-
-  app.patch('/v1/export/gsheets', {
-    schema: {
-      body: {
-        type: 'object', required: ['enabled'], additionalProperties: false,
-        properties: { enabled: { type: 'boolean' } },
-      },
+  registerIntegrationLifecycle({
+    base: '/v1/export/gsheets', integration: 'gsheets',
+    gateMessage: 'Hanya supervisor yang dapat mengatur ekspor.',
+    notConnected: 'Hubungkan Google Sheet dulu.', missingForToggle: 'Belum ada sheet yang terhubung.',
+    get: 'getGsheetsConnection', record: 'recordGsheetsSync',
+    setEnabled: 'setGsheetsEnabled', remove: 'deleteGsheetsConnection',
+    sync: async (companyId, conn) => {
+      const result = await syncGsheetsFor({ ...conn, companyId });
+      return { rowCount: result.rowCount, cleared: result.cleared };
     },
-  }, async (request, reply) => {
-    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengatur ekspor.' });
-    if (!canCall('setGsheetsEnabled')) return reply.code(503).send({ error: 'Database tidak tersedia.' });
-    const updated = await database.setGsheetsEnabled(request.agneeSession.companyId, request.body.enabled);
-    if (!updated) return reply.code(404).send({ error: 'Belum ada sheet yang terhubung.' });
-    return { ok: true, enabled: updated.enabled };
-  });
-
-  app.delete('/v1/export/gsheets', async (request, reply) => {
-    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengatur ekspor.' });
-    if (!canCall('deleteGsheetsConnection')) return reply.code(503).send({ error: 'Database tidak tersedia.' });
-    await database.deleteGsheetsConnection(request.agneeSession.companyId);
-    await catatAudit(request, 'integration.disconnected', {
-      entityType: 'integration', entityId: 'gsheets', metadata: { integration: 'gsheets' },
-    });
-    return { ok: true };
   });
 
   // ── Integrasi Mayar: customer & transaksi jadi lead ke-5 di Lead List ──────
@@ -5056,6 +5070,11 @@ Aturan:
       source: { type: 'string', enum: ['hub'] },
       limit: { type: 'integer', minimum: 1, maximum: 100, default: 30 },
       offset: { type: 'integer', minimum: 0, default: 0 },
+      // Penyaringan di database, bukan di pemanggil: MCP dulu mengambil 100
+      // terbaru lalu menyaring sendiri, jadi thread di luar 100 itu hilang.
+      status: { type: 'string', enum: ['open', 'closed'] },
+      awaitingTeam: { type: 'boolean' },
+      excludeAnonymized: { type: 'boolean', default: false },
     } } },
   }, async (request, reply) => {
     if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya untuk supervisor.' });
@@ -5074,14 +5093,53 @@ Aturan:
   //
   // Listings come from Insight's public feed — exactly what anyone sees on
   // hub.insight.agnive.co, never a research project's unpublished data.
+  //
+  // Dibaca dengan plafon ukuran dan JSON yang gagal diurai dianggap "tidak
+  // bisa dibaca" — dulu `response.json()` yang melempar menjadi 500 berisi
+  // pesan parse-nya. Hasil sukses disimpan sebentar: pencarian dari chatbot
+  // dan MCP dulu mengunduh seluruh feed di setiap panggilan.
+  const INSIGHT_FEED_MAX_BYTES = 5 * 1024 * 1024;
+  const INSIGHT_FEED_TTL_MS = 60_000;
+  const insightFeedCache = new Map();
   async function insightFeed(path) {
+    const cached = insightFeedCache.get(path);
+    if (cached && cached.expiresAt > Date.now()) return cached.value;
     const response = await fetch(`${config.insightApiUrl}/api/hub${path}`, { signal: AbortSignal.timeout(8_000) })
       .catch(() => null);
     if (!response) return { status: 'unavailable' };
     if (response.status === 404) return { status: 'missing' };
     if (!response.ok) return { status: 'unavailable' };
-    return { status: 'ok', body: await response.json() };
+    if (Number(response.headers.get('content-length') || 0) > INSIGHT_FEED_MAX_BYTES) return { status: 'unavailable' };
+    const text = await response.text().catch(() => null);
+    if (text == null || text.length > INSIGHT_FEED_MAX_BYTES) return { status: 'unavailable' };
+    let body;
+    try {
+      body = JSON.parse(text);
+    } catch {
+      return { status: 'unavailable' };
+    }
+    const value = { status: 'ok', body };
+    insightFeedCache.set(path, { value, expiresAt: Date.now() + INSIGHT_FEED_TTL_MS });
+    if (insightFeedCache.size > 500) insightFeedCache.clear();
+    return value;
   }
+
+  /**
+   * Siapa yang boleh membaca listing Hub lewat API: company penerima salinan
+   * Hub (INSIGHT_WEBHOOK_COMPANY) dan company yang alat Hub-nya dinyalakan
+   * dari konsol platform. Datanya publik, tapi fiturnya milik Agnive — dulu
+   * agent di company pelanggan mana pun bisa memakainya lewat Agnee.
+   */
+  async function hubListingsAllowed(companyId) {
+    if (!companyId || !database.status().connected) return false;
+    if (config.insightWebhookCompany) {
+      const insightCompanyId = await database.resolveCompanyId(config.insightWebhookCompany).catch(() => null);
+      if (insightCompanyId && insightCompanyId === companyId) return true;
+    }
+    const companyConfig = await database.getCompanyConfig(companyId).catch(() => null);
+    return Boolean(companyConfig?.hubToolsEnabled);
+  }
+  const HUB_SLUG_PATTERN = '^[a-z0-9][a-z0-9-]{0,119}$';
 
   const hubUrl = (slug) => `https://hub.insight.agnive.co/listing/${encodeURIComponent(slug)}`;
   const listingSummary = (l) => ({
@@ -5202,15 +5260,21 @@ Aturan:
       limit: { type: 'integer', minimum: 1, maximum: 30, default: 10 },
     } } },
   }, async (request, reply) => {
+    if (!(await hubListingsAllowed(request.agneeSession?.companyId))) return reply.code(403).send({ error: 'Agnive Hub tidak aktif untuk perusahaan ini.' });
     const found = await searchHubListings(request.query);
     if (found.error) return reply.code(503).send({ error: found.error });
     return found;
   });
 
-  app.get('/v1/hub/listings/:slug', async (request, reply) => {
+  app.get('/v1/hub/listings/:slug', {
+    // Slug divalidasi sebelum menyentuh URL: `%2E%2E` lolos encodeURIComponent
+    // dan dibaca sebagai `..` oleh pengurai URL.
+    schema: { params: { type: 'object', required: ['slug'], properties: { slug: { type: 'string', pattern: HUB_SLUG_PATTERN } } } },
+  }, async (request, reply) => {
+    if (!(await hubListingsAllowed(request.agneeSession?.companyId))) return reply.code(403).send({ error: 'Agnive Hub tidak aktif untuk perusahaan ini.' });
     const feed = await insightFeed(`/listings/${encodeURIComponent(request.params.slug)}`);
     if (feed.status === 'missing') return reply.code(404).send({ error: 'Listing tidak ditemukan di Agnive Hub.' });
-    if (feed.status !== 'ok') return reply.code(503).send({ error: 'Agnive Hub sedang tidak bisa dibaca.' });
+    if (feed.status !== 'ok' || !feed.body?.listing) return reply.code(503).send({ error: 'Agnive Hub sedang tidak bisa dibaca.' });
     return { listing: listingDetail(feed.body.listing) };
   });
 
@@ -5331,44 +5395,16 @@ Aturan:
     }
   });
 
-  app.post('/v1/integrations/mayar/sync', async (request, reply) => {
-    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengatur integrasi.' });
-    if (!canCall('getMayarConnection')) return reply.code(503).send({ error: 'Database tidak tersedia.' });
-    const companyId = request.agneeSession.companyId;
-    const conn = await database.getMayarConnection(companyId);
-    if (!conn) return reply.code(409).send({ error: 'Hubungkan Mayar dulu.' });
-    try {
+  registerIntegrationLifecycle({
+    base: '/v1/integrations/mayar', integration: 'mayar',
+    gateMessage: 'Hanya supervisor yang dapat mengatur integrasi.',
+    notConnected: 'Hubungkan Mayar dulu.', missingForToggle: 'Belum ada Mayar yang terhubung.',
+    get: 'getMayarConnection', record: 'recordMayarSync',
+    setEnabled: 'setMayarEnabled', remove: 'deleteMayarConnection',
+    sync: async (companyId, conn) => {
       const { count } = await syncMayarFor(companyId, conn.apiKey);
-      return { ok: true, leadCount: count };
-    } catch (error) {
-      await database.recordMayarSync(companyId, { error: error.message }).catch(() => {});
-      return reply.code(502).send({ error: publicErrorMessage(error) });
-    }
-  });
-
-  app.patch('/v1/integrations/mayar', {
-    schema: {
-      body: {
-        type: 'object', required: ['enabled'], additionalProperties: false,
-        properties: { enabled: { type: 'boolean' } },
-      },
+      return { leadCount: count };
     },
-  }, async (request, reply) => {
-    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengatur integrasi.' });
-    if (!canCall('setMayarEnabled')) return reply.code(503).send({ error: 'Database tidak tersedia.' });
-    const updated = await database.setMayarEnabled(request.agneeSession.companyId, request.body.enabled);
-    if (!updated) return reply.code(404).send({ error: 'Belum ada Mayar yang terhubung.' });
-    return { ok: true, enabled: updated.enabled };
-  });
-
-  app.delete('/v1/integrations/mayar', async (request, reply) => {
-    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengatur integrasi.' });
-    if (!canCall('deleteMayarConnection')) return reply.code(503).send({ error: 'Database tidak tersedia.' });
-    await database.deleteMayarConnection(request.agneeSession.companyId);
-    await catatAudit(request, 'integration.disconnected', {
-      entityType: 'integration', entityId: 'mayar', metadata: { integration: 'mayar' },
-    });
-    return { ok: true };
   });
 
   // ── Nomor WhatsApp Web milik satu company (rotator) ───────────────────────

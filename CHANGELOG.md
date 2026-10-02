@@ -2,6 +2,13 @@
 
 ### Added
 
+- **Daftar periksa onboarding untuk supervisor baru** (`OnboardingDialog`).
+  Wizard lama hilang saat pindah ke React, dan `POST /v1/auth/onboarded` sejak
+  itu tidak dipanggil siapa pun. Setiap langkah (sambungkan WhatsApp, isi
+  playbook, atur pembayaran, tambah tim) dicentang dari keadaan sebenarnya;
+  "Selesai" disimpan per akun di server. Migrasi `041` menandai semua akun lama
+  sudah onboarded, jadi hanya pendaftar baru yang melihatnya.
+
 - **Identitas akun Mayar di layar Settings.** Section "Tarik lead dari
   Mayar" sebelumnya cuma menampilkan label generik "Mayar" begitu
   terhubung — tidak ada cara tahu akun/bisnis Mayar MANA yang tersambung,
@@ -56,11 +63,29 @@
     `visibleToSession`) untuk inbox, Lead List, pipeline, dan gerbang chat —
     dulu ditulis ulang di setiap rute. Satu renderer Markdown sebaris
     (`InlineText`) dan satu fungsi inisial avatar untuk seluruh app.
+  - **Satu helper untuk siklus hidup integrasi** (`registerIntegrationLifecycle`):
+    sinkron, jeda, dan putus untuk OneDrive, Google Sheets, dan Mayar — dulu
+    sembilan handler yang hanya berbeda nama fungsi dan pesannya.
   - Rute mati dihapus: `PATCH /v1/tasks/:chatId/status` (pengganti lamanya
     sudah dipakai semua klien) dan `GET /v1/coach/runs` (tidak ada pemanggil).
     Komponen `ui/card.tsx` yang tidak dipakai ikut dihapus.
 
 ### Fixed
+
+- **Migrasi berlomba saat beberapa proses menyala bersamaan.** Proses kedua
+  gagal di `INSERT schema_migrations` dan `connect()` melempar — itu sumber
+  kegagalan "acak" test DB setiap kali ada migrasi baru, dan bisa mematikan
+  container saat dua deploy bertumpuk. Migrasi sekarang di bawah advisory lock.
+- **Agnive Hub diperketat.** Listing hanya untuk company penerima Hub atau yang
+  alat Hub-nya dinyalakan; slug divalidasi (`%2E%2E` tidak lagi sampai ke
+  Insight); feed Insight dibaca dengan plafon 5 MB, JSON rusak tidak lagi jadi
+  500, dan hasilnya di-cache 60 detik. `hub_list_threads` menyaring di database
+  (dulu 100 terbaru lalu disaring, sehingga thread lama hilang);
+  `hub_read_thread` tidak lagi mengirim email pendana; `hub_draft_reply`
+  memakai kuota AI jadi hanya ditawarkan ke koneksi berizin tulis.
+- **Panggilan model AI tanpa batas waktu.** Sekarang 60 detik per model.
+- **Nginx `agnee.agnive.co` memakai batas body bawaan 1 MB** sementara webhook
+  Insight menerima 2 MB. Sekarang 4 MB.
 
 - **Lead Mayar tidak tergabung ke chat `@lid`, jadi customer yang sama tampil
   dua kali di Lead List.** Penggabungan memakai digit id samaran `@lid`, bukan

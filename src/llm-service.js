@@ -25,6 +25,9 @@ class LlmService {
 
     const response = await fetch(`${this.baseUrl}/chat/completions`, {
       method: 'POST',
+      // Tanpa batas waktu, satu model yang menggantung menahan permintaan
+      // selamanya — MCP sudah menyerah di 15 detik sementara kuota terpakai.
+      signal: AbortSignal.timeout(60_000),
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${this.apiKey}`,
@@ -91,6 +94,7 @@ class LlmService {
     for (let round = 0; round <= rounds; round += 1) {
       const response = await fetch(`${this.baseUrl}/chat/completions`, {
         method: 'POST',
+        signal: AbortSignal.timeout(60_000),
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${this.apiKey}`,

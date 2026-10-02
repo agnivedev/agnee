@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { NAV_ENTRIES } from '@/components/nav-entries';
 import { quotaPercent, quotaTone } from '@/lib/plan';
+import { OnboardingDialog } from '@/features/onboarding/OnboardingDialog';
 import { ChatList } from './ChatList';
 import { ConnectionDialog } from './ConnectionDialog';
 import { ContextPanel } from './ContextPanel';
@@ -419,6 +420,7 @@ export function InboxPage() {
       </div>
 
       <UtilityDialog state={utility} onClose={() => setUtility(null)} />
+      <OnboardingDialog whatsappReady={inbox.whatsapp?.phase === 'ready' || inbox.whatsapp?.phase === 'demo'} />
       <MediaViewer target={media} onClose={() => setMedia(null)} />
       <ConnectionDialog
         open={connectionOpen}

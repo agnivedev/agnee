@@ -78,11 +78,8 @@ services:
         GIT_SHA: ${GIT_SHA:-unknown}
     restart: unless-stopped
     command: ["node", "src/mcp-http.mjs"]
-    # From inside this machine the public address bounces to the outer host
-    # (certificate for radmond.com); host-gateway reaches the local nginx,
-    # which serves app.insight.agnive.co itself. Used for the Hub feed (9c).
-    extra_hosts:
-      - "app.insight.agnive.co:host-gateway"
+    # Tidak butuh extra_hosts untuk Insight: alat Hub di MCP memanggil feed
+    # lewat `app`, bukan langsung.
     env_file: .env
     environment:
       MCP_API_BASE_URL: http://app:4100

@@ -146,3 +146,51 @@ test('kunci layanan tetap tertutup untuk rute lain', async (t) => {
   const res = await app.inject({ method: 'GET', url: '/v1/admin/ai-settings', headers: as(owner) });
   assert.equal(res.statusCode, 403);
 });
+
+test('@AI di catatan percakapan Hub: percakapan jadi sumber kebenaran, di ujung prompt', async (t) => {
+  // Found by trying it: with the transcript in the middle of the prompt and a
+  // saved AI draft among the notes below it, the model reported the draft as
+  // the team's reply. The transcript now comes last and says drafts were
+  // never sent.
+  const prompts = [];
+  const notes = [{ id: 1, authorKind: 'human', authorName: 'Rani', body: 'Usulan balasan (AI) untuk tim: Dana dipakai untuk mesin.' }];
+  const llmService = {
+    enabled: true, model: 'test/m',
+    async generateReply(message, context) { prompts.push(context.systemPrompt); return { text: 'Tim belum menjawab.', model: 'test/m', usage: {} }; },
+  };
+  const database = {
+    enabled: true, connected: true,
+    async connect() {}, async close() {},
+    status() { return { driver: 'postgresql', connected: true }; },
+    async resolveCompanyId() { return 'company-agnive'; },
+    async authenticateUser(email, password) { return password === 'pass-12345' ? owner : null; },
+    async getActiveSessionUser(id) { return id === owner.id ? owner : null; },
+    async setPresence() {},
+    async getAiSettings() { return { enabled: true, modelChain: [] }; },
+    async getCompanyConfig() { return { planStatus: 'active', hubToolsEnabled: false }; },
+    async incrementAiMessageCount() { return { exceeded: false }; },
+    async getExternalThread(_c, id) { return id === THREAD.id ? THREAD : null; },
+    async listConversationNotes() { return notes; },
+    async listMentionableUsers() { return [owner]; },
+    async addConversationNote(chatId, authorUserId, body) { const note = { id: notes.length + 1, chatId, body, authorKind: authorUserId ? 'human' : 'ai' }; notes.unshift(note); return note; },
+    async createMentionNotifications() { return []; },
+  };
+  const app = await buildApp({ logger: false, startupEnabled: false, demoMode: true, database, llmService, sessionSecret: 'hub-note-ai' });
+  t.after(() => app.close());
+  const login = await app.inject({ method: 'POST', url: '/v1/auth/login', payload: { email: owner.email, password: 'pass-12345' } });
+  const cookie = login.headers['set-cookie'].split(';')[0];
+  const res = await app.inject({
+    method: 'POST', url: '/v1/chats/hub:thread-1/notes', headers: { cookie },
+    payload: { body: '@AI apa yang belum dijawab tim?', mentions: [{ kind: 'ai' }] },
+  });
+  assert.equal(res.statusCode, 201);
+  for (let i = 0; i < 50 && !prompts.length; i += 1) await new Promise((r) => setTimeout(r, 20));
+  const prompt = prompts[0];
+  assert.ok(prompt, 'the AI was asked');
+  const notesAt = prompt.indexOf('CATATAN SEBELUMNYA');
+  const hubAt = prompt.indexOf('PERCAKAPAN AGNIVE HUB INI');
+  assert.ok(hubAt > notesAt, 'the conversation comes after the notes');
+  assert.match(prompt, /\[Pendana\] Kami tertarik/);
+  assert.match(prompt, /BELUM PERNAH dikirim/);
+  assert.match(prompt, /tim BELUM membalas pesan terakhir pendana/);
+});

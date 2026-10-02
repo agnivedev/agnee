@@ -2474,7 +2474,7 @@ class Database {
         WHERE external_threads.anonymized_at IS NULL
           AND (EXCLUDED.anonymized_at IS NOT NULL
                OR EXCLUDED.last_message_at >= external_threads.last_message_at)
-        RETURNING id
+        RETURNING id, (xmax = 0) AS created
       `, [
         companyId, source, thread.externalId, thread.status,
         thread.contact.name, thread.contact.email, thread.contact.organization,
@@ -2488,7 +2488,8 @@ class Database {
           [companyId, source, thread.externalId],
         );
         await client.query('COMMIT');
-        return existing.rows[0]?.id || null;
+        // Nothing changed, so nothing for the bell either.
+        return { id: existing.rows[0]?.id || null, created: false, newContactMessages: 0 };
       }
       const threadId = saved.rows[0].id;
       // Setiap kiriman membawa keadaan LENGKAP thread-nya: pesan yang tidak ikut
@@ -2498,22 +2499,74 @@ class Database {
         'DELETE FROM external_messages WHERE thread_id = $1 AND NOT (external_id = ANY($2::text[]))',
         [threadId, thread.messages.map((message) => message.externalId)],
       );
+      let newContactMessages = 0;
       for (const message of thread.messages) {
-        await client.query(`
+        const written = await client.query(`
           INSERT INTO external_messages (thread_id, external_id, author, author_name, body, occurred_at)
           VALUES ($1, $2, $3, $4, $5, $6)
           ON CONFLICT (thread_id, external_id) DO UPDATE SET
             author_name = EXCLUDED.author_name, body = EXCLUDED.body
+          RETURNING (xmax = 0) AS inserted
         `, [threadId, message.externalId, message.author, message.authorName, message.body, message.occurredAt]);
+        if (written.rows[0]?.inserted && message.author === 'contact') newContactMessages += 1;
       }
+      await client.query(
+        `INSERT INTO external_sources (company_id, source, last_received_at) VALUES ($1, $2, NOW())
+         ON CONFLICT (company_id, source) DO UPDATE SET last_received_at = NOW()`,
+        [companyId, source],
+      );
       await client.query('COMMIT');
-      return threadId;
+      // What the bell needs to know: a new conversation, or new words from the
+      // other side. Team replies and re-deliveries ring nothing.
+      return { id: threadId, created: saved.rows[0].created === true, newContactMessages };
     } catch (error) {
       await client.query('ROLLBACK');
       throw error;
     } finally {
       client.release();
     }
+  }
+
+  /** Outside sources this company knows, with their switch and activity. */
+  async listExternalSources(companyId) {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(`
+      SELECT s.source, s.enabled, s.last_received_at AS "lastReceivedAt",
+             (SELECT COUNT(*)::int FROM external_threads t WHERE t.company_id = s.company_id AND t.source = s.source) AS "threadCount"
+      FROM external_sources s WHERE s.company_id = $1 ORDER BY s.source
+    `, [companyId]);
+    return result.rows;
+  }
+
+  async isExternalSourceEnabled(companyId, source) {
+    if (!this.enabled) return true;
+    const result = await this.pool.query(
+      'SELECT enabled FROM external_sources WHERE company_id = $1 AND source = $2',
+      [companyId, source],
+    );
+    return result.rows[0]?.enabled !== false;
+  }
+
+  async setExternalSourceEnabled(companyId, source, enabled) {
+    if (!this.enabled) return null;
+    await this.pool.query(`
+      INSERT INTO external_sources (company_id, source, enabled, updated_at) VALUES ($1, $2, $3, NOW())
+      ON CONFLICT (company_id, source) DO UPDATE SET enabled = EXCLUDED.enabled, updated_at = NOW()
+    `, [companyId, source, enabled]);
+    return enabled;
+  }
+
+  /** The bell for every active supervisor of the company. Returns who rang. */
+  async createHubNotifications({ chatId, body }, companyId) {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(`
+      INSERT INTO notifications (company_id, user_id, kind, chat_id, actor_kind, body)
+      SELECT $1, m.user_id, 'hub', $2, 'system', $3
+      FROM company_members m
+      WHERE m.company_id = $1 AND m.status = 'active' AND m.role IN ('owner', 'admin', 'supervisor')
+      RETURNING user_id AS "userId"
+    `, [companyId, chatId, String(body || '').slice(0, 500)]);
+    return result.rows.map((row) => row.userId);
   }
 
   async listExternalThreads(companyId, { source, limit = 30, offset = 0 } = {}) {

@@ -10,6 +10,7 @@ import { AiSettingsSection } from './AiSettingsSection';
 import { AuditSection } from './AuditSection';
 import { ExportSection } from './ExportSection';
 import { MayarSection } from './MayarSection';
+import { SourcesSection } from './SourcesSection';
 import { WhatsappNumbersSection, CloudApiSection } from './WhatsappSections';
 import { AccountSection, TeamSection } from './TeamSection';
 
@@ -170,6 +171,7 @@ export function SettingsPage() {
             <>
               <ExportSection />
               <MayarSection />
+              <SourcesSection />
             </>
           ) : null}
           {activeTab === 'tim' ? (

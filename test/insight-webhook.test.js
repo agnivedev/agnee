@@ -43,8 +43,10 @@ function signed(body, { secret = SECRET, timestamp = Date.now() } = {}) {
   return { payload: raw, headers: { 'content-type': 'application/json', 'x-agnive-timestamp': String(timestamp), 'x-agnive-signature': signature } };
 }
 
-async function app(t, { secret = SECRET, company = 'agnive' } = {}) {
+async function app(t, { secret = SECRET, company = 'agnive', sourceEnabled = true, outcome = { created: true, newContactMessages: 1 } } = {}) {
   const synced = [];
+  const bells = [];
+  const switches = [];
   const database = {
     connected: true,
     async connect() {}, async close() {},
@@ -53,7 +55,13 @@ async function app(t, { secret = SECRET, company = 'agnive' } = {}) {
     async authenticateUser(email, password) { return password !== 'pass-12345' ? null : [owner, agent].find((u) => u.email === email) || null; },
     async getActiveSessionUser(userId) { return [owner, agent].find((u) => u.id === userId) || null; },
     async setPresence() {},
-    async syncExternalThread(companyId, source, thread) { synced.push({ companyId, source, thread }); return 'thread-uuid-1'; },
+    async syncExternalThread(companyId, source, thread) { synced.push({ companyId, source, thread }); return { id: 'thread-uuid-1', ...outcome }; },
+    async isExternalSourceEnabled() { return sourceEnabled; },
+    async createHubNotifications(input, companyId) { bells.push({ ...input, companyId }); return ['owner-1']; },
+    async listExternalSources() { return [{ source: 'hub', enabled: sourceEnabled, lastReceivedAt: '2026-10-03T00:00:00Z', threadCount: 2 }]; },
+    async setExternalSourceEnabled(companyId, source, enabled) { switches.push({ companyId, source, enabled }); return enabled; },
+    async recordAuditLog() { return { id: 1 }; },
+    async listConversationNotes() { return []; },
     async listExternalThreads() { return [{ id: 'thread-uuid-1', source: 'hub' }]; },
     async getExternalThread(_c, id) { return id === 'thread-uuid-1' ? { id, messages: [] } : null; },
   };
@@ -63,7 +71,7 @@ async function app(t, { secret = SECRET, company = 'agnive' } = {}) {
   delete process.env.INSIGHT_WEBHOOK_SECRET;
   delete process.env.INSIGHT_WEBHOOK_COMPANY;
   t.after(() => instance.close());
-  return { server: instance, synced };
+  return { server: instance, synced, bells, switches };
 }
 
 test('kiriman bertanda tangan benar tersimpan sebagai satu thread', async (t) => {
@@ -142,14 +150,20 @@ test('syncExternalThread: menimpa, tidak menggandakan, dan anonimisasi ikut', { 
   const base = payload({ externalId }).thread;
   const parsed = (thread) => ({ ...thread, contact: { ...thread.contact } });
 
-  const id = await db.syncExternalThread(companyId, 'hub', parsed(base));
+  const first = await db.syncExternalThread(companyId, 'hub', parsed(base));
+  const id = first.id;
+  assert.equal(first.created, true);
+  assert.equal(first.newContactMessages, 1, 'the opening message is the funder\'s');
   const again = await db.syncExternalThread(companyId, 'hub', parsed(base));
-  assert.equal(again, id, 'same thread, not a second one');
+  assert.equal(again.id, id, 'same thread, not a second one');
+  assert.equal(again.created, false);
+  assert.equal(again.newContactMessages, 0, 'a re-delivery is not news');
   let thread = await db.getExternalThread(companyId, id);
   assert.equal(thread.messages.length, 2);
 
   const third = { externalId: 'msg-2', author: 'contact', authorName: 'Rina', body: 'Rabu cocok.', occurredAt: '2026-10-02T08:30:00.000Z' };
-  await db.syncExternalThread(companyId, 'hub', parsed({ ...base, status: 'closed', lastMessageAt: third.occurredAt, messages: [...base.messages, third] }));
+  const reply = await db.syncExternalThread(companyId, 'hub', parsed({ ...base, status: 'closed', lastMessageAt: third.occurredAt, messages: [...base.messages, third] }));
+  assert.equal(reply.newContactMessages, 1);
   thread = await db.getExternalThread(companyId, id);
   assert.equal(thread.status, 'closed');
   assert.equal(thread.messages.length, 3);
@@ -171,11 +185,26 @@ test('syncExternalThread: menimpa, tidak menggandakan, dan anonimisasi ikut', { 
   // Kiriman lama berisi data pribadi datang terlambat (diulang, atau diputar
   // ulang dalam jendela 5 menit): anonimisasi tidak boleh terbalik.
   const replay = await db.syncExternalThread(companyId, 'hub', parsed({ ...base, status: 'closed', lastMessageAt: third.occurredAt, messages: [...base.messages, third] }));
-  assert.equal(replay, id);
+  assert.equal(replay.id, id);
+  assert.equal(replay.created, false);
+  assert.equal(replay.newContactMessages, 0, 'a refused re-delivery rings nothing');
   thread = await db.getExternalThread(companyId, id);
   assert.ok(thread.anonymizedAt, 'tetap anonim');
   assert.equal(thread.contactEmail, '');
   assert.deepEqual(thread.messages.filter((m) => m.author === 'contact').map((m) => m.body), ['', '']);
+
+  // The source switch, and the bell for supervisors only.
+  assert.equal(await db.isExternalSourceEnabled(companyId, 'hub'), true);
+  await db.setExternalSourceEnabled(companyId, 'hub', false);
+  assert.equal(await db.isExternalSourceEnabled(companyId, 'hub'), false);
+  const sources = await db.listExternalSources(companyId);
+  assert.ok(sources.some((x) => x.source === 'hub' && x.enabled === false && x.lastReceivedAt));
+  await db.setExternalSourceEnabled(companyId, 'hub', true);
+  const rung = await db.createHubNotifications({ chatId: `hub:${id}`, body: 'uji' }, companyId);
+  t.after(() => db.pool.query('DELETE FROM notifications WHERE chat_id = $1', [`hub:${id}`]).catch(() => {}));
+  const roles = await db.pool.query(
+    'SELECT DISTINCT m.role FROM company_members m WHERE m.company_id = $1 AND m.user_id = ANY($2::uuid[])', [companyId, rung]);
+  assert.ok(roles.rows.every((r) => ['owner', 'admin', 'supervisor'].includes(r.role)));
 });
 
 test('syncExternalThread: kiriman yang lebih lama tidak menimpa, pesan yang hilang di sumber ikut hilang', { skip: !process.env.DATABASE_URL && 'DATABASE_URL tidak diset' }, async (t) => {
@@ -191,7 +220,7 @@ test('syncExternalThread: kiriman yang lebih lama tidak menimpa, pesan yang hila
   const parsed = (thread) => ({ ...thread, contact: { ...thread.contact } });
   const third = { externalId: 'msg-2', author: 'contact', authorName: 'Rina', body: 'Rabu cocok.', occurredAt: '2026-10-02T08:30:00.000Z' };
 
-  const id = await db.syncExternalThread(companyId, 'hub', parsed({ ...base, status: 'closed', lastMessageAt: third.occurredAt, messages: [...base.messages, third] }));
+  const { id } = await db.syncExternalThread(companyId, 'hub', parsed({ ...base, status: 'closed', lastMessageAt: third.occurredAt, messages: [...base.messages, third] }));
   await db.syncExternalThread(companyId, 'hub', parsed(base)); // lebih lama
   let thread = await db.getExternalThread(companyId, id);
   assert.equal(thread.status, 'closed');
@@ -200,4 +229,60 @@ test('syncExternalThread: kiriman yang lebih lama tidak menimpa, pesan yang hila
   await db.syncExternalThread(companyId, 'hub', parsed({ ...base, lastMessageAt: third.occurredAt, messages: [base.messages[0]] }));
   thread = await db.getExternalThread(companyId, id);
   assert.equal(thread.messages.length, 1);
+});
+
+test('percakapan baru membunyikan lonceng supervisor, dengan tautan hub:', async (t) => {
+  const { server, bells } = await app(t);
+  await server.inject({ method: 'POST', url: '/webhook/insight', ...signed(payload()) });
+  assert.equal(bells.length, 1);
+  assert.equal(bells[0].chatId, 'hub:thread-uuid-1');
+  assert.match(bells[0].body, /Percakapan baru di Agnive Hub: Rina — Pinara/);
+});
+
+test('balasan tim atau kiriman ulang tidak membunyikan lonceng', async (t) => {
+  const { server, bells } = await app(t, { outcome: { created: false, newContactMessages: 0 } });
+  await server.inject({ method: 'POST', url: '/webhook/insight', ...signed(payload()) });
+  assert.equal(bells.length, 0);
+});
+
+test('balasan baru dari pendana membunyikan lonceng', async (t) => {
+  const { server, bells } = await app(t, { outcome: { created: false, newContactMessages: 1 } });
+  await server.inject({ method: 'POST', url: '/webhook/insight', ...signed(payload()) });
+  assert.match(bells[0].body, /Rina membalas di Agnive Hub/);
+});
+
+test('sumber dimatikan: pesan tetap disimpan, lonceng diam', async (t) => {
+  const { server, synced, bells } = await app(t, { sourceEnabled: false });
+  const res = await server.inject({ method: 'POST', url: '/webhook/insight', ...signed(payload()) });
+  assert.equal(res.statusCode, 200);
+  assert.equal(synced.length, 1);
+  assert.equal(bells.length, 0);
+});
+
+const loginAs = async (server, user) =>
+  (await server.inject({ method: 'POST', url: '/v1/auth/login', payload: { email: user.email, password: 'pass-12345' } })).headers['set-cookie'].split(';')[0];
+
+test('saklar sumber: hanya supervisor, dan nama sumber yang tidak dikenal ditolak', async (t) => {
+  const { server, switches } = await app(t);
+  const agentCookie = await loginAs(server, agent);
+  assert.equal((await server.inject({ method: 'GET', url: '/v1/integrations/sources', headers: { cookie: agentCookie } })).statusCode, 403);
+  assert.equal((await server.inject({ method: 'PATCH', url: '/v1/integrations/sources/hub', headers: { cookie: agentCookie }, payload: { enabled: false } })).statusCode, 403);
+  const cookie = await loginAs(server, owner);
+  const list = await server.inject({ method: 'GET', url: '/v1/integrations/sources', headers: { cookie } });
+  assert.deepEqual(list.json().sources.map((x) => [x.source, x.name, x.threadCount]), [['hub', 'Agnive Hub', 2]]);
+  const off = await server.inject({ method: 'PATCH', url: '/v1/integrations/sources/hub', headers: { cookie }, payload: { enabled: false } });
+  assert.equal(off.statusCode, 200);
+  assert.deepEqual(switches, [{ companyId: 'company-agnive', source: 'hub', enabled: false }]);
+  const unknown = await server.inject({ method: 'PATCH', url: '/v1/integrations/sources/shopee', headers: { cookie }, payload: { enabled: true } });
+  assert.equal(unknown.statusCode, 400);
+});
+
+test('catatan di percakapan hub: hanya supervisor yang bisa membaca atau menulis', async (t) => {
+  const { server } = await app(t);
+  const agentCookie = await loginAs(server, agent);
+  const url = '/v1/chats/hub:thread-uuid-1/notes';
+  assert.equal((await server.inject({ method: 'GET', url, headers: { cookie: agentCookie } })).statusCode, 403);
+  assert.equal((await server.inject({ method: 'POST', url, headers: { cookie: agentCookie }, payload: { body: 'halo' } })).statusCode, 403);
+  const cookie = await loginAs(server, owner);
+  assert.equal((await server.inject({ method: 'GET', url, headers: { cookie } })).statusCode, 200);
 });

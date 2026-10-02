@@ -5,6 +5,7 @@ import {
   Kanban,
   FlaskConical,
   Settings2,
+  Handshake,
   LogOut,
   type LucideIcon,
 } from 'lucide-react';
@@ -22,7 +23,7 @@ import {
  * sebagai jalan kedua ke hal yang sama.
  */
 export type NavEntryId =
-  | 'inbox' | 'leads' | 'tasks' | 'pipeline' | 'playground' | 'settings' | 'logout';
+  | 'inbox' | 'leads' | 'tasks' | 'pipeline' | 'hub' | 'playground' | 'settings' | 'logout';
 
 type NavEntryBase = {
   id: NavEntryId;
@@ -40,6 +41,9 @@ export const NAV_ENTRIES: NavEntry[] = [
   { id: 'leads', icon: ListChecks, labelKey: 'nav.labelLeads', ariaKey: 'nav.leads', kind: 'route', to: '/leads' },
   { id: 'tasks', icon: ClipboardList, labelKey: 'nav.labelTasks', ariaKey: 'nav.tasks', kind: 'route', to: '/tasks' },
   { id: 'pipeline', icon: Kanban, labelKey: 'nav.labelPipeline', ariaKey: 'nav.pipeline', kind: 'route', to: '/pipeline' },
+  // Funder ↔ research-team conversations from Agnive Hub: a funder's personal
+  // data, so supervisors only — the server enforces the same.
+  { id: 'hub', icon: Handshake, labelKey: 'nav.labelHub', ariaKey: 'nav.hub', kind: 'route', to: '/hub', supervisorOnly: true },
   { id: 'playground', icon: FlaskConical, labelKey: 'nav.labelTraining', ariaKey: 'nav.playground', kind: 'route', to: '/knowledge', supervisorOnly: true },
   // Open to every role: the server serves /settings to agents too, and the
   // page gives them their own account plus the team roster.

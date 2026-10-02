@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
+import { notificationHref, notificationVerbKey, type NotificationKind } from '@/lib/notification-link';
 import { Bell } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '@/lib/api';
@@ -8,7 +9,7 @@ import { cn } from '@/lib/utils';
 
 type Notification = {
   id: number;
-  kind: 'mention' | 'reply' | 'task' | 'sla';
+  kind: NotificationKind;
   chatId: string | null;
   chatName: string | null;
   actorName: string | null;
@@ -108,10 +109,7 @@ export function NotificationBell({ className }: { className?: string }) {
     void api('/v1/notifications/read', { method: 'POST', body: { ids: [item.id] } })
       .catch(() => {})
       .then(load);
-    if (item.chatId) {
-      const title = item.chatName || item.chatId.replace(/@.*$/, '');
-      navigate(`/?chat=${encodeURIComponent(item.chatId)}&title=${encodeURIComponent(title)}`);
-    }
+    if (item.chatId) navigate(notificationHref(item.chatId, item.chatName));
   }
 
   return (
@@ -171,10 +169,8 @@ export function NotificationBell({ className }: { className?: string }) {
                     )}
                   >
                     <span className="text-[11px]">
-                      <strong>{item.actorName || t('routing.system')}</strong>{' '}
-                      {t(item.kind === 'task' ? 'notif.assigned'
-                        : item.kind === 'sla' ? 'notif.overdue'
-                        : item.kind === 'reply' ? 'notif.replied' : 'notif.mentioned')}
+                      <strong>{item.kind === 'hub' ? 'Agnive Hub' : item.actorName || t('routing.system')}</strong>{' '}
+                      {t(notificationVerbKey(item.kind))}
                       {item.chatName ? ` · ${item.chatName}` : ''}
                     </span>
                     {item.body ? (

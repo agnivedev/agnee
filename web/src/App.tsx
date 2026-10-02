@@ -16,6 +16,7 @@ const NotificationsPage = lazy(() => import('@/features/notifications/Notificati
 const PipelinePage = lazy(() => import('@/features/pipeline/PipelinePage').then((m) => ({ default: m.PipelinePage })));
 const SettingsPage = lazy(() => import('@/features/settings/SettingsPage').then((m) => ({ default: m.SettingsPage })));
 const KnowledgePage = lazy(() => import('@/features/knowledge/KnowledgePage').then((m) => ({ default: m.KnowledgePage })));
+const HubPage = lazy(() => import('@/features/hub/HubPage').then((m) => ({ default: m.HubPage })));
 const SuperhumanPage = lazy(() => import('@/features/superhuman/SuperhumanPage').then((m) => ({ default: m.SuperhumanPage })));
 const LandingPage = lazy(() => import('@/features/landing/LandingPage').then((m) => ({ default: m.LandingPage })));
 const LegalPage = lazy(() => import('@/features/legal/LegalPage').then((m) => ({ default: m.LegalPage })));
@@ -115,6 +116,7 @@ function Shell() {
         {/* Admin dibubarkan: setelan AI dan Audit pindah ke Settings, brief dan
             file ke Latih AI. Tautan lama tetap mendarat di tempat yang benar. */}
         <Route path="/admin" element={<Navigate to="/settings#ai" replace />} />
+        <Route path="/hub" element={<SupervisorOnly><HubPage /></SupervisorOnly>} />
         {/* Path yang tidak dikenal kembali ke inbox. */}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

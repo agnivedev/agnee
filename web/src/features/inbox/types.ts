@@ -45,6 +45,8 @@ export type Message = {
 
 export type WhatsappStatus = {
   phase: string;
+  /** Nomor yang dilaporkan status ini; null bila company belum punya nomor. */
+  connectionId?: string | null;
   account?: string | null;
   hasQr?: boolean;
   demoMode?: boolean;

@@ -83,6 +83,9 @@ class Database {
     const result = await this.pool.query(`
       SELECT id FROM companies
       WHERE id::text = $1 OR LOWER(slug) = LOWER($1)
+      -- Id menang atas slug: slug yang kebetulan berbentuk UUID company lain
+      -- tidak boleh membayangi company itu.
+      ORDER BY (id::text = $1) DESC
       LIMIT 1
     `, [value]);
     return result.rows[0]?.id || null;
@@ -290,6 +293,9 @@ class Database {
       JOIN company_members cm ON cm.user_id = u.id AND cm.company_id = $2
       JOIN companies c ON c.id = cm.company_id
       WHERE u.id = $1 AND u.status = 'active' AND cm.status = 'active'
+        -- Company yang ditutup/dibekukan dari konsol platform mengeluarkan
+        -- semua anggotanya pada permintaan berikutnya, bukan saat sesinya habis.
+        AND c.status = 'active'
     `, [userId, companyId]);
     return result.rows[0] || null;
   }
@@ -304,6 +310,7 @@ class Database {
       JOIN company_members cm ON cm.user_id = u.id
       JOIN companies c ON c.id = cm.company_id
       WHERE LOWER(u.email) = LOWER($1) AND u.status = 'active' AND cm.status = 'active'
+        AND c.status = 'active'
       ORDER BY cm.joined_at ASC
       LIMIT 1
     `, [email]);
@@ -363,15 +370,40 @@ class Database {
         }
       }
 
-      const userResult = await client.query(`
-        INSERT INTO users (email, display_name, password_hash, status)
-        VALUES (LOWER($1), $2, $3, 'active')
-        ON CONFLICT (LOWER(email)) DO UPDATE SET
-          display_name = EXCLUDED.display_name,
-          password_hash = EXCLUDED.password_hash,
-          status = 'active', updated_at = NOW()
-        RETURNING id, email, display_name AS "displayName"
-      `, [email, displayName, hashPassword(password)]);
+      // Baris `users` dipakai bersama oleh semua company. Dulu email yang sudah
+      // terdaftar di-upsert: password-nya ditimpa password dari supervisor yang
+      // menambahkan. Siapa pun yang mendaftar sendiri bisa mengetik email orang
+      // lain di sini, lalu login sebagai orang itu — di company miliknya, bahkan
+      // ke /superhuman kalau korbannya platform admin. Akun yang juga hidup di
+      // company lain (atau milik staf platform) tidak boleh disentuh dari sini.
+      // Yang hanya pernah jadi anggota company ini sendiri — agent yang dulu
+      // dinonaktifkan lalu diaktifkan lagi — memang milik company ini.
+      const existing = await client.query(`
+        SELECT u.id, u.is_platform_admin AS "isPlatformAdmin",
+               EXISTS (
+                 SELECT 1 FROM company_members other
+                 WHERE other.user_id = u.id AND other.company_id <> $2
+               ) AS "elsewhere"
+        FROM users u WHERE LOWER(u.email) = LOWER($1)
+        FOR UPDATE OF u
+      `, [email, companyId]);
+      const known = existing.rows[0];
+      if (known && (known.isPlatformAdmin || known.elsewhere)) {
+        const error = new Error('Email sudah dipakai akun lain.');
+        error.code = 'EMAIL_TAKEN';
+        throw error;
+      }
+      const userResult = known
+        ? await client.query(`
+            UPDATE users SET display_name = $2, password_hash = $3, status = 'active', updated_at = NOW()
+            WHERE id = $1
+            RETURNING id, email, display_name AS "displayName"
+          `, [known.id, displayName, hashPassword(password)])
+        : await client.query(`
+            INSERT INTO users (email, display_name, password_hash, status)
+            VALUES (LOWER($1), $2, $3, 'active')
+            RETURNING id, email, display_name AS "displayName"
+          `, [email, displayName, hashPassword(password)]);
       const user = userResult.rows[0];
       await client.query(`
         INSERT INTO company_members (company_id, user_id, role, status, joined_at)
@@ -823,7 +855,7 @@ class Database {
       WHERE id = $1 AND plan_status = 'trial' AND trial_ends_at < NOW()
     `, [companyId]);
     const result = await this.pool.query(`
-      SELECT plan, plan_status AS "planStatus", knowledge_client AS "knowledgeClient",
+      SELECT plan, plan_status AS "planStatus", status, knowledge_client AS "knowledgeClient",
              ai_message_limit AS "aiMessageLimit", ai_message_count AS "aiMessageCount",
              ai_count_reset_at AS "aiCountResetAt", max_users AS "maxUsers",
              max_playbooks AS "maxPlaybooks", max_whatsapp AS "maxWhatsapp", name, slug,
@@ -1690,7 +1722,7 @@ class Database {
       JOIN follow_up_settings f ON f.company_id = s.company_id AND f.enabled
       JOIN companies c ON c.id = s.company_id
       WHERE s.stopped_at IS NULL
-        AND COALESCE(c.plan_status, 'beta') <> 'suspended'
+        AND COALESCE(c.plan_status, 'beta') <> 'suspended' AND c.status = 'active'
         AND (s.last_sent_at IS NULL
              OR s.last_sent_at <= NOW() - (f.min_gap_minutes || ' minutes')::interval)
       ORDER BY s.last_sent_at NULLS FIRST
@@ -2045,11 +2077,25 @@ class Database {
 
   async updateTeamMember(userId, { displayName, email, password }, companyId) {
     if (!this.enabled) return null;
-    const owns = await this.pool.query(
-      `SELECT 1 FROM company_members WHERE company_id = $1 AND user_id = $2 AND role != 'owner'`,
-      [companyId, userId],
-    );
+    const owns = await this.pool.query(`
+      SELECT u.is_platform_admin AS "isPlatformAdmin",
+             EXISTS (
+               SELECT 1 FROM company_members other
+               WHERE other.user_id = cm.user_id AND other.company_id <> cm.company_id
+             ) AS "elsewhere"
+      FROM company_members cm JOIN users u ON u.id = cm.user_id
+      WHERE cm.company_id = $1 AND cm.user_id = $2 AND cm.role != 'owner'
+    `, [companyId, userId]);
     if (owns.rowCount === 0) return null;
+    // Nama, email, dan password ada di baris `users` yang dipakai bersama. Kalau
+    // akun ini juga anggota company lain, mengubahnya dari sini berarti satu
+    // supervisor mengganti login orang itu di company yang bukan miliknya.
+    const shared = owns.rows[0];
+    if (shared.isPlatformAdmin || shared.elsewhere) {
+      const error = new Error('Akun ini juga dipakai di company lain, jadi hanya pemiliknya yang bisa mengubahnya.');
+      error.code = 'SHARED_ACCOUNT';
+      throw error;
+    }
 
     const sets = [];
     const values = [];
@@ -2086,7 +2132,9 @@ class Database {
     try {
       await client.query('BEGIN');
       await client.query(`
-        UPDATE company_members SET status = 'inactive', updated_at = NOW()
+        -- 'suspended', bukan 'inactive': CHECK di 002 hanya mengenal
+        -- invited/active/suspended, jadi 'inactive' membatalkan seluruh transaksi.
+        UPDATE company_members SET status = 'suspended', updated_at = NOW()
         WHERE company_id = $1 AND user_id = $2 AND role != 'owner'
       `, [companyId, userId]);
       await client.query(`
@@ -2296,7 +2344,7 @@ class Database {
              o.last_row_count AS "lastRowCount"
       FROM onedrive_connections o
       JOIN companies c ON c.id = o.company_id
-      WHERE o.enabled AND COALESCE(c.plan_status, 'beta') <> 'suspended'
+      WHERE o.enabled AND COALESCE(c.plan_status, 'beta') <> 'suspended' AND c.status = 'active'
       ORDER BY COALESCE(o.last_synced_at, 'epoch'::timestamptz) ASC
     `, [this.credentialsEncryptionKey]);
     return result.rows;
@@ -2382,7 +2430,7 @@ class Database {
              pgp_sym_decrypt(m.api_key_enc, $1) AS "apiKey"
       FROM mayar_connections m
       JOIN companies c ON c.id = m.company_id
-      WHERE m.enabled AND COALESCE(c.plan_status, 'beta') <> 'suspended'
+      WHERE m.enabled AND COALESCE(c.plan_status, 'beta') <> 'suspended' AND c.status = 'active'
       ORDER BY COALESCE(m.last_synced_at, 'epoch'::timestamptz) ASC
     `, [this.credentialsEncryptionKey]);
     return result.rows;
@@ -2579,7 +2627,7 @@ class Database {
              g.last_row_count AS "lastRowCount"
       FROM gsheets_connections g
       JOIN companies c ON c.id = g.company_id
-      WHERE g.enabled AND COALESCE(c.plan_status, 'beta') <> 'suspended'
+      WHERE g.enabled AND COALESCE(c.plan_status, 'beta') <> 'suspended' AND c.status = 'active'
       ORDER BY COALESCE(g.last_synced_at, 'epoch'::timestamptz) ASC
     `, [this.credentialsEncryptionKey]);
     return result.rows;
@@ -2924,6 +2972,7 @@ class Database {
       ) i ON TRUE
       WHERE r.handling_mode = 'human'
         AND r.status <> 'closed'
+        AND c.status = 'active'
         AND r.assignee_user_id IS NOT NULL
         AND i.terakhir IS NOT NULL
         AND i.terakhir > NOW() - ($1 || ' days')::INTERVAL

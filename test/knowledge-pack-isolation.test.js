@@ -121,3 +121,20 @@ test('staf platform tetap boleh menguji pack mana pun', async (t) => {
   });
   assert.notEqual(dibolehkan.statusCode, 403);
 });
+
+test('pembacaan company gagal: pack jatuh ke Agnee netral, bukan KNOWLEDGE_CLIENT', async (t) => {
+  // Dulu .catch(() => null) lalu config.knowledgeClient (bawaan 'bzone'): satu
+  // error DB cukup untuk menyajikan FAQ dan harga customer lain.
+  const database = fakeDatabase();
+  database.getCompanyConfig = async () => { throw new Error('koneksi putus'); };
+  const app = await buildApp({
+    logger: false, startupEnabled: false, demoMode: true, database, sessionSecret: 'pack-4',
+    knowledgeClient: 'bzone',
+  });
+  t.after(() => app.close());
+
+  const cookieA = await signIn(app, OWNER_A);
+  const config = await app.inject({ method: 'GET', url: '/v1/admin/config', headers: { cookie: cookieA } });
+  assert.equal(config.statusCode, 200);
+  assert.deepEqual(config.json().knowledgeClients.map((c) => c.id), ['agnee']);
+});

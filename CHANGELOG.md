@@ -17,6 +17,48 @@
 
 ### Fixed
 
+- **[KEAMANAN] Akun siapa pun bisa diambil alih lewat "tambah anggota tim".**
+  Baris `users` dipakai bersama semua company, dan `createTeamMember`
+  meng-upsert email yang sudah terdaftar — termasuk menimpa password-nya.
+  Siapa pun bisa mendaftar sendiri (paket `company` menjadikannya supervisor),
+  menambah "anggota" dengan email orang lain, lalu login sebagai orang itu di
+  company miliknya — atau ke `/superhuman` kalau korbannya platform admin.
+  Sekarang email yang hidup di company lain atau milik staf platform ditolak
+  (409); hanya anggota yang memang milik company ini sendiri (mis. agent yang
+  dinonaktifkan lalu diaktifkan lagi) yang boleh di-reset. `PATCH
+  /v1/team/members/:id` juga menolak mengubah nama/email/password akun yang
+  dipakai di company lain, dan perubahan anggota sekarang tercatat di jejak
+  audit (`team.member_updated`, nama kolomnya saja). Data produksi sudah
+  diperiksa: tidak ada akun dengan keanggotaan di lebih dari satu company,
+  jadi celah ini belum pernah terpakai.
+- **Menonaktifkan anggota tim selalu gagal.** `deactivateTeamMember` menulis
+  status `'inactive'`, padahal CHECK di migrasi 002 hanya mengenal
+  `invited/active/suspended` — seluruh transaksi dibatalkan. Sekarang
+  `'suspended'`.
+- **Menutup/membekukan company dari konsol platform tidak berpengaruh apa pun.**
+  `companies.status` ditulis `/superhuman` tapi tidak dibaca siapa pun. Sekarang
+  login, sesi berjalan, gerbang AI, dan sweeper (follow-up, SLA, OneDrive,
+  Google Sheets, Mayar) melewati company yang statusnya bukan `active`.
+- **Knowledge pack bisa jatuh ke milik customer lain.** Dua resolver kembar
+  jatuh ke `KNOWLEDGE_CLIENT` (bawaan `'bzone'`) setiap kali pembacaan company
+  gagal. Disatukan jadi `knowledgeClientOf()`; dengan database, jatuhnya ke pack
+  netral `agnee`. `KNOWLEDGE_CLIENT` sekarang hanya untuk mode tanpa database.
+- **Insight webhook punya company bawaan `'agnive'`.** Melanggar aturan tanpa
+  tenant bawaan: di server lain, pendaftar pertama bernama "Agnive" menerima
+  data funder. `INSIGHT_WEBHOOK_COMPANY` sekarang wajib — kosong berarti pintu
+  tertutup (404). `resolveCompanyId` juga mendahulukan kecocokan id atas slug.
+- **Pesan penutup saat chat dikembalikan ke AI tidak terkirim untuk company
+  Cloud API.** Route routing memanggil WhatsApp Web langsung; sekarang lewat
+  `sendOutbound` seperti semua pengiriman lain.
+- **Tombol Tugas dan Pipeline di rail inbox tidak melakukan apa-apa** (juga di
+  bar bawah ponsel). Rail sekarang pindah ke rute mana pun dari daftar nav
+  bersama, bukan dari daftar `case` yang ditulis ulang.
+- **Dialog pairing nomor kedua menampilkan keadaan nomor utama — dan "Ganti
+  nomor" di sana memutus nomor utama.** `GET /v1/whatsapp/status` menerima
+  `?connectionId=` dan mengembalikan `connectionId`-nya; dialog memakai keadaan
+  nomornya sendiri, logout mengirim `connectionId`, dan event SSE dari nomor
+  lain tidak lagi menimpa status header inbox.
+
 - **Halaman login/signup tidak punya mata tampil/sembunyi di field password**
   (semua form lain yang punya secret — API key, client secret, dll — sudah
   punya ini). Ditambahkan `PasswordField` di `LoginView.tsx`, pola yang sama

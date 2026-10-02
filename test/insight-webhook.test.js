@@ -43,7 +43,7 @@ function signed(body, { secret = SECRET, timestamp = Date.now() } = {}) {
   return { payload: raw, headers: { 'content-type': 'application/json', 'x-agnive-timestamp': String(timestamp), 'x-agnive-signature': signature } };
 }
 
-async function app(t, { secret = SECRET } = {}) {
+async function app(t, { secret = SECRET, company = 'agnive' } = {}) {
   const synced = [];
   const database = {
     connected: true,
@@ -58,8 +58,10 @@ async function app(t, { secret = SECRET } = {}) {
     async getExternalThread(_c, id) { return id === 'thread-uuid-1' ? { id, messages: [] } : null; },
   };
   process.env.INSIGHT_WEBHOOK_SECRET = secret;
+  process.env.INSIGHT_WEBHOOK_COMPANY = company;
   const instance = await buildApp({ logger: false, startupEnabled: false, demoMode: true, database, sessionSecret: 'iw-session' });
   delete process.env.INSIGHT_WEBHOOK_SECRET;
+  delete process.env.INSIGHT_WEBHOOK_COMPANY;
   t.after(() => instance.close());
   return { server: instance, synced };
 }
@@ -105,6 +107,13 @@ test('pintu tertutup bila rahasia belum diatur', async (t) => {
   const { server } = await app(t, { secret: '' });
   const res = await server.inject({ method: 'POST', url: '/webhook/insight', ...signed(payload()) });
   assert.equal(res.statusCode, 404);
+});
+
+test('pintu tertutup bila company penerima tidak disebut — tidak ada company bawaan', async (t) => {
+  const { server, synced } = await app(t, { company: '' });
+  const res = await server.inject({ method: 'POST', url: '/webhook/insight', ...signed(payload()) });
+  assert.equal(res.statusCode, 404);
+  assert.equal(synced.length, 0);
 });
 
 test('salinan hanya bisa dibaca supervisor', async (t) => {

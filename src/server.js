@@ -91,7 +91,10 @@ function loadConfig(overrides = {}) {
     webhookSecret: process.env.INBOUND_WEBHOOK_SECRET || '',
     // Agnive Insight → Agnee: salinan percakapan Agnive Hub. Kosong = pintu tertutup.
     insightWebhookSecret: process.env.INSIGHT_WEBHOOK_SECRET || '',
-    insightWebhookCompany: process.env.INSIGHT_WEBHOOK_COMPANY || 'agnive',
+    // Tanpa nilai bawaan: company penerima harus disebut eksplisit. Bawaan
+    // 'agnive' berarti di server mana pun, siapa yang pertama mendaftar dengan
+    // nama "Agnive" menerima data funder.
+    insightWebhookCompany: (process.env.INSIGHT_WEBHOOK_COMPANY || '').trim(),
     // Agnive Insight's public Hub feed — published listings only, no credentials.
     insightApiUrl: (process.env.INSIGHT_API_URL || 'https://app.insight.agnive.co').replace(/\/$/, ''),
     ackEnabled: process.env.WA_ACK_ENABLED === 'true',
@@ -100,7 +103,8 @@ function loadConfig(overrides = {}) {
     openrouterApiKey: process.env.OPENROUTER_API_KEY || '',
     openrouterModel: process.env.OPENROUTER_MODEL || 'google/gemini-2.5-flash',
     llmMaxTokens: Number(process.env.LLM_MAX_TOKENS || 512),
-    knowledgeClient: process.env.KNOWLEDGE_CLIENT || 'bzone',
+    // Hanya dipakai tanpa database (demo/lokal); lihat knowledgeClientOf().
+    knowledgeClient: process.env.KNOWLEDGE_CLIENT || 'agnee',
     databaseUrl: process.env.DATABASE_URL || '',
     credentialsEncryptionKey: process.env.CREDENTIALS_ENCRYPTION_KEY || '',
     cloudApiWebhookVerifyToken: process.env.CLOUD_API_WEBHOOK_VERIFY_TOKEN || '',
@@ -390,15 +394,21 @@ async function buildApp(overrides = {}) {
   const fallbackTeam = [{ id: 'local-supervisor', companyId: STANDALONE_COMPANY_ID, email: config.adminEmail, displayName: 'Supervisor', role: 'supervisor', status: 'active', presence: 'online' }];
   // Knowledge base: resolved per-company from DB on every call (no shared mutable —
   // each tenant may have a different knowledge_client and must never see another's).
-  async function getKnowledgeBase(companyId) {
-    let clientId = config.knowledgeClient;
-    if (database.enabled && database.connected) {
-      const co = await database.getCompanyConfig(companyId).catch(() => null);
-      if (co?.knowledgeClient) clientId = co.knowledgeClient;
-    }
-    return new KnowledgeBase({ clientId });
+  //
+  // KNOWLEDGE_CLIENT hanya untuk mode tanpa database (demo/lokal). Begitu ada
+  // database, pack ditentukan baris company-nya. Dulu, saat pembacaan itu gagal,
+  // keduanya jatuh ke KNOWLEDGE_CLIENT (bawaan 'bzone'): satu error DB cukup
+  // untuk menyajikan FAQ dan harga milik customer lain. Jatuhnya sekarang ke
+  // pack netral Agnee, yang tidak berisi data siapa pun.
+  const NEUTRAL_KNOWLEDGE_CLIENT = 'agnee';
+  async function knowledgeClientOf(companyId) {
+    if (!(database.enabled && database.connected)) return config.knowledgeClient;
+    const co = companyId ? await database.getCompanyConfig(companyId).catch(() => null) : null;
+    return co?.knowledgeClient || NEUTRAL_KNOWLEDGE_CLIENT;
   }
-  const knowledgeBase = new KnowledgeBase({ clientId: config.knowledgeClient });
+  async function getKnowledgeBase(companyId) {
+    return new KnowledgeBase({ clientId: await knowledgeClientOf(companyId) });
+  }
   const llmService = overrides.llmService || new LlmService({
     apiKey: config.openrouterApiKey,
     model: config.openrouterModel,
@@ -481,7 +491,10 @@ async function buildApp(overrides = {}) {
     const companyConfig = typeof database.getCompanyConfig === 'function'
       ? await database.getCompanyConfig(companyId).catch(() => null)
       : null;
-    const suspended = companyConfig?.planStatus === 'suspended';
+    // Dua saklar berbeda yang sama-sama berarti "jangan layani": plan_status
+    // (paket berhenti/trial habis) dan status (ditutup dari konsol platform).
+    const suspended = companyConfig?.planStatus === 'suspended'
+      || (companyConfig?.status != null && companyConfig.status !== 'active');
     const enabled = llmService.enabled && settings.enabled !== false && !suspended;
     return {
       enabled,
@@ -500,7 +513,6 @@ async function buildApp(overrides = {}) {
   }
 
   const cloudApiManager = new CloudApiManager(database);
-  if (config.llmEnabled) await knowledgeBase.load();
   // Initialise demo company state if in demo mode
   if (config.demoMode) {
     const demoState = manager.getState(STANDALONE_COMPANY_ID);
@@ -1915,7 +1927,7 @@ async function buildApp(overrides = {}) {
       return Readable.from(raw);
     },
   }, async (request, reply) => {
-    if (!config.insightWebhookSecret) return reply.code(404).send({ error: 'Not found' });
+    if (!config.insightWebhookSecret || !config.insightWebhookCompany) return reply.code(404).send({ error: 'Not found' });
     const timestamp = String(request.headers['x-agnive-timestamp'] || '');
     const signature = String(request.headers['x-agnive-signature'] || '');
     const expected = 'sha256=' + crypto.createHmac('sha256', config.insightWebhookSecret)
@@ -2401,6 +2413,7 @@ async function buildApp(overrides = {}) {
           error: `Batas anggota tim tercapai (${error.maxUsers} pengguna). Upgrade plan untuk menambah lebih banyak.`,
         });
       }
+      if (error?.code === 'EMAIL_TAKEN') return reply.code(409).send({ error: error.message });
       throw error;
     }
     broadcastEvent(teamCompanyId, 'team', { action: 'created', member });
@@ -2443,10 +2456,16 @@ async function buildApp(overrides = {}) {
       member = await database.updateTeamMember(request.params.userId, request.body, request.agneeSession?.companyId);
     } catch (error) {
       if (error.code === '23505') return reply.code(409).send({ error: 'Email sudah dipakai akun lain.' });
+      if (error.code === 'SHARED_ACCOUNT') return reply.code(403).send({ error: error.message });
       throw error;
     }
     if (!member) return reply.code(404).send({ error: 'Anggota tidak ditemukan atau tidak dapat diubah.' });
     broadcastEvent(request.agneeSession.companyId, 'team', { action: 'updated', member });
+    // Nama kolomnya saja, bukan nilainya: password tidak boleh masuk jejak.
+    await catatAudit(request, 'team.member_updated', {
+      entityType: 'user', entityId: request.params.userId,
+      metadata: { email: member.email, fields: Object.keys(request.body) },
+    });
     return { member };
   });
 
@@ -2642,7 +2661,7 @@ async function buildApp(overrides = {}) {
   }, async (request, reply) => {
     const session = request.agneeSession;
     const companyId = session.companyId;
-    const { client: wa, state: waState } = await waFor(companyId, request.params.chatId);
+    const { client: wa } = await waFor(companyId, request.params.chatId);
     const members = await getTeamMembers(companyId);
     let assigneeUserId = request.body.mode === 'ai' ? null : request.body.assigneeUserId;
     if (request.body.mode === 'human' && !assigneeUserId) assigneeUserId = session.userId;
@@ -2662,8 +2681,11 @@ async function buildApp(overrides = {}) {
           timestamp: Math.floor(Date.now() / 1000), type: 'chat',
         });
       } else {
-        if (waState.phase !== 'ready') return reply.code(503).send({ error: 'WhatsApp belum siap.' });
-        await sendTextForUi(wa, request.params.chatId, closingMessage);
+        // Lewat sendOutbound seperti semua pengiriman lain: dulu ini langsung
+        // ke WhatsApp Web, jadi untuk company Cloud API pesan penutupnya hilang.
+        // sendOutbound juga yang memilih nomor yang memegang percakapan ini, dan
+        // menolak dengan 409 yang menyebut nomornya bila nomor itu mati.
+        await sendOutbound(companyId, request.params.chatId, closingMessage);
       }
     }
     const routing = await saveRouting({
@@ -2942,12 +2964,8 @@ ${thread || '(belum ada)'}`,
    * AI. Sekarang pelanggan hanya melihat dan hanya boleh memakai pack-nya
    * sendiri; staf platform tetap bisa memilih semuanya untuk menguji.
    */
-  async function knowledgeClientFor(session) {
-    const companyId = session?.companyId;
-    const companyConfig = companyId && database.status().connected
-      ? await database.getCompanyConfig(companyId).catch(() => null)
-      : null;
-    return companyConfig?.knowledgeClient || config.knowledgeClient;
+  function knowledgeClientFor(session) {
+    return knowledgeClientOf(session?.companyId);
   }
 
   function allowedKnowledgeClients(session, activeClient) {
@@ -4426,7 +4444,7 @@ Aturan:
     return { entries };
   });
 
-  app.get('/v1/whatsapp/status', async (request) => {
+  app.get('/v1/whatsapp/status', async (request, reply) => {
     const companyId = request.agneeSession.companyId;
     const provider = await getWhatsappProvider(companyId);
     if (provider === 'cloud_api') {
@@ -4439,8 +4457,15 @@ Aturan:
         demoMode: false,
       };
     }
-    const primary = await primaryWaConn(companyId);
-    return { provider: 'whatsapp_web', ...manager.publicState(primary?.id, config.demoMode) };
+    // `?connectionId=` menanyakan satu nomor tertentu (dialog pairing dari
+    // Settings). Tanpa itu: nomor utama, untuk header inbox. Dulu selalu nomor
+    // utama, jadi dialog untuk nomor kedua menampilkan keadaan nomor pertama.
+    // `connectionId` ikut dikembalikan supaya browser bisa memilah event SSE
+    // per nomor.
+    const requested = request.query?.connectionId ? String(request.query.connectionId) : null;
+    const conn = await resolveQrConn(companyId, requested);
+    if (requested && !conn) return reply.code(404).send({ error: 'Nomor tidak ditemukan.' });
+    return { provider: 'whatsapp_web', connectionId: conn?.id || null, ...manager.publicState(conn?.id, config.demoMode) };
   });
 
   app.get('/v1/events', async (request, reply) => {

@@ -5,7 +5,8 @@ const path = require('node:path');
 
 class KnowledgeBase {
   constructor(options = {}) {
-    this.clientId = options.clientId || process.env.KNOWLEDGE_CLIENT || 'bzone';
+    // Pack netral, bukan pack milik customer mana pun.
+    this.clientId = options.clientId || 'agnee';
     this.clientProfile = null;
     this.faqDatabase = new Map();
     this.funnelRules = null;

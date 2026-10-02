@@ -73,6 +73,9 @@ export function ConnectionDialog({
       return;
     }
     if (opened.current) return;
+    // Tunggu keadaan nomor ini diketahui. Tanpa itu `phase` masih kosong dan
+    // dialog langsung meminta QR baru — untuk nomor yang sebenarnya tersambung.
+    if (!whatsapp) return;
     opened.current = true;
 
     if (phase === 'ready' || phase === 'demo') {
@@ -120,7 +123,9 @@ export function ConnectionDialog({
   async function changeNumber() {
     setChangingNumber(true);
     try {
-      await api('/v1/whatsapp/logout', { method: 'POST' });
+      // Tanpa connectionId server memutus nomor UTAMA — padahal dialog ini bisa
+      // sedang menampilkan nomor kedua.
+      await api('/v1/whatsapp/logout', { method: 'POST', body: connectionId ? { connectionId } : {} });
       setView({ kind: 'syncing', restoring: true });
     } catch (error) {
       setView({ kind: 'qr', note: messageFromError(error, t('wa.waiting')) });

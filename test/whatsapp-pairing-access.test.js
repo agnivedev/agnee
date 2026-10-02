@@ -108,3 +108,26 @@ test('status koneksi tetap bisa dilihat agent', async (t) => {
   const res = await app.inject({ method: 'GET', url: '/v1/whatsapp/status', headers: { cookie } });
   assert.equal(res.statusCode, 200);
 });
+
+test('status per nomor: connectionId memilih nomornya, nomor company lain 404', async (t) => {
+  // Dulu status selalu nomor utama, jadi dialog pairing nomor kedua menampilkan
+  // keadaan nomor pertama — dan "Ganti nomor" di sana memutus nomor utama.
+  const database = fakeDatabase();
+  database.listWhatsappConnections = async (companyId) => (companyId === COMPANY ? [
+    { id: 'conn-utama', connectionKey: 'whatsapp-main', isActive: true },
+    { id: 'conn-kedua', connectionKey: 'whatsapp-2', isActive: true },
+  ] : []);
+  const app = await buildApp({
+    logger: false, startupEnabled: false, demoMode: true, database, sessionSecret: 'pairing-4',
+  });
+  t.after(() => app.close());
+
+  const cookie = await masuk(app, SUPERVISOR);
+  const utama = await app.inject({ method: 'GET', url: '/v1/whatsapp/status', headers: { cookie } });
+  assert.equal(utama.json().connectionId, 'conn-utama');
+  const kedua = await app.inject({ method: 'GET', url: '/v1/whatsapp/status?connectionId=conn-kedua', headers: { cookie } });
+  assert.equal(kedua.statusCode, 200);
+  assert.equal(kedua.json().connectionId, 'conn-kedua');
+  const asing = await app.inject({ method: 'GET', url: '/v1/whatsapp/status?connectionId=conn-company-lain', headers: { cookie } });
+  assert.equal(asing.statusCode, 404);
+});

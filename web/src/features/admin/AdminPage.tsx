@@ -133,6 +133,7 @@ const AUDIT_ACTIONS = [
   'whatsapp.disconnected',
   'team.member_added',
   'team.role_changed',
+  'team.member_updated',
   'team.member_removed',
   'integration.connected',
   'integration.disconnected',

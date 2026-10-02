@@ -6,6 +6,7 @@ import { useSession } from '@/lib/session';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
+import { NAV_ENTRIES } from '@/components/nav-entries';
 import { ChatList } from './ChatList';
 import { ConnectionDialog } from './ConnectionDialog';
 import { ContextPanel } from './ContextPanel';
@@ -14,7 +15,7 @@ import { MediaViewer } from './MediaViewer';
 import { Rail, type RailAction } from './Rail';
 import { DialogShell, UtilityDialog, type UtilityState } from './UtilityDialog';
 import { messagePreview } from './format';
-import type { Chat, MediaTarget, Message } from './types';
+import type { Chat, MediaTarget, Message, WhatsappStatus } from './types';
 import { useInbox, type InboxFilter, type InboxTab } from './useInbox';
 import { useLiveEvents } from './useLiveEvents';
 
@@ -29,6 +30,9 @@ export function InboxPage() {
   const [media, setMedia] = useState<MediaTarget | null>(null);
   const [connectionOpen, setConnectionOpen] = useState(false);
   const [connectionId, setConnectionId] = useState<string | null>(null);
+  // Keadaan nomor yang sedang dipasangkan lewat ?connect=<id>, terpisah dari
+  // `inbox.whatsapp` yang selalu nomor utama.
+  const [dialogWhatsapp, setDialogWhatsapp] = useState<WhatsappStatus | null>(null);
   const [qrFromEvent, setQrFromEvent] = useState<string | null>(null);
   const [newChatOpen, setNewChatOpen] = useState(false);
   const [contextOpen, setContextOpen] = useState(true);
@@ -128,18 +132,26 @@ export function InboxPage() {
     onTeam: () => setRoutingToken((token) => token + 1),
     onWhatsappPhase: (payload) => {
       const phase = String(payload.phase || '');
-      // While the dialog is pairing one number, phase events from another number
-      // must not change what it shows — otherwise the second number's QR gets
-      // overwritten by the first number's progress.
-      if (connectionId && payload.connectionId && payload.connectionId !== connectionId) return;
-      inbox.setWhatsapp((current) => ({
+      const source = payload.connectionId ? String(payload.connectionId) : null;
+      const apply = (current: WhatsappStatus | null): WhatsappStatus => ({
         ...(current || { phase }),
         phase,
         ...(payload.account !== undefined ? { account: payload.account as string } : {}),
         ...(payload.percent !== undefined ? { syncPercent: Number(payload.percent) } : {}),
         ...(payload.error !== undefined ? { lastError: String(payload.error) } : {}),
-      }));
-      if (phase === 'waiting_for_qr' && payload.qrDataUrl) setQrFromEvent(String(payload.qrDataUrl));
+      });
+      // Setiap nomor punya keadaannya sendiri. Header inbox hanya mengikuti
+      // nomor utama; dialog pairing nomor tertentu hanya mengikuti nomor itu.
+      // Dulu semua event menimpa satu keadaan, jadi nomor kedua yang sedang
+      // menunggu QR bisa membuat header bilang nomor utama terputus.
+      const primaryId = inbox.whatsapp?.connectionId;
+      const forHeader = !source || !primaryId || source === primaryId;
+      const forDialog = Boolean(connectionId) && source === connectionId;
+      if (forHeader) inbox.setWhatsapp(apply);
+      if (forDialog) setDialogWhatsapp(apply);
+      if (phase === 'waiting_for_qr' && payload.qrDataUrl && (connectionId ? forDialog : forHeader)) {
+        setQrFromEvent(String(payload.qrDataUrl));
+      }
       if (phase === 'ready') void inbox.loadChats(true);
     },
   });
@@ -152,6 +164,9 @@ export function InboxPage() {
     window.history.replaceState({}, '', window.location.pathname);
     setConnectionId(requested);
     setConnectionOpen(true);
+    api<WhatsappStatus>(`/v1/whatsapp/status?connectionId=${encodeURIComponent(requested)}`)
+      .then(setDialogWhatsapp)
+      .catch((error) => setDialogWhatsapp({ phase: 'error', lastError: messageFromError(error, '') }));
   }, []);
 
   // The wide sidebar on Leads/Settings/Admin/Knowledge links Contacts and
@@ -239,21 +254,17 @@ export function InboxPage() {
         }
         break;
       }
-      case 'leads':
-        navigate('/leads');
-        break;
-      case 'playground':
-        navigate('/knowledge');
-        break;
-      case 'admin':
-        navigate('/admin');
-        break;
-      case 'settings':
-        navigate('/settings');
-        break;
       case 'logout':
         await signOut();
         break;
+      default: {
+        // Setiap entri `route` lain pindah ke halamannya, langsung dari daftar
+        // nav bersama. Dulu tiap rute ditulis ulang di sini satu per satu, dan
+        // Tugas serta Pipeline tertinggal: tombolnya ada di rail (dan di bar
+        // bawah ponsel) tapi tidak melakukan apa pun.
+        const entry = NAV_ENTRIES.find((item) => item.id === action);
+        if (entry?.kind === 'route') navigate(entry.to);
+      }
     }
   }
 
@@ -461,11 +472,13 @@ export function InboxPage() {
       <ConnectionDialog
         open={connectionOpen}
         connectionId={connectionId}
-        whatsapp={inbox.whatsapp}
+        whatsapp={connectionId ? dialogWhatsapp : inbox.whatsapp}
         qrFromEvent={qrFromEvent}
         onClose={() => {
           setConnectionOpen(false);
           setQrFromEvent(null);
+          setConnectionId(null);
+          setDialogWhatsapp(null);
         }}
         onReady={() => void inbox.loadChats(true)}
       />

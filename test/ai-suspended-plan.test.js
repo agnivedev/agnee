@@ -23,7 +23,7 @@ const OWNER = {
   isPlatformAdmin: false,
 };
 
-function fakeDatabase(planStatus) {
+function fakeDatabase(planStatus, status = 'active') {
   return {
     enabled: true, connected: true,
     async connect() {}, async close() {},
@@ -36,7 +36,7 @@ function fakeDatabase(planStatus) {
     async setPresence() {},
     async getAiSettings() { return { enabled: true, modelChain: [] }; },
     async getCompanyConfig() {
-      return { planStatus, knowledgeClient: 'bzone', aiMessageLimit: 0, aiMessageCount: 0 };
+      return { planStatus, status, knowledgeClient: 'bzone', aiMessageLimit: 0, aiMessageCount: 0 };
     },
     async getPlaybookDoc() { return null; },
     async getPlaybookContext() { return ''; },
@@ -52,10 +52,10 @@ async function masuk(app) {
   return login.headers['set-cookie'].split(';')[0];
 }
 
-async function appDenganPaket(t, planStatus, sessionSecret) {
+async function appDenganPaket(t, planStatus, sessionSecret, status) {
   const app = await buildApp({
     logger: false, startupEnabled: false, demoMode: true,
-    database: fakeDatabase(planStatus),
+    database: fakeDatabase(planStatus, status),
     // AI menyala di tingkat platform — supaya yang diuji benar-benar status
     // paket, bukan OPENROUTER_API_KEY yang kebetulan kosong.
     llmEnabled: true, openrouterApiKey: 'kunci-uji',
@@ -93,6 +93,19 @@ test('paket aktif: rute yang sama tidak ditolak karena status paket', async (t) 
     // tapi tidak boleh 503-karena-paket.
     if (res.statusCode === 503) {
       assert.doesNotMatch(res.json().error, /paket/i, `${url} tidak boleh menyalahkan paket`);
+    }
+  }
+});
+
+test('company ditutup dari konsol: AI berhenti walau paketnya masih aktif', async (t) => {
+  // Dulu hanya plan_status yang dibaca; menutup company dari /superhuman tidak
+  // menghentikan apa pun.
+  for (const [status, secret] of [['closed', 'closed-1'], ['suspended', 'closed-2']]) {
+    const app = await appDenganPaket(t, 'active', secret, status);
+    const cookie = await masuk(app);
+    for (const [method, url, payload] of RUTE_AI) {
+      const res = await app.inject({ method, url, headers: { cookie }, payload });
+      assert.equal(res.statusCode, 503, `${url} seharusnya 503 saat company ${status}`);
     }
   }
 });

@@ -119,6 +119,10 @@ function loadConfig(overrides = {}) {
       || config.sessionSecret === 'agnee-local-session'
       || config.adminPassword === 'agnee-demo';
     if (insecure) throw new Error('Production requires API_KEY, SESSION_SECRET, and ADMIN_PASSWORD');
+    // Token integrasi (OneDrive, Google Sheets, Mayar, Cloud API) dienkripsi
+    // dengan kunci ini. Tanpanya, menyambungkan integrasi gagal di tengah jalan
+    // dengan error pgcrypto — lebih baik server menolak menyala.
+    if (!config.credentialsEncryptionKey) throw new Error('Production requires CREDENTIALS_ENCRYPTION_KEY');
   }
   return config;
 }
@@ -286,8 +290,9 @@ function requestsHumanAgent(text) {
     || /\b(?:cs|agent|manusia|admin|sales|supervisor|human|person)\b[\s\S]{0,45}\b(?:hubungkan|sambungkan|bicara|ngobrol|talk|speak|connect)\b/i.test(String(text || ''));
 }
 
-// The database only ever stores 'owner' or 'agent' (and historically 'admin').
-// Everything privileged is collapsed to 'supervisor' so exactly one spelling
+// The database stores 'owner', 'supervisor' (added through the team screen),
+// 'agent', and historically 'admin' (CHECK in 003 also allows 'viewer', which
+// nothing writes). Everything privileged is collapsed to 'supervisor' so exactly one spelling
 // reaches authorization checks — login and the session-revalidation hook must
 // both use this, or a refreshed role silently stops matching isSupervisor().
 const PRIVILEGED_DB_ROLES = ['owner', 'admin', 'supervisor'];
@@ -364,6 +369,34 @@ function demoDataset() {
 async function buildApp(overrides = {}) {
   const config = loadConfig(overrides);
   const app = Fastify({ logger: overrides.logger ?? true, bodyLimit: 10 * 1024 * 1024, trustProxy: config.trustProxy });
+
+  // Error tak terduga (5xx) tidak boleh membawa pesan mentahnya ke browser —
+  // dulu handler bawaan Fastify mengirim apa adanya, termasuk pesan Postgres
+  // (nama kolom, constraint, isi query). Detailnya tetap tercatat di log.
+  // Error 4xx (validasi skema, error yang sengaja diberi statusCode) tetap
+  // membawa pesannya: itu yang perlu dibaca orang untuk memperbaikinya.
+  app.setErrorHandler((error, request, reply) => {
+    const statusCode = error.statusCode && error.statusCode >= 400 ? error.statusCode : 500;
+    if (statusCode >= 500) {
+      request.log.error({ err: error }, 'Unhandled error');
+      return reply.code(statusCode).send({ error: 'Terjadi kesalahan di server. Coba lagi sebentar lagi.' });
+    }
+    return reply.code(statusCode).send({ error: error.message });
+  });
+
+  /**
+   * Pesan error integrasi yang aman ditampilkan. Pesan dari penyedia (Microsoft
+   * Graph, Google, Mayar) berguna untuk supervisor — "file tidak ditemukan",
+   * "kredensial salah". Error dari Postgres/pgcrypto tidak: isinya detail
+   * internal. Yang terakhir dikenali dari kode SQLSTATE lima karakter.
+   */
+  function publicErrorMessage(error, fallback = 'Terjadi kesalahan di server.') {
+    if (error && typeof error.code === 'string' && /^[0-9A-Z]{5}$/.test(error.code) && (error.severity || error.routine)) {
+      app.log.error({ err: error }, 'Database error in integration route');
+      return fallback;
+    }
+    return error?.message || fallback;
+  }
   const demo = demoDataset();
   const manager = new WhatsappManager();
   let demoQr = null;
@@ -959,7 +992,7 @@ async function buildApp(overrides = {}) {
     const asksForHuman = requestsHumanAgent(message.body);
     if (asksForHuman) {
       const members = await getTeamMembers(companyId);
-      const supervisor = members.find((member) => ['owner', 'supervisor', 'admin'].includes(member.role) && member.status === 'active');
+      const supervisor = members.find((member) => PRIVILEGED_DB_ROLES.includes(member.role) && member.status === 'active');
       if (supervisor) {
         await saveRouting({
           chatId: message.from,
@@ -1708,6 +1741,22 @@ async function buildApp(overrides = {}) {
     return routing;
   }
 
+  /**
+   * "Dipegang agent lain": satu aturan untuk semua tempat yang menyaring apa
+   * yang boleh dilihat agent — inbox, Lead List, pipeline, dan gerbang chat.
+   * Dulu ditulis ulang di setiap rute.
+   */
+  function heldByOtherAgent(routing, userId) {
+    return routing?.mode === 'human' && Boolean(routing.assigneeUserId) && routing.assigneeUserId !== userId;
+  }
+
+  /** Buang item yang percakapannya dipegang agent lain. Supervisor melihat semua. */
+  async function visibleToSession(items, chatIdOf, session, companyId) {
+    if (!session || isSupervisor(session)) return items;
+    const routing = await Promise.all(items.map((item) => getRouting(chatIdOf(item), companyId)));
+    return items.filter((_item, index) => !heldByOtherAgent(routing[index], session.userId));
+  }
+
   async function saveRouting(change, companyId) {
     const cid = companyId;
     const cacheKey = `${cid}:${change.chatId}`;
@@ -1805,7 +1854,10 @@ async function buildApp(overrides = {}) {
   });
 
   await app.register(fastifyMultipart, {
-    limits: { fileSize: 25 * 1024 * 1024, files: 1 },
+    // Di bawah client_max_body_size Nginx (20M untuk app.agnee) dengan sisa
+    // untuk overhead multipart. Dulu 25 MB: file 20–25 MB ditolak Nginx dengan
+    // halaman HTML 413, bukan pesan app di bawah.
+    limits: { fileSize: 19 * 1024 * 1024, files: 1 },
   });
 
   await app.register(fastifyStatic, { root: path.join(__dirname, '..', 'public'), prefix: '/' });
@@ -1934,16 +1986,34 @@ async function buildApp(overrides = {}) {
     };
   }
 
-  app.post('/webhook/insight', {
-    bodyLimit: 2 * 1024 * 1024,
-    preParsing: async function captureRawBody(request, _reply, payload) {
+  /**
+   * Simpan body mentah untuk verifikasi HMAC, dengan plafon. preParsing jalan
+   * SEBELUM bodyLimit Fastify, jadi dulu kedua webhook menampung seluruh aliran
+   * sebesar apa pun ke memori; hanya Nginx yang membatasinya.
+   */
+  function captureRawBody(limit) {
+    return async function capture(request, _reply, payload) {
       const chunks = [];
-      for await (const chunk of payload) chunks.push(chunk);
+      let size = 0;
+      for await (const chunk of payload) {
+        size += chunk.length;
+        if (size > limit) {
+          const error = new Error('Request body is too large');
+          error.statusCode = 413;
+          throw error;
+        }
+        chunks.push(chunk);
+      }
       const raw = Buffer.concat(chunks);
       request.rawBody = raw;
       const { Readable } = require('node:stream');
       return Readable.from(raw);
-    },
+    };
+  }
+
+  app.post('/webhook/insight', {
+    bodyLimit: 2 * 1024 * 1024,
+    preParsing: captureRawBody(2 * 1024 * 1024),
   }, async (request, reply) => {
     if (!config.insightWebhookSecret || !config.insightWebhookCompany) return reply.code(404).send({ error: 'Not found' });
     const timestamp = String(request.headers['x-agnive-timestamp'] || '');
@@ -1995,14 +2065,9 @@ async function buildApp(overrides = {}) {
 
   // POST: inbound messages from Meta. Validated per-company via HMAC-SHA256.
   app.post('/webhook/meta', {
-    preParsing: async function captureRawBody(request, _reply, payload) {
-      const chunks = [];
-      for await (const chunk of payload) chunks.push(chunk);
-      const raw = Buffer.concat(chunks);
-      request.rawBody = raw;
-      const { Readable } = require('node:stream');
-      return Readable.from(raw);
-    },
+    // Sama dengan bodyLimit aplikasi; yang baru adalah plafonnya berlaku
+    // sebelum seluruh aliran ditampung.
+    preParsing: captureRawBody(10 * 1024 * 1024),
   }, async (request, reply) => {
     const payload = request.body;
     if (payload?.object !== 'whatsapp_business_account') return reply.send('OK');
@@ -2349,10 +2414,7 @@ async function buildApp(overrides = {}) {
 
     // Percakapan yang dipegang agent lain tertutup sepenuhnya — klaim tidak
     // boleh dicuri, dan isinya bukan urusan agent ini.
-    const heldByOtherAgent = routing.mode === 'human'
-      && routing.assigneeUserId
-      && routing.assigneeUserId !== userId;
-    if (heldByOtherAgent) {
+    if (heldByOtherAgent(routing, userId)) {
       return reply.code(403).send({ error: 'Chat ini ditangani oleh agent lain.' });
     }
 
@@ -2661,7 +2723,7 @@ async function buildApp(overrides = {}) {
     }
     const buffer = await file.toBuffer().catch(() => null);
     if (!buffer) return reply.code(400).send({ error: 'Gagal membaca file.' });
-    if (file.file.truncated) return reply.code(413).send({ error: 'File maksimal 25MB.' });
+    if (file.file.truncated) return reply.code(413).send({ error: 'File maksimal 19 MB.' });
 
     const extraction = await extractPlaybookText(buffer, file.mimetype, file.filename);
     const assetId = crypto.randomUUID();
@@ -3752,16 +3814,6 @@ Aturan:
     };
   });
 
-  app.get('/v1/coach/runs', {
-    schema: { querystring: { type: 'object', properties: {
-      limit: { type: 'integer', minimum: 1, maximum: 50, default: 20 },
-    } } },
-  }, async (request, reply) => {
-    if (!requireCoachSupervisor(request, reply)) return;
-    if (!requireCoachDb(reply)) return;
-    return { runs: await database.listSimulationRuns(request.agneeSession.companyId, request.query.limit || 20) };
-  });
-
   // ── Playbook documents: built by talking to the Agnee admin assistant ─────
   //
   // The supervisor does not write markdown. They describe how their CS should
@@ -4352,22 +4404,6 @@ Aturan:
     }, reply);
   });
 
-  // Rute lama, dipertahankan supaya klien yang belum diperbarui tetap jalan.
-  app.patch('/v1/tasks/:chatId/status', {
-    schema: {
-      params: { type: 'object', required: ['chatId'], properties: {
-        chatId: { type: 'string', minLength: 1, maxLength: 128 },
-      } },
-      body: { type: 'object', additionalProperties: false, required: ['status'], properties: {
-        status: { type: 'string', enum: ['open', 'pending', 'closed'] },
-      } },
-    },
-  }, async (request, reply) => applyTaskChange({
-    session: request.agneeSession,
-    chatId: request.params.chatId,
-    patch: { status: request.body.status },
-  }, reply));
-
   // ── Audit: tindakan yang akibatnya di luar Agnee ──────────────────────────
 
   /**
@@ -4618,15 +4654,7 @@ Aturan:
   async function buildExportRows(companyId, session = null, { includeChatId = false } = {}) {
     if (!canCall('listContactExportRows')) return [];
     let rows = await database.listContactExportRows(companyId).catch(() => []);
-    if (session && !isSupervisor(session)) {
-      const routing = await Promise.all(rows.map((row) => getRouting(row.chatId, companyId)));
-      rows = rows.filter((_row, index) => {
-        const entry = routing[index];
-        const heldByOtherAgent = entry.mode === 'human'
-          && entry.assigneeUserId && entry.assigneeUserId !== session.userId;
-        return !heldByOtherAgent;
-      });
-    }
+    rows = await visibleToSession(rows, (row) => row.chatId, session, companyId);
     await fillLidPhones(companyId, rows).catch(() => {});
     // chatId never joins EXPORT_COLUMNS — it is an internal id, not a column
     // anyone downloading the sheet wants to see. Only the JSON route (the
@@ -4797,7 +4825,7 @@ Aturan:
       });
       return reply.code(201).send({ ok: true, fileName: workbook.fileName, webUrl: workbook.webUrl, worksheetName: saved.worksheetName });
     } catch (error) {
-      return reply.code(422).send({ error: error.message });
+      return reply.code(422).send({ error: publicErrorMessage(error) });
     }
   });
 
@@ -4811,7 +4839,7 @@ Aturan:
       return { ok: true, rowCount: result.rowCount, blanked: result.blanked };
     } catch (error) {
       await database.recordOneDriveSync(request.agneeSession.companyId, { error: error.message }).catch(() => {});
-      return reply.code(502).send({ error: error.message });
+      return reply.code(502).send({ error: publicErrorMessage(error) });
     }
   });
 
@@ -4927,7 +4955,7 @@ Aturan:
         spreadsheetTitle: title, sheetName: saved.sheetName,
       });
     } catch (error) {
-      return reply.code(422).send({ error: error.message });
+      return reply.code(422).send({ error: publicErrorMessage(error) });
     }
   });
 
@@ -4941,7 +4969,7 @@ Aturan:
       return { ok: true, rowCount: result.rowCount, cleared: result.cleared };
     } catch (error) {
       await database.recordGsheetsSync(request.agneeSession.companyId, { error: error.message }).catch(() => {});
-      return reply.code(502).send({ error: error.message });
+      return reply.code(502).send({ error: publicErrorMessage(error) });
     }
   });
 
@@ -5299,7 +5327,7 @@ Aturan:
       });
       return reply.code(201).send({ ok: true, customerTotal: total, leadCount: count, accountName: identity?.name || null });
     } catch (error) {
-      return reply.code(422).send({ error: error.message });
+      return reply.code(422).send({ error: publicErrorMessage(error) });
     }
   });
 
@@ -5314,7 +5342,7 @@ Aturan:
       return { ok: true, leadCount: count };
     } catch (error) {
       await database.recordMayarSync(companyId, { error: error.message }).catch(() => {});
-      return reply.code(502).send({ error: error.message });
+      return reply.code(502).send({ error: publicErrorMessage(error) });
     }
   });
 
@@ -5502,7 +5530,7 @@ Aturan:
       });
       return { ok: true, id: conn.id, phoneNumberId: conn.phoneNumberId, wabaId: conn.wabaId, displayPhoneNumber: conn.displayPhoneNumber, label: conn.label, isActive: conn.isActive };
     } catch (err) {
-      return reply.code(422).send({ error: err.message });
+      return reply.code(422).send({ error: publicErrorMessage(err) });
     }
   });
 
@@ -5549,8 +5577,20 @@ Aturan:
     schema: { params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } } },
   }, async (request, reply) => {
     if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengubah koneksi.' });
-    const removed = await database.deleteCloudApiConnection(request.agneeSession.companyId, request.params.id);
+    const companyId = request.agneeSession.companyId;
+    const removed = await database.deleteCloudApiConnection(companyId, request.params.id);
     if (!removed) return reply.code(404).send({ error: 'Nomor tidak ditemukan.' });
+    // Nomor Cloud API terakhir dihapus: kembali ke WhatsApp Web. Dulu bendera
+    // provider tetap 'cloud_api', jadi semua pengiriman berikutnya mencari
+    // koneksi Cloud API yang sudah tidak ada dan gagal.
+    const remaining = await cloudApiManager.listConnections(companyId).catch(() => null);
+    if (Array.isArray(remaining) && remaining.length === 0) {
+      await database.updateCompanyConfig({ whatsappProvider: 'whatsapp_web' }, companyId);
+    }
+    await catatAudit(request, 'integration.disconnected', {
+      entityType: 'integration', entityId: 'cloud_api',
+      metadata: { integration: 'cloud_api', connectionId: request.params.id },
+    });
     return { ok: true };
   });
 
@@ -5621,15 +5661,7 @@ Aturan:
     // ada yang bisa diklaim karena tidak ada yang terlihat untuk diklaim.
     // Aturan di sini sengaja sama persis dengan aturan klaim di hook
     // preHandler — dua tempat, satu aturan.
-    if (!isSupervisor(request.agneeSession)) {
-      const userId = request.agneeSession?.userId;
-      const routing = await Promise.all(chats.map((chat) => getRouting(chat.id, companyId)));
-      chats = chats.filter((_chat, index) => {
-        const row = routing[index];
-        const heldByOtherAgent = row.mode === 'human' && row.assigneeUserId && row.assigneeUserId !== userId;
-        return !heldByOtherAgent;
-      });
-    }
+    chats = await visibleToSession(chats, (chat) => chat.id, request.agneeSession, companyId);
     if (filter === 'inbox') chats = chats.filter((chat) => !chat.archived);
     if (filter === 'archived') chats = chats.filter((chat) => chat.archived);
     if (filter === 'unread') chats = chats.filter((chat) => chat.unreadCount > 0 && !chat.archived);
@@ -5968,15 +6000,7 @@ Aturan:
     if (!canCall('listPipelineLeads')) return { leads: [] };
     let leads = await database.listPipelineLeads(companyId).catch(() => []);
     const session = request.agneeSession;
-    if (session && !isSupervisor(session)) {
-      const routing = await Promise.all(leads.map((lead) => getRouting(lead.chatId, companyId)));
-      leads = leads.filter((_lead, index) => {
-        const entry = routing[index];
-        const heldByOtherAgent = entry.mode === 'human'
-          && entry.assigneeUserId && entry.assigneeUserId !== session.userId;
-        return !heldByOtherAgent;
-      });
-    }
+    leads = await visibleToSession(leads, (lead) => lead.chatId, session, companyId);
     return { leads };
   });
 

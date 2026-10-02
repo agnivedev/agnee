@@ -5,6 +5,11 @@ import { mcpContext, WRITE_SCOPE } from './mcp-context.mjs';
 
 const apiBaseUrl = (process.env.MCP_API_BASE_URL || 'http://127.0.0.1:4100').replace(/\/$/, '');
 const apiKey = process.env.API_KEY || 'dev-api-key';
+// Sama dengan loadConfig() di server: kunci bawaan pengembangan tidak boleh
+// sampai ke produksi, termasuk lewat proses MCP.
+if (process.env.NODE_ENV === 'production' && apiKey === 'dev-api-key') {
+  throw new Error('Production MCP requires API_KEY');
+}
 
 /**
  * Calls the backend as the member behind this request. The backend takes the

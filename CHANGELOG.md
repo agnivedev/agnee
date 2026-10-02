@@ -52,8 +52,34 @@
     400, bukan 500 dengan pesan Postgres mentah.
   - Komponen inbox `FollowUpSection` diganti nama `ManualFollowUp` supaya tidak
     tertukar dengan section Follow-up di Settings.
+  - **Satu aturan "dipegang agent lain"** (`heldByOtherAgent` /
+    `visibleToSession`) untuk inbox, Lead List, pipeline, dan gerbang chat —
+    dulu ditulis ulang di setiap rute. Satu renderer Markdown sebaris
+    (`InlineText`) dan satu fungsi inisial avatar untuk seluruh app.
+  - Rute mati dihapus: `PATCH /v1/tasks/:chatId/status` (pengganti lamanya
+    sudah dipakai semua klien) dan `GET /v1/coach/runs` (tidak ada pemanggil).
+    Komponen `ui/card.tsx` yang tidak dipakai ikut dihapus.
 
 ### Fixed
+
+- **Lead Mayar tidak tergabung ke chat `@lid`, jadi customer yang sama tampil
+  dua kali di Lead List.** Penggabungan memakai digit id samaran `@lid`, bukan
+  nomor HP-nya. Sekarang lewat `lid_phone_map`.
+- **Nomor luar negeri dari Mayar dirusak** (`+65 9123 4567` jadi
+  `626591234567`). Hanya nomor lokal Indonesia yang diberi 62.
+- **Menghapus nomor Cloud API terakhir tidak mengembalikan provider ke WhatsApp
+  Web**, jadi semua pengiriman berikutnya gagal. Penghapusan nomor juga
+  sekarang tercatat di jejak audit.
+- **Error 5xx membawa pesan mentah (termasuk Postgres) ke browser.** Ada error
+  handler sekarang; detailnya hanya di log. Error integrasi yang berasal dari
+  database tidak lagi diteruskan apa adanya.
+- **Produksi bisa menyala tanpa `CREDENTIALS_ENCRYPTION_KEY`** (integrasi lalu
+  gagal di tengah jalan), dan proses MCP bisa menyala dengan `API_KEY` bawaan
+  pengembangan. Keduanya sekarang menolak menyala.
+- **Webhook Insight dan Meta menampung body sebesar apa pun ke memori** sebelum
+  batas Fastify berlaku. Sekarang dibatasi saat dibaca (413).
+- **Upload 20–25 MB mendapat halaman 413 HTML dari Nginx**, bukan pesan app.
+  Batas multipart diturunkan ke 19 MB, di bawah batas Nginx.
 
 - **[KEAMANAN] Rate limit dan kunci login MCP bisa dilewati, sekaligus bisa
   dipakai mengunci semua orang.** `mcp-http` memakai entri X-Forwarded-For

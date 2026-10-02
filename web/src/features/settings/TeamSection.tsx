@@ -5,7 +5,7 @@ import { useSession, isSupervisorRole } from '@/lib/session';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useConfirm } from '@/components/ui/confirm';
-import { Avatar2, Row, SettingCard, StatusLine } from './parts';
+import { MemberAvatar, Row, SettingCard, StatusLine } from './parts';
 import type { TeamMember } from '@/features/inbox/types';
 
 export function TeamSection() {
@@ -74,7 +74,7 @@ export function TeamSection() {
 
           return (
             <Row key={member.id}>
-              <Avatar2 name={name} />
+              <MemberAvatar name={name} />
               <span className="grid min-w-0 flex-1 gap-0.5">
                 <strong className="truncate text-[13px]">{isSelf ? t('team.you', { name }) : name}</strong>
                 <small className="truncate text-[11px] text-muted">{member.email}</small>
@@ -233,7 +233,7 @@ export function AccountSection() {
   return (
     <SettingCard id="myAccount" eyebrow={t('account.eyebrow')} title={t('account.title')}>
       <Row>
-        <Avatar2 name={name} />
+        <MemberAvatar name={name} />
         <span className="grid min-w-0 flex-1 gap-0.5">
           <strong className="truncate text-[13px]">{name}</strong>
           <small className="truncate text-[11px] text-muted">{user?.email}</small>

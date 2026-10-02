@@ -70,9 +70,8 @@ GET  /v1/auth/session
 GET  /v1/whatsapp/status
 GET  /v1/whatsapp/qr
 GET  /v1/events
-GET  /v1/admin/config
-GET  /v1/admin/playground/runs
-POST /v1/admin/playground/auto-reply
+GET  /v1/admin/ai-settings
+POST /v1/coach/simulate
 GET  /v1/chats?limit=20&offset=0&q=&filter=all
 GET  /v1/chats/:chatId/messages?limit=30
 GET  /v1/chats/:chatId/avatar

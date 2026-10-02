@@ -1972,22 +1972,6 @@ class Database {
     return result.rows;
   }
 
-  async listSimulationRuns(companyId, limit = 20) {
-    if (!this.enabled) return [];
-    const result = await this.pool.query(`
-      SELECT r.id, r.mode, r.chat_id AS "chatId", r.customer_message AS "customerMessage",
-             r.reply, r.scores, r.model, r.created_at AS "createdAt",
-             s.name AS "scenarioName", u.display_name AS "createdByName"
-      FROM simulation_runs r
-      LEFT JOIN simulation_scenarios s ON s.id = r.scenario_id
-      LEFT JOIN users u ON u.id = r.created_by
-      WHERE r.company_id = $1
-      ORDER BY r.created_at DESC
-      LIMIT $2
-    `, [companyId, limit]);
-    return result.rows;
-  }
-
   async incrementAiMessageCount(companyId) {
     if (!this.enabled) return { count: 0, limit: 0, exceeded: false };
     const result = await this.pool.query(`
@@ -2742,13 +2726,27 @@ class Database {
         UNION SELECT DISTINCT chat_id FROM lead_states WHERE company_id = $1
         UNION SELECT DISTINCT chat_id FROM conversation_routing WHERE company_id = $1
       ),
+      -- Nomor HP per chat. Chat '@lid' membawa id samaran, bukan nomor, jadi
+      -- nomornya diambil dari lid_phone_map. Dulu bagian digit '@lid' dipakai
+      -- apa adanya: lead Mayar tidak pernah tergabung ke chat-nya dan customer
+      -- yang sama muncul dua kali (baris WhatsApp + baris "Mayar saja").
+      chat_phones AS (
+        SELECT c.chat_id,
+               CASE WHEN c.chat_id LIKE '%@g.us' THEN NULL
+                    WHEN c.chat_id LIKE '%@lid' THEN lpm.phone
+                    ELSE regexp_replace(c.chat_id, '@.*$', '') END AS phone
+        FROM chats c
+        LEFT JOIN lid_phone_map lpm ON lpm.company_id = $1 AND lpm.lid = c.chat_id
+      ),
       whatsapp_rows AS (
         SELECT
           c.chat_id AS "chatId",
           -- Id grup bukan nomor telepon. Tanpa penjagaan ini, Lead List
           -- menampilkan angka seperti 120363369733804176 di kolom nomor.
-          CASE WHEN c.chat_id LIKE '%@g.us' THEN NULL
-               ELSE regexp_replace(c.chat_id, '@.*$', '') END AS "phone",
+          -- '@lid' yang belum terpetakan tetap menampilkan digit id-nya;
+          -- server mencoba memetakannya lewat WhatsApp (fillLidPhones).
+          COALESCE(cp.phone, CASE WHEN c.chat_id LIKE '%@g.us' THEN NULL
+                                  ELSE regexp_replace(c.chat_id, '@.*$', '') END) AS "phone",
           -- Nama dari pesan WhatsApp diutamakan (paling segar); nama Mayar
           -- jadi cadangan saat chat-nya belum pernah mengirim pesan yang
           -- merekam nama (contact_names kosong untuk chat itu).
@@ -2781,6 +2779,7 @@ class Database {
           ml.total_amount AS "mayarTotalAmount",
           COALESCE(inbound.timestamp, 0) AS "sortAt"
         FROM chats c
+        JOIN chat_phones cp ON cp.chat_id = c.chat_id
         LEFT JOIN LATERAL (
           SELECT MIN(t) AS first_at FROM (
             SELECT MIN(to_timestamp(timestamp)) AS t FROM inbound_messages
@@ -2827,9 +2826,7 @@ class Database {
         LEFT JOIN contact_names cname
           ON cname.company_id = $1 AND cname.chat_id = c.chat_id
         LEFT JOIN mayar_leads ml
-          ON ml.company_id = $1
-         AND ml.phone = (CASE WHEN c.chat_id LIKE '%@g.us' THEN NULL
-                              ELSE regexp_replace(c.chat_id, '@.*$', '') END)
+          ON ml.company_id = $1 AND ml.phone = cp.phone
       ),
       mayar_only AS (
         SELECT
@@ -2866,11 +2863,7 @@ class Database {
         FROM mayar_leads ml
         WHERE ml.company_id = $1
           AND ml.phone IS NOT NULL
-          AND NOT EXISTS (
-            SELECT 1 FROM chats c2
-            WHERE (CASE WHEN c2.chat_id LIKE '%@g.us' THEN NULL
-                        ELSE regexp_replace(c2.chat_id, '@.*$', '') END) = ml.phone
-          )
+          AND NOT EXISTS (SELECT 1 FROM chat_phones cp2 WHERE cp2.phone = ml.phone)
       )
       SELECT * FROM whatsapp_rows
       UNION ALL

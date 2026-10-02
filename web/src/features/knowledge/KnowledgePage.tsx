@@ -17,6 +17,8 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { CoachSection } from './CoachSection';
 import { BriefSection } from './BriefSection';
+// Satu renderer sebaris untuk seluruh app; dulu halaman ini punya salinannya sendiri.
+import { InlineText } from '@/features/inbox/InlineMarkdown';
 
 /**
  * Semua yang membentuk jawaban AI, di satu tempat. Dulu tersebar di empat
@@ -90,14 +92,14 @@ function Markdown({ source }: { source: string }) {
                 level >= 3 && 'mt-3 text-[13px] text-ink/75',
               )}
             >
-              <Inline text={heading[2]} />
+              <InlineText text={heading[2]} />
             </p>
           );
         }
         if (/^>\s?/.test(line)) {
           return (
             <p key={key} className="m-0 border-l-[3px] border-l-green/50 bg-green/6 py-1.5 pl-3 text-[13px] whitespace-pre-wrap">
-              <Inline text={line.replace(/^>\s?/, '')} />
+              <InlineText text={line.replace(/^>\s?/, '')} />
             </p>
           );
         }
@@ -105,21 +107,21 @@ function Markdown({ source }: { source: string }) {
           return (
             <p key={key} className="m-0 pl-4 text-[13px] -indent-3">
               <span aria-hidden className="text-muted">• </span>
-              <Inline text={line.replace(/^[-*]\s+/, '')} />
+              <InlineText text={line.replace(/^[-*]\s+/, '')} />
             </p>
           );
         }
         if (/^\d+\.\s+/.test(line)) {
           return (
             <p key={key} className="m-0 pl-4 text-[13px] -indent-4">
-              <Inline text={line} />
+              <InlineText text={line} />
             </p>
           );
         }
         if (!line.trim()) return <span key={key} className="block h-1" />;
         return (
           <p key={key} className="m-0 text-[13px] whitespace-pre-wrap">
-            <Inline text={line} />
+            <InlineText text={line} />
           </p>
         );
       })}
@@ -127,23 +129,6 @@ function Markdown({ source }: { source: string }) {
   );
 }
 
-/** Tebal, miring, dan kode sebaris. Tautan dibiarkan apa adanya agar bisa disalin utuh. */
-function Inline({ text }: { text: string }) {
-  const parts = text.split(/(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`)/g).filter(Boolean);
-  return (
-    <>
-      {parts.map((part, index) => {
-        const key = `${index}-${part.slice(0, 8)}`;
-        if (/^\*\*[^*]+\*\*$/.test(part)) return <strong key={key}>{part.slice(2, -2)}</strong>;
-        if (/^\*[^*]+\*$/.test(part)) return <strong key={key}>{part.slice(1, -1)}</strong>;
-        if (/^`[^`]+`$/.test(part)) {
-          return <code key={key} className="rounded bg-ink/8 px-1 font-mono text-[11px]">{part.slice(1, -1)}</code>;
-        }
-        return <span key={key}>{part}</span>;
-      })}
-    </>
-  );
-}
 
 /**
  * Menyusun dokumen lewat obrolan.

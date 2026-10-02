@@ -184,7 +184,7 @@ GET  /v1/chats?limit=12&offset=0&q=&filter=all
 GET  /v1/chats/:chatId/messages?limit=30
 GET  /v1/chats/:chatId/pinned
 GET  /v1/chats/:chatId/lead
-POST /v1/chats/:chatId/assign
+POST /v1/chats/:chatId/routing
 GET  /v1/chats/:chatId/avatar
 GET  /v1/messages/:messageId/media
 POST /v1/messages/send

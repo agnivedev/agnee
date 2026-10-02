@@ -64,6 +64,11 @@ function renderInline(text: string, keyPrefix: string): ReactNode[] {
   return text ? [text] : [];
 }
 
+/** Satu baris: tebal, miring, kode, dan tautan — tanpa judul/daftar. */
+export function InlineText({ text }: { text: string }) {
+  return <>{renderInline(text, 's')}</>;
+}
+
 export function InlineMarkdown({ text }: { text: string }) {
   if (!text) return null;
   const lines = text.split('\n');

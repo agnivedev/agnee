@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useI18n } from '@/lib/i18n';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
+import { initials } from '@/features/inbox/format';
 
 /** One settings card: eyebrow, heading, optional status pill, body. */
 export function SettingCard({
@@ -167,15 +168,11 @@ export function StatusLine({ children, tone = 'muted' }: { children?: ReactNode;
   );
 }
 
-export function Avatar2({ name }: { name: string }) {
+/** Inisial anggota tim — memakai `initials()` yang sama dengan avatar inbox. */
+export function MemberAvatar({ name }: { name: string }) {
   return (
     <span className="grid size-9 shrink-0 place-items-center rounded-full bg-warm font-mono text-[11px] font-bold text-green-dark">
-      {name
-        .split(/\s+/)
-        .map((part) => part[0])
-        .join('')
-        .slice(0, 2)
-        .toUpperCase()}
+      {initials(name)}
     </span>
   );
 }

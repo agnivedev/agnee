@@ -8,13 +8,22 @@ const PAGE_LIMIT = 50;
 // company mana pun yang realistis hari ini.
 const MAX_PAGES = 500;
 
-/** Nomor lokal Mayar ("0851...") -> format yang dipakai `phone` WhatsApp Agnee ("6285..."). */
+/**
+ * Nomor Mayar -> format `phone` WhatsApp Agnee (digit saja, berkode negara).
+ *
+ * "0851..." dan "851..." adalah nomor lokal Indonesia. Dulu SEMUA yang tidak
+ * berawalan 62 diberi 62 di depan, jadi nomor luar negeri ("+65 9123 4567")
+ * berubah menjadi nomor yang tidak ada ("626591234567") dan tidak pernah
+ * tergabung dengan percakapan WhatsApp-nya.
+ */
 function normalizePhone(raw) {
   if (!raw) return null;
-  let digits = String(raw).replace(/\D/g, '');
+  const text = String(raw).trim();
+  let digits = text.replace(/\D/g, '');
   if (!digits) return null;
-  if (digits.startsWith('0')) digits = `62${digits.slice(1)}`;
-  else if (!digits.startsWith('62')) digits = `62${digits}`;
+  if (text.startsWith('+') || digits.startsWith('62')) return digits;
+  if (digits.startsWith('0')) return `62${digits.slice(1)}`;
+  if (digits.startsWith('8')) return `62${digits}`;
   return digits;
 }
 

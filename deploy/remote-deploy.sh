@@ -13,8 +13,15 @@ GIT_SHA="$(git rev-parse HEAD)"
 export GIT_SHA
 echo "==> Membangun ${GIT_SHA}"
 
+# Disk server dipakai bersama Insight dan aplikasi lain. Tanpa pemangkasan,
+# cache build menumpuk sampai build berikutnya tidak bisa menulis — 2 Okt 2026
+# disk penuh sampai container database Insight ikut hilang. Cache dipangkas
+# (bukan dihapus habis, supaya build tetap cepat) sebelum build, image lama
+# dibuang sesudahnya.
+docker builder prune -af --keep-storage 1500MB >/dev/null || true
 docker compose build app mcp
 docker compose up -d app mcp
+docker image prune -f >/dev/null || true
 
 # `git pull` bisa berhasil sementara build sesudahnya gagal. Itu yang terjadi
 # 21 Sep: rantai perintahnya putus di `docker compose build`, `up -d` tidak

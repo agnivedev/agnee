@@ -103,10 +103,10 @@ Salin `.env.example` menjadi `.env`. Jangan commit `.env`.
 | Variable | Kegunaan | Rahasia |
 | --- | --- | --- |
 | `PORT`, `HOST` | Listener app, default `4100` | Tidak |
-| `API_KEY` | Backend server-to-server | Ya |
+| `API_KEY` | Kunci layanan gateway MCP → backend. Hanya dari jaringan internal, hanya 4 rute MCP, selalu atas nama anggota (`x-agnee-user`) | Ya |
 | `SESSION_SECRET` | Penandatangan session UI | Ya |
 | `ADMIN_EMAIL` | Akun admin single-workspace | Internal |
-| `ADMIN_PASSWORD` | Login UI dan consent OAuth | Ya |
+| `ADMIN_PASSWORD` | Login UI fallback tanpa database (consent OAuth MCP memakai akun Agnee masing-masing) | Ya |
 | `POSTGRES_PASSWORD` | Password PostgreSQL untuk Docker Compose | Ya |
 | `DATABASE_URL` | Koneksi PostgreSQL saat menjalankan Node langsung | Ya |
 | `DATABASE_POOL_MAX` | Batas koneksi pool aplikasi | Tidak |
@@ -117,7 +117,8 @@ Salin `.env.example` menjadi `.env`. Jangan commit `.env`.
 | `WA_STARTUP_ENABLED` | Menyalakan adapter real | Tidak |
 | `WA_DEMO_MODE` | Dataset aman tanpa send real | Tidak |
 | `MCP_PORT`, `MCP_HOST` | Listener MCP, default `4200` | Tidak |
-| `MCP_BEARER_TOKEN` | Inspector/smoke test internal | Ya |
+| `MCP_BEARER_TOKEN` | Token statis smoke test — baca saja, aktif hanya bila `MCP_LEGACY_USER_ID` diisi | Ya |
+| `MCP_LEGACY_USER_ID` | Id anggota (di `AGNEE_COMPANY`) yang diwakili token statis | Internal |
 | `MCP_PUBLIC_URL` | URL canonical MCP publik | Tidak |
 | `MCP_OAUTH_SIGNING_SECRET` | Menandatangani access token | Ya |
 | `MCP_OAUTH_STATE_PATH` | Persisted OAuth client state | Sensitif |
@@ -184,7 +185,13 @@ dengan profile yang sama secara bersamaan.
 ### Autentikasi
 
 - Browser menggunakan signed HttpOnly cookie `agnee_session`.
-- Integrasi internal menggunakan header `x-api-key`.
+- Gateway MCP memanggil backend dengan `x-api-key` + `x-agnee-company` +
+  `x-agnee-user`. Kunci ini ditolak bila datang lewat nginx (membawa
+  `X-Forwarded-For`/`X-Real-IP`), ditolak di luar 4 rute MCP, dan bertindak
+  dengan peran anggota itu sendiri — bukan supervisor.
+- Klien MCP (ChatGPT dsb.) login dengan akun Agnee masing-masing; tokennya
+  terikat ke anggota dan perusahaannya. Izin `whatsapp:write` wajib untuk alat
+  kirim; koneksi baca-saja tidak melihat alat itu.
 - Production menolak default credential yang tidak aman.
 
 ### Endpoint utama

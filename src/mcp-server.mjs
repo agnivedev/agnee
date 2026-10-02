@@ -1,23 +1,29 @@
 import crypto from 'node:crypto';
 import { McpServer } from '@modelcontextprotocol/server';
 import * as z from 'zod/v4';
+import { mcpContext, WRITE_SCOPE } from './mcp-context.mjs';
 
 const apiBaseUrl = (process.env.MCP_API_BASE_URL || 'http://127.0.0.1:4100').replace(/\/$/, '');
 const apiKey = process.env.API_KEY || 'dev-api-key';
-// There is no default tenant: an API-key caller must name the company it acts
-// for (id or slug), or every request is rejected with HTTP 400.
-const companyRef = process.env.AGNEE_COMPANY || '';
 
+/**
+ * Calls the backend as the member behind this request. The backend takes the
+ * service key only from inside the network, only for these four routes, and
+ * only on behalf of an active member — with that member's own role, so an
+ * agent here hits the same claim rules as in the inbox.
+ */
 async function agneeApi(path, options = {}) {
-  if (!companyRef) {
-    throw new Error('AGNEE_COMPANY is not set — set it to the company id or slug this MCP server acts for.');
+  const identity = mcpContext.getStore();
+  if (!identity?.userId || !identity?.companyId) {
+    throw new Error('No Agnee account is attached to this connection. Reconnect and sign in with your Agnee account.');
   }
   const response = await fetch(`${apiBaseUrl}${path}`, {
     ...options,
     headers: {
       'content-type': 'application/json',
       'x-api-key': apiKey,
-      'x-agnee-company': companyRef,
+      'x-agnee-company': identity.companyId,
+      'x-agnee-user': identity.userId,
       ...(options.headers || {}),
     },
     signal: AbortSignal.timeout(15_000),
@@ -33,6 +39,8 @@ function result(data) {
     structuredContent: data,
   };
 }
+
+const canWrite = () => Boolean(mcpContext.getStore()?.scopes?.includes(WRITE_SCOPE));
 
 export function buildMcpServer() {
   const server = new McpServer(
@@ -63,6 +71,10 @@ export function buildMcpServer() {
     annotations: { readOnlyHint: true },
   }, async ({ chatId, limit }) => result(await agneeApi(`/v1/chats/${encodeURIComponent(chatId)}/messages?limit=${limit}`)));
 
+  // A read-only connection is not offered the send tool at all, and the
+  // handler checks again — the list is a courtesy, the check is the rule.
+  if (!canWrite()) return server;
+
   server.registerTool('send_whatsapp_message', {
     title: 'Send WhatsApp message',
     description: 'Send a plain-text WhatsApp message to an existing chat or phone number.',
@@ -73,10 +85,15 @@ export function buildMcpServer() {
       clientRequestId: z.string().min(8).max(100).optional().describe('Stable idempotency key to safely retry the same send.'),
     }).refine((value) => value.chatId || value.to, { message: 'chatId or to is required' }),
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
-  }, async ({ chatId, to, text, clientRequestId }) => result(await agneeApi('/v1/messages/send', {
-    method: 'POST',
-    body: JSON.stringify({ ...(chatId ? { chatId } : { to }), text, clientRequestId: clientRequestId || crypto.randomUUID() }),
-  })));
+  }, async ({ chatId, to, text, clientRequestId }) => {
+    if (!canWrite()) {
+      return { isError: true, content: [{ type: 'text', text: 'This connection may only read. Reconnect and allow sending (whatsapp:write) to send messages.' }] };
+    }
+    return result(await agneeApi('/v1/messages/send', {
+      method: 'POST',
+      body: JSON.stringify({ ...(chatId ? { chatId } : { to }), text, clientRequestId: clientRequestId || crypto.randomUUID() }),
+    }));
+  });
 
   return server;
 }

@@ -58,8 +58,10 @@ the QR from WhatsApp → Linked Devices. The session is persisted under
 
 ## Backend API
 
-Browser requests use the signed `agnee_session` cookie. Server-to-server calls
-use `x-api-key`.
+Browser requests use the signed `agnee_session` cookie. The MCP gateway calls
+the backend with `x-api-key` plus `x-agnee-company` and `x-agnee-user`; that key
+works only from inside the network, only on the four MCP routes, and always as
+that member with that member's role.
 
 ```text
 POST /v1/auth/login
@@ -83,7 +85,7 @@ Send a direct message:
 ```bash
 curl -X POST http://127.0.0.1:4100/v1/messages/send \
   -H "content-type: application/json" \
-  -H "x-api-key: $API_KEY" \
+  -H "x-api-key: $API_KEY" -H "x-agnee-company: agnive" -H "x-agnee-user: $USER_ID" \
   -d '{"to":"081234567890","text":"Halo dari Agnee","clientRequestId":"unique-request-id-123"}'
 ```
 

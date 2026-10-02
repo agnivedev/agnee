@@ -76,6 +76,10 @@ services:
     env_file: .env
     environment:
       MCP_API_BASE_URL: http://app:4100
+      # Only nginx can reach this port (bound to 127.0.0.1), so its
+      # X-Forwarded-For is the visitor. Without this every visitor shares one
+      # sign-in failure counter and a few wrong passwords lock everyone out.
+      TRUST_PROXY: "true"
     ports:
       - "127.0.0.1:4200:4200"
     volumes:

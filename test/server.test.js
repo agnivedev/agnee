@@ -265,6 +265,9 @@ test('agent can only take chats for self and cannot open supervisor settings', a
 });
 
 test('admin auto-reply playground previews usage without sending WhatsApp', async (t) => {
+  // A real supervisor session. This test used to ride on the API key, which
+  // then meant "supervisor of any company" — exactly what the key no longer is.
+  const owner = { id: 'owner-1', email: 'owner@acme.test', displayName: 'Owner', role: 'owner', companyId: 'company-acme' };
   const persistedLeads = new Map();
   const persistedRuns = [];
   let llmCalls = 0;
@@ -275,6 +278,9 @@ test('admin auto-reply playground previews usage without sending WhatsApp', asyn
     async close() {},
     status() { return { driver: 'postgresql', connected: true }; },
     async resolveCompanyId(idOrSlug) { return idOrSlug === 'acme' ? 'company-acme' : null; },
+    async authenticateUser(email, password) { return email === owner.email && password === 'owner-pass-123' ? owner : null; },
+    async getActiveSessionUser(userId) { return userId === owner.id ? owner : null; },
+    async setPresence() {},
     async getCompanyConfig() { return { knowledgeClient: 'bzone', planStatus: 'beta' }; },
     async getLeadState(chatId) { return persistedLeads.get(chatId) || null; },
     async saveLeadState(lead) { persistedLeads.set(lead.chatId, lead); return lead; },
@@ -320,7 +326,9 @@ test('admin auto-reply playground previews usage without sending WhatsApp', asyn
   });
   t.after(() => app.close());
 
-  const headers = { 'x-api-key': 'test-key', 'x-agnee-company': 'acme' };
+  const login = await app.inject({ method: 'POST', url: '/v1/auth/login', payload: { email: owner.email, password: 'owner-pass-123' } });
+  assert.equal(login.statusCode, 200);
+  const headers = { cookie: login.headers['set-cookie'].split(';')[0] };
   const config = await app.inject({ method: 'GET', url: '/v1/admin/config', headers });
   assert.equal(config.statusCode, 200);
   assert.equal(config.json().model, 'test/model');

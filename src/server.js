@@ -275,10 +275,9 @@ function normalizeRole(role) {
 /**
  * Superadmin Agnee: staf kami, bukan peran pelanggan.
  *
- * Sengaja TIDAK menerima `apiClient`. Kunci API memberi hak supervisor atas
- * satu company yang ia sebut di header — itu wajar untuk integrasi. Tapi peran
- * ini melintasi SEMUA company, jadi kalau kunci API ikut lolos di sini, satu
- * kunci yang bocor berubah dari "akses satu tenant" menjadi "akses seluruh
+ * Sengaja TIDAK pernah datang dari kunci layanan (lihat serviceSession): peran
+ * ini melintasi SEMUA company, jadi kalau kunci ikut lolos di sini, satu kunci
+ * yang bocor berubah dari "akses satu tenant" menjadi "akses seluruh
  * pelanggan". Bendera ini hanya boleh datang dari kolom users.is_platform_admin
  * lewat sesi seseorang yang benar-benar login.
  */
@@ -1628,7 +1627,7 @@ async function buildApp(overrides = {}) {
   function isSupervisor(session) {
     // Accept the raw privileged DB spellings too, so a token or code path that
     // skips normalizeRole() cannot silently downgrade a supervisor to an agent.
-    return PRIVILEGED_DB_ROLES.includes(session?.role) || Boolean(session?.apiClient);
+    return PRIVILEGED_DB_ROLES.includes(session?.role);
   }
 
   async function getTeamMembers(companyId) {
@@ -2065,31 +2064,67 @@ async function buildApp(overrides = {}) {
   // Cache DB session checks: userId:companyId → expiry timestamp (60s TTL)
   const sessionCheckCache = new Map();
 
+  /**
+   * Kunci layanan (API_KEY) — dipakai gateway MCP untuk memanggil backend.
+   *
+   * Dulu kunci ini = supervisor penuh di perusahaan mana pun yang disebut di
+   * header, dari mana pun asalnya. Satu kunci yang bocor berarti seluruh
+   * pelanggan. Sekarang tiga pagar:
+   *
+   *   1. Hanya dari jaringan internal. nginx selalu menempelkan X-Real-IP /
+   *      X-Forwarded-For; panggilan container-ke-container tidak. Permintaan
+   *      dari internet yang membawa kunci ini ditolak.
+   *   2. Hanya rute yang dipakai alat MCP — bukan admin, konsol platform,
+   *      integrasi, atau pengaturan paket.
+   *   3. Selalu atas nama ANGGOTA NYATA (`x-agnee-user`) di perusahaan itu,
+   *      dengan peran orang itu. Agent lewat MCP tunduk pada aturan klaim chat
+   *      yang sama seperti di layar; anggota yang dinonaktifkan langsung putus.
+   */
+  const SERVICE_ROUTES = new Set([
+    'GET /v1/whatsapp/status',
+    'GET /v1/chats',
+    'GET /v1/chats/:chatId/messages',
+    'POST /v1/messages/send',
+  ]);
+
+  async function serviceSession(request) {
+    if (request.headers['x-forwarded-for'] || request.headers['x-real-ip']) {
+      return { status: 403, error: 'Kunci layanan hanya berlaku di jaringan internal.' };
+    }
+    if (!SERVICE_ROUTES.has(`${request.method} ${request.routeOptions?.url}`)) {
+      return { status: 403, error: 'Kunci layanan tidak berlaku untuk rute ini.' };
+    }
+    const requested = request.headers['x-agnee-company'];
+    const userId = request.headers['x-agnee-user'];
+    if (!requested || !userId) {
+      return { status: 400, error: 'Header x-agnee-company dan x-agnee-user wajib diisi.' };
+    }
+    if (!database.status().connected) return { status: 503, error: 'Database tidak tersambung.' };
+    const companyId = await database.resolveCompanyId(requested);
+    if (!companyId) return { status: 404, error: 'Perusahaan tidak ditemukan.' };
+    const member = await database.getActiveSessionUser(String(userId), companyId);
+    if (!member) return { status: 403, error: 'Pengguna ini bukan anggota aktif perusahaan tersebut.' };
+    request.agneeSession = {
+      userId: member.id,
+      companyId,
+      email: member.email,
+      displayName: member.displayName || member.email,
+      role: normalizeRole(member.role),
+      // Dicatat untuk jejak, bukan untuk hak: tidak ada pemeriksaan izin yang
+      // membaca bendera ini. Peran platform tidak pernah ikut lewat jalur ini.
+      via: 'service',
+      platformAdmin: false,
+    };
+    return null;
+  }
+
   app.addHook('onRequest', async (request, reply) => {
     if (!request.url.startsWith('/v1/') || request.url.startsWith('/v1/auth/login') || request.url.startsWith('/v1/auth/signup')) return;
     const suppliedKey = request.headers['x-api-key'];
     const session = verifySession(getCookie(request.headers.cookie, 'agnee_session'), config.sessionSecret);
-    if (suppliedKey === config.apiKey) {
-      // Cabang ini KELUAR dari hook lebih dulu, jadi gerbang di bawah tidak
-      // pernah dijalankan untuknya. Konsol platform harus ditolak di sini juga,
-      // atau satu kunci API yang bocor berubah dari "akses satu tenant" menjadi
-      // "akses seluruh pelanggan".
-      if (request.url.startsWith('/v1/superhuman/')) {
-        return reply.code(403).send({ error: 'Konsol ini hanya untuk administrator platform Agnee.' });
-      }
-      // API-key callers must name the company they act for — there is no
-      // implicit default tenant to fall back to.
-      const requested = request.headers['x-agnee-company'];
-      if (!requested) {
-        return reply.code(400).send({ error: 'Header x-agnee-company wajib diisi (id atau slug perusahaan).' });
-      }
-      const companyId = database.status().connected
-        ? await database.resolveCompanyId(requested)
-        : null;
-      if (!companyId) {
-        return reply.code(404).send({ error: 'Perusahaan tidak ditemukan.' });
-      }
-      request.agneeSession = { apiClient: true, role: 'supervisor', displayName: 'Sistem', companyId };
+    if (suppliedKey !== undefined && safeEqual(suppliedKey, config.apiKey)) {
+      const refused = await serviceSession(request);
+      if (refused) return reply.code(refused.status).send({ error: refused.error });
       return;
     }
     if (!session) return reply.code(401).send({ error: 'Unauthorized' });
@@ -2355,7 +2390,9 @@ async function buildApp(overrides = {}) {
     } } },
   }, async (request, reply) => {
     if (!database.status().connected) return reply.code(503).send({ error: 'Tidak tersedia.' });
-    if (!request.agneeSession?.apiClient) {
+    // Tidak ada jalur pengecualian: tim Agnee mengubah paket lewat konsol
+    // platform (PATCH /v1/superhuman/companies/:companyId), bukan lewat sini.
+    {
       const attempted = ENTITLEMENT_FIELDS.filter((field) => request.body[field] !== undefined);
       if (attempted.length) {
         app.log.warn({ companyId: request.agneeSession.companyId, userId: request.agneeSession.userId, attempted },

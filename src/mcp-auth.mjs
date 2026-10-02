@@ -1,10 +1,13 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { READ_SCOPE, WRITE_SCOPE } from './mcp-context.mjs';
 
-const READ_SCOPE = 'whatsapp:read';
-const WRITE_SCOPE = 'whatsapp:write';
 const SCOPES = [READ_SCOPE, WRITE_SCOPE];
+
+/** Failed sign-ins per client address before the form stops answering. */
+const LOGIN_WINDOW_MS = 15 * 60_000;
+const LOGIN_MAX_FAILURES = 5;
 
 function base64url(value) {
   return Buffer.from(value).toString('base64url');
@@ -57,13 +60,39 @@ function redirectAllowed(value) {
   }
 }
 
-export function createMcpOAuth({ publicUrl, legacyBearerToken, signingSecret, adminEmail, adminPassword, statePath }) {
+/**
+ * OAuth for the MCP gateway. Every connection signs in with a real Agnee
+ * account (checked by the backend's own login), and every token it gets is
+ * bound to that member and that member's company. There is no shared admin
+ * login and no default tenant.
+ *
+ *   authenticate(email, password) → { userId, companyId, displayName } | null
+ *   legacyBearerToken + legacyIdentity — an optional static token for the
+ *     deployment smoke test. Read-only, and only when legacyIdentity names
+ *     the member it acts as; without that it is not accepted at all.
+ */
+export function createMcpOAuth({ publicUrl, legacyBearerToken, legacyIdentity, signingSecret, authenticate, statePath }) {
   const resource = new URL(publicUrl).toString().replace(/\/$/, '');
   const issuer = new URL(resource).origin;
   const resourceMetadata = `${issuer}/.well-known/oauth-protected-resource`;
   const clients = new Map();
   const codes = new Map();
   const refreshTokens = new Map();
+  const loginFailures = new Map();
+
+  function loginBlocked(ip) {
+    const record = loginFailures.get(ip);
+    if (!record || record.resetAt < Date.now()) return false;
+    return record.count >= LOGIN_MAX_FAILURES;
+  }
+
+  function loginFailed(ip) {
+    const now = Date.now();
+    const record = loginFailures.get(ip);
+    if (!record || record.resetAt < now) loginFailures.set(ip, { count: 1, resetAt: now + LOGIN_WINDOW_MS });
+    else record.count += 1;
+    if (loginFailures.size > 5000) loginFailures.clear();
+  }
 
   function loadState() {
     if (!statePath || !fs.existsSync(statePath)) return;
@@ -89,12 +118,13 @@ export function createMcpOAuth({ publicUrl, legacyBearerToken, signingSecret, ad
     fs.renameSync(temporary, statePath);
   }
 
-  function signAccessToken({ subject, scopes, lifetime = 3600 }) {
+  function signAccessToken({ subject, companyId, scopes, lifetime = 3600 }) {
     const now = Math.floor(Date.now() / 1000);
     const header = base64url(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
     const payload = base64url(JSON.stringify({
       iss: issuer,
       sub: subject,
+      cid: companyId,
       aud: resource,
       scope: scopes.join(' '),
       iat: now,
@@ -105,8 +135,12 @@ export function createMcpOAuth({ publicUrl, legacyBearerToken, signingSecret, ad
     return `${header}.${payload}.${signature}`;
   }
 
+  /** The identity behind a token — { userId, companyId, scopes } — or null. */
   function verifyAccessToken(token, requiredScope = READ_SCOPE) {
-    if (legacyBearerToken && safeEqual(token, legacyBearerToken)) return { sub: 'legacy-smoke-test', scope: SCOPES.join(' ') };
+    if (legacyBearerToken && legacyIdentity?.userId && legacyIdentity?.companyId && safeEqual(token, legacyBearerToken)) {
+      if (requiredScope && requiredScope !== READ_SCOPE) return null;
+      return { userId: legacyIdentity.userId, companyId: legacyIdentity.companyId, scopes: [READ_SCOPE] };
+    }
     const parts = String(token).split('.');
     if (parts.length !== 3) return null;
     const expected = crypto.createHmac('sha256', signingSecret).update(`${parts[0]}.${parts[1]}`).digest('base64url');
@@ -115,8 +149,10 @@ export function createMcpOAuth({ publicUrl, legacyBearerToken, signingSecret, ad
       const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
       const scopes = String(payload.scope || '').split(/\s+/);
       if (payload.iss !== issuer || payload.aud !== resource || payload.exp <= Math.floor(Date.now() / 1000)) return null;
+      // Tokens from before accounts were per member carry no company: refuse.
+      if (!payload.sub || !payload.cid) return null;
       if (requiredScope && !scopes.includes(requiredScope)) return null;
-      return payload;
+      return { userId: payload.sub, companyId: payload.cid, scopes };
     } catch {
       return null;
     }
@@ -141,7 +177,7 @@ export function createMcpOAuth({ publicUrl, legacyBearerToken, signingSecret, ad
     return { client, clientId, redirectUri, requestedResource, scopes };
   }
 
-  async function handle(request, response, url) {
+  async function handle(request, response, url, clientIp = 'unknown') {
     if (request.method === 'GET' && (url.pathname === '/.well-known/oauth-protected-resource' || url.pathname === '/.well-known/oauth-protected-resource/mcp')) {
       json(response, 200, {
         resource,
@@ -200,21 +236,35 @@ export function createMcpOAuth({ publicUrl, legacyBearerToken, signingSecret, ad
         json(response, 400, validated);
         return true;
       }
+      const asksWrite = validated.scopes.includes(WRITE_SCOPE);
+      const purpose = asksWrite
+        ? 'membaca percakapan dan <strong>mengirim balasan WhatsApp</strong> atas nama Anda'
+        : 'membaca percakapan (tanpa mengirim pesan)';
       const hidden = [...url.searchParams.entries()].map(([key, value]) => `<input type="hidden" name="${html(key)}" value="${html(value)}">`).join('');
       response.writeHead(200, {
         'content-type': 'text/html; charset=utf-8',
         'cache-control': 'no-store',
         'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
       });
-      response.end(`<!doctype html><html lang="id"><meta name="viewport" content="width=device-width"><title>Hubungkan Agnee</title><style>body{font:16px system-ui;background:#f4f5ef;color:#102820;display:grid;place-items:center;min-height:100vh;margin:0}.card{width:min(390px,calc(100% - 48px));padding:32px;background:white;border:1px solid #dce3dc;border-radius:24px;box-shadow:0 24px 70px #183c2920}h1{margin:0 0 8px}p{color:#5d6d65}label{display:block;margin:18px 0 6px;font-weight:650}input{box-sizing:border-box;width:100%;padding:13px;border:1px solid #bcc8c0;border-radius:12px;font:inherit}button{width:100%;margin-top:22px;padding:14px;border:0;border-radius:12px;background:#102820;color:white;font:700 16px system-ui}</style><body><form class="card" method="post" action="/oauth/authorize"><h1>Hubungkan Agnee</h1><p>Izinkan klien MCP membaca percakapan dan mengirim balasan WhatsApp atas instruksi Anda.</p>${hidden}<label>Email admin</label><input name="email" type="email" autocomplete="username" required><label>Password</label><input name="password" type="password" autocomplete="current-password" required><button type="submit">Masuk dan izinkan</button></form></body></html>`);
+      response.end(`<!doctype html><html lang="id"><meta name="viewport" content="width=device-width"><title>Hubungkan Agnee</title><style>body{font:16px system-ui;background:#f4f5ef;color:#102820;display:grid;place-items:center;min-height:100vh;margin:0}.card{width:min(390px,calc(100% - 48px));padding:32px;background:white;border:1px solid #dce3dc;border-radius:24px;box-shadow:0 24px 70px #183c2920}h1{margin:0 0 8px}p{color:#5d6d65}label{display:block;margin:18px 0 6px;font-weight:650}input{box-sizing:border-box;width:100%;padding:13px;border:1px solid #bcc8c0;border-radius:12px;font:inherit}button{width:100%;margin-top:22px;padding:14px;border:0;border-radius:12px;background:#102820;color:white;font:700 16px system-ui}</style><body><form class="card" method="post" action="/oauth/authorize"><h1>Hubungkan Agnee</h1><p>${html(validated.client.client_name)} meminta izin ${purpose}. Masuk dengan akun Agnee Anda; aksesnya sama dengan akses Anda di aplikasi.</p>${hidden}<label>Email akun Agnee</label><input name="email" type="email" autocomplete="username" required><label>Password</label><input name="password" type="password" autocomplete="current-password" required><button type="submit">Masuk dan izinkan</button></form></body></html>`);
       return true;
     }
 
     if (request.method === 'POST' && url.pathname === '/oauth/authorize') {
       const params = new URLSearchParams(await readBody(request));
       const validated = validateAuthorize(params);
-      if (validated.error || !safeEqual(params.get('email'), adminEmail) || !safeEqual(params.get('password'), adminPassword)) {
-        json(response, 401, { error: validated.error || 'access_denied', error_description: 'Login admin tidak valid.' });
+      if (validated.error) {
+        json(response, 400, validated);
+        return true;
+      }
+      if (loginBlocked(clientIp)) {
+        json(response, 429, { error: 'access_denied', error_description: 'Terlalu banyak percobaan login. Coba lagi dalam 15 menit.' }, { 'retry-after': '900' });
+        return true;
+      }
+      const member = await authenticate(String(params.get('email') || ''), String(params.get('password') || '')).catch(() => null);
+      if (!member?.userId || !member?.companyId) {
+        loginFailed(clientIp);
+        json(response, 401, { error: 'access_denied', error_description: 'Email atau password salah.' });
         return true;
       }
       const code = randomToken(32);
@@ -224,7 +274,8 @@ export function createMcpOAuth({ publicUrl, legacyBearerToken, signingSecret, ad
         resource: validated.requestedResource,
         scopes: validated.scopes,
         codeChallenge: params.get('code_challenge'),
-        subject: params.get('email'),
+        subject: member.userId,
+        companyId: member.companyId,
         expiresAt: Date.now() + 5 * 60_000,
       });
       const destination = new URL(validated.redirectUri);
@@ -265,7 +316,7 @@ export function createMcpOAuth({ publicUrl, legacyBearerToken, signingSecret, ad
         const oldToken = params.get('refresh_token');
         const record = refreshTokens.get(oldToken);
         refreshTokens.delete(oldToken);
-        if (!record || record.expiresAt < Date.now() || record.clientId !== params.get('client_id') || record.resource !== params.get('resource')) {
+        if (!record || !record.companyId || record.expiresAt < Date.now() || record.clientId !== params.get('client_id') || record.resource !== params.get('resource')) {
           json(response, 400, { error: 'invalid_grant' });
           return true;
         }

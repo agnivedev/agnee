@@ -89,6 +89,9 @@ function loadConfig(overrides = {}) {
     demoMode: process.env.WA_DEMO_MODE === 'true' || !startupEnabled,
     webhookUrl: process.env.INBOUND_WEBHOOK_URL || '',
     webhookSecret: process.env.INBOUND_WEBHOOK_SECRET || '',
+    // Agnive Insight → Agnee: salinan percakapan Agnive Hub. Kosong = pintu tertutup.
+    insightWebhookSecret: process.env.INSIGHT_WEBHOOK_SECRET || '',
+    insightWebhookCompany: process.env.INSIGHT_WEBHOOK_COMPANY || 'agnive',
     ackEnabled: process.env.WA_ACK_ENABLED === 'true',
     ackText: process.env.WA_ACK_TEXT || 'Terima kasih, pesan Anda sudah kami terima.',
     llmEnabled: process.env.LLM_ENABLED === 'true',
@@ -1835,6 +1838,86 @@ async function buildApp(overrides = {}) {
       database: { driver: db.driver, connected: db.connected },
       whatsapp: { demoMode: config.demoMode, activeCompanies: manager.activeCompanyCount() },
     };
+  });
+
+  // ── Agnive Insight → Agnee: percakapan Agnive Hub ─────────────────────────
+  //
+  // Insight mengirim keadaan LENGKAP satu thread (pendana ↔ tim peneliti)
+  // setiap kali ada yang berubah, dan mengulang sampai Agnee menjawab 2xx. Jadi
+  // kiriman ganda atau terlambat aman: yang terbaru selalu menimpa.
+  //
+  // Tanda tangan: HMAC-SHA256 atas `${timestamp}.${rawBody}` dengan
+  // INSIGHT_WEBHOOK_SECRET, di header x-agnive-signature (sha256=<hex>), dan
+  // timestamp (milidetik) di x-agnive-timestamp — ditolak bila selisihnya
+  // lebih dari 5 menit, supaya kiriman lama yang tersadap tidak bisa diputar
+  // ulang untuk mengembalikan data yang sudah dianonimkan.
+  const INSIGHT_SKEW_MS = 5 * 60_000;
+  const str = (value, max) => (typeof value === 'string' ? value.slice(0, max) : null);
+  const when = (value) => (typeof value === 'string' && !Number.isNaN(Date.parse(value)) ? new Date(value).toISOString() : null);
+
+  function parseHubThread(body) {
+    const t = body?.thread;
+    if (body?.version !== 1 || body?.source !== 'hub' || !t || typeof t !== 'object') return null;
+    const externalId = str(t.externalId, 100);
+    const startedAt = when(t.startedAt);
+    const lastMessageAt = when(t.lastMessageAt);
+    if (!externalId || !startedAt || !lastMessageAt || !Array.isArray(t.messages) || t.messages.length > 1000) return null;
+    const messages = [];
+    for (const m of t.messages) {
+      const id = str(m?.externalId, 120);
+      const occurredAt = when(m?.occurredAt);
+      if (!id || !occurredAt || !['contact', 'team'].includes(m?.author)) return null;
+      messages.push({ externalId: id, author: m.author, authorName: str(m.authorName, 200), body: str(m.body, 6000) ?? '', occurredAt });
+    }
+    return {
+      externalId,
+      status: t.status === 'closed' ? 'closed' : 'open',
+      contact: {
+        name: str(t.contact?.name, 200),
+        email: str(t.contact?.email, 200),
+        organization: str(t.contact?.organization, 200),
+      },
+      context: t.context && typeof t.context === 'object' && !Array.isArray(t.context) ? t.context : {},
+      anonymizedAt: when(t.anonymizedAt),
+      startedAt,
+      lastMessageAt,
+      messages,
+    };
+  }
+
+  app.post('/webhook/insight', {
+    bodyLimit: 2 * 1024 * 1024,
+    preParsing: async function captureRawBody(request, _reply, payload) {
+      const chunks = [];
+      for await (const chunk of payload) chunks.push(chunk);
+      const raw = Buffer.concat(chunks);
+      request.rawBody = raw;
+      const { Readable } = require('node:stream');
+      return Readable.from(raw);
+    },
+  }, async (request, reply) => {
+    if (!config.insightWebhookSecret) return reply.code(404).send({ error: 'Not found' });
+    const timestamp = String(request.headers['x-agnive-timestamp'] || '');
+    const signature = String(request.headers['x-agnive-signature'] || '');
+    const expected = 'sha256=' + crypto.createHmac('sha256', config.insightWebhookSecret)
+      .update(`${timestamp}.`).update(request.rawBody || Buffer.alloc(0)).digest('hex');
+    if (!signature || !safeEqual(signature, expected)) {
+      app.log.warn('Insight webhook: bad signature');
+      return reply.code(401).send({ error: 'Unauthorized' });
+    }
+    if (!/^\d{10,16}$/.test(timestamp) || Math.abs(Date.now() - Number(timestamp)) > INSIGHT_SKEW_MS) {
+      return reply.code(401).send({ error: 'Stale request' });
+    }
+    const thread = parseHubThread(request.body);
+    if (!thread) return reply.code(400).send({ error: 'Invalid thread payload' });
+    if (!database.status().connected) return reply.code(503).send({ error: 'Database unavailable' });
+    const companyId = await database.resolveCompanyId(config.insightWebhookCompany);
+    if (!companyId) {
+      app.log.error({ company: config.insightWebhookCompany }, 'Insight webhook: INSIGHT_WEBHOOK_COMPANY tidak ditemukan');
+      return reply.code(503).send({ error: 'Receiving company not configured' });
+    }
+    const id = await database.syncExternalThread(companyId, 'hub', thread);
+    return reply.code(200).send({ ok: true, id });
   });
 
   // ── Meta Cloud API webhook — public, no session ────────────────────────────
@@ -4857,6 +4940,29 @@ Aturan:
     await database.recordMayarSync(companyId, { error: null });
     return { count };
   }
+
+  // ── Percakapan dari luar WhatsApp (Agnive Hub, …) — baca saja ─────────────
+  // Hanya supervisor: isinya percakapan pendana dengan tim peneliti di luar
+  // Agnee, dan siapa yang boleh membacanya di antara staf belum diputuskan
+  // lebih luas dari itu.
+  app.get('/v1/external/threads', {
+    schema: { querystring: { type: 'object', properties: {
+      source: { type: 'string', enum: ['hub'] },
+      limit: { type: 'integer', minimum: 1, maximum: 100, default: 30 },
+      offset: { type: 'integer', minimum: 0, default: 0 },
+    } } },
+  }, async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya untuk supervisor.' });
+    const threads = await database.listExternalThreads(request.agneeSession.companyId, request.query);
+    return { threads };
+  });
+
+  app.get('/v1/external/threads/:threadId', async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya untuk supervisor.' });
+    const thread = await database.getExternalThread(request.agneeSession.companyId, request.params.threadId);
+    if (!thread) return reply.code(404).send({ error: 'Tidak ditemukan.' });
+    return { thread };
+  });
 
   app.get('/v1/integrations/mayar', async (request, reply) => {
     if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengatur integrasi.' });

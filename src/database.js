@@ -2443,6 +2443,90 @@ class Database {
    * Upsert satu batch ringkasan customer Mayar (satu baris per customer,
    * sudah diagregasi dari transaksinya oleh `src/mayar-sync.js`).
    */
+  /**
+   * Menimpa salinan satu thread dari luar dengan keadaan lengkapnya. Satu
+   * transaksi: thread dan seluruh pesannya selalu konsisten satu sama lain.
+   * Pesan yang sudah ada diperbarui (isi bisa dikosongkan saat anonimisasi);
+   * tidak ada pesan yang dihapus karena tidak ikut terkirim.
+   */
+  async syncExternalThread(companyId, source, thread) {
+    if (!this.enabled) return null;
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const saved = await client.query(`
+        INSERT INTO external_threads
+          (company_id, source, external_id, status, contact_name, contact_email, contact_org,
+           context, anonymized_at, started_at, last_message_at, received_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW())
+        ON CONFLICT (company_id, source, external_id) DO UPDATE SET
+          status = EXCLUDED.status,
+          contact_name = EXCLUDED.contact_name,
+          contact_email = EXCLUDED.contact_email,
+          contact_org = EXCLUDED.contact_org,
+          context = EXCLUDED.context,
+          anonymized_at = EXCLUDED.anonymized_at,
+          last_message_at = EXCLUDED.last_message_at,
+          received_at = NOW()
+        RETURNING id
+      `, [
+        companyId, source, thread.externalId, thread.status,
+        thread.contact.name, thread.contact.email, thread.contact.organization,
+        JSON.stringify(thread.context), thread.anonymizedAt, thread.startedAt, thread.lastMessageAt,
+      ]);
+      const threadId = saved.rows[0].id;
+      for (const message of thread.messages) {
+        await client.query(`
+          INSERT INTO external_messages (thread_id, external_id, author, author_name, body, occurred_at)
+          VALUES ($1, $2, $3, $4, $5, $6)
+          ON CONFLICT (thread_id, external_id) DO UPDATE SET
+            author_name = EXCLUDED.author_name, body = EXCLUDED.body
+        `, [threadId, message.externalId, message.author, message.authorName, message.body, message.occurredAt]);
+      }
+      await client.query('COMMIT');
+      return threadId;
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async listExternalThreads(companyId, { source, limit = 30, offset = 0 } = {}) {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(`
+      SELECT t.id, t.source, t.external_id AS "externalId", t.status,
+             t.contact_name AS "contactName", t.contact_email AS "contactEmail", t.contact_org AS "contactOrg",
+             t.context, t.anonymized_at AS "anonymizedAt", t.started_at AS "startedAt",
+             t.last_message_at AS "lastMessageAt",
+             (SELECT COUNT(*)::int FROM external_messages m WHERE m.thread_id = t.id) AS "messageCount",
+             (SELECT m.author FROM external_messages m WHERE m.thread_id = t.id
+                ORDER BY m.occurred_at DESC LIMIT 1) AS "lastAuthor"
+      FROM external_threads t
+      WHERE t.company_id = $1 AND ($2::text IS NULL OR t.source = $2)
+      ORDER BY t.last_message_at DESC
+      LIMIT $3 OFFSET $4
+    `, [companyId, source || null, limit, offset]);
+    return result.rows;
+  }
+
+  async getExternalThread(companyId, threadId) {
+    if (!this.enabled) return null;
+    const thread = await this.pool.query(`
+      SELECT id, source, external_id AS "externalId", status,
+             contact_name AS "contactName", contact_email AS "contactEmail", contact_org AS "contactOrg",
+             context, anonymized_at AS "anonymizedAt", started_at AS "startedAt", last_message_at AS "lastMessageAt"
+      FROM external_threads WHERE company_id = $1 AND id::text = $2
+    `, [companyId, threadId]);
+    if (!thread.rows[0]) return null;
+    const messages = await this.pool.query(`
+      SELECT external_id AS "externalId", author, author_name AS "authorName", body, occurred_at AS "occurredAt"
+      FROM external_messages WHERE thread_id = $1 ORDER BY occurred_at ASC
+    `, [thread.rows[0].id]);
+    return { ...thread.rows[0], messages: messages.rows };
+  }
+
   async upsertMayarLeads(companyId, leads) {
     if (!this.enabled || !leads.length) return 0;
     let count = 0;

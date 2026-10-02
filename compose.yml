@@ -30,6 +30,11 @@ services:
         GIT_SHA: ${GIT_SHA:-unknown}
     restart: unless-stopped
     stop_grace_period: 20s
+    # From inside this machine the public address bounces to the outer host
+    # (certificate for radmond.com); host-gateway reaches the local nginx,
+    # which serves app.insight.agnive.co itself. Used for the Hub feed (9c).
+    extra_hosts:
+      - "app.insight.agnive.co:host-gateway"
     env_file: .env
     environment:
       PGHOST: postgres
@@ -73,6 +78,11 @@ services:
         GIT_SHA: ${GIT_SHA:-unknown}
     restart: unless-stopped
     command: ["node", "src/mcp-http.mjs"]
+    # From inside this machine the public address bounces to the outer host
+    # (certificate for radmond.com); host-gateway reaches the local nginx,
+    # which serves app.insight.agnive.co itself. Used for the Hub feed (9c).
+    extra_hosts:
+      - "app.insight.agnive.co:host-gateway"
     env_file: .env
     environment:
       MCP_API_BASE_URL: http://app:4100

@@ -15,6 +15,21 @@ import { useI18n, usePageTitle } from '@/lib/i18n';
 import { AppSidebar } from '@/components/AppSidebar';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { CoachSection } from './CoachSection';
+import { BriefSection } from './BriefSection';
+
+/**
+ * Semua yang membentuk jawaban AI, di satu tempat. Dulu tersebar di empat
+ * layar — playbook di sini, fakta & simulasi (Coach) di Settings, brief & file
+ * di Admin, plus playground di Admin yang membangun prompt-nya sendiri —
+ * padahal keempatnya digabung ke prompt yang sama.
+ */
+type Section = 'playbook' | 'coach' | 'brief';
+const SECTIONS: Section[] = ['playbook', 'coach', 'brief'];
+function sectionFromHash(): Section {
+  const hash = window.location.hash.replace('#', '');
+  return (SECTIONS as string[]).includes(hash) ? (hash as Section) : 'playbook';
+}
 
 /** One icon per document kind, so the list reads at a glance, not just by label text. */
 const KIND_ICON: Record<string, LucideIcon> = {
@@ -244,8 +259,57 @@ function ChatPanel({ kind, interview, onCompiled }: {
 }
 
 export function KnowledgePage() {
-  const { t, locale } = useI18n();
+  const { t } = useI18n();
   usePageTitle(t('knowledge.title'));
+  const [section, setSection] = useState<Section>(sectionFromHash);
+
+  useEffect(() => {
+    const follow = () => setSection(sectionFromHash());
+    window.addEventListener('hashchange', follow);
+    return () => window.removeEventListener('hashchange', follow);
+  }, []);
+
+  function select(next: Section) {
+    setSection(next);
+    window.history.replaceState({}, '', `${window.location.pathname}#${next}`);
+  }
+
+  return (
+    <div className="flex min-h-dvh flex-col bg-background md:flex-row">
+      <AppSidebar />
+      <main className="min-w-0 flex-1 px-4 py-7 sm:px-8">
+        <p className="eyebrow">{t('knowledge.eyebrow')}</p>
+        <h1 className="mt-1 mb-1 text-[26px] tracking-[-.03em]">{t('knowledge.title')}</h1>
+        <p className="mt-1.5 mb-5 max-w-2xl text-sm text-muted">{t('knowledge.intro')}</p>
+
+        <div role="tablist" aria-label={t('knowledge.title')} className="mb-6 flex flex-wrap gap-1 border-b border-border">
+          {SECTIONS.map((id) => (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              aria-selected={section === id}
+              onClick={() => select(id)}
+              className={cn(
+                'cursor-pointer border-0 border-b-2 bg-transparent px-4 py-3 text-[13px] font-medium transition-colors',
+                section === id ? 'border-b-green text-ink' : 'border-b-transparent text-muted hover:text-ink',
+              )}
+            >
+              {t(`knowledge.section.${id}`)}
+            </button>
+          ))}
+        </div>
+
+        {section === 'playbook' ? <PlaybookDocs /> : null}
+        {section === 'coach' ? <div className="max-w-4xl"><CoachSection /></div> : null}
+        {section === 'brief' ? <div className="max-w-4xl"><BriefSection /></div> : null}
+      </main>
+    </div>
+  );
+}
+
+function PlaybookDocs() {
+  const { t, locale } = useI18n();
   const [kinds, setKinds] = useState<Kind[]>([]);
   const [active, setActive] = useState<string | null>(null);
   const [doc, setDoc] = useState<Doc | null>(null);
@@ -286,13 +350,7 @@ export function KnowledgePage() {
   const dateLocale = locale === 'en' ? 'en-GB' : 'id-ID';
 
   return (
-    <div className="flex min-h-dvh flex-col bg-background md:flex-row">
-      <AppSidebar />
-      <main className="min-w-0 flex-1 px-4 py-7 sm:px-8">
-        <p className="eyebrow">{t('knowledge.eyebrow')}</p>
-        <h1 className="mt-1 mb-1 text-[26px] tracking-[-.03em]">{t('knowledge.title')}</h1>
-        <p className="mt-1.5 mb-6 max-w-2xl text-sm text-muted">{t('knowledge.intro')}</p>
-
+      <>
         {status ? <p className="mb-4 text-[13px] text-danger">{status}</p> : null}
         {loading ? <p className="font-mono text-sm text-muted">{t('common.loading')}</p> : null}
 
@@ -391,7 +449,6 @@ export function KnowledgePage() {
             </section>
           </div>
         ) : null}
-      </main>
-    </div>
+      </>
   );
 }

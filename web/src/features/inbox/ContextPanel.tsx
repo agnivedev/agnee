@@ -4,7 +4,7 @@ import { useI18n } from '@/lib/i18n';
 import { useSession } from '@/lib/session';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { FollowUpSection } from './FollowUpDialog';
+import { ManualFollowUp } from './FollowUpDialog';
 import { PIPELINE_STAGES, usePipelineStage } from './usePipelineStage';
 import { NoteThread } from '@/components/mentions/NoteThread';
 import type { Chat, Handoff, Lead, PipelineStage, Routing, TeamMember } from './types';
@@ -151,20 +151,6 @@ export function ContextPanel({
     }
   }
 
-
-  async function handoff() {
-    if (!chatId) return;
-    try {
-      await api(`/v1/chats/${encodeURIComponent(chatId)}/assign`, {
-        method: 'POST',
-        body: { assignee: 'Sales team' },
-      });
-      const refreshed = await api<Lead>(`/v1/chats/${encodeURIComponent(chatId)}/lead`);
-      setLead(refreshed);
-    } catch {
-      /* the button re-enables itself on the next render */
-    }
-  }
 
   const { setStage: setPipelineStageFor, dismissSuggestion: dismissPipelineSuggestionFor } = usePipelineStage(
     setLead,
@@ -552,19 +538,7 @@ export function ContextPanel({
 
       {/* Groups are excluded server-side too — a follow-up in a group is seen by
           everyone in it, which is never what a follow-up is for. */}
-      {chat && !chat.isGroup && isSupervisor ? <FollowUpSection chat={chat} /> : null}
-
-      {chat ? (
-        <Button
-          size="lg"
-          disabled={lead?.stage === 'assigned'}
-          onClick={() => void handoff()}
-          className="mt-2 w-full justify-between"
-        >
-          <span>{lead?.stage === 'assigned' ? t('lead.handedOff', { name: lead.assignee || '' }) : t('lead.handoff')}</span>
-          <span aria-hidden>→</span>
-        </Button>
-      ) : null}
+      {chat && !chat.isGroup && isSupervisor ? <ManualFollowUp chat={chat} /> : null}
     </aside>
   );
 }

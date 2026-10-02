@@ -2524,10 +2524,17 @@ async function buildApp(overrides = {}) {
 
   // Plan & company config management (supervisor only)
   app.get('/v1/admin/company', async (request, reply) => {
+    const companyId = request.agneeSession?.companyId;
     const config_ = database.status().connected
-      ? await database.getCompanyConfig(request.agneeSession?.companyId)
+      ? await database.getCompanyConfig(companyId)
       : { plan: 'company', planStatus: 'beta', knowledgeClient: config.knowledgeClient, aiMessageLimit: 0, aiMessageCount: 0, maxUsers: 5, maxPlaybooks: 0, maxWhatsapp: 0 };
-    return config_ || reply.code(503).send({ error: 'Tidak tersedia.' });
+    if (!config_) return reply.code(503).send({ error: 'Tidak tersedia.' });
+    // Pemakaian ikut dikirim supaya kartu Paket bisa menampilkan SEMUA plafon
+    // (anggota, nomor), bukan hanya kuota AI.
+    const usage = typeof database.getCompanyUsage === 'function' && database.status().connected
+      ? await database.getCompanyUsage(companyId).catch(() => null)
+      : null;
+    return { ...config_, usage: usage ? { currentUsers: usage.currentUsers, currentWhatsapp: usage.currentWhatsapp } : null };
   });
 
   // What a company is ENTITLED to (plan, status, quotas) versus how it CHOOSES
@@ -2989,50 +2996,24 @@ ${thread || '(belum ada)'}`,
     return reply.code(201).send({ note });
   });
 
-  const KNOWLEDGE_CLIENT_NAMES = {
-    bzone: 'bZone Alpha / Bengkel EA Gold',
-    tradersmastermind: "Trader's Mastermind",
-    agnee: 'Agnee by Agnive (internal)',
-  };
-
-  /**
-   * Pack knowledge yang BOLEH dipakai pemanggil ini.
-   *
-   * Isinya FAQ, harga, funnel, dan reply policy milik satu pelanggan —
-   * `ENTITLEMENT_FIELDS` di atas menyebutnya proprietary, per-customer, dan
-   * hanya staf platform yang boleh mengubahnya. Tapi daftar ini dulu memuat
-   * SEMUA pack, dan playground menerima pack mana pun dari daftar itu: satu
-   * supervisor pelanggan bisa membaca isi pack pelanggan lain lewat jawaban
-   * AI. Sekarang pelanggan hanya melihat dan hanya boleh memakai pack-nya
-   * sendiri; staf platform tetap bisa memilih semuanya untuk menguji.
-   */
-  function knowledgeClientFor(session) {
-    return knowledgeClientOf(session?.companyId);
-  }
-
-  function allowedKnowledgeClients(session, activeClient) {
-    if (isPlatformAdmin(session)) {
-      return Object.entries(KNOWLEDGE_CLIENT_NAMES).map(([id, name]) => ({ id, name }));
-    }
-    return [{ id: activeClient, name: KNOWLEDGE_CLIENT_NAMES[activeClient] || activeClient }];
-  }
-
-  app.get('/v1/admin/config', async (request) => {
-    const activeClient = await knowledgeClientFor(request.agneeSession);
-    const knowledgeClients = allowedKnowledgeClients(request.agneeSession, activeClient);
-
-    return {
-      llmEnabled: Boolean(llmService.enabled),
-      model: llmService.model || config.openrouterModel,
-      defaultKnowledgeClient: activeClient,
-      database: database.status(),
-      knowledgeClients,
-    };
-  });
-
+  // `enabled` adalah saklar company ini — yang ditulis PATCH di bawah. Dulu GET
+  // mengembalikan hasil gabungan (saklar × mesin platform × paket aktif), jadi
+  // company yang paketnya berhenti melihat saklarnya "mati" padahal tidak
+  // pernah dimatikan siapa pun. Hasil gabungannya sekarang terpisah:
+  // `effective` dan `reason` ('suspended' | 'off').
   app.get('/v1/admin/ai-settings', async (request) => {
-    const settings = await getCompanyAi(request.agneeSession.companyId);
-    return { enabled: settings.enabled, modelChain: settings.modelChain, defaultModel: config.openrouterModel };
+    const companyId = request.agneeSession.companyId;
+    const raw = typeof database.getAiSettings === 'function' && database.enabled && database.connected
+      ? await database.getAiSettings(companyId).catch(() => null)
+      : null;
+    const effective = await getCompanyAi(companyId);
+    return {
+      enabled: raw ? raw.enabled !== false : effective.enabled,
+      effective: effective.enabled,
+      reason: effective.reason,
+      modelChain: effective.modelChain,
+      defaultModel: config.openrouterModel,
+    };
   });
 
   app.patch('/v1/admin/ai-settings', {
@@ -3063,119 +3044,6 @@ ${thread || '(belum ada)'}`,
     const settings = await database.setAiSettings(request.agneeSession.companyId, patch);
     return { ok: true, enabled: settings.enabled, modelChain: settings.modelChain };
   });
-
-  app.post('/v1/admin/playground/auto-reply', {
-    schema: {
-      body: {
-        type: 'object',
-        additionalProperties: false,
-        required: ['message', 'clientId'],
-        properties: {
-          message: { type: 'string', minLength: 1, maxLength: 2000 },
-          clientId: { type: 'string', enum: Object.keys(KNOWLEDGE_CLIENT_NAMES) },
-        },
-      },
-    },
-  }, async (request, reply) => {
-    // Otorisasi lebih dulu, sebelum cek ketersediaan apa pun. Enum di schema
-    // hanya memastikan pack-nya ada, bukan bahwa pack itu milik perusahaan ini
-    // — tanpa pemeriksaan ini playground jadi pembaca isi pack pelanggan lain.
-    // Kalau ditaruh setelah gerbang "OpenRouter aktif", jawaban untuk pack
-    // orang lain berubah-ubah mengikuti status LLM, dan itu sendiri sudah
-    // memberi tahu pemanggil bahwa pack itu ada.
-    const activeClient = await knowledgeClientFor(request.agneeSession);
-    if (request.body.clientId !== activeClient && !isPlatformAdmin(request.agneeSession)) {
-      return reply.code(403).send({ error: 'Playground hanya bisa memakai knowledge milik perusahaan ini.' });
-    }
-
-    const companyAi = await getCompanyAi(request.agneeSession.companyId);
-    if (!companyAi.enabled) {
-      return aiUnavailable(reply, companyAi);
-    }
-    // Satu-satunya rute AI yang dulu sama sekali tanpa batas: tiap kiriman
-    // memanggil model, dan tidak menagih kuota (kuota berarti pesan ke
-    // customer). Rem yang sama dengan coach/playbook — per company, per jam.
-    if (coachRateLimited(request.agneeSession.companyId)) {
-      return reply.code(429).send({ error: 'Terlalu banyak permintaan AI. Coba lagi nanti.' });
-    }
-
-    const message = request.body.message.trim();
-    if (!message) return reply.code(400).send({ error: 'Pesan tidak boleh kosong.' });
-
-    const playgroundKnowledge = new KnowledgeBase({ clientId: request.body.clientId });
-    await playgroundKnowledge.load();
-    if (!playgroundKnowledge.loaded) return reply.code(404).send({ error: 'Knowledge client tidak ditemukan.' });
-
-    const relevantFaqs = playgroundKnowledge.findRelevantFaq(message);
-
-    // Mirror the live auto-reply path: the company playbook outranks the file
-    // knowledge base, so a test that omits it does not show what customers get.
-    const playbookContext = typeof database.getPlaybookContext === 'function'
-      && database.status().connected && request.agneeSession?.companyId
-      ? await database.getPlaybookContext(request.agneeSession.companyId).catch(() => '')
-      : '';
-    const systemPrompt = playbookContext
-      ? `${playgroundKnowledge.getSystemPrompt()}\n\n## PLAYBOOK PERUSAHAAN INI (SUMBER UTAMA — prioritaskan di atas knowledge umum di atas)\n${playbookContext}`
-      : playgroundKnowledge.getSystemPrompt();
-
-    const startedAt = Date.now();
-    // Same Hub look-ups the live bot gets, so a test shows what customers get.
-    const playgroundConfig = database.status().connected && typeof database.getCompanyConfig === 'function'
-      ? await database.getCompanyConfig(request.agneeSession.companyId).catch(() => null)
-      : null;
-    const playgroundTools = playgroundConfig?.hubToolsEnabled ? hubListingTools() : [];
-    const result = await llmService.generateReply(message, {
-      systemPrompt: playgroundTools.length ? `${systemPrompt}\n\n${HUB_TOOLS_GUIDE}` : systemPrompt,
-      relevantFaqs,
-      companyId: request.agneeSession.companyId,
-      purpose: 'playground',
-      modelChain: companyAi.modelChain,
-      tools: playgroundTools,
-    });
-    if (!result) return reply.code(502).send({ error: 'OpenRouter tidak menghasilkan balasan.' });
-
-    const expectsDirectHandoff = /\b(?:bicara|hubungkan|teruskan|handoff)\b.*\b(?:sales|tim|manusia|admin|agent)\b/i.test(message)
-      || /\b(?:sales|tim|manusia|admin|agent)\b.*\b(?:bicara|hubungkan|teruskan|handoff)\b/i.test(message);
-    const warnings = styleWarnings(result.text, { expectDirectHandoff: expectsDirectHandoff });
-
-    const response = {
-      reply: result.text,
-      model: result.model || llmService.model || config.openrouterModel,
-      clientId: request.body.clientId,
-      matchedFaqs: relevantFaqs.map((faq) => ({ id: faq.id, source: faq.source, score: faq.score })),
-      usage: normalizeUsage(result),
-      style: { passed: warnings.length === 0, warnings },
-      elapsedMs: Date.now() - startedAt,
-      sentToWhatsapp: false,
-      toolCalls: result.toolCalls || [],
-    };
-    try {
-      const saved = await database.recordPlaygroundRun({
-        clientId: response.clientId,
-        message,
-        reply: response.reply,
-        model: response.model,
-        matchedFaqs: response.matchedFaqs,
-        usage: response.usage,
-        style: response.style,
-        elapsedMs: response.elapsedMs,
-      }, request.agneeSession.companyId);
-      response.persistence = { driver: database.status().driver, saved: Boolean(saved), id: saved?.id || null };
-    } catch (error) {
-      app.log.error({ err: error }, 'Could not persist playground run');
-      response.persistence = { driver: database.status().driver, saved: false, id: null };
-    }
-    return response;
-  });
-
-  app.get('/v1/admin/playground/runs', {
-    schema: { querystring: { type: 'object', properties: {
-      limit: { type: 'integer', minimum: 1, maximum: 100, default: 20 },
-    } } },
-  }, async (request) => ({
-    database: database.status(),
-    runs: await database.listPlaygroundRuns(request.query.limit || 20, request.agneeSession.companyId),
-  }));
 
   // ── /superhuman: konsol platform Agnee ────────────────────────────────────
   //
@@ -3247,6 +3115,23 @@ ${thread || '(belum ada)'}`,
     return { companies, total, offset: request.query.offset || 0 };
   });
 
+  /**
+   * Pack knowledge yang benar-benar ada di disk. Konsol platform satu-satunya
+   * tempat mengubah `knowledge_client`; dulu tidak ada jalan sama sekali selain
+   * SQL, karena PATCH tenant (sengaja) menolaknya dan konsol tidak menerimanya.
+   */
+  function knowledgePacks() {
+    const dir = path.join(__dirname, '..', 'knowledge', 'clients');
+    try {
+      return fsSync.readdirSync(dir, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => entry.name)
+        .sort();
+    } catch {
+      return [NEUTRAL_KNOWLEDGE_CLIENT];
+    }
+  }
+
   app.get('/v1/superhuman/companies/:companyId', {
     schema: { params: { type: 'object', required: ['companyId'], properties: {
       companyId: { type: 'string', pattern: UUID_PATTERN },
@@ -3263,7 +3148,7 @@ ${thread || '(belum ada)'}`,
     await recordPlatformAudit(request, 'platform.company.viewed', detail.company.id, {
       slug: detail.company.slug,
     });
-    return detail;
+    return { ...detail, knowledgePacks: knowledgePacks() };
   });
 
   app.patch('/v1/superhuman/companies/:companyId', {
@@ -3283,11 +3168,20 @@ ${thread || '(belum ada)'}`,
         maxWhatsapp: { type: 'integer', minimum: 0, maximum: 10_000 },
         // Whether this company's chatbot may look up Agnive Hub listings (9d).
         hubToolsEnabled: { type: 'boolean' },
+        knowledgeClient: { type: 'string', pattern: '^[a-z0-9-]{1,60}$' },
       } },
     },
   }, async (request, reply) => {
     if (!database.status().connected) {
       return reply.code(503).send({ error: 'Konsol platform butuh PostgreSQL.' });
+    }
+    if (request.body.knowledgeClient !== undefined && !knowledgePacks().includes(request.body.knowledgeClient)) {
+      return reply.code(400).send({ error: 'Pack knowledge itu tidak ada.' });
+    }
+    // Tanggal yang tidak bisa dibaca dulu jatuh ke Postgres dan kembali sebagai
+    // 500 berisi pesan error mentahnya.
+    if (request.body.trialEndsAt && Number.isNaN(Date.parse(request.body.trialEndsAt))) {
+      return reply.code(400).send({ error: 'Tanggal trial tidak valid.' });
     }
     const before = await database.getPlatformCompany(request.params.companyId);
     if (!before) return reply.code(404).send({ error: 'Tenant tidak ditemukan.' });
@@ -3310,7 +3204,7 @@ ${thread || '(belum ada)'}`,
         changes,
       });
     }
-    return detail;
+    return { ...detail, knowledgePacks: knowledgePacks() };
   });
 
   // ── Reply Coach: source of truth, simulation, and grading ─────────────────
@@ -3627,6 +3521,10 @@ Aturan:
         companyId,
         purpose: 'simulate',
         modelChain: companyAi.modelChain,
+        // Alat yang sama dengan balasan WhatsApp sungguhan (alat Hub untuk
+        // company yang menyalakannya) — simulasi tanpa alat itu menguji balasan
+        // yang tidak akan pernah diterima customer.
+        tools: ctx.tools,
       }).catch(() => null);
       if (!generated?.text && mode === 'ai') {
         return reply.code(502).send({ error: 'AI tidak menghasilkan balasan.' });
@@ -6006,33 +5904,6 @@ Aturan:
       });
     }
     return { leads };
-  });
-
-  app.post('/v1/chats/:chatId/assign', {
-    schema: {
-      params: { type: 'object', required: ['chatId'], properties: {
-        chatId: { type: 'string', minLength: 1, maxLength: 128 },
-      } },
-      body: { type: 'object', additionalProperties: false, properties: {
-        assignee: { type: 'string', minLength: 1, maxLength: 100, default: 'Sales team' },
-      } },
-    },
-  }, async (request, reply) => {
-    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat menandai lead.' });
-    const companyId = request.agneeSession.companyId;
-    const currentLead = await getLeadState(request.params.chatId, companyId);
-    const lead = {
-      ...currentLead,
-      stage: 'assigned',
-      score: currentLead.score ?? 70,
-      title: 'Assigned lead',
-      detail: `Ditugaskan ke ${request.body?.assignee || 'Sales team'}.`,
-      assignee: request.body?.assignee || 'Sales team',
-    };
-    leadStates.set(`${companyId}:${request.params.chatId}`, lead);
-    await database.saveLeadState(lead, companyId);
-    broadcastEvent(companyId, 'lead', lead);
-    return lead;
   });
 
   app.post('/v1/chats/:chatId/mark-read', {

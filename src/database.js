@@ -791,61 +791,6 @@ class Database {
     return result.rows[0];
   }
 
-  async recordPlaygroundRun(run, companyId) {
-    if (!this.enabled) return null;
-    const result = await this.pool.query(`
-      INSERT INTO playground_runs (
-        company_id, user_id, client_id, message, reply, model, matched_faqs,
-        input_tokens, output_tokens, total_tokens, cost_usd,
-        style_passed, style_warnings, elapsed_ms
-      )
-      VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12, $13::jsonb, $14)
-      RETURNING id, created_at AS "createdAt"
-    `, [
-      companyId,
-      run.userId || null,
-      run.clientId,
-      run.message,
-      run.reply,
-      run.model,
-      JSON.stringify(run.matchedFaqs),
-      run.usage.inputTokens,
-      run.usage.outputTokens,
-      run.usage.totalTokens,
-      run.usage.costUsd,
-      run.style.passed,
-      JSON.stringify(run.style.warnings),
-      run.elapsedMs,
-    ]);
-    return result.rows[0];
-  }
-
-  async listPlaygroundRuns(limit = 20, companyId) {
-    if (!this.enabled) return [];
-    const result = await this.pool.query(`
-      SELECT
-        id,
-        client_id AS "clientId",
-        message,
-        reply,
-        model,
-        matched_faqs AS "matchedFaqs",
-        input_tokens AS "inputTokens",
-        output_tokens AS "outputTokens",
-        total_tokens AS "totalTokens",
-        cost_usd::float8 AS "costUsd",
-        style_passed AS "stylePassed",
-        style_warnings AS "styleWarnings",
-        elapsed_ms AS "elapsedMs",
-        created_at AS "createdAt"
-      FROM playground_runs
-      WHERE company_id = $2
-      ORDER BY created_at DESC
-      LIMIT $1
-    `, [limit, companyId]);
-    return result.rows;
-  }
-
   async getCompanyConfig(companyId) {
     if (!this.enabled) return null;
     // Lazily flip an expired trial to 'suspended' — no cron needed, this runs
@@ -1270,6 +1215,7 @@ class Database {
     if (patch.maxPlaybooks !== undefined) set('max_playbooks', patch.maxPlaybooks);
     if (patch.maxWhatsapp !== undefined) set('max_whatsapp', patch.maxWhatsapp);
     if (patch.hubToolsEnabled !== undefined) set('hub_tools_enabled', patch.hubToolsEnabled);
+    if (patch.knowledgeClient !== undefined) set('knowledge_client', patch.knowledgeClient);
     if (!fields.length) return this.getPlatformCompany(companyId);
 
     fields.push('updated_at = NOW()');

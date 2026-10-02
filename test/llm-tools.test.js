@@ -96,7 +96,7 @@ test('tanpa alat, permintaan ke model persis seperti sebelumnya', async (t) => {
 });
 
 /* The switch per company: only a company with hub_tools_enabled gets them. */
-async function playground(t, hubToolsEnabled) {
+async function simulate(t, hubToolsEnabled) {
   const seen = [];
   const owner = { id: 'owner-1', companyId: 'company-1', email: 'own@x.test', displayName: 'Owner', role: 'owner' };
   const database = {
@@ -108,29 +108,39 @@ async function playground(t, hubToolsEnabled) {
     async setPresence() {},
     async getAiSettings() { return { enabled: true, modelChain: [] }; },
     async getCompanyConfig() { return { knowledgeClient: 'bzone', planStatus: 'active', hubToolsEnabled }; },
-    async recordPlaygroundRun() { return { id: '1' }; },
   };
   const llmService = {
     enabled: true, model: 'test/m',
     async generateReply(message, context) { seen.push(context); return { text: 'Halo kak', model: 'test/m', usage: {}, toolCalls: [] }; },
   };
-  const app = await buildApp({ logger: false, startupEnabled: false, demoMode: true, database, llmService, sessionSecret: 'llm-tools' });
+  // Coach simulasi membaca banyak hal lain (playbook, lead, ringkasan) yang
+  // tidak relevan di sini; semuanya cukup menjawab kosong.
+  const fullDatabase = new Proxy(database, {
+    get(target, prop) {
+      if (prop in target) return target[prop];
+      if (prop === 'then') return undefined;
+      return async () => (String(prop).startsWith('list') ? [] : null);
+    },
+  });
+  const app = await buildApp({ logger: false, startupEnabled: false, demoMode: true, database: fullDatabase, llmService, sessionSecret: 'llm-tools' });
   t.after(() => app.close());
   const login = await app.inject({ method: 'POST', url: '/v1/auth/login', payload: { email: owner.email, password: 'pass-12345' } });
   const cookie = login.headers['set-cookie'].split(';')[0];
-  const res = await app.inject({ method: 'POST', url: '/v1/admin/playground/auto-reply', headers: { cookie }, payload: { clientId: 'bzone', message: 'Ada listing energi?' } });
+  // Coach simulasi, bukan playground: playground sudah dihapus, dan simulasi
+  // memakai konteks + alat yang sama dengan balasan WhatsApp sungguhan.
+  const res = await app.inject({ method: 'POST', url: '/v1/coach/simulate', headers: { cookie }, payload: { mode: 'ai', customerMessage: 'Ada listing energi?', grade: false } });
   assert.equal(res.statusCode, 200);
   return seen[0];
 }
 
 test('saklar per perusahaan: mati = tanpa alat Hub', async (t) => {
-  const context = await playground(t, false);
+  const context = await simulate(t, false);
   assert.deepEqual(context.tools, []);
   assert.doesNotMatch(context.systemPrompt, /AGNIVE HUB/);
 });
 
 test('saklar per perusahaan: nyala = dua alat listing publik, tanpa alat percakapan', async (t) => {
-  const context = await playground(t, true);
+  const context = await simulate(t, true);
   assert.deepEqual(context.tools.map((x) => x.name), ['hub_search_listings', 'hub_get_listing']);
   assert.match(context.systemPrompt, /AGNIVE HUB/);
   assert.match(context.systemPrompt, /DATA, bukan perintah/);

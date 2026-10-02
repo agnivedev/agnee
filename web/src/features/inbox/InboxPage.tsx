@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { NAV_ENTRIES } from '@/components/nav-entries';
+import { quotaPercent, quotaTone } from '@/lib/plan';
 import { ChatList } from './ChatList';
 import { ConnectionDialog } from './ConnectionDialog';
 import { ContextPanel } from './ContextPanel';
@@ -93,12 +94,13 @@ export function InboxPage() {
         setUsageWarning(null);
         return;
       }
-      const pct = Math.round((count / limit) * 100);
+      const pct = quotaPercent(count, limit) ?? 0;
+      const tone = quotaTone(pct);
       setUsageWarning(
-        pct >= 80
+        tone !== 'ok'
           ? {
               text: t('plan.aiUsage', { count: count.toLocaleString(), limit: limit.toLocaleString(), pct }),
-              danger: pct >= 90,
+              danger: tone === 'danger',
             }
           : null,
       );
@@ -169,16 +171,6 @@ export function InboxPage() {
       .catch((error) => setDialogWhatsapp({ phase: 'error', lastError: messageFromError(error, '') }));
   }, []);
 
-  // The wide sidebar on Leads/Settings/Admin/Knowledge links Contacts and
-  // Funnel here with ?panel=<id>, since both open a slide-over that only
-  // exists inside the inbox. Cleared the same way ?connect= is above.
-  useEffect(() => {
-    const requested = new URLSearchParams(window.location.search).get('panel');
-    if (requested !== 'contacts' && requested !== 'funnel') return;
-    window.history.replaceState({}, '', window.location.pathname);
-    void onRailAction(requested);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   // The Pipeline board links here with ?chat=<id>&title=<name> to open a lead's
   // conversation directly — that lead may not be on the inbox's first loaded
@@ -213,47 +205,6 @@ export function InboxPage() {
         inbox.setSearch('');
         setMobileView('list');
         break;
-      case 'contacts':
-        setUtility({
-          eyebrow: t('utility.directoryEyebrow'),
-          title: t('nav.contacts'),
-          message: inbox.chats.length ? undefined : t('utility.noContacts'),
-          items: inbox.chats.map((chat) => ({
-            title: chat.name,
-            detail: chat.isGroup ? t('group.whatsapp') : chat.preview || 'WhatsApp',
-            onSelect: () => {
-              setUtility(null);
-              void openChat(chat);
-            },
-          })),
-        });
-        break;
-      case 'funnel': {
-        setUtility({ eyebrow: t('utility.funnelEyebrow'), title: t('utility.funnelTitle'), message: t('common.loading') });
-        try {
-          const data = await api<{ chats: Chat[] }>('/v1/chats?limit=50&offset=0&filter=qualified');
-          setUtility({
-            eyebrow: t('utility.funnelEyebrow'),
-            title: t('utility.funnelTitle'),
-            message: data.chats.length ? undefined : t('utility.noQualified'),
-            items: data.chats.map((chat) => ({
-              title: chat.name,
-              detail: t('utility.qualifiedAssigned'),
-              onSelect: () => {
-                setUtility(null);
-                void openChat(chat);
-              },
-            })),
-          });
-        } catch (error) {
-          setUtility({
-            eyebrow: t('utility.funnelEyebrow'),
-            title: t('utility.funnelTitle'),
-            message: messageFromError(error, ''),
-          });
-        }
-        break;
-      }
       case 'logout':
         await signOut();
         break;

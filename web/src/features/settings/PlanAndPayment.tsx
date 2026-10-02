@@ -3,7 +3,8 @@ import { api } from '@/lib/api';
 import { useI18n } from '@/lib/i18n';
 import { Button } from '@/components/ui/button';
 import { useConfirm } from '@/components/ui/confirm';
-import { cn } from '@/lib/utils';
+import { QuotaBar } from '@/components/QuotaBar';
+import { planLabel } from '@/lib/plan';
 import { Field, FieldGrid, SavedBadge, SettingCard, TextField, useSavedFlag } from './parts';
 
 type Company = {
@@ -11,8 +12,10 @@ type Company = {
   planStatus?: string;
   aiMessageLimit?: number;
   aiMessageCount?: number;
-  limits?: { aiMessages?: number };
-  counts?: { aiMessages?: number };
+  trialEndsAt?: string | null;
+  maxUsers?: number;
+  maxWhatsapp?: number;
+  usage?: { currentUsers?: number; currentWhatsapp?: number };
   knowledgeClient?: string;
   paymentMethod?: string;
   paymentLink?: string;
@@ -53,10 +56,14 @@ export function PlanAndPayment() {
       });
   }, []);
 
-  const limit = company?.aiMessageLimit ?? company?.limits?.aiMessages ?? 500;
-  const count = company?.aiMessageCount ?? company?.counts?.aiMessages ?? 0;
-  const pct = limit > 0 ? Math.min(100, Math.round((count / limit) * 100)) : 0;
-  const plan = company?.plan === 'company' ? 'Company' : 'Personal';
+  // Plafon 0 berarti tanpa batas — bukan 500 seperti tebakan lama di sini.
+  const limit = company?.aiMessageLimit ?? 0;
+  const count = company?.aiMessageCount ?? 0;
+  const plan = planLabel(company?.plan);
+  const { locale } = useI18n();
+  const trialEnds = company?.planStatus === 'trial' && company.trialEndsAt
+    ? new Date(company.trialEndsAt).toLocaleDateString(locale === 'en' ? 'en-GB' : 'id-ID', { day: 'numeric', month: 'long', year: 'numeric' })
+    : null;
 
   // 'both' shows both groups at once — a company may take a checkout link and a
   // bank transfer side by side.
@@ -95,29 +102,26 @@ export function PlanAndPayment() {
         title={t('settings.planTitle')}
         badge={`${plan} · ${company?.planStatus || 'beta'}`}
       >
-        {limit > 0 ? (
-          <div className="mb-5">
-            <div className="mb-1.5 flex items-center justify-between font-mono text-[11px] text-muted">
-              <span>{t('settings.usageText', { count: count.toLocaleString(), limit: limit.toLocaleString() })}</span>
-              <span>{pct}%</span>
-            </div>
-            <div className="h-2 overflow-hidden rounded-full bg-ink/8">
-              <div
-                className={cn(
-                  'h-full rounded-full transition-[width] duration-500',
-                  pct >= 90 ? 'bg-danger' : pct >= 70 ? 'bg-[#d59b34]' : 'bg-green',
-                  // Width comes from one of eleven fixed classes rather than an
-                  // inline style: the CSP forbids style attributes.
-                  WIDTH_CLASSES[Math.round(pct / 10)],
-                )}
-              />
-            </div>
+        {/* Hanya-baca: paket dan plafonnya diubah tim Agnee dari konsol
+            platform. Semua plafon tampil di sini, bukan cuma kuota AI. */}
+        <div className="mb-5 grid gap-4 sm:grid-cols-3">
+          <div>
+            <p className="mb-1.5 font-mono text-[10px] tracking-[.1em] text-muted uppercase">{t('settings.quotaAi')}</p>
+            <QuotaBar used={count} limit={limit} />
           </div>
-        ) : null}
+          <div>
+            <p className="mb-1.5 font-mono text-[10px] tracking-[.1em] text-muted uppercase">{t('settings.quotaUsers')}</p>
+            <QuotaBar used={company?.usage?.currentUsers ?? 0} limit={company?.maxUsers ?? 0} />
+          </div>
+          <div>
+            <p className="mb-1.5 font-mono text-[10px] tracking-[.1em] text-muted uppercase">{t('settings.quotaWhatsapp')}</p>
+            <QuotaBar used={company?.usage?.currentWhatsapp ?? 0} limit={company?.maxWhatsapp ?? 0} />
+          </div>
+        </div>
+        {trialEnds ? <p className="mb-4 text-[13px] text-muted">{t('settings.trialEndsOn', { date: trialEnds })}</p> : null}
 
         <FieldGrid>
           <TextField label={t('settings.knowledgeClient')} value={company?.knowledgeClient || '—'} disabled readOnly />
-          <TextField label={t('settings.aiLimit')} value={String(limit)} disabled readOnly />
         </FieldGrid>
       </SettingCard>
 
@@ -193,18 +197,3 @@ export function PlanAndPayment() {
     </>
   );
 }
-
-// Tailwind needs literal class names; a computed `w-[${pct}%]` is never emitted.
-const WIDTH_CLASSES = [
-  'w-0',
-  'w-[10%]',
-  'w-[20%]',
-  'w-[30%]',
-  'w-[40%]',
-  'w-[50%]',
-  'w-[60%]',
-  'w-[70%]',
-  'w-[80%]',
-  'w-[90%]',
-  'w-full',
-];

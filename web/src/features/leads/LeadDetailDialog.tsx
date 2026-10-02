@@ -1,17 +1,18 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api, messageFromError } from '@/lib/api';
 import { useI18n } from '@/lib/i18n';
+import { useSession } from '@/lib/session';
 import { Dialog, DialogClose } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { PIPELINE_STAGES, usePipelineStage } from '@/features/inbox/usePipelineStage';
-import type { PipelineStage } from '@/features/inbox/types';
+import type { PipelineStage, TeamMember } from '@/features/inbox/types';
 import { cn } from '@/lib/utils';
 import { NoteThread } from '@/components/mentions/NoteThread';
 
-type TeamMember = { id: string; displayName?: string | null; email?: string | null; role: string; status: string };
 type Row = Record<string, string>;
 
-const PRIORITIES = ['low', 'normal', 'high', 'urgent'] as const;
+// Urutan sama dengan halaman Tugas: yang paling mendesak di atas.
+const PRIORITIES = ['urgent', 'high', 'normal', 'low'] as const;
 
 /**
  * Editable detail for one Lead List row, opened instead of navigating away.
@@ -23,6 +24,7 @@ const PRIORITIES = ['low', 'normal', 'high', 'urgent'] as const;
  */
 export function LeadDetailDialog({ row, onClose, onSaved }: { row: Row | null; onClose: () => void; onSaved: () => void }) {
   const { t, locale } = useI18n();
+  const { user, isSupervisor } = useSession();
   const chatId = row?.chatId || null;
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -34,8 +36,16 @@ export function LeadDetailDialog({ row, onClose, onSaved }: { row: Row | null; o
   const [priority, setPriority] = useState<(typeof PRIORITIES)[number]>('normal');
   const [pipelineStage, setPipelineStage] = useState<PipelineStage>('cold');
   const [team, setTeam] = useState<TeamMember[]>([]);
+  // Nilai saat dialog dibuka. Hanya yang berubah dari sini yang dikirim:
+  // menyimpan ringkasan yang tidak disentuh menandainya "dikoreksi manusia"
+  // (AI lalu mempertahankannya), dan menyimpan stage yang tidak disentuh
+  // menghapus usulan stage dari AI.
+  const initial = useRef<{ summary: string; mode: 'ai' | 'human'; assigneeUserId: string; priority: string; pipelineStage: PipelineStage } | null>(null);
+  const stageError = useRef<string | null>(null);
 
-  const { setStage } = usePipelineStage(() => {}, (message) => setStatus(message));
+  const { setStage } = usePipelineStage(() => {}, (message) => {
+    stageError.current = message || t('leads.editFailed');
+  });
 
   useEffect(() => {
     if (!chatId) return;
@@ -50,11 +60,19 @@ export function LeadDetailDialog({ row, onClose, onSaved }: { row: Row | null; o
       api<{ members: TeamMember[] }>('/v1/team/members'),
     ])
       .then(([summaryData, routingData, leadData, teamData]) => {
-        setSummary(summaryData.summary || '');
-        setMode(routingData.routing.mode);
-        setAssigneeUserId(routingData.routing.assigneeUserId || '');
-        setPriority((routingData.routing.priority as (typeof PRIORITIES)[number]) || 'normal');
-        setPipelineStage(leadData.pipelineStage || 'cold');
+        const loaded = {
+          summary: summaryData.summary || '',
+          mode: routingData.routing.mode,
+          assigneeUserId: routingData.routing.assigneeUserId || '',
+          priority: (routingData.routing.priority as (typeof PRIORITIES)[number]) || 'normal',
+          pipelineStage: leadData.pipelineStage || 'cold',
+        };
+        initial.current = loaded;
+        setSummary(loaded.summary);
+        setMode(loaded.mode);
+        setAssigneeUserId(loaded.assigneeUserId);
+        setPriority(loaded.priority);
+        setPipelineStage(loaded.pipelineStage);
         setTeam(teamData.members || []);
       })
       .catch((error) => setStatus(messageFromError(error, '')))
@@ -65,13 +83,28 @@ export function LeadDetailDialog({ row, onClose, onSaved }: { row: Row | null; o
     if (!chatId) return;
     setSaving(true);
     setStatus('');
+    const before = initial.current;
     try {
-      await api(`/v1/chats/${encodeURIComponent(chatId)}/summary`, { method: 'PATCH', body: { summary, locale } });
-      await api(`/v1/chats/${encodeURIComponent(chatId)}/routing`, {
-        method: 'POST',
-        body: { mode, assigneeUserId: mode === 'human' ? assigneeUserId || null : null, priority },
-      });
-      await setStage(chatId, pipelineStage, false);
+      if (!before || summary !== before.summary) {
+        await api(`/v1/chats/${encodeURIComponent(chatId)}/summary`, { method: 'PATCH', body: { summary, locale } });
+      }
+      if (!before || mode !== before.mode || priority !== before.priority
+        || (mode === 'human' && assigneeUserId !== before.assigneeUserId)) {
+        await api(`/v1/chats/${encodeURIComponent(chatId)}/routing`, {
+          method: 'POST',
+          body: { mode, assigneeUserId: mode === 'human' ? assigneeUserId || null : null, priority },
+        });
+      }
+      if (!before || pipelineStage !== before.pipelineStage) {
+        stageError.current = null;
+        await setStage(chatId, pipelineStage, false);
+        // usePipelineStage menelan error-nya sendiri; jangan tutup dialog
+        // seolah tersimpan padahal stage-nya gagal.
+        if (stageError.current) {
+          setStatus(stageError.current);
+          return;
+        }
+      }
       onSaved();
       onClose();
     } catch (error) {
@@ -81,7 +114,12 @@ export function LeadDetailDialog({ row, onClose, onSaved }: { row: Row | null; o
     }
   }
 
-  const assignable = team.filter((member) => ['owner', 'supervisor', 'admin', 'agent'].includes(member.role) && member.status === 'active');
+  // Aturan yang sama dengan panel inbox dan server: agent hanya bisa mengambil
+  // percakapan untuk dirinya sendiri.
+  const assignable = team.filter((member) =>
+    ['owner', 'supervisor', 'admin', 'agent'].includes(member.role)
+    && member.status === 'active'
+    && (isSupervisor || member.id === user?.userId));
 
   return (
     <Dialog open={Boolean(row)} onClose={onClose} labelledBy="lead-detail-title" className="w-[min(94vw,640px)] max-h-[88vh]">

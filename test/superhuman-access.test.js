@@ -252,3 +252,26 @@ test('ringkasan beranda dijaga gerbang yang sama, dan tidak dicatat sebagai akse
   // pantas dicatat sebagai "dibuka" — dan audit_logs memang menuntut satu.
   assert.equal(database.audits.length, 0);
 });
+
+test('pack knowledge diubah dari konsol, hanya ke pack yang benar-benar ada', async (t) => {
+  // Dulu tidak ada API yang bisa mengubah knowledge_client sama sekali: PATCH
+  // tenant (sengaja) menolaknya, dan konsol tidak menerimanya.
+  const database = fakeDatabase();
+  const app = await buildApp({ logger: false, startupEnabled: false, demoMode: true, database, sessionSecret: 'superhuman-pack' });
+  t.after(() => app.close());
+  const cookie = await signIn(app, STAFF);
+  const url = `/v1/superhuman/companies/${database.company.id}`;
+
+  const detail = await app.inject({ method: 'GET', url, headers: { cookie } });
+  assert.ok(detail.json().knowledgePacks.includes('tradersmastermind'));
+
+  const unknown = await app.inject({ method: 'PATCH', url, headers: { cookie }, payload: { knowledgeClient: 'tidak-ada' } });
+  assert.equal(unknown.statusCode, 400);
+  const badDate = await app.inject({ method: 'PATCH', url, headers: { cookie }, payload: { trialEndsAt: 'besok' } });
+  assert.equal(badDate.statusCode, 400);
+
+  const ok = await app.inject({ method: 'PATCH', url, headers: { cookie }, payload: { knowledgeClient: 'tradersmastermind' } });
+  assert.equal(ok.statusCode, 200);
+  assert.equal(database.company.knowledgeClient, 'tradersmastermind');
+  assert.deepEqual(database.audits.at(-1).metadata.changes.knowledgeClient, { dari: 'agnee', ke: 'tradersmastermind' });
+});

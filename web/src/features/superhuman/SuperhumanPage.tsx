@@ -21,6 +21,7 @@ import { useSession } from '@/lib/session';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
+import { QuotaBar } from '@/components/QuotaBar';
 import { AreaChart, BarList, ColumnChart } from './charts';
 
 type CompanyRow = {
@@ -45,6 +46,8 @@ type CompanyRow = {
 };
 
 type CompanyDetail = {
+  /** Pack knowledge yang ada di server; satu-satunya tempat mengubahnya. */
+  knowledgePacks?: string[];
   company: CompanyRow & {
     timezone: string;
     knowledgeClient: string;
@@ -603,7 +606,7 @@ function CompanyRowView({ row, onOpen }: { row: CompanyRow; onOpen: (companyId: 
           </span>
         ) : null}
       </Td>
-      <Td><QuotaBar used={row.aiMessageCount} limit={row.aiMessageLimit} /></Td>
+      <Td><QuotaBar className="w-40" used={row.aiMessageCount} limit={row.aiMessageLimit} /></Td>
       <Td><Ratio used={row.activeUsers} limit={row.maxUsers} /></Td>
       <Td><Ratio used={row.whatsappNumbers} limit={row.maxWhatsapp} /></Td>
       <Td><span className="font-mono text-[12px]">{formatUsd(row.costUsd30d)}</span></Td>
@@ -687,6 +690,7 @@ function SubscriptionForm({
   onSaved: (next: CompanyDetail) => void;
 }) {
   const { company } = detail;
+  const packs = detail.knowledgePacks?.length ? detail.knowledgePacks : [company.knowledgeClient];
   const [form, setForm] = useState({
     plan: company.plan,
     planStatus: company.planStatus,
@@ -697,6 +701,7 @@ function SubscriptionForm({
     maxUsers: String(company.maxUsers),
     maxPlaybooks: String(company.maxPlaybooks),
     maxWhatsapp: String(company.maxWhatsapp),
+    knowledgeClient: company.knowledgeClient,
   });
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
@@ -725,6 +730,7 @@ function SubscriptionForm({
           maxUsers: Number(form.maxUsers),
           maxPlaybooks: Number(form.maxPlaybooks),
           maxWhatsapp: Number(form.maxWhatsapp),
+          knowledgeClient: form.knowledgeClient,
         },
       });
       onSaved(next);
@@ -780,6 +786,15 @@ function SubscriptionForm({
           <NumberField label="Maks. anggota tim" value={form.maxUsers} onChange={set('maxUsers')} />
           <NumberField label="Maks. playbook" value={form.maxPlaybooks} onChange={set('maxPlaybooks')} />
           <NumberField label="Maks. nomor WhatsApp" value={form.maxWhatsapp} onChange={set('maxWhatsapp')} />
+        </div>
+        <div className="grid items-start gap-4 md:grid-cols-3">
+          <SelectField
+            label="Pack knowledge"
+            hint="FAQ, harga, dan funnel bawaan yang dibaca AI tenant ini. Milik satu pelanggan — jangan arahkan ke pack pelanggan lain."
+            value={form.knowledgeClient}
+            onChange={set('knowledgeClient')}
+            options={packs.includes(form.knowledgeClient) ? packs : [form.knowledgeClient, ...packs]}
+          />
         </div>
         <div className="flex items-center gap-3">
           <Button type="submit" size="sm" disabled={saving}>
@@ -986,28 +1001,6 @@ function Ratio({ used, limit }: { used: number; limit: number }) {
   return (
     <span className={cn('font-mono text-[12px]', over && 'font-semibold text-danger')}>
       {used} / {limit || '∞'}
-    </span>
-  );
-}
-
-/**
- * Batang kuota. Lebarnya disetel lewat prop `style` React, yang memakai CSSOM —
- * bukan atribut style di HTML, sehingga tidak tersandung `style-src 'self'` di
- * CSP aplikasi ini.
- */
-function QuotaBar({ used, limit }: { used: number; limit: number }) {
-  const ratio = limit > 0 ? used / limit : 0;
-  const percent = Math.min(100, Math.round(ratio * 100));
-  const tone = ratio >= 1 ? 'bg-danger' : ratio >= 0.8 ? 'bg-lime' : 'bg-green';
-  return (
-    <span className="block w-40">
-      <span className="flex items-baseline justify-between font-mono text-[11px]">
-        <span className={cn(ratio >= 1 && 'font-semibold text-danger')}>{numberFormat.format(used)}</span>
-        <span className="text-muted">{limit > 0 ? numberFormat.format(limit) : '∞'}</span>
-      </span>
-      <span className="mt-1 block h-1.5 w-full overflow-hidden rounded-full bg-ink/10">
-        <span className={cn('block h-full rounded-full', tone)} style={{ width: `${percent}%` }} />
-      </span>
     </span>
   );
 }

@@ -111,8 +111,8 @@ export function AppSidebar() {
                 icon={entry.icon}
                 label={t(entry.labelKey)}
                 collapsed={collapsed}
-                to={entry.kind === 'route' ? entry.to : `/?panel=${entry.panel}`}
-                end={entry.kind === 'route' && entry.to === '/'}
+                to={entry.to}
+                end={entry.to === '/'}
                 onMouseEnter={showTooltip(t(entry.labelKey))}
                 onMouseLeave={hideTooltip}
               />

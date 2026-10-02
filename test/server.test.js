@@ -168,17 +168,6 @@ test('login, list chats, read and send in demo mode', async (t) => {
   });
   assert.equal(attachment.statusCode, 200);
 
-  const assigned = await app.inject({
-    method: 'POST',
-    url: '/v1/chats/6281200000001@c.us/assign',
-    headers: { cookie },
-    payload: { assignee: 'Sales team' },
-  });
-  assert.equal(assigned.statusCode, 200);
-  assert.equal(assigned.json().stage, 'assigned');
-  const qualifiedAfterAssign = await app.inject({ method: 'GET', url: '/v1/chats?filter=qualified', headers: { cookie } });
-  assert.ok(qualifiedAfterAssign.json().chats.some((chat) => chat.id === '6281200000001@c.us'));
-
   const team = await app.inject({ method: 'GET', url: '/v1/team/members', headers: { cookie } });
   assert.equal(team.statusCode, 200);
   assert.equal(team.json().members[0].role, 'supervisor');
@@ -239,7 +228,7 @@ test('agent can only take chats for self and cannot open supervisor settings', a
   assert.equal(login.statusCode, 200);
   const cookie = login.headers['set-cookie'].split(';')[0];
 
-  const forbiddenAdmin = await app.inject({ method: 'GET', url: '/v1/admin/config', headers: { cookie } });
+  const forbiddenAdmin = await app.inject({ method: 'GET', url: '/v1/admin/ai-settings', headers: { cookie } });
   assert.equal(forbiddenAdmin.statusCode, 403);
   const forbiddenOther = await app.inject({ method: 'POST', url: '/v1/chats/6281200000001@c.us/routing', headers: { cookie }, payload: { mode: 'human', assigneeUserId: supervisor.id } });
   assert.equal(forbiddenOther.statusCode, 403);
@@ -264,12 +253,11 @@ test('agent can only take chats for self and cannot open supervisor settings', a
   assert.equal(backToAi.json().routing.mode, 'ai');
 });
 
-test('admin auto-reply playground previews usage without sending WhatsApp', async (t) => {
+test('ringkasan percakapan di-cache', async (t) => {
   // A real supervisor session. This test used to ride on the API key, which
   // then meant "supervisor of any company" — exactly what the key no longer is.
   const owner = { id: 'owner-1', email: 'owner@acme.test', displayName: 'Owner', role: 'owner', companyId: 'company-acme' };
   const persistedLeads = new Map();
-  const persistedRuns = [];
   let llmCalls = 0;
   const database = {
     enabled: true,
@@ -284,22 +272,6 @@ test('admin auto-reply playground previews usage without sending WhatsApp', asyn
     async getCompanyConfig() { return { knowledgeClient: 'bzone', planStatus: 'beta' }; },
     async getLeadState(chatId) { return persistedLeads.get(chatId) || null; },
     async saveLeadState(lead) { persistedLeads.set(lead.chatId, lead); return lead; },
-    async recordPlaygroundRun(run) {
-      const saved = { id: String(persistedRuns.length + 1), createdAt: new Date().toISOString(), ...run };
-      persistedRuns.unshift(saved);
-      return saved;
-    },
-    async listPlaygroundRuns(limit) {
-      return persistedRuns.slice(0, limit).map((run) => ({
-        ...run,
-        inputTokens: run.usage.inputTokens,
-        outputTokens: run.usage.outputTokens,
-        totalTokens: run.usage.totalTokens,
-        costUsd: run.usage.costUsd,
-        stylePassed: run.style.passed,
-        styleWarnings: run.style.warnings,
-      }));
-    },
   };
   const llmService = {
     enabled: true,
@@ -329,10 +301,6 @@ test('admin auto-reply playground previews usage without sending WhatsApp', asyn
   const login = await app.inject({ method: 'POST', url: '/v1/auth/login', payload: { email: owner.email, password: 'owner-pass-123' } });
   assert.equal(login.statusCode, 200);
   const headers = { cookie: login.headers['set-cookie'].split(';')[0] };
-  const config = await app.inject({ method: 'GET', url: '/v1/admin/config', headers });
-  assert.equal(config.statusCode, 200);
-  assert.equal(config.json().model, 'test/model');
-  assert.equal(config.json().llmEnabled, true);
 
   const summary = await app.inject({ method: 'GET', url: '/v1/chats/6281200000001@c.us/summary?locale=id', headers });
   assert.equal(summary.statusCode, 200);
@@ -342,42 +310,6 @@ test('admin auto-reply playground previews usage without sending WhatsApp', asyn
   const cachedSummary = await app.inject({ method: 'GET', url: '/v1/chats/6281200000001@c.us/summary?locale=id', headers });
   assert.equal(cachedSummary.json().cached, true);
   assert.equal(llmCalls, 1);
-
-  const preview = await app.inject({
-    method: 'POST',
-    url: '/v1/admin/playground/auto-reply',
-    headers,
-    payload: { clientId: 'bzone', message: 'Bisa lihat demo dulu ga?' },
-  });
-  assert.equal(preview.statusCode, 200);
-  assert.equal(llmCalls, 2);
-  assert.equal(preview.json().reply, 'Preview: Bisa lihat demo dulu ga?');
-  assert.deepEqual(preview.json().usage, { inputTokens: 120, outputTokens: 12, totalTokens: 132, costUsd: 0.00042 });
-  assert.equal(preview.json().sentToWhatsapp, false);
-  assert.ok(preview.json().matchedFaqs.length > 0);
-  assert.deepEqual(preview.json().persistence, { driver: 'postgresql', saved: true, id: '1' });
-
-  const history = await app.inject({ method: 'GET', url: '/v1/admin/playground/runs', headers });
-  assert.equal(history.statusCode, 200);
-  assert.equal(history.json().runs.length, 1);
-  assert.equal(history.json().runs[0].message, 'Bisa lihat demo dulu ga?');
-
-  const assigned = await app.inject({
-    method: 'POST',
-    url: '/v1/chats/6281200000001@c.us/assign',
-    headers,
-    payload: { assignee: 'Sales database' },
-  });
-  assert.equal(assigned.statusCode, 200);
-  assert.equal(persistedLeads.get('6281200000001@c.us').assignee, 'Sales database');
-
-  const invalidTenant = await app.inject({
-    method: 'POST',
-    url: '/v1/admin/playground/auto-reply',
-    headers,
-    payload: { clientId: 'unknown', message: 'Test' },
-  });
-  assert.equal(invalidTenant.statusCode, 400);
 });
 
 test('agent can claim an unheld chat but cannot take over another agent chat', async (t) => {

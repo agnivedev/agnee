@@ -71,7 +71,7 @@ test('kunci layanan dari internet (lewat nginx) ditolak', async (t) => {
 test('kunci layanan tidak membuka admin, konsol platform, atau pengaturan paket', async (t) => {
   const server = await app(t);
   for (const [method, url] of [
-    ['GET', '/v1/admin/config'],
+    ['GET', '/v1/admin/ai-settings'],
     ['PATCH', '/v1/admin/company'],
     ['GET', '/v1/superhuman/companies'],
     ['GET', '/v1/integrations/mayar'],

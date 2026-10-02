@@ -23,7 +23,7 @@ type Restart = {
  * only then does it go out. A one-click send would put an unread AI message in
  * front of a customer.
  */
-export function FollowUpSection({ chat }: { chat: Chat }) {
+export function ManualFollowUp({ chat }: { chat: Chat }) {
   const { t } = useI18n();
   const [draft, setDraft] = useState<Draft | null>(null);
   const [text, setText] = useState('');

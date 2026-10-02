@@ -15,6 +15,44 @@
   Best-effort: kalau key-nya bukan JWT atau klaimnya tidak dikenal, jatuh
   ke label generik seperti semula — tidak pernah gagal connect karena ini.
 
+### Changed
+
+- **Fitur yang dobel dijadikan satu.** Hasil audit 3 Okt: kemampuan yang sama
+  tersebar di beberapa layar dengan perilaku yang saling berbeda.
+  - **Halaman Admin dibubarkan.** Setelan AI pindah ke Settings → AI &
+    Follow-up, jejak audit jadi tab Settings → Jejak Audit, brief dan file ke
+    Latih AI. Daftar Tim (sudah ada di Settings) tidak lagi tampil dua kali.
+    `/admin` dialihkan ke `/settings#ai`. Ubin status Admin yang menampilkan
+    saklar dan model AI *global* — bertentangan dengan saklar company di
+    bawahnya — ikut hilang. `GET /v1/admin/ai-settings` sekarang memisahkan
+    saklar company (`enabled`) dari hasil akhirnya (`effective` + `reason`),
+    dan layar menjelaskan kenapa AI berhenti walau saklarnya menyala.
+  - **Latih AI (`/knowledge`) jadi satu rumah** dengan tab Playbook, Coach &
+    simulasi (pindahan dari Settings), dan Brief & file (pindahan dari Admin).
+    `/settings#coachSection` dialihkan ke `/knowledge#coach`.
+  - **Playground Admin dihapus** (`/v1/admin/playground/*`, `/v1/admin/config`).
+    Playground membangun prompt sendiri, jadi balasannya bukan yang diterima
+    customer. Coach simulasi menggantikannya, dan sekarang ikut memakai alat
+    yang sama dengan balasan WhatsApp sungguhan (alat Agnive Hub).
+  - **Satu cara menugaskan lead.** Tombol "Teruskan ke tim penjualan" dan
+    `POST /v1/chats/:id/assign` (teks bebas "Sales team", menimpa judul lead)
+    dihapus; penugasan memakai routing ke agent seperti di panel inbox.
+  - **Dialog Leads hanya mengirim yang berubah.** Dulu selalu menyimpan
+    ringkasan (AI lalu menganggapnya dikoreksi manusia) dan stage (usulan AI
+    terhapus), dan menutup diri walau simpan stage gagal. Daftar agent yang
+    bisa dipilih juga mengikuti aturan inbox.
+  - **Kontak dan Funnel dihapus dari nav.** Keduanya versi lemah dari Leads
+    (direktori kontak) dan Pipeline (funnel).
+  - **Paket & kuota satu definisi** (`lib/plan.ts`, `QuotaBar`): ambang 80/90%
+    sama di banner inbox, kartu Paket, dan konsol platform. Kartu Paket kini
+    menampilkan semua plafon (AI, anggota, nomor) dan tanggal akhir trial;
+    plafon 0 berarti tanpa batas, bukan "500".
+  - **Pack knowledge diubah dari konsol platform** (dulu hanya lewat SQL),
+    dibatasi ke pack yang memang ada. Tanggal trial yang tidak valid ditolak
+    400, bukan 500 dengan pesan Postgres mentah.
+  - Komponen inbox `FollowUpSection` diganti nama `ManualFollowUp` supaya tidak
+    tertukar dengan section Follow-up di Settings.
+
 ### Fixed
 
 - **[KEAMANAN] Rate limit dan kunci login MCP bisa dilewati, sekaligus bisa

@@ -66,7 +66,7 @@ async function appDenganPaket(t, planStatus, sessionSecret, status) {
 }
 
 const RUTE_AI = [
-  ['POST', '/v1/admin/playground/auto-reply', { message: 'Halo', clientId: 'bzone' }],
+  ['POST', '/v1/coach/simulate', { mode: 'ai', customerMessage: 'Halo', grade: false }],
   ['POST', '/v1/playbooks/persona/chat', { message: 'Halo' }],
 ];
 

@@ -1,12 +1,9 @@
 import {
   Inbox,
-  Users,
-  TrendingUp,
   ListChecks,
   ClipboardList,
   Kanban,
   FlaskConical,
-  ShieldCheck,
   Settings2,
   LogOut,
   type LucideIcon,
@@ -18,13 +15,14 @@ import {
  * drifted apart — the wide sidebar was missing Contacts, Funnel, Train AI,
  * Admin, and Logout entirely. Both now render from this single source.
  *
- * `panel` entries (contacts, funnel) only make sense inside the inbox — they
- * open a slide-over list there, not a route. From any other page they link to
- * `/?panel=<id>`, which the inbox reads on mount (see InboxPage) and opens the
- * same slide-over it would from its own rail.
+ * Kontak dan Funnel dulu entri `panel` yang membuka daftar slide-over di
+ * inbox. Keduanya versi lemah dari halaman yang sudah ada — Leads adalah
+ * direktori kontak sungguhan (bukan hanya chat yang kebetulan termuat), dan
+ * Pipeline adalah funnel-nya — jadi keduanya dihapus, bukan dipertahankan
+ * sebagai jalan kedua ke hal yang sama.
  */
 export type NavEntryId =
-  | 'inbox' | 'contacts' | 'funnel' | 'leads' | 'tasks' | 'pipeline' | 'playground' | 'admin' | 'settings' | 'logout';
+  | 'inbox' | 'leads' | 'tasks' | 'pipeline' | 'playground' | 'settings' | 'logout';
 
 type NavEntryBase = {
   id: NavEntryId;
@@ -35,17 +33,14 @@ type NavEntryBase = {
 };
 
 export type NavEntry = NavEntryBase &
-  ({ kind: 'route'; to: string } | { kind: 'panel'; panel: 'contacts' | 'funnel' } | { kind: 'logout' });
+  ({ kind: 'route'; to: string } | { kind: 'logout' });
 
 export const NAV_ENTRIES: NavEntry[] = [
   { id: 'inbox', icon: Inbox, labelKey: 'nav.labelInbox', ariaKey: 'nav.inbox', kind: 'route', to: '/' },
-  { id: 'contacts', icon: Users, labelKey: 'nav.labelContacts', ariaKey: 'nav.contacts', kind: 'panel', panel: 'contacts' },
-  { id: 'funnel', icon: TrendingUp, labelKey: 'nav.labelFunnel', ariaKey: 'nav.funnel', kind: 'panel', panel: 'funnel' },
   { id: 'leads', icon: ListChecks, labelKey: 'nav.labelLeads', ariaKey: 'nav.leads', kind: 'route', to: '/leads' },
   { id: 'tasks', icon: ClipboardList, labelKey: 'nav.labelTasks', ariaKey: 'nav.tasks', kind: 'route', to: '/tasks' },
   { id: 'pipeline', icon: Kanban, labelKey: 'nav.labelPipeline', ariaKey: 'nav.pipeline', kind: 'route', to: '/pipeline' },
   { id: 'playground', icon: FlaskConical, labelKey: 'nav.labelTraining', ariaKey: 'nav.playground', kind: 'route', to: '/knowledge', supervisorOnly: true },
-  { id: 'admin', icon: ShieldCheck, labelKey: 'nav.labelAdmin', ariaKey: 'nav.admin', kind: 'route', to: '/admin', supervisorOnly: true },
   // Open to every role: the server serves /settings to agents too, and the
   // page gives them their own account plus the team roster.
   { id: 'settings', icon: Settings2, labelKey: 'nav.labelSettings', ariaKey: 'nav.settings', kind: 'route', to: '/settings' },

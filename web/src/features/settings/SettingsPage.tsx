@@ -1,50 +1,58 @@
 import { useCallback, useEffect, useState } from 'react';
-import { CreditCard, MessageCircle, Sparkles, Database, Users, type LucideIcon } from 'lucide-react';
+import { CreditCard, MessageCircle, Sparkles, Database, Users, ScrollText, type LucideIcon } from 'lucide-react';
 import { useI18n, usePageTitle } from '@/lib/i18n';
 import { useSession } from '@/lib/session';
 import { AppSidebar } from '@/components/AppSidebar';
 import { cn } from '@/lib/utils';
 import { PlanAndPayment } from './PlanAndPayment';
 import { FollowUpSection } from './FollowUpSection';
-import { CoachSection } from './CoachSection';
+import { AiSettingsSection } from './AiSettingsSection';
+import { AuditSection } from './AuditSection';
 import { ExportSection } from './ExportSection';
 import { MayarSection } from './MayarSection';
 import { WhatsappNumbersSection, CloudApiSection } from './WhatsappSections';
 import { AccountSection, TeamSection } from './TeamSection';
 
-type TabId = 'paket' | 'whatsapp' | 'ai' | 'data' | 'tim';
+type TabId = 'paket' | 'whatsapp' | 'ai' | 'data' | 'tim' | 'audit';
 
 /**
  * Section ids kept from the vanilla page, because other pages link straight to
- * them — Admin points at `/settings#coachSection`. A hash names a section, and
- * the section decides which tab opens.
+ * them. A hash names a section, and the section decides which tab opens.
+ * `coachSection` pindah ke Latih AI; tautan lamanya dialihkan ke sana.
  */
 const SECTION_TAB: Record<string, TabId> = {
   planSection: 'paket',
   paymentSection: 'paket',
   waNumbersSection: 'whatsapp',
   waCloudSection: 'whatsapp',
+  aiSection: 'ai',
   followUpSection: 'ai',
-  coachSection: 'ai',
   exportSection: 'data',
   teamSection: 'tim',
   myAccount: 'tim',
+  auditSection: 'audit',
 };
 
-const TAB_IDS: TabId[] = ['paket', 'whatsapp', 'ai', 'data', 'tim'];
+const TAB_IDS: TabId[] = ['paket', 'whatsapp', 'ai', 'data', 'tim', 'audit'];
 const TAB_ICON: Record<TabId, LucideIcon> = {
   paket: CreditCard,
   whatsapp: MessageCircle,
   ai: Sparkles,
   data: Database,
   tim: Users,
+  audit: ScrollText,
 };
 // 'paket' is supervisor-only too: /v1/admin/company answers 403 to an agent, so
 // showing the tab would only offer an empty card and a save button that fails.
-const SUPERVISOR_ONLY: TabId[] = ['paket', 'whatsapp', 'ai', 'data'];
+const SUPERVISOR_ONLY: TabId[] = ['paket', 'whatsapp', 'ai', 'data', 'audit'];
 
 function tabFromHash(): TabId | null {
   const hash = window.location.hash.replace('#', '');
+  // Coach sekarang tinggal di Latih AI.
+  if (hash === 'coachSection') {
+    window.location.replace('/knowledge#coach');
+    return null;
+  }
   if (!hash) return null;
   if ((TAB_IDS as string[]).includes(hash)) return hash as TabId;
   return SECTION_TAB[hash] ?? null;
@@ -154,8 +162,8 @@ export function SettingsPage() {
           ) : null}
           {activeTab === 'ai' && isSupervisor ? (
             <>
+              <AiSettingsSection />
               <FollowUpSection />
-              <CoachSection />
             </>
           ) : null}
           {activeTab === 'data' && isSupervisor ? (
@@ -170,6 +178,7 @@ export function SettingsPage() {
               <AccountSection />
             </>
           ) : null}
+          {activeTab === 'audit' && isSupervisor ? <AuditSection /> : null}
         </div>
       </main>
     </div>

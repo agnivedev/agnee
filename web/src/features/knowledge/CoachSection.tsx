@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useConfirm } from '@/components/ui/confirm';
 import { cn } from '@/lib/utils';
-import { SettingCard, StatusLine } from './parts';
+import { SettingCard, StatusLine } from '@/features/settings/parts';
 
 type Fact = { id: string; category: string; question: string; answer?: string | null; priority?: number };
 type Scenario = { id: string; name: string; persona?: string; openingMessage: string; goal?: string };

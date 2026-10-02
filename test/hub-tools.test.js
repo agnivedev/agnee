@@ -143,6 +143,6 @@ test('draf untuk percakapan yang datanya sudah dihapus ditolak', async (t) => {
 
 test('kunci layanan tetap tertutup untuk rute lain', async (t) => {
   const { app, as } = await setup(t);
-  const res = await app.inject({ method: 'GET', url: '/v1/admin/config', headers: as(owner) });
+  const res = await app.inject({ method: 'GET', url: '/v1/admin/ai-settings', headers: as(owner) });
   assert.equal(res.statusCode, 403);
 });

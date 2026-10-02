@@ -833,7 +833,8 @@ class Database {
              bank_name AS "bankName", bank_account AS "bankAccount",
              bank_holder AS "bankHolder", payment_notes AS "paymentNotes",
              whatsapp_provider AS "whatsappProvider",
-             ai_enabled AS "aiEnabled", ai_model_chain AS "aiModelChain"
+             ai_enabled AS "aiEnabled", ai_model_chain AS "aiModelChain",
+             hub_tools_enabled AS "hubToolsEnabled"
       FROM companies WHERE id = $1
     `, [companyId]);
     return result.rows[0] || null;
@@ -1150,6 +1151,7 @@ class Database {
         c.max_playbooks      AS "maxPlaybooks",
         c.max_whatsapp       AS "maxWhatsapp",
         c.knowledge_client   AS "knowledgeClient",
+        c.hub_tools_enabled  AS "hubToolsEnabled",
         (SELECT COUNT(*) FROM company_members m
           WHERE m.company_id = c.id AND m.status = 'active')::int  AS "activeUsers",
         (SELECT MAX(i.created_at) FROM inbound_messages i
@@ -1235,6 +1237,7 @@ class Database {
     if (patch.maxUsers !== undefined) set('max_users', patch.maxUsers);
     if (patch.maxPlaybooks !== undefined) set('max_playbooks', patch.maxPlaybooks);
     if (patch.maxWhatsapp !== undefined) set('max_whatsapp', patch.maxWhatsapp);
+    if (patch.hubToolsEnabled !== undefined) set('hub_tools_enabled', patch.hubToolsEnabled);
     if (!fields.length) return this.getPlatformCompany(companyId);
 
     fields.push('updated_at = NOW()');

@@ -65,6 +65,91 @@ class LlmService {
     return { text: reply.trim(), model, usage: data.usage };
   }
 
+  /**
+   * The same call, but the model may look things up first: `context.tools` is
+   * a list of { name, description, parameters (JSON Schema), run(args) }.
+   * The model asks for a tool, we run it and hand back the result, at most
+   * `maxToolRounds` times; the last round forbids tools so it must answer.
+   * Tool output goes back as data in a "tool" message, never as instructions.
+   */
+  async _callModelWithTools(model, userMessage, context) {
+    const systemPrompt = context.systemPrompt || this.getDefaultSystemPrompt();
+    const conversation = [
+      { role: 'system', content: systemPrompt },
+      ...this.buildMessages(userMessage, context),
+      { role: 'user', content: userMessage },
+    ];
+    const specs = context.tools.map((t) => ({
+      type: 'function',
+      function: { name: t.name, description: t.description, parameters: t.parameters },
+    }));
+    const byName = new Map(context.tools.map((t) => [t.name, t]));
+    const rounds = Math.max(0, Math.min(context.maxToolRounds ?? 3, 5));
+    const toolCalls = [];
+    const total = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0, cost: 0 };
+
+    for (let round = 0; round <= rounds; round += 1) {
+      const response = await fetch(`${this.baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${this.apiKey}`,
+          'HTTP-Referer': 'https://agnee.agnive.co',
+          'X-Title': 'Agnee Customer Service Bot',
+        },
+        body: JSON.stringify({
+          model,
+          messages: conversation,
+          tools: specs,
+          tool_choice: round < rounds ? 'auto' : 'none',
+          temperature: 0.7,
+          max_tokens: this.maxTokens,
+          top_p: 0.95,
+          usage: { include: true },
+        }),
+      });
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(`OpenRouter API error (${model}): ${error.error?.message || response.statusText}`);
+      }
+      const data = await response.json();
+      if (this.onUsage) {
+        try {
+          this.onUsage({ model, usage: data.usage, context });
+        } catch { /* pencatatan tidak boleh menjatuhkan balasan */ }
+      }
+      for (const k of Object.keys(total)) total[k] += Number(data.usage?.[k] || 0);
+
+      const message = data.choices?.[0]?.message || {};
+      const calls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
+      if (!calls.length) {
+        if (!message.content) throw new Error(`No reply content from ${model}`);
+        return { text: String(message.content).trim(), model, usage: total, toolCalls };
+      }
+
+      conversation.push({ role: 'assistant', content: message.content || '', tool_calls: calls });
+      for (const call of calls.slice(0, 4)) {
+        const tool = byName.get(call.function?.name);
+        let output;
+        let args = {};
+        try {
+          args = JSON.parse(call.function?.arguments || '{}');
+          output = tool ? await tool.run(args) : { error: `Unknown tool ${call.function?.name}` };
+        } catch (err) {
+          output = { error: err.message };
+        }
+        toolCalls.push({ name: call.function?.name, args });
+        conversation.push({ role: 'tool', tool_call_id: call.id, content: JSON.stringify(output).slice(0, 8000) });
+      }
+      // Calls beyond four in one turn are answered as refused, so the model
+      // is not left waiting on a result that never comes.
+      for (const call of calls.slice(4)) {
+        conversation.push({ role: 'tool', tool_call_id: call.id, content: '{"error":"Too many tool calls in one turn"}' });
+      }
+    }
+    throw new Error(`Tool loop did not finish (${model})`);
+  }
+
   async generateReply(userMessage, context = {}) {
     if (!this.enabled) {
       console.warn('LLM service disabled or API key not configured');
@@ -80,12 +165,28 @@ class LlmService {
     const chain = companyChain.length ? companyChain : (this.modelChain.length ? this.modelChain : [this.model]);
     let lastError;
 
+    const withTools = Array.isArray(context.tools) && context.tools.length > 0;
     for (const model of chain) {
       try {
-        return await this._callModel(model, userMessage, context);
+        return withTools
+          ? await this._callModelWithTools(model, userMessage, context)
+          : await this._callModel(model, userMessage, context);
       } catch (err) {
         console.warn(`Model ${model} failed: ${err.message}${chain.length > 1 ? ', trying next...' : ''}`);
         lastError = err;
+      }
+    }
+
+    // A model or provider that cannot take tools should not leave the
+    // customer unanswered: answer once more without them.
+    if (withTools) {
+      const { tools: _ignored, ...plain } = context;
+      for (const model of chain) {
+        try {
+          return await this._callModel(model, userMessage, plain);
+        } catch (err) {
+          lastError = err;
+        }
       }
     }
 

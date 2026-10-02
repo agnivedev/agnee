@@ -67,7 +67,7 @@ const awaitingTeam = (t: ThreadSummary) => t.status === 'open' && t.lastAuthor =
 const rupiah = (n: number) => `Rp${n.toLocaleString('id-ID', { maximumFractionDigits: 0 })}`;
 
 export function HubPage() {
-  const { t, locale } = useI18n();
+  const { t, dateLocale } = useI18n();
   const { isSupervisor } = useSession();
   usePageTitle('hub.title');
   const [params, setParams] = useSearchParams();
@@ -109,8 +109,6 @@ export function HubPage() {
     all: threads.length,
     closed: threads.filter((th) => th.status === 'closed').length,
   }), [threads]);
-
-  const dateLocale = locale === 'en' ? 'en-US' : 'id-ID';
   const when = (iso: string) => new Date(iso).toLocaleString(dateLocale, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
   const open = (id: string | null) => setParams(id ? { thread: id } : {}, { replace: false });
 

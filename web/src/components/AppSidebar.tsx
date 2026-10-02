@@ -4,7 +4,7 @@ import { ChevronsLeft, ChevronsRight, type LucideIcon } from 'lucide-react';
 import { useI18n } from '@/lib/i18n';
 import { useSession } from '@/lib/session';
 import { cn } from '@/lib/utils';
-import { NAV_ENTRIES } from './nav-entries';
+import { NAV_ENTRIES, canSeeEntry } from './nav-entries';
 import { NotificationBell } from '@/components/mentions/NotificationBell';
 
 const COLLAPSE_KEY = 'agnee.sidebarCollapsed';
@@ -57,7 +57,7 @@ export function AppSidebar() {
   }
   const hideTooltip = () => setHover(null);
 
-  const visible = NAV_ENTRIES.filter((entry) => !entry.supervisorOnly || isSupervisor);
+  const visible = NAV_ENTRIES.filter((entry) => canSeeEntry(entry, { isSupervisor, user }));
 
   return (
     <>

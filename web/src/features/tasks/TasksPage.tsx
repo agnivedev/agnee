@@ -36,7 +36,7 @@ const STATUSES: Task['status'][] = ['open', 'pending', 'closed'];
  * bisa dilakukan dari panel chat di Inbox.
  */
 export function TasksPage() {
-  const { t, locale } = useI18n();
+  const { t, dateLocale } = useI18n();
   const { isSupervisor } = useSession();
   const navigate = useNavigate();
   usePageTitle('tasks.title');
@@ -87,8 +87,6 @@ export function TasksPage() {
     const title = task.contactName || task.chatId.replace(/@.*$/, '');
     navigate(`/?chat=${encodeURIComponent(task.chatId)}&title=${encodeURIComponent(title)}`);
   }
-
-  const dateLocale = locale === 'en' ? 'en-US' : 'id-ID';
   const grouped = useMemo(() => {
     const byPriority = new Map<Task['priority'], Task[]>();
     for (const priority of PRIORITIES) byPriority.set(priority, []);

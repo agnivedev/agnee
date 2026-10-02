@@ -11,6 +11,8 @@ export type SessionUser = {
   apiClient?: boolean;
   /** Staf Agnive: akses ke /superhuman, lintas tenant. Bukan peran pelanggan. */
   platformAdmin?: boolean;
+  /** Company ini menerima salinan percakapan Agnive Hub (khusus Agnive). */
+  hubInbox?: boolean;
 };
 
 type SessionState = {

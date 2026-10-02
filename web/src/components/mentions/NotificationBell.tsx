@@ -1,34 +1,21 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
-import { notificationHref, notificationVerbKey, type NotificationKind } from '@/lib/notification-link';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { notificationVerbKey } from '@/lib/notification-link';
+import { useNotifications, type Notification } from '@/lib/notifications';
 import { Bell } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { api } from '@/lib/api';
-import { subscribeLiveEvent } from '@/lib/live-events';
 import { useI18n } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 
-type Notification = {
-  id: number;
-  kind: NotificationKind;
-  chatId: string | null;
-  chatName: string | null;
-  actorName: string | null;
-  actorKind: 'human' | 'ai';
-  body: string | null;
-  readAt: string | null;
-  createdAt: string;
-};
 
 /**
  * Kotak notifikasi mention. Hanya berisi kejadian antar pengguna Agnee —
  * customer tidak pernah menghasilkan baris di sini.
  */
 export function NotificationBell({ className }: { className?: string }) {
-  const { t, locale } = useI18n();
+  const { t, dateLocale } = useI18n();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
-  const [items, setItems] = useState<Notification[]>([]);
-  const [unread, setUnread] = useState(0);
+  const { items, unread, load, markAllRead, openItem: openNotification } = useNotifications(8);
   const boxRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   // Posisi panel dihitung dari rect tombol bell, bukan CSS `absolute` yang
@@ -38,25 +25,6 @@ export function NotificationBell({ className }: { className?: string }) {
   // meluncur jauh ke luar viewport. `fixed` juga lolos dari `overflow-hidden`
   // rail mobile, sama seperti pola tooltip di AppSidebar.tsx.
   const [panelStyle, setPanelStyle] = useState<CSSProperties | null>(null);
-
-  const load = useCallback(async () => {
-    const data = await api<{ notifications: Notification[]; unread: number }>('/v1/notifications?limit=30')
-      .catch(() => null);
-    if (!data) return;
-    setItems(data.notifications || []);
-    setUnread(data.unread || 0);
-  }, []);
-
-  useEffect(() => { void load(); }, [load]);
-
-  // Didorong lewat aliran SSE yang sama dengan inbox, bukan ditarik tiap menit:
-  // sejak AI ikut menjawab di catatan dan penugasan ikut memberi notifikasi,
-  // keterlambatan satu menit terasa seperti fitur yang tidak jalan.
-  //
-  // Frame-nya tidak membawa isi apa pun (server hanya mengirim penanda ke
-  // aliran milik pengguna ini), jadi daftarnya tetap ditarik lewat rute yang
-  // sudah memeriksa siapa pemanggilnya.
-  useEffect(() => subscribeLiveEvent('notification', () => { void load(); }), [load]);
 
   // Jaring pengaman kalau alirannya putus tanpa terdeteksi: jarang, dan
   // 5 menit cukup karena jalur utamanya sudah langsung.
@@ -99,17 +67,9 @@ export function NotificationBell({ className }: { className?: string }) {
     });
   }
 
-  async function markAllRead() {
-    await api('/v1/notifications/read', { method: 'POST', body: {} }).catch(() => {});
-    await load();
-  }
-
   function openItem(item: Notification) {
     setOpen(false);
-    void api('/v1/notifications/read', { method: 'POST', body: { ids: [item.id] } })
-      .catch(() => {})
-      .then(load);
-    if (item.chatId) navigate(notificationHref(item.chatId, item.chatName));
+    openNotification(item);
   }
 
   return (
@@ -158,7 +118,7 @@ export function NotificationBell({ className }: { className?: string }) {
           </div>
           {items.length ? (
             <ul className="grid gap-1">
-              {items.slice(0, 8).map((item) => (
+              {items.map((item) => (
                 <li key={item.id}>
                   <button
                     type="button"
@@ -177,7 +137,7 @@ export function NotificationBell({ className }: { className?: string }) {
                       <span className="line-clamp-2 text-[11px] text-muted">{item.body}</span>
                     ) : null}
                     <time className="font-mono text-[9px] text-muted">
-                      {new Date(item.createdAt).toLocaleString(locale === 'en' ? 'en-US' : 'id-ID')}
+                      {new Date(item.createdAt).toLocaleString(dateLocale)}
                     </time>
                   </button>
                 </li>

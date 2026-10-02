@@ -23,8 +23,7 @@ export function NoteThread({
   reloadKey?: number;
   className?: string;
 }) {
-  const { t, locale } = useI18n();
-  const dateLocale = locale === 'en' ? 'en-US' : 'id-ID';
+  const { t, dateLocale } = useI18n();
   const [notes, setNotes] = useState<NoteItem[]>([]);
   const [people, setPeople] = useState<Mentionable[]>([]);
   const [draft, setDraft] = useState('');

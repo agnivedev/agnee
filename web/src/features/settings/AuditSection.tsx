@@ -49,7 +49,7 @@ const AUDIT_ACTIONS = [
  * mengunduh daftar customer bulan ini".
  */
 export function AuditSection() {
-  const { t, locale } = useI18n();
+  const { t, dateLocale } = useI18n();
   const [entries, setEntries] = useState<AuditEntry[]>([]);
   const [action, setAction] = useState('');
   const [status, setStatus] = useState('');
@@ -79,8 +79,6 @@ export function AuditSection() {
     if (entry.action === 'whatsapp.disconnected') return m.label || entry.entityId || '';
     return m.contactName || m.phone || entry.entityId || '';
   };
-
-  const dateLocale = locale === 'en' ? 'en-US' : 'id-ID';
   return (
     <SettingCard
       id="auditSection"

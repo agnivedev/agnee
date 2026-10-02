@@ -60,9 +60,9 @@ export function PlanAndPayment() {
   const limit = company?.aiMessageLimit ?? 0;
   const count = company?.aiMessageCount ?? 0;
   const plan = planLabel(company?.plan);
-  const { locale } = useI18n();
+  const { dateLocale } = useI18n();
   const trialEnds = company?.planStatus === 'trial' && company.trialEndsAt
-    ? new Date(company.trialEndsAt).toLocaleDateString(locale === 'en' ? 'en-GB' : 'id-ID', { day: 'numeric', month: 'long', year: 'numeric' })
+    ? new Date(company.trialEndsAt).toLocaleDateString(dateLocale, { day: 'numeric', month: 'long', year: 'numeric' })
     : null;
 
   // 'both' shows both groups at once — a company may take a checkout link and a

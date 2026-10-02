@@ -66,11 +66,22 @@
   - **Satu helper untuk siklus hidup integrasi** (`registerIntegrationLifecycle`):
     sinkron, jeda, dan putus untuk OneDrive, Google Sheets, dan Mayar — dulu
     sembilan handler yang hanya berbeda nama fungsi dan pesannya.
+  - **Satu hook notifikasi** (`useNotifications`) untuk lonceng dan halaman
+    "lihat semua" (dulu tipe, pemuatan, dan "tandai dibaca lalu buka" disalin
+    di keduanya; lonceng juga mengambil 30 item untuk menampilkan 8). Satu
+    `dateLocale` di i18n menggantikan sepuluh ternary locale tanggal, dan satu
+    `canSeeEntry()` untuk aturan tampil menu di rail dan sidebar.
   - Rute mati dihapus: `PATCH /v1/tasks/:chatId/status` (pengganti lamanya
     sudah dipakai semua klien) dan `GET /v1/coach/runs` (tidak ada pemanggil).
     Komponen `ui/card.tsx` yang tidak dipakai ikut dihapus.
 
 ### Fixed
+
+- **Menu Agnive Hub tampil untuk supervisor di semua tenant**, padahal inbox Hub
+  hanya berisi untuk company penerima salinan Hub — tenant lain membuka halaman
+  yang selalu kosong. Sesi sekarang membawa `hubInbox`, dan menu mengikutinya.
+- Cabang "khusus supervisor" (403) di Lead List yang tidak pernah bisa jalan
+  dihapus.
 
 - **Migrasi berlomba saat beberapa proses menyala bersamaan.** Proses kedua
   gagal di `INSERT schema_migrations` dan `connect()` melempar — itu sumber

@@ -16,6 +16,8 @@ function readInitialLocale(): Locale {
 export type Translate = (key: MessageKey | (string & {}), vars?: Record<string, string | number>) => string;
 
 type I18nValue = {
+  /** Locale untuk toLocaleString/toLocaleDateString, dipakai semua layar. */
+  dateLocale: string;
   locale: Locale;
   setLocale: (next: Locale) => void;
   t: Translate;
@@ -53,7 +55,10 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     [locale],
   );
 
-  const value = useMemo(() => ({ locale, setLocale, t }), [locale, setLocale, t]);
+  // Satu locale tanggal untuk seluruh app; dulu sepuluh file menulis ternary
+  // sendiri, dua di antaranya en-GB dan sisanya en-US.
+  const dateLocale = locale === 'en' ? 'en-US' : 'id-ID';
+  const value = useMemo(() => ({ locale, setLocale, t, dateLocale }), [locale, setLocale, t, dateLocale]);
   return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;
 }
 

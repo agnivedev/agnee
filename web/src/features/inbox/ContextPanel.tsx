@@ -24,7 +24,7 @@ export function ContextPanel({
   /** Bumped by the live stream so routing and notes reload without a poll. */
   reloadToken: number;
 }) {
-  const { t, locale } = useI18n();
+  const { t, locale, dateLocale } = useI18n();
   const { user, isSupervisor } = useSession();
 
   const [lead, setLead] = useState<Lead | null>(null);
@@ -168,7 +168,6 @@ export function ContextPanel({
 
   const stageLabel =
     lead?.stage === 'assigned' ? t('lead.assigned') : lead?.stage === 'qualified' ? t('lead.qualified') : t('inbox.tabInbox');
-  const dateLocale = locale === 'en' ? 'en-US' : 'id-ID';
 
   /**
    * Menyimpan suntingan ringkasan atau label.

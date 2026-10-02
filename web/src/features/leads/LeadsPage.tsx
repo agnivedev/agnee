@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api, messageFromError, ApiError } from '@/lib/api';
+import { api, messageFromError } from '@/lib/api';
 import { useI18n, usePageTitle } from '@/lib/i18n';
 import { useSession } from '@/lib/session';
 import { AppSidebar } from '@/components/AppSidebar';
@@ -93,10 +93,8 @@ export function LeadsPage() {
       setRows(data.rows || []);
       setStatus(data.rows?.length ? '' : t('leads.empty'));
     } catch (caught) {
-      if (caught instanceof ApiError && caught.status === 403) {
-        setStatus(t('leads.supervisorOnly'));
-        return;
-      }
+      // Tabel ini terbuka untuk agent (barisnya disaring per peran di server),
+      // jadi tidak ada cabang 403 di sini — dulu ada, dan tidak pernah jalan.
       setStatus(messageFromError(caught, t('leads.empty')));
     }
   }, [t]);

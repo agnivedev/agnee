@@ -1,24 +1,10 @@
-import { useCallback, useEffect, useState } from 'react';
-import { notificationHref, notificationVerbKey, type NotificationKind } from '@/lib/notification-link';
-import { useNavigate } from 'react-router-dom';
-import { api, messageFromError } from '@/lib/api';
+import { notificationVerbKey } from '@/lib/notification-link';
+import { useNotifications } from '@/lib/notifications';
 import { useI18n, usePageTitle } from '@/lib/i18n';
-import { subscribeLiveEvent } from '@/lib/live-events';
 import { AppSidebar } from '@/components/AppSidebar';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
-type Notification = {
-  id: number;
-  kind: NotificationKind;
-  chatId: string | null;
-  chatName: string | null;
-  actorName: string | null;
-  actorKind: 'human' | 'ai';
-  body: string | null;
-  readAt: string | null;
-  createdAt: string;
-};
 
 /**
  * Halaman "lihat semua" untuk notifikasi — dropdown lonceng (`NotificationBell.tsx`)
@@ -26,41 +12,11 @@ type Notification = {
  * limit lebih tinggi (batas server 100, tidak ada cursor pagination).
  */
 export function NotificationsPage() {
-  const { t, locale } = useI18n();
-  const navigate = useNavigate();
+  const { t, dateLocale } = useI18n();
   usePageTitle('notif.title');
 
-  const [items, setItems] = useState<Notification[]>([]);
-  const [unread, setUnread] = useState(0);
-  const [status, setStatus] = useState(t('common.loading'));
-
-  const load = useCallback(async () => {
-    try {
-      const data = await api<{ notifications: Notification[]; unread: number }>('/v1/notifications?limit=100');
-      setItems(data.notifications || []);
-      setUnread(data.unread || 0);
-      setStatus('');
-    } catch (error) {
-      setStatus(messageFromError(error, ''));
-    }
-  }, []);
-
-  useEffect(() => { void load(); }, [load]);
-  useEffect(() => subscribeLiveEvent('notification', () => { void load(); }), [load]);
-
-  async function markAllRead() {
-    await api('/v1/notifications/read', { method: 'POST', body: {} }).catch(() => {});
-    await load();
-  }
-
-  function openItem(item: Notification) {
-    void api('/v1/notifications/read', { method: 'POST', body: { ids: [item.id] } })
-      .catch(() => {})
-      .then(load);
-    if (item.chatId) navigate(notificationHref(item.chatId, item.chatName));
-  }
-
-  const dateLocale = locale === 'en' ? 'en-US' : 'id-ID';
+  const { items, unread, error, loaded, markAllRead, openItem } = useNotifications(100);
+  const status = loaded ? error : t('common.loading');
 
   return (
     <div className="flex min-h-dvh flex-col bg-background md:flex-row">

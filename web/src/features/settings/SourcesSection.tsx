@@ -16,7 +16,7 @@ const PAGE: Record<string, string> = { hub: '/hub' };
  * hides the source and stops the bell; what arrives meanwhile is still kept.
  */
 export function SourcesSection() {
-  const { t, locale } = useI18n();
+  const { t, dateLocale } = useI18n();
   const [sources, setSources] = useState<Source[]>([]);
   const [status, setStatus] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
@@ -42,8 +42,6 @@ export function SourcesSection() {
       setBusy(null);
     }
   }
-
-  const dateLocale = locale === 'en' ? 'en-US' : 'id-ID';
   return (
     <SettingCard eyebrow="INTEGRATION" title={t('sources.title')} description={t('sources.subtitle')}>
       <ul className="m-0 grid list-none gap-2 p-0">

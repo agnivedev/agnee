@@ -294,7 +294,7 @@ export function KnowledgePage() {
 }
 
 function PlaybookDocs() {
-  const { t, locale } = useI18n();
+  const { t, dateLocale } = useI18n();
   const [kinds, setKinds] = useState<Kind[]>([]);
   const [active, setActive] = useState<string | null>(null);
   const [doc, setDoc] = useState<Doc | null>(null);
@@ -331,8 +331,6 @@ function PlaybookDocs() {
     // memicu pengambilan ulang tanpa henti.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active]);
-
-  const dateLocale = locale === 'en' ? 'en-GB' : 'id-ID';
 
   return (
       <>

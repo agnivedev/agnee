@@ -2,14 +2,14 @@ import { LogOut, type LucideIcon } from 'lucide-react';
 import { useI18n } from '@/lib/i18n';
 import { useSession } from '@/lib/session';
 import { cn } from '@/lib/utils';
-import { NAV_ENTRIES, type NavEntryId } from '@/components/nav-entries';
+import { NAV_ENTRIES, canSeeEntry, type NavEntryId } from '@/components/nav-entries';
 import { NotificationBell } from '@/components/mentions/NotificationBell';
 
 export type RailAction = NavEntryId;
 
 export function Rail({ active, onAction }: { active: RailAction; onAction: (action: RailAction) => void }) {
   const { t } = useI18n();
-  const { isSupervisor } = useSession();
+  const session = useSession();
 
   return (
     // On a phone the rail becomes a fixed bottom bar. `fixed` also takes it out
@@ -17,7 +17,7 @@ export function Rail({ active, onAction }: { active: RailAction; onAction: (acti
     <aside className="fixed inset-x-0 bottom-0 z-20 flex h-16 min-h-0 flex-row items-center justify-between gap-2 overflow-hidden bg-ink px-2 py-2 text-white shadow-[0_-10px_28px_rgba(15,35,28,.13)] md:static md:h-full md:flex-col md:gap-6 md:px-2 md:py-[22px] md:shadow-none">
       <img src="/brand/agnee-mark.svg" alt="Agnee" className="hidden size-[38px] md:block" />
       <nav aria-label={t('nav.main')} className="flex min-w-0 gap-0.5 md:grid md:gap-1">
-        {NAV_ENTRIES.filter((entry) => entry.id !== 'logout' && (!entry.supervisorOnly || isSupervisor)).map((entry) => (
+        {NAV_ENTRIES.filter((entry) => entry.id !== 'logout' && canSeeEntry(entry, session)).map((entry) => (
           <RailButton
             key={entry.id}
             icon={entry.icon}

@@ -2431,6 +2431,13 @@ async function buildApp(overrides = {}) {
     return reply.code(403).send({ error: 'Ambil alih chat ini sebelum membalas.' });
   });
 
+  /** Company penerima salinan Agnive Hub (INSIGHT_WEBHOOK_COMPANY), bila diatur. */
+  async function isHubCompany(companyId) {
+    if (!companyId || !config.insightWebhookCompany || !database.status().connected) return false;
+    const hubCompanyId = await database.resolveCompanyId(config.insightWebhookCompany).catch(() => null);
+    return Boolean(hubCompanyId) && hubCompanyId === companyId;
+  }
+
   app.get('/v1/auth/session', async (request) => {
     // `onboarded` dibaca segar dari database: cookie sesi membawa nilai saat
     // login, jadi tanpa ini daftar periksa onboarding muncul lagi setelah
@@ -2440,6 +2447,9 @@ async function buildApp(overrides = {}) {
       const live = await database.getActiveSessionUser(user.userId, user.companyId).catch(() => null);
       if (live) user.onboarded = Boolean(live.onboardedAt);
     }
+    // Inbox Agnive Hub hanya ada untuk company penerima salinan Hub; menu-nya
+    // disembunyikan di tenant lain supaya tidak membuka halaman yang selalu kosong.
+    user.hubInbox = await isHubCompany(user.companyId);
     return { authenticated: true, user };
   });
 
@@ -5132,10 +5142,7 @@ Aturan:
    */
   async function hubListingsAllowed(companyId) {
     if (!companyId || !database.status().connected) return false;
-    if (config.insightWebhookCompany) {
-      const insightCompanyId = await database.resolveCompanyId(config.insightWebhookCompany).catch(() => null);
-      if (insightCompanyId && insightCompanyId === companyId) return true;
-    }
+    if (await isHubCompany(companyId)) return true;
     const companyConfig = await database.getCompanyConfig(companyId).catch(() => null);
     return Boolean(companyConfig?.hubToolsEnabled);
   }

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
+import { SourceTabs } from '@/components/express/SourceTabs';
 import { useNavigate } from 'react-router-dom';
 import { api, messageFromError } from '@/lib/api';
 import { useI18n, usePageTitle } from '@/lib/i18n';
@@ -328,6 +329,8 @@ export function InboxPage() {
             ＋
           </button>
         </header>
+
+        <SourceTabs active="whatsapp" className="mt-2" />
 
         <label className="my-2.5 flex items-center gap-2.5 rounded-[13px] border border-border bg-white/55 px-3 py-2.5">
           <span aria-hidden className="text-muted">

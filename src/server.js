@@ -22,6 +22,7 @@ const {
 const { FollowUpScheduler, decide: followUpDecide, withManualGap } = require('./follow-up.js');
 const onedrive = require('./onedrive-sync.js');
 const gsheets = require('./gsheets-sync.js');
+const { HUB_REPLY_WORKING_DAYS, addWorkingDays, workingDaysSince } = require('./hub-followup.js');
 const mayarSync = require('./mayar-sync.js');
 const { buildXlsx } = require('./xlsx-writer.js');
 const Database = require('./database.js');
@@ -5048,8 +5049,10 @@ Aturan:
     if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya untuk supervisor.' });
     const known = await database.listExternalSources(request.agneeSession.companyId);
     const bySource = new Map(known.map((row) => [row.source, row]));
-    // Agnive Hub is built in: listed even before its first message arrives.
-    const sources = Object.keys(SOURCE_NAMES).map((source) => ({
+    // Agnive Hub is built in for the company that receives Hub copies —
+    // listed there even before its first message; nowhere else.
+    const hubCompany = await isHubCompany(request.agneeSession.companyId);
+    const sources = Object.keys(SOURCE_NAMES).filter((source) => source !== 'hub' || hubCompany).map((source) => ({
       source,
       name: SOURCE_NAMES[source],
       enabled: bySource.get(source)?.enabled !== false,
@@ -5089,15 +5092,106 @@ Aturan:
   }, async (request, reply) => {
     if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya untuk supervisor.' });
     const threads = await database.listExternalThreads(request.agneeSession.companyId, request.query);
-    return { threads };
+    return { threads: threads.map(withDueAt) };
   });
 
   app.get('/v1/external/threads/:threadId', async (request, reply) => {
     if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya untuk supervisor.' });
     const thread = await database.getExternalThread(request.agneeSession.companyId, request.params.threadId);
     if (!thread) return reply.code(404).send({ error: 'Tidak ditemukan.' });
-    return { thread };
+    return { thread: withDueAt(thread) };
   });
+
+  // ── Fase 4: follow-up — PJ, reminders after 2 working days, numbers ──────
+  /** When the funder's wait becomes overdue (null = nobody is waiting). */
+  function withDueAt(thread) {
+    const dueAt = thread.awaitingSince ? new Date(addWorkingDays(new Date(thread.awaitingSince).getTime())).toISOString() : null;
+    return { ...thread, dueAt, overdue: Boolean(dueAt && Date.parse(dueAt) <= Date.now()) };
+  }
+
+  app.patch('/v1/external/threads/:threadId', {
+    schema: { body: { type: 'object', additionalProperties: false, required: ['assigneeUserId'], properties: {
+      assigneeUserId: { type: ['string', 'null'], maxLength: 64 },
+    } } },
+  }, async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya untuk supervisor.' });
+    const companyId = request.agneeSession.companyId;
+    const thread = await database.getExternalThread(companyId, request.params.threadId);
+    if (!thread) return reply.code(404).send({ error: 'Tidak ditemukan.' });
+    const assigneeId = request.body.assigneeUserId;
+    if (assigneeId) {
+      // Hub threads are supervisor-only, so the PJ must be one too.
+      const member = await database.getActiveSessionUser(assigneeId, companyId).catch(() => null);
+      if (!member || !isSupervisor({ role: member.role })) {
+        return reply.code(400).send({ error: 'PJ harus supervisor aktif di perusahaan ini.' });
+      }
+    }
+    await database.setExternalThreadAssignee(companyId, thread.id, assigneeId);
+    if (assigneeId && assigneeId !== request.agneeSession.userId && typeof database.createTaskNotification === 'function') {
+      const c = thread.context || {};
+      const notified = await database.createTaskNotification({
+        chatId: `hub:${thread.id}`,
+        userId: assigneeId,
+        actorUserId: request.agneeSession.userId,
+        body: `PJ percakapan Agnive Hub: ${thread.contactName || 'Pendana'} — ${c.productName || c.listingSlug || 'listing'}`,
+      }, companyId).catch(() => []);
+      notifyUsers(companyId, notified);
+    }
+    broadcastEvent(companyId, 'hub', { threadId: thread.id });
+    return { thread: withDueAt(await database.getExternalThread(companyId, thread.id)) };
+  });
+
+  app.get('/v1/external/stats', {
+    schema: { querystring: { type: 'object', properties: {
+      source: { type: 'string', enum: ['hub'], default: 'hub' },
+      days: { type: 'integer', minimum: 7, maximum: 365, default: 90 },
+    } } },
+  }, async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya untuk supervisor.' });
+    const stats = await database.externalThreadStats(request.agneeSession.companyId, request.query.source, request.query.days);
+    const overdue = (await database.listExternalThreads(request.agneeSession.companyId, {
+      source: request.query.source, limit: 100, awaitingTeam: true, excludeAnonymized: true,
+    })).map(withDueAt).filter((t) => t.overdue).length;
+    return { stats: { ...stats, overdue, replyWorkingDays: HUB_REPLY_WORKING_DAYS } };
+  });
+
+  /**
+   * Reminds Agnive staff when a funder has waited two working days: the PJ if
+   * there is one, otherwise every supervisor. Once per wait — a new funder
+   * message starts a new wait. A switched-off source is skipped, not marked,
+   * so switching it back on still reminds.
+   */
+  async function runHubFollowUpSweep(nowMs = Date.now()) {
+    const waiting = await database.listAwaitingExternalThreads('hub');
+    let reminded = 0;
+    for (const t of waiting) {
+      const since = new Date(t.awaitingSince).getTime();
+      if (addWorkingDays(since) > nowMs) continue;
+      if (!await database.isExternalSourceEnabled(t.companyId, 'hub')) continue;
+      const c = t.context || {};
+      const days = workingDaysSince(since, nowMs);
+      const body = `${t.contactName || 'Pendana'} menunggu balasan tim ${days} hari kerja — ${c.productName || c.listingSlug || 'listing'}`;
+      const notified = await database.createHubReminder({ chatId: `hub:${t.id}`, body, userId: t.assigneeUserId }, t.companyId);
+      notifyUsers(t.companyId, notified);
+      await database.markExternalThreadReminded(t.id, t.awaitingSince);
+      reminded += 1;
+    }
+    return reminded;
+  }
+  app.decorate('runHubFollowUpSweep', runHubFollowUpSweep);
+
+  function startHubFollowUpSweeper() {
+    const jalankan = async () => {
+      const n = await runHubFollowUpSweep().catch((error) => {
+        app.log.warn({ err: error }, 'Penyapu pengingat Agnive Hub gagal');
+        return 0;
+      });
+      if (n) app.log.info({ count: n }, 'Agnive Hub: pengingat balasan tim dikirim');
+    };
+    void jalankan();
+    const timer = setInterval(() => { jalankan().catch(() => {}); }, 15 * 60_000);
+    timer.unref?.();
+  }
 
   // ── Agnive Hub: listings (public data) and a reply draft (9c) ────────────
   //
@@ -6728,6 +6822,7 @@ Aturan:
     if (database.enabled && database.connected) startOneDriveSyncLoop();
     if (database.enabled && database.connected) startAutoAssignSweeper();
     if (database.enabled && database.connected) startSlaSweeper();
+    if (database.enabled && database.connected) startHubFollowUpSweeper();
 
     // No default company to boot: resume exactly those companies whose last
     // known session was live. Everyone else starts on demand when a supervisor

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { SourceTabs } from '@/components/express/SourceTabs';
 import { Link, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, Check, Copy, ExternalLink, Handshake, Loader2, Sparkles, StickyNote } from 'lucide-react';
 import { api, messageFromError } from '@/lib/api';
@@ -43,7 +44,30 @@ type ThreadSummary = {
   lastMessageAt: string;
   messageCount: number;
   lastAuthor: 'contact' | 'team' | null;
+  awaitingSince: string | null;
+  dueAt: string | null;
+  overdue: boolean;
+  assigneeUserId: string | null;
+  assigneeName: string | null;
 };
+
+type Stats = {
+  days: number;
+  total: number;
+  open: number;
+  closed: number;
+  awaiting: number;
+  overdue: number;
+  replied: number;
+  medianFirstReplyHours: number | null;
+  fundingMentioned: number;
+  replyWorkingDays: number;
+  byListing: { slug: string; productName: string | null; total: number; awaiting: number }[];
+  byKind: { kind: string; total: number }[];
+};
+
+type Member = { id: string; displayName: string | null; email?: string; role: string; status: string };
+const SUPERVISOR_ROLES = ['owner', 'admin', 'supervisor'];
 
 type ThreadDetail = Omit<ThreadSummary, 'messageCount' | 'lastAuthor'> & {
   messages: { externalId: string; author: 'contact' | 'team'; authorName: string | null; body: string; occurredAt: string }[];
@@ -51,8 +75,8 @@ type ThreadDetail = Omit<ThreadSummary, 'messageCount' | 'lastAuthor'> & {
 
 type Source = { source: string; name: string; enabled: boolean; lastReceivedAt: string | null; threadCount: number };
 
-type Filter = 'awaiting' | 'open' | 'all' | 'closed';
-const FILTERS: Filter[] = ['awaiting', 'open', 'all', 'closed'];
+type Filter = 'awaiting' | 'overdue' | 'mine' | 'open' | 'all' | 'closed';
+const FILTERS: Filter[] = ['awaiting', 'overdue', 'mine', 'open', 'all', 'closed'];
 
 /** Server-sent events carry their payload as JSON text. */
 function eventData<T>(event: MessageEvent): T | null {
@@ -68,7 +92,7 @@ const rupiah = (n: number) => `Rp${n.toLocaleString('id-ID', { maximumFractionDi
 
 export function HubPage() {
   const { t, dateLocale } = useI18n();
-  const { isSupervisor } = useSession();
+  const { isSupervisor, user } = useSession();
   usePageTitle('hub.title');
   const [params, setParams] = useSearchParams();
   const selectedId = params.get('thread');
@@ -77,15 +101,19 @@ export function HubPage() {
   const [source, setSource] = useState<Source | null>(null);
   const [filter, setFilter] = useState<Filter>('awaiting');
   const [status, setStatus] = useState(t('common.loading'));
+  const [stats, setStats] = useState<Stats | null>(null);
+  const [members, setMembers] = useState<Member[]>([]);
 
   const loadList = useCallback(async () => {
     try {
-      const [list, sources] = await Promise.all([
+      const [list, sources, summary] = await Promise.all([
         api<{ threads: ThreadSummary[] }>('/v1/external/threads?source=hub&limit=100'),
         api<{ sources: Source[] }>('/v1/integrations/sources'),
+        api<{ stats: Stats }>('/v1/external/stats?source=hub&days=90').catch(() => null),
       ]);
       setThreads(list.threads || []);
       setSource(sources.sources.find((s) => s.source === 'hub') || null);
+      setStats(summary?.stats || null);
       setStatus('');
     } catch (error) {
       setStatus(messageFromError(error, ''));
@@ -95,20 +123,30 @@ export function HubPage() {
   useEffect(() => {
     if (isSupervisor) void loadList();
   }, [isSupervisor, loadList]);
+  useEffect(() => {
+    if (!isSupervisor) return;
+    api<{ members: Member[] }>('/v1/team/members')
+      .then((data) => setMembers(data.members.filter((m) => m.status === 'active' && SUPERVISOR_ROLES.includes(m.role))))
+      .catch(() => setMembers([]));
+  }, [isSupervisor]);
   useEffect(() => subscribeLiveEvent('hub', () => { void loadList(); }), [loadList]);
 
   const visible = useMemo(() => threads.filter((th) => {
     if (filter === 'awaiting') return awaitingTeam(th);
+    if (filter === 'overdue') return th.overdue;
+    if (filter === 'mine') return Boolean(user?.userId && th.assigneeUserId === user.userId);
     if (filter === 'open') return th.status === 'open';
     if (filter === 'closed') return th.status === 'closed';
     return true;
-  }), [threads, filter]);
+  }), [threads, filter, user?.userId]);
   const counts = useMemo(() => ({
     awaiting: threads.filter(awaitingTeam).length,
+    overdue: threads.filter((th) => th.overdue).length,
+    mine: threads.filter((th) => user?.userId && th.assigneeUserId === user.userId).length,
     open: threads.filter((th) => th.status === 'open').length,
     all: threads.length,
     closed: threads.filter((th) => th.status === 'closed').length,
-  }), [threads]);
+  }), [threads, user?.userId]);
   const when = (iso: string) => new Date(iso).toLocaleString(dateLocale, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
   const open = (id: string | null) => setParams(id ? { thread: id } : {}, { replace: false });
 
@@ -131,6 +169,7 @@ export function HubPage() {
           <p className="eyebrow">{t('hub.eyebrow')}</p>
           <h1 className="m-0 text-[26px] tracking-[-.03em]">{t('hub.title')}</h1>
           <p className="mt-1.5 max-w-3xl text-sm text-muted">{t('hub.subtitle')}</p>
+          <SourceTabs active="hub" className="mt-3" />
         </header>
 
         {source && !source.enabled && (
@@ -140,6 +179,7 @@ export function HubPage() {
           </p>
         )}
         {status && <p className="text-sm text-muted">{status}</p>}
+        {stats && !selectedId && <StatsPanel stats={stats} />}
 
         <div className="grid gap-5 lg:grid-cols-[minmax(280px,360px)_1fr]">
           <section className={cn('min-w-0', selectedId && 'max-lg:hidden')}>
@@ -185,6 +225,8 @@ export function HubPage() {
                       </span>
                       <span className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px]">
                         <StatusPill thread={th} />
+                        {th.overdue && <span className="rounded-full bg-danger/10 px-2 py-0.5 font-semibold text-danger">{t('hub.overdue')}</span>}
+                        {th.assigneeName && <span className="text-muted">PJ {th.assigneeName}</span>}
                         {th.context.kind && <span className="text-muted">{t(`hub.kind.${th.context.kind}`)}</span>}
                         {th.context.amount ? <span className="text-muted">· {rupiah(th.context.amount)}</span> : null}
                       </span>
@@ -197,7 +239,7 @@ export function HubPage() {
 
           <section className={cn('min-w-0', !selectedId && 'max-lg:hidden')}>
             {selectedId ? (
-              <ThreadView id={selectedId} onBack={() => open(null)} when={when} />
+              <ThreadView id={selectedId} onBack={() => open(null)} when={when} members={members} onChanged={() => void loadList()} />
             ) : (
               <div className="grid h-full min-h-[240px] place-items-center rounded-panel border border-dashed border-ink/15 text-sm text-muted">
                 {t('hub.pick')}
@@ -225,7 +267,13 @@ function StatusPill({ thread }: { thread: Pick<ThreadSummary, 'status' | 'lastAu
   );
 }
 
-function ThreadView({ id, onBack, when }: { id: string; onBack: () => void; when: (iso: string) => string }) {
+function ThreadView({ id, onBack, when, members, onChanged }: {
+  id: string;
+  onBack: () => void;
+  when: (iso: string) => string;
+  members: Member[];
+  onChanged: () => void;
+}) {
   const { t } = useI18n();
   const [thread, setThread] = useState<ThreadDetail | null>(null);
   const [error, setError] = useState('');
@@ -285,6 +333,16 @@ function ThreadView({ id, onBack, when }: { id: string; onBack: () => void; when
               {c.amount ? <span className="text-muted"> · {rupiah(c.amount)}</span> : null}
             </Detail>
             <Detail label={t('hub.started')}>{when(thread.startedAt)}</Detail>
+            <Detail label={t('hub.dueLabel')}>
+              {thread.dueAt ? (
+                <span className={thread.overdue ? 'font-semibold text-danger' : ''}>
+                  {when(thread.dueAt)}{thread.overdue ? ` · ${t('hub.overdue')}` : ''}
+                </span>
+              ) : '—'}
+            </Detail>
+            <Detail label={t('hub.assignee')}>
+              <AssigneeSelect thread={thread} members={members} onSaved={(next) => { setThread(next); onChanged(); }} />
+            </Detail>
             <Detail label={t('hub.listing')}>
               {c.listingUrl ? (
                 <a href={c.listingUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-semibold text-green-dark">
@@ -416,5 +474,84 @@ function DraftCard({ threadId, onSavedAsNote }: { threadId: string; onSavedAsNot
         </div>
       )}
     </div>
+  );
+}
+
+/** The Agnive staff member who follows this conversation up with the team. */
+function AssigneeSelect({ thread, members, onSaved }: { thread: ThreadDetail; members: Member[]; onSaved: (t: ThreadDetail) => void }) {
+  const { t } = useI18n();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  async function change(value: string) {
+    setBusy(true);
+    setError('');
+    try {
+      const data = await api<{ thread: ThreadDetail }>(`/v1/external/threads/${encodeURIComponent(thread.id)}`, {
+        method: 'PATCH',
+        body: { assigneeUserId: value || null },
+      });
+      onSaved(data.thread);
+    } catch (err) {
+      setError(messageFromError(err, ''));
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <span className="grid gap-1">
+      <select
+        value={thread.assigneeUserId || ''}
+        disabled={busy}
+        onChange={(e) => void change(e.target.value)}
+        className="h-9 max-w-full rounded-[10px] border border-ink/15 bg-white px-2 text-sm"
+      >
+        <option value="">{t('hub.noAssignee')}</option>
+        {members.map((m) => <option key={m.id} value={m.id}>{m.displayName || m.email || m.id}</option>)}
+      </select>
+      {error && <span className="text-xs text-danger">{error}</span>}
+    </span>
+  );
+}
+
+/** Fase 4 numbers: the last 90 days of Hub conversations at a glance. */
+function StatsPanel({ stats }: { stats: Stats }) {
+  const { t } = useI18n();
+  const hours = stats.medianFirstReplyHours;
+  const median = hours == null ? '—' : hours < 24 ? `${Math.round(hours)} ${t('hub.hours')}` : `${(hours / 24).toFixed(1)} ${t('hub.daysUnit')}`;
+  const tiles: [string, string, boolean?][] = [
+    [t('hub.stat.total'), String(stats.total)],
+    [t('hub.stat.awaiting'), String(stats.awaiting)],
+    [t('hub.stat.overdue', { days: stats.replyWorkingDays }), String(stats.overdue), stats.overdue > 0],
+    [t('hub.stat.median'), median],
+    [t('hub.stat.funding'), stats.fundingMentioned ? rupiah(stats.fundingMentioned) : '—'],
+  ];
+  return (
+    <section className="mb-5">
+      <p className="m-0 mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted">{t('hub.stat.title', { days: stats.days })}</p>
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+        {tiles.map(([label, value, alert]) => (
+          <div key={label} className="rounded-app border border-ink/10 bg-white/70 px-3 py-2.5">
+            <p className="m-0 text-[11px] text-muted">{label}</p>
+            <p className={cn('m-0 mt-0.5 text-lg font-bold', alert && 'text-danger')}>{value}</p>
+          </div>
+        ))}
+      </div>
+      {stats.byListing.length > 0 && (
+        <details className="mt-2 text-sm">
+          <summary className="cursor-pointer text-[13px] font-semibold text-green-dark">{t('hub.stat.byListing')}</summary>
+          <table className="mt-2 w-full max-w-xl border-collapse text-[13px]">
+            <tbody>
+              {stats.byListing.map((row) => (
+                <tr key={row.slug} className="border-b border-ink/5">
+                  <td className="py-1.5 pr-3">{row.productName || row.slug}</td>
+                  <td className="py-1.5 pr-3 text-right tabular-nums">{row.total}</td>
+                  <td className="py-1.5 text-right tabular-nums text-muted">{row.awaiting} {t('hub.stat.waitingShort')}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </details>
+      )}
+    </section>
   );
 }

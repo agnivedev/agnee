@@ -2505,6 +2505,17 @@ class Database {
         `, [threadId, message.externalId, message.author, message.authorName, message.body, message.occurredAt]);
         if (written.rows[0]?.inserted && message.author === 'contact') newContactMessages += 1;
       }
+      // Fase 4: since when the funder has been waiting (null = the team had the
+      // last word, or the thread is closed or wiped). Kept here so the overdue
+      // sweep is one indexed query.
+      await client.query(`
+        UPDATE external_threads t SET awaiting_since = CASE
+          WHEN t.status = 'open' AND t.anonymized_at IS NULL THEN (
+            SELECT CASE WHEN m.author = 'contact' THEN m.occurred_at END
+            FROM external_messages m WHERE m.thread_id = t.id ORDER BY m.occurred_at DESC LIMIT 1)
+          END
+        WHERE t.id = $1
+      `, [threadId]);
       await client.query(
         `INSERT INTO external_sources (company_id, source, last_received_at) VALUES ($1, $2, NOW())
          ON CONFLICT (company_id, source) DO UPDATE SET last_received_at = NOW()`,
@@ -2571,6 +2582,9 @@ class Database {
              t.contact_name AS "contactName", t.contact_email AS "contactEmail", t.contact_org AS "contactOrg",
              t.context, t.anonymized_at AS "anonymizedAt", t.started_at AS "startedAt",
              t.last_message_at AS "lastMessageAt",
+             t.awaiting_since AS "awaitingSince",
+             t.assignee_user_id AS "assigneeUserId",
+             (SELECT u.display_name FROM users u WHERE u.id = t.assignee_user_id) AS "assigneeName",
              (SELECT COUNT(*)::int FROM external_messages m WHERE m.thread_id = t.id) AS "messageCount",
              (SELECT m.author FROM external_messages m WHERE m.thread_id = t.id
                 ORDER BY m.occurred_at DESC LIMIT 1) AS "lastAuthor"
@@ -2592,7 +2606,9 @@ class Database {
     const thread = await this.pool.query(`
       SELECT id, source, external_id AS "externalId", status,
              contact_name AS "contactName", contact_email AS "contactEmail", contact_org AS "contactOrg",
-             context, anonymized_at AS "anonymizedAt", started_at AS "startedAt", last_message_at AS "lastMessageAt"
+             context, anonymized_at AS "anonymizedAt", started_at AS "startedAt", last_message_at AS "lastMessageAt",
+             awaiting_since AS "awaitingSince", assignee_user_id AS "assigneeUserId",
+             (SELECT u.display_name FROM users u WHERE u.id = external_threads.assignee_user_id) AS "assigneeName"
       FROM external_threads WHERE company_id = $1 AND id::text = $2
     `, [companyId, threadId]);
     if (!thread.rows[0]) return null;
@@ -2601,6 +2617,95 @@ class Database {
       FROM external_messages WHERE thread_id = $1 ORDER BY occurred_at ASC
     `, [thread.rows[0].id]);
     return { ...thread.rows[0], messages: messages.rows };
+  }
+
+  /** Sets (or clears) the Agnive staff member following a Hub thread up. */
+  async setExternalThreadAssignee(companyId, threadId, userId) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      UPDATE external_threads SET assignee_user_id = $3, assigned_at = CASE WHEN $3::uuid IS NULL THEN NULL ELSE NOW() END
+      WHERE company_id = $1 AND id::text = $2
+      RETURNING id
+    `, [companyId, threadId, userId || null]);
+    return result.rows[0]?.id || null;
+  }
+
+  /**
+   * Hub threads whose funder is still waiting and has not been reminded about
+   * for this wait. Every company: the sweep is platform-wide; the caller
+   * decides by due date and the source switch.
+   */
+  async listAwaitingExternalThreads(source) {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(`
+      SELECT t.id, t.company_id AS "companyId", t.contact_name AS "contactName", t.context,
+             t.awaiting_since AS "awaitingSince", t.assignee_user_id AS "assigneeUserId"
+      FROM external_threads t
+      WHERE t.source = $1 AND t.awaiting_since IS NOT NULL
+        AND (t.sla_notified_for IS NULL OR t.sla_notified_for <> t.awaiting_since)
+    `, [source]);
+    return result.rows;
+  }
+
+  async markExternalThreadReminded(threadId, awaitingSince) {
+    if (!this.enabled) return;
+    await this.pool.query('UPDATE external_threads SET sla_notified_for = $2 WHERE id = $1', [threadId, awaitingSince]);
+  }
+
+  /** The bell for one person (the PJ) — or, with no userId, every supervisor. */
+  async createHubReminder({ chatId, body, userId = null }, companyId) {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(`
+      INSERT INTO notifications (company_id, user_id, kind, chat_id, actor_kind, body)
+      SELECT $1, m.user_id, 'sla', $2, 'system', $3
+      FROM company_members m
+      WHERE m.company_id = $1 AND m.status = 'active'
+        AND (($4::uuid IS NOT NULL AND m.user_id = $4::uuid)
+             OR ($4::uuid IS NULL AND m.role IN ('owner', 'admin', 'supervisor')))
+      RETURNING user_id AS "userId"
+    `, [companyId, chatId, String(body || '').slice(0, 500), userId]);
+    return result.rows.map((row) => row.userId);
+  }
+
+  /**
+   * Fase 4 numbers for one source over the last `days` days: how many
+   * conversations, how many still waiting, and how fast the teams answered the
+   * first message.
+   */
+  async externalThreadStats(companyId, source, days = 90) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      WITH t AS (
+        SELECT t.*,
+          (SELECT MIN(m.occurred_at) FROM external_messages m WHERE m.thread_id = t.id AND m.author = 'team') AS first_reply_at
+        FROM external_threads t
+        WHERE t.company_id = $1 AND t.source = $2 AND t.started_at > NOW() - make_interval(days => $3)
+      )
+      SELECT
+        COUNT(*)::int AS total,
+        COUNT(*) FILTER (WHERE status = 'open')::int AS open,
+        COUNT(*) FILTER (WHERE status = 'closed')::int AS closed,
+        COUNT(*) FILTER (WHERE awaiting_since IS NOT NULL)::int AS awaiting,
+        COUNT(*) FILTER (WHERE first_reply_at IS NOT NULL)::int AS replied,
+        percentile_cont(0.5) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM first_reply_at - started_at) / 3600)
+          FILTER (WHERE first_reply_at IS NOT NULL) AS "medianFirstReplyHours",
+        COALESCE(SUM((context->>'amount')::numeric) FILTER (WHERE context->>'kind' = 'funding'), 0)::float AS "fundingMentioned"
+      FROM t
+    `, [companyId, source, days]);
+    const byListing = await this.pool.query(`
+      SELECT context->>'listingSlug' AS slug, MAX(context->>'productName') AS "productName",
+             COUNT(*)::int AS total, COUNT(*) FILTER (WHERE awaiting_since IS NOT NULL)::int AS awaiting
+      FROM external_threads
+      WHERE company_id = $1 AND source = $2 AND started_at > NOW() - make_interval(days => $3)
+      GROUP BY 1 ORDER BY total DESC, slug LIMIT 20
+    `, [companyId, source, days]);
+    const byKind = await this.pool.query(`
+      SELECT COALESCE(context->>'kind', 'other') AS kind, COUNT(*)::int AS total
+      FROM external_threads
+      WHERE company_id = $1 AND source = $2 AND started_at > NOW() - make_interval(days => $3)
+      GROUP BY 1 ORDER BY total DESC
+    `, [companyId, source, days]);
+    return { days, ...result.rows[0], byListing: byListing.rows, byKind: byKind.rows };
   }
 
   async upsertMayarLeads(companyId, leads) {

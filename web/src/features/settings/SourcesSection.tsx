@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { SettingCard, StatusLine } from './parts';
 
 type Source = { source: string; name: string; enabled: boolean; lastReceivedAt: string | null; threadCount: number };
+type Planned = { source: string; name: string; needs: string[] };
 
 const DESCRIPTION_KEY: Record<string, string> = { hub: 'sources.hubDesc' };
 const PAGE: Record<string, string> = { hub: '/hub' };
@@ -18,13 +19,16 @@ const PAGE: Record<string, string> = { hub: '/hub' };
 export function SourcesSection() {
   const { t, dateLocale } = useI18n();
   const [sources, setSources] = useState<Source[]>([]);
+  const [planned, setPlanned] = useState<Planned[]>([]);
   const [status, setStatus] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
   const [whatsapp, setWhatsapp] = useState<{ phase: string; account: string | null; provider?: string } | null>(null);
 
   const load = useCallback(async () => {
     try {
-      setSources((await api<{ sources: Source[] }>('/v1/integrations/sources')).sources);
+      const list = await api<{ sources: Source[]; planned?: Planned[] }>('/v1/integrations/sources');
+      setSources(list.sources);
+      setPlanned(list.planned ?? []);
       setStatus('');
     } catch (error) {
       setStatus(messageFromError(error, ''));
@@ -97,6 +101,18 @@ export function SourcesSection() {
                 {s.enabled ? t('sources.off') : t('sources.on')}
               </Button>
             </div>
+          </li>
+        ))}
+        {/* Fase 3, postponed until the Meta and Shopee accounts exist. */}
+        {planned.map((p) => (
+          <li key={p.source} className="rounded-app border border-dashed border-border p-3 opacity-80">
+            <p className="m-0 flex items-center gap-2 text-sm font-semibold">
+              {p.name}
+              <span className="rounded-full bg-ink/[.06] px-2 py-0.5 text-[11px] text-ink/60">{t('sources.soon')}</span>
+            </p>
+            <p className="m-0 mt-0.5 text-xs text-muted">
+              {t('sources.plannedNote')} {p.needs.map((n) => t(`sources.need.${n}`)).join(' · ')}
+            </p>
           </li>
         ))}
       </ul>

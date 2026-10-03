@@ -5044,6 +5044,15 @@ Aturan:
   // Agnee, dan siapa yang boleh membacanya di antara staf belum diputuskan
   // lebih luas dari itu.
   const SOURCE_NAMES = { hub: 'Agnive Hub' };
+  // Fase 3 (ditunda, Hanny 3 Okt 2026): belum ada akun Meta Business atau
+  // Shopee Open Platform. Didaftar di Pengaturan sebagai "segera" beserta yang
+  // dibutuhkan, tanpa saklar — PATCH tetap hanya untuk SOURCE_NAMES. Panduan
+  // pendaftaran: insight/docs/AGNEE-EXPRESS.md bagian 10.
+  const PLANNED_SOURCES = [
+    { source: 'instagram', name: 'Instagram DM', needs: ['meta-business', 'meta-app', 'ig-professional'] },
+    { source: 'facebook', name: 'Facebook Messenger', needs: ['meta-business', 'meta-app', 'fb-page'] },
+    { source: 'shopee', name: 'Shopee Chat', needs: ['shopee-seller', 'shopee-open-platform'] },
+  ];
 
   app.get('/v1/integrations/sources', async (request, reply) => {
     if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya untuk supervisor.' });
@@ -5059,7 +5068,8 @@ Aturan:
       lastReceivedAt: bySource.get(source)?.lastReceivedAt || null,
       threadCount: bySource.get(source)?.threadCount || 0,
     }));
-    return { sources };
+    // Only Agnive sees what is coming; customers see what they can use.
+    return { sources, planned: hubCompany ? PLANNED_SOURCES : [] };
   });
 
   app.patch('/v1/integrations/sources/:source', {

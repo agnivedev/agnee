@@ -270,6 +270,8 @@ test('saklar sumber: hanya supervisor, dan nama sumber yang tidak dikenal ditola
   const cookie = await loginAs(server, owner);
   const list = await server.inject({ method: 'GET', url: '/v1/integrations/sources', headers: { cookie } });
   assert.deepEqual(list.json().sources.map((x) => [x.source, x.name, x.threadCount]), [['hub', 'Agnive Hub', 2]]);
+  // Fase 3 is listed as coming, with what it needs — but cannot be switched on.
+  assert.deepEqual(list.json().planned.map((x) => x.source), ['instagram', 'facebook', 'shopee']);
   const off = await server.inject({ method: 'PATCH', url: '/v1/integrations/sources/hub', headers: { cookie }, payload: { enabled: false } });
   assert.equal(off.statusCode, 200);
   assert.deepEqual(switches, [{ companyId: 'company-agnive', source: 'hub', enabled: false }]);

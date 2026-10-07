@@ -6,6 +6,7 @@ import {
   FlaskConical,
   Settings2,
   Handshake,
+  Megaphone,
   LogOut,
   type LucideIcon,
 } from 'lucide-react';
@@ -23,7 +24,7 @@ import {
  * sebagai jalan kedua ke hal yang sama.
  */
 export type NavEntryId =
-  | 'inbox' | 'leads' | 'tasks' | 'pipeline' | 'hub' | 'playground' | 'settings' | 'logout';
+  | 'inbox' | 'leads' | 'tasks' | 'pipeline' | 'broadcast' | 'hub' | 'playground' | 'settings' | 'logout';
 
 type NavEntryBase = {
   id: NavEntryId;
@@ -43,6 +44,9 @@ export const NAV_ENTRIES: NavEntry[] = [
   { id: 'leads', icon: ListChecks, labelKey: 'nav.labelLeads', ariaKey: 'nav.leads', kind: 'route', to: '/leads' },
   { id: 'tasks', icon: ClipboardList, labelKey: 'nav.labelTasks', ariaKey: 'nav.tasks', kind: 'route', to: '/tasks' },
   { id: 'pipeline', icon: Kanban, labelKey: 'nav.labelPipeline', ariaKey: 'nav.pipeline', kind: 'route', to: '/pipeline' },
+  // Mengirim atas nama perusahaan ke banyak customer sekaligus: supervisor
+  // saja, sama dengan server.
+  { id: 'broadcast', icon: Megaphone, labelKey: 'nav.labelBroadcast', ariaKey: 'nav.broadcast', kind: 'route', to: '/broadcast', supervisorOnly: true },
   // Funder ↔ research-team conversations from Agnive Hub: a funder's personal
   // data, so supervisors only — the server enforces the same.
   { id: 'hub', icon: Handshake, labelKey: 'nav.labelHub', ariaKey: 'nav.hub', kind: 'route', to: '/hub', supervisorOnly: true, hubOnly: true },

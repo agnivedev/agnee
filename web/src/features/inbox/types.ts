@@ -32,8 +32,8 @@ export type Message = {
   senderId?: string | null;
   inlineImage?: string | null;
   inlineImageExtension?: string | null;
-  /** Untuk pesan keluar: disusun AI, atau diketik anggota tim yang mana. */
-  authorKind?: 'ai' | 'human';
+  /** Untuk pesan keluar: disusun AI, diketik anggota tim yang mana, atau bagian broadcast. */
+  authorKind?: 'ai' | 'human' | 'broadcast';
   authorName?: string | null;
   quoted?: QuotedMessage | null;
   call?: { isVideo: boolean; result: string | null; duration: number | null } | null;

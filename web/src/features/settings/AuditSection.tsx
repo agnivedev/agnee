@@ -17,6 +17,9 @@ type AuditEntry = {
     role?: string | null;
     integration?: string | null;
     label?: string | null;
+    name?: string | null;
+    recipients?: number | null;
+    sent?: number | null;
   } | null;
   createdAt: string;
   actorName: string | null;
@@ -37,6 +40,9 @@ const AUDIT_ACTIONS = [
   'team.member_removed',
   'integration.connected',
   'integration.disconnected',
+  'broadcast.started',
+  'broadcast.cancelled',
+  'broadcast.opt_out_removed',
 ] as const;
 
 /**
@@ -77,6 +83,13 @@ export function AuditSection() {
     if (entry.action.startsWith('integration.')) return m.integration || entry.entityId || '';
     if (entry.action.startsWith('team.')) return [m.email, m.role].filter(Boolean).join(' · ');
     if (entry.action === 'whatsapp.disconnected') return m.label || entry.entityId || '';
+    if (entry.action === 'broadcast.started') {
+      return [m.name, m.recipients != null ? t('audit.broadcastRecipients', { count: m.recipients }) : null].filter(Boolean).join(' · ');
+    }
+    if (entry.action === 'broadcast.cancelled') {
+      return [m.name, m.sent != null ? t('audit.broadcastSent', { count: m.sent }) : null].filter(Boolean).join(' · ');
+    }
+    if (entry.action === 'broadcast.opt_out_removed') return (entry.entityId || '').replace(/@.*$/, '');
     return m.contactName || m.phone || entry.entityId || '';
   };
   return (

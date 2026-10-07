@@ -196,7 +196,7 @@ export function MessageRow({
           <strong className="mb-[5px] block text-[10px] font-semibold tracking-wide text-ink/45 uppercase">
             {message.authorKind === 'human'
               ? (message.authorName || t('message.byAgent'))
-              : t('message.byAi')}
+              : message.authorKind === 'broadcast' ? t('message.byBroadcast') : t('message.byAi')}
           </strong>
         ) : null}
 

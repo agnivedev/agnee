@@ -1,0 +1,136 @@
+'use strict';
+
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const { buildApp } = require('../src/server');
+
+const SUPERVISOR = {
+  id: 'supervisor-1', userId: 'supervisor-1', companyId: 'company-1',
+  email: 'owner@example.com', displayName: 'Supervisor', role: 'supervisor', status: 'active',
+};
+const AGENT = {
+  id: 'agent-1', userId: 'agent-1', companyId: 'company-1',
+  email: 'agent@example.com', displayName: 'Agent Satu', role: 'agent', status: 'active',
+};
+
+const NOW = Math.floor(Date.now() / 1000);
+
+function fakeDatabase({ provider = 'whatsapp_web' } = {}) {
+  const users = [SUPERVISOR, AGENT];
+  const audits = [];
+  const created = [];
+  return {
+    audits, created,
+    enabled: true, connected: true,
+    async connect() {}, async close() {},
+    status() { return { driver: 'postgresql', connected: true }; },
+    async authenticateUser(email, password) {
+      const user = users.find((item) => item.email === email);
+      return user && password === 'password-123' ? user : null;
+    },
+    async getActiveSessionUser(userId) { return users.find((item) => item.id === userId) || null; },
+    async setPresence() {},
+    async listTeamMembers() { return users; },
+    async getCompanyConfig() { return { whatsappProvider: provider }; },
+    async listPlaybookProducts() { return []; },
+    async recordAuditLog(entry, companyId) { audits.push({ ...entry, companyId }); return entry; },
+    async listBroadcastAudience() {
+      return [
+        { chatId: '62811@c.us', name: 'Budi', phone: '62811', lastInboundAt: NOW - 60, leadStage: 'qualified', optedOut: false },
+        { chatId: '62812@c.us', name: 'Sari', phone: '62812', lastInboundAt: NOW - 3 * 86400, leadStage: null, optedOut: false },
+        { chatId: '62813@c.us', name: 'Andi', phone: '62813', lastInboundAt: NOW - 60, leadStage: null, optedOut: true },
+      ];
+    },
+    async createBroadcast(input, companyId) {
+      const row = { id: '11111111-1111-4111-8111-111111111111', name: input.name, status: 'sending', total: input.recipients.length };
+      created.push({ ...input, companyId });
+      return row;
+    },
+    async listBroadcasts() { return []; },
+  };
+}
+
+async function signIn(app, user) {
+  const login = await app.inject({
+    method: 'POST', url: '/v1/auth/login',
+    payload: { email: user.email, password: 'password-123' },
+  });
+  assert.equal(login.statusCode, 200);
+  return login.headers['set-cookie'].split(';')[0];
+}
+
+async function appWith(t, database) {
+  const app = await buildApp({ logger: false, startupEnabled: false, demoMode: true, database, sessionSecret: 'broadcast-secret' });
+  t.after(() => app.close());
+  return app;
+}
+
+test('agent tidak bisa melihat atau membuat broadcast', async (t) => {
+  const database = fakeDatabase();
+  const app = await appWith(t, database);
+  const cookie = await signIn(app, AGENT);
+  for (const [method, url, payload] of [
+    ['GET', '/v1/broadcasts'],
+    ['GET', '/v1/broadcasts/audience'],
+    ['POST', '/v1/broadcasts', { name: 'x', body: 'y', chatIds: ['62811@c.us'] }],
+  ]) {
+    const res = await app.inject({ method, url, headers: { cookie }, payload });
+    assert.equal(res.statusCode, 403, `${method} ${url}`);
+  }
+  assert.equal(database.created.length, 0);
+});
+
+test('calon penerima tidak memuat yang membalas STOP', async (t) => {
+  const app = await appWith(t, fakeDatabase());
+  const cookie = await signIn(app, SUPERVISOR);
+  const res = await app.inject({ method: 'GET', url: '/v1/broadcasts/audience', headers: { cookie } });
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.json().recipients.map((r) => r.chatId), ['62811@c.us', '62812@c.us']);
+  assert.equal(res.json().excluded.optedOut, 1);
+  assert.equal(res.json().pace.dailyCap, 300);
+});
+
+test('Cloud API: hanya customer yang chat dalam 24 jam', async (t) => {
+  const app = await appWith(t, fakeDatabase({ provider: 'cloud_api' }));
+  const cookie = await signIn(app, SUPERVISOR);
+  const res = await app.inject({ method: 'GET', url: '/v1/broadcasts/audience', headers: { cookie } });
+  assert.deepEqual(res.json().recipients.map((r) => r.chatId), ['62811@c.us']);
+  assert.equal(res.json().excluded.outsideCloudWindow, 1);
+});
+
+test('chatId di luar daftar sah dibuang, bukan dikirimi', async (t) => {
+  const database = fakeDatabase();
+  const app = await appWith(t, database);
+  const cookie = await signIn(app, SUPERVISOR);
+  const res = await app.inject({
+    method: 'POST', url: '/v1/broadcasts', headers: { cookie },
+    payload: {
+      name: ' Promo Oktober ', body: 'Halo {nama}',
+      // 62813 membalas STOP; 999 bukan customer company ini sama sekali.
+      chatIds: ['62811@c.us', '62813@c.us', '999@c.us', '62811@c.us'],
+    },
+  });
+  assert.equal(res.statusCode, 201);
+  assert.equal(res.json().dropped, 3);
+  assert.deepEqual(database.created[0].recipients.map((r) => r.chatId), ['62811@c.us']);
+  assert.equal(database.created[0].name, 'Promo Oktober');
+  assert.equal(database.created[0].companyId, 'company-1');
+
+  const audit = database.audits.find((row) => row.action === 'broadcast.started');
+  assert.ok(audit, 'broadcast yang dimulai harus tercatat di jejak audit');
+  assert.equal(audit.metadata.recipients, 1);
+  assert.equal(audit.actorUserId, SUPERVISOR.id);
+});
+
+test('tanpa satu pun penerima sah, broadcast tidak dibuat', async (t) => {
+  const database = fakeDatabase();
+  const app = await appWith(t, database);
+  const cookie = await signIn(app, SUPERVISOR);
+  const res = await app.inject({
+    method: 'POST', url: '/v1/broadcasts', headers: { cookie },
+    payload: { name: 'Promo', body: 'Halo', chatIds: ['62813@c.us'] },
+  });
+  assert.equal(res.statusCode, 422);
+  assert.equal(database.created.length, 0);
+  assert.equal(database.audits.length, 0);
+});

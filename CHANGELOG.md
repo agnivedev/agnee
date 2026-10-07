@@ -2,6 +2,34 @@
 
 ### Added
 
+- **Broadcast: satu pesan ke banyak customer** (`/broadcast`, supervisor saja).
+  Sebelumnya fitur ini tidak ada sama sekali; kata "broadcast" di kode hanya
+  nama fungsi SSE. Penerima diambil dari customer yang pernah chat ke company
+  (inbound, lead, atau routing), disaring per tahap lead, chat terakhir, dan
+  produk, lalu bisa dicentang satu per satu. Grup, nomor yang hanya pernah kita
+  kirimi, dan lead Mayar yang belum pernah chat tidak pernah ikut. Daftar
+  penerima dibekukan saat dibuat; server menyaring ulang setiap `chatId` kiriman
+  browser terhadap daftar sah company itu.
+  Tempo WhatsApp Web: satu pesan per 20–45 detik (acak), jam 08.00–20.00 waktu
+  company, plafon 300 per hari per company. Cloud API: jeda 1–2 detik, plafon
+  1.000, dan hanya ke customer yang chat dalam 24 jam (aturan Meta tanpa
+  template). `{nama}` diganti nama kontak yang dibersihkan dari emoji, atau
+  "Kak". Kalimat "Balas STOP…" ditempel di akhir secara bawaan; customer yang
+  menerima broadcast lalu membalas STOP/BERHENTI dikeluarkan dari semua
+  broadcast berikutnya dan dibalas sekali dengan kalimat tetap, bukan oleh AI.
+  Pengirim mengklaim penerima sebelum mengirim; klaim yang tidak selesai dalam
+  5 menit jadi "tidak pasti" dan tidak dikirim ulang (pelajaran insiden
+  follow-up 14 Sep). Nomor terputus mengembalikan penerima ke antrean dan
+  menjeda broadcast; lima gagal beruntun juga menjeda. Bisa dijadwalkan,
+  dijeda, dilanjutkan, dibatalkan. Pesan broadcast tercatat di
+  `outbound_replies` dengan penulis `broadcast` (bukan `human`, supaya tidak
+  membanjiri antrean nilai Coach dan tidak dihitung "sudah dibalas" oleh SLA),
+  dan berlabel "Broadcast" di inbox. Jejak audit baru: `broadcast.started`,
+  `broadcast.cancelled`, `broadcast.opt_out_removed`. Migrasi `045`.
+  Diuji: 22 tes baru (logika tempo/jam/STOP, putaran pengirim, rute dan
+  gating peran, SQL di Postgres termasuk isolasi company), alur lengkap di
+  peramban lokal termasuk 375px, dan putaran pengirim sungguhan terhadap DB
+  lokal dengan fungsi kirim tiruan. Belum pernah mengirim ke WhatsApp asli.
 - **Satu company bisa punya beberapa produk, masing-masing dengan playbook
   sendiri.** Company yang menjual beberapa layanan (Beweix: BeweiX AI CGI dan
   Bewei Express) hanya punya satu set playbook, jadi harga, alur, dan larangan

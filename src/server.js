@@ -10,6 +10,7 @@ const fastifyMultipart = require('@fastify/multipart');
 const QRCode = require('qrcode');
 const { WhatsappManager } = require('./whatsapp-manager.js');
 const { putaranSla } = require('./sla');
+const broadcast = require('./broadcast');
 const { pilihNomorUntukPercakapanBaru } = require('./rotator');
 const { neutralizeFormula } = require('./formula-guard');
 const { CloudApiManager } = require('./cloud-api-manager.js');
@@ -828,6 +829,20 @@ async function buildApp(overrides = {}) {
       await database.stopFollowUpSequence(message.from, companyId, 'replied').catch(() => {});
     }
     await deliverInboundWebhook(message, companyId);
+    // STOP dijawab sekali dengan kalimat tetap, bukan oleh AI: AI yang
+    // menanggapi permintaan berhenti dengan tawaran baru adalah persis hal yang
+    // ingin dihentikan customer. Membalas STOP lagi tidak dijawab ulang.
+    //
+    // Hanya untuk chat yang pernah menerima broadcast — merekalah yang diberi
+    // tahu soal STOP. Di chat lain "stop" bisa berarti apa saja ("stop
+    // langganan saya"), dan itu urusan AI atau agent, bukan daftar broadcast.
+    if (!message.from.endsWith('@g.us') && broadcast.mintaBerhenti(message.body) && canCall('recordBroadcastOptOut')
+      && await database.hasReceivedBroadcast(companyId, message.from).catch(() => false)) {
+      const baru = await database.recordBroadcastOptOut(companyId, message.from, String(message.body).trim().slice(0, 40))
+        .catch((error) => { app.log.warn({ err: error }, 'Permintaan berhenti broadcast tidak tercatat'); return false; });
+      if (baru) await message.reply('Oke, kamu tidak akan menerima pesan broadcast dari kami lagi. Chat biasa tetap bisa kapan saja.');
+      return;
+    }
     const autoReply = await generateAutoReply(message, companyId);
     if (autoReply) {
       await message.reply(autoReply);
@@ -1977,7 +1992,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan produk (m
   // daftar halaman ber-redirect di bawah.
   app.get('/privasi', (_request, reply) => sendReactApp(reply));
   app.get('/ketentuan', (_request, reply) => sendReactApp(reply));
-  for (const page of ['settings', 'admin', 'leads', 'tasks', 'notifications', 'pipeline', 'knowledge', 'hub', 'superhuman']) {
+  for (const page of ['settings', 'admin', 'leads', 'tasks', 'notifications', 'pipeline', 'knowledge', 'hub', 'broadcast', 'superhuman']) {
     app.get(`/${page}`, (request, reply) => {
       const session = verifySession(getCookie(request.headers.cookie, 'agnee_session'), config.sessionSecret);
       if (!session) return reply.redirect('/');
@@ -5033,7 +5048,7 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
   function exportCell(key, value) {
     if (value === null || value === undefined) return '';
     if (key === 'handlingMode') return value === 'ai' ? 'AI' : 'Manusia';
-    if (key === 'lastOutboundAuthor') return value === 'ai' ? 'AI' : 'Manusia';
+    if (key === 'lastOutboundAuthor') return value === 'ai' ? 'AI' : value === 'broadcast' ? 'Broadcast' : 'Manusia';
     if (key === 'source') return value === 'mayar' ? 'Mayar' : value === 'both' ? 'WhatsApp + Mayar' : 'WhatsApp';
     if (typeof value === 'boolean') return value ? 'Ya' : 'Tidak';
     // Kolom waktu pesan masuk disimpan sebagai detik epoch. Driver Postgres
@@ -6297,6 +6312,7 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
       const row = byId.get(m.id);
       // Tidak ketemu berarti AI: jalur manusia selalu mencatat id-nya.
       if (!row || row.author === 'ai') return { ...m, authorKind: 'ai', authorName: null };
+      if (row.author === 'broadcast') return { ...m, authorKind: 'broadcast', authorName: null };
       return { ...m, authorKind: 'human', authorName: row.authorName || null };
     });
   }
@@ -7031,6 +7047,264 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     return result;
   });
 
+  // ── Broadcast ─────────────────────────────────────────────────────────────
+  //
+  // Supervisor saja: satu klik di sini mengirim pesan atas nama perusahaan ke
+  // ratusan customer, dan tidak ada yang bisa ditarik kembali.
+
+  const BROADCAST_STAGES = ['inbox', 'qualified', 'assigned', 'none'];
+  const DAY_SECONDS = 24 * 60 * 60;
+
+  /** Tempo yang dipakai pengirim, untuk ditampilkan apa adanya di layar. */
+  function broadcastPace(provider) {
+    const tempo = broadcast.tempoUntuk(provider);
+    return {
+      provider,
+      minGapSeconds: tempo.jedaMinMs / 1000,
+      maxGapSeconds: tempo.jedaMaksMs / 1000,
+      dailyCap: tempo.plafonHarian,
+      sendFromHour: broadcast.JAM_KIRIM.mulai,
+      sendToHour: broadcast.JAM_KIRIM.selesai,
+      maxRecipients: broadcast.MAKS_PENERIMA,
+      optOutLine: broadcast.KALIMAT_BERHENTI,
+    };
+  }
+
+  /**
+   * Calon penerima yang sah untuk company ini, sekarang. Rute buat memakai
+   * daftar yang sama untuk menyaring chatId kiriman browser, jadi tidak ada
+   * jalan mengirim ke chat di luar daftar ini — termasuk chat company lain.
+   *
+   * Cloud API hanya boleh mengirim teks bebas ke customer yang menulis dalam
+   * 24 jam terakhir; di luar itu Meta menolak tanpa template yang disetujui.
+   * Mereka dikeluarkan di sini supaya tidak muncul sebagai ratusan "gagal".
+   */
+  async function broadcastAudience(companyId, provider) {
+    const rows = await database.listBroadcastAudience(companyId);
+    const sekarangDetik = Math.floor(Date.now() / 1000);
+    const excluded = { optedOut: 0, outsideCloudWindow: 0 };
+    const recipients = [];
+    for (const row of rows) {
+      if (row.optedOut) { excluded.optedOut += 1; continue; }
+      if (provider === 'cloud_api' && !(row.lastInboundAt && sekarangDetik - row.lastInboundAt < DAY_SECONDS)) {
+        excluded.outsideCloudWindow += 1;
+        continue;
+      }
+      recipients.push({
+        chatId: row.chatId,
+        name: row.name || null,
+        phone: row.phone || null,
+        lastInboundAt: row.lastInboundAt,
+        leadStage: row.leadStage || null,
+        productId: row.productId || null,
+        productName: row.productName || null,
+      });
+    }
+    return { recipients, excluded };
+  }
+
+  function broadcastGuard(request, reply) {
+    if (!isSupervisor(request.agneeSession)) {
+      reply.code(403).send({ error: 'Hanya supervisor yang dapat mengelola broadcast.' });
+      return false;
+    }
+    if (!canCall('createBroadcast')) {
+      reply.code(503).send({ error: 'Database tidak tersedia.' });
+      return false;
+    }
+    return true;
+  }
+
+  function kabariBroadcast(companyId, broadcastId) {
+    broadcastEvent(companyId, 'broadcast', { id: broadcastId });
+  }
+
+  app.get('/v1/broadcasts', async (request, reply) => {
+    if (!broadcastGuard(request, reply)) return reply;
+    const companyId = request.agneeSession.companyId;
+    const provider = await getWhatsappProvider(companyId);
+    const broadcasts = await database.listBroadcasts(companyId);
+    return { broadcasts, pace: broadcastPace(provider) };
+  });
+
+  app.get('/v1/broadcasts/audience', async (request, reply) => {
+    if (!broadcastGuard(request, reply)) return reply;
+    const companyId = request.agneeSession.companyId;
+    const provider = await getWhatsappProvider(companyId);
+    const [audience, products] = await Promise.all([
+      broadcastAudience(companyId, provider),
+      canCall('listPlaybookProducts') ? database.listPlaybookProducts(companyId).catch(() => []) : [],
+    ]);
+    return {
+      ...audience,
+      products: products.filter((p) => p.active !== false).map((p) => ({ id: p.id, name: p.name })),
+      pace: broadcastPace(provider),
+    };
+  });
+
+  app.post('/v1/broadcasts', {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['name', 'body', 'chatIds'],
+        additionalProperties: false,
+        properties: {
+          name: { type: 'string', minLength: 1, maxLength: 120 },
+          body: { type: 'string', minLength: 1, maxLength: 4000 },
+          optOutFooter: { type: 'boolean', default: true },
+          chatIds: {
+            type: 'array', minItems: 1, maxItems: broadcast.MAKS_PENERIMA,
+            items: { type: 'string', minLength: 1, maxLength: 128 },
+          },
+          scheduledAt: { anyOf: [{ type: 'string', format: 'date-time' }, { type: 'null' }] },
+          audience: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              stage: { type: 'string', enum: ['any', ...BROADCAST_STAGES] },
+              lastInboundDays: { type: 'integer', minimum: 0, maximum: 3650 },
+              productId: { anyOf: [{ type: 'string', format: 'uuid' }, { type: 'null' }] },
+            },
+          },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    if (!broadcastGuard(request, reply)) return reply;
+    const companyId = request.agneeSession.companyId;
+    const name = request.body.name.trim();
+    const body = request.body.body.trim();
+    if (!name || !body) return reply.code(400).send({ error: 'Nama dan isi pesan wajib diisi.' });
+
+    const scheduledAt = request.body.scheduledAt || null;
+    if (scheduledAt) {
+      const kapan = new Date(scheduledAt).getTime();
+      if (kapan > Date.now() + 30 * DAY_SECONDS * 1000) {
+        return reply.code(400).send({ error: 'Jadwal paling jauh 30 hari dari sekarang.' });
+      }
+    }
+
+    const provider = await getWhatsappProvider(companyId);
+    const { recipients: sah } = await broadcastAudience(companyId, provider);
+    const byChat = new Map(sah.map((row) => [row.chatId, row]));
+    const recipients = [...new Set(request.body.chatIds)].map((chatId) => byChat.get(chatId)).filter(Boolean);
+    if (!recipients.length) {
+      return reply.code(422).send({ error: 'Tidak ada penerima yang bisa dikirimi. Daftar mungkin berubah — muat ulang halaman.' });
+    }
+
+    const created = await database.createBroadcast({
+      name,
+      body,
+      optOutFooter: request.body.optOutFooter !== false,
+      audience: request.body.audience || {},
+      scheduledAt,
+      createdBy: request.agneeSession.userId || null,
+      recipients,
+    }, companyId);
+
+    // Pesan atas nama perusahaan akan keluar ke banyak orang sekaligus. Yang
+    // dicatat jumlah dan namanya; isi pesannya ada di broadcast itu sendiri.
+    await catatAudit(request, 'broadcast.started', {
+      entityType: 'broadcast', entityId: created.id,
+      metadata: { name, recipients: recipients.length, scheduledAt },
+    });
+    kabariBroadcast(companyId, created.id);
+    return reply.code(201).send({
+      broadcast: created,
+      // Chat yang dikirim browser tapi tidak lolos penyaringan: biasanya
+      // customer yang membalas STOP setelah halaman dimuat.
+      dropped: request.body.chatIds.length - recipients.length,
+    });
+  });
+
+  app.get('/v1/broadcasts/opt-outs', async (request, reply) => {
+    if (!broadcastGuard(request, reply)) return reply;
+    return { optOuts: await database.listBroadcastOptOuts(request.agneeSession.companyId) };
+  });
+
+  app.delete('/v1/broadcasts/opt-outs/:chatId', {
+    schema: {
+      params: { type: 'object', required: ['chatId'], properties: { chatId: { type: 'string', minLength: 1, maxLength: 128 } } },
+    },
+  }, async (request, reply) => {
+    if (!broadcastGuard(request, reply)) return reply;
+    const removed = await database.deleteBroadcastOptOut(request.agneeSession.companyId, request.params.chatId);
+    if (!removed) return reply.code(404).send({ error: 'Customer ini tidak ada di daftar berhenti.' });
+    // Customer ini pernah meminta berhenti. Siapa yang memasukkannya kembali
+    // harus bisa ditelusuri kalau ia mengeluh.
+    await catatAudit(request, 'broadcast.opt_out_removed', {
+      entityType: 'chat', entityId: request.params.chatId,
+    });
+    return { ok: true };
+  });
+
+  const broadcastIdParams = {
+    params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } },
+  };
+
+  app.get('/v1/broadcasts/:id', { schema: broadcastIdParams }, async (request, reply) => {
+    if (!broadcastGuard(request, reply)) return reply;
+    const companyId = request.agneeSession.companyId;
+    const found = await database.getBroadcast(request.params.id, companyId);
+    if (!found) return reply.code(404).send({ error: 'Broadcast tidak ditemukan.' });
+    const recipients = await database.listBroadcastRecipients(request.params.id, companyId);
+    return { broadcast: found, recipients };
+  });
+
+  for (const action of ['pause', 'resume', 'cancel']) {
+    app.post(`/v1/broadcasts/:id/${action}`, { schema: broadcastIdParams }, async (request, reply) => {
+      if (!broadcastGuard(request, reply)) return reply;
+      const companyId = request.agneeSession.companyId;
+      const updated = await database.setBroadcastStatus(request.params.id, companyId, action);
+      if (!updated) {
+        const exists = await database.getBroadcast(request.params.id, companyId);
+        if (!exists) return reply.code(404).send({ error: 'Broadcast tidak ditemukan.' });
+        return reply.code(409).send({ error: 'Broadcast ini sudah tidak bisa diubah.', broadcast: exists });
+      }
+      if (action === 'cancel') {
+        await catatAudit(request, 'broadcast.cancelled', {
+          entityType: 'broadcast', entityId: updated.id,
+          metadata: { name: updated.name, sent: updated.sent, skipped: updated.skipped },
+        });
+      }
+      kabariBroadcast(companyId, updated.id);
+      return { broadcast: updated };
+    });
+  }
+
+  /**
+   * Pengirim broadcast. Putarannya pendek (5 detik) karena satu putaran hanya
+   * mengirim paling banyak satu pesan per company; jarak antar pesan yang
+   * sebenarnya diatur `broadcast.TEMPO`.
+   */
+  function startBroadcastSender() {
+    let berjalan = false;
+    const jalankan = async () => {
+      if (berjalan) return;
+      berjalan = true;
+      try {
+        await broadcast.putaranBroadcast({
+          database,
+          logger: app.log,
+          onProgress: kabariBroadcast,
+          kirim: async (companyId, chatId, text) => {
+            const sent = await sendOutbound(companyId, chatId, text);
+            await database.recordOutboundReply({
+              chatId, messageId: sent?.messageId || null, author: 'broadcast', body: text,
+            }, companyId).catch((error) => app.log.warn({ err: error }, 'Pesan broadcast tidak tercatat'));
+            return sent;
+          },
+        });
+      } catch (error) {
+        app.log.warn({ err: error }, 'Pengirim broadcast gagal');
+      } finally {
+        berjalan = false;
+      }
+    };
+    const timer = setInterval(() => { void jalankan(); }, 5_000);
+    timer.unref?.();
+  }
+
   /**
    * Follow-up scheduler. Generates each message through the same reply context
    * the live path uses, so a follow-up cannot cite facts the AI would not cite
@@ -7217,6 +7491,7 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     if (database.enabled && database.connected) startAutoAssignSweeper();
     if (database.enabled && database.connected) startSlaSweeper();
     if (database.enabled && database.connected) startHubFollowUpSweeper();
+    if (database.enabled && database.connected) startBroadcastSender();
 
     // No default company to boot: resume exactly those companies whose last
     // known session was live. Everyone else starts on demand when a supervisor

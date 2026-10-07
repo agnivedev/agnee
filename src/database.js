@@ -31,6 +31,21 @@ function verifyPassword(password, stored) {
 // Kunci advisory untuk migrasi; angkanya sembarang, asal tetap.
 const MIGRATION_LOCK_KEY = 4_100_2026;
 
+/** Satu broadcast beserta hitungan status penerimanya. */
+const BROADCAST_COLUMNS = `
+  b.id, b.name, b.body, b.opt_out_footer AS "optOutFooter", b.audience, b.status,
+  b.scheduled_at AS "scheduledAt", b.pause_reason AS "pauseReason",
+  b.created_at AS "createdAt", b.started_at AS "startedAt", b.finished_at AS "finishedAt",
+  u.display_name AS "createdByName",
+  COUNT(r.id)::int AS "total",
+  COUNT(r.id) FILTER (WHERE r.status = 'pending')::int AS "pending",
+  COUNT(r.id) FILTER (WHERE r.status = 'sending')::int AS "sending",
+  COUNT(r.id) FILTER (WHERE r.status = 'sent')::int AS "sent",
+  COUNT(r.id) FILTER (WHERE r.status = 'failed')::int AS "failed",
+  COUNT(r.id) FILTER (WHERE r.status = 'skipped')::int AS "skipped",
+  COUNT(r.id) FILTER (WHERE r.status = 'unknown')::int AS "unknown"
+`;
+
 class Database {
   constructor(options = {}) {
     this.logger = options.logger || console;
@@ -3732,6 +3747,377 @@ class Database {
     }
     this._lastPing = { at: now, result };
     return result;
+  }
+
+  // ── Broadcast ─────────────────────────────────────────────────────────────
+
+  /**
+   * Calon penerima broadcast: customer yang pernah menghubungi company ini.
+   *
+   * Sumbernya sengaja lebih sempit dari Lead List. Chat yang hanya pernah kita
+   * kirimi (outbound_replies saja) dan lead Mayar yang belum pernah chat tidak
+   * ikut: bagi mereka broadcast adalah pesan dingin dari nomor yang tidak
+   * mereka kenal, dan pesan dingin massal adalah jalan tercepat nomor
+   * diblokir. lead_states dan conversation_routing ikut karena keduanya hanya
+   * lahir dari chat yang masuk — termasuk chat lama sebelum inbound_messages
+   * mulai dicatat.
+   */
+  async listBroadcastAudience(companyId, limit = 5000) {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(`
+      WITH chats AS (
+        SELECT chat_id FROM inbound_messages WHERE company_id = $1
+        UNION SELECT chat_id FROM lead_states WHERE company_id = $1
+        UNION SELECT chat_id FROM conversation_routing WHERE company_id = $1
+      )
+      SELECT c.chat_id AS "chatId",
+             cname.name AS "name",
+             CASE WHEN c.chat_id LIKE '%@lid' THEN lpm.phone
+                  ELSE regexp_replace(c.chat_id, '@.*$', '') END AS "phone",
+             inbound.last_at AS "lastInboundAt",
+             lead.stage AS "leadStage",
+             cp.product_id AS "productId",
+             pp.name AS "productName",
+             oo.chat_id IS NOT NULL AS "optedOut"
+      FROM chats c
+      LEFT JOIN LATERAL (
+        SELECT MAX(timestamp)::bigint AS last_at FROM inbound_messages
+        WHERE company_id = $1 AND chat_id = c.chat_id
+      ) inbound ON TRUE
+      LEFT JOIN contact_names cname ON cname.company_id = $1 AND cname.chat_id = c.chat_id
+      LEFT JOIN lid_phone_map lpm ON lpm.company_id = $1 AND lpm.lid = c.chat_id
+      LEFT JOIN lead_states lead ON lead.company_id = $1 AND lead.chat_id = c.chat_id
+      LEFT JOIN chat_products cp ON cp.company_id = $1 AND cp.chat_id = c.chat_id
+      LEFT JOIN playbook_products pp ON pp.id = cp.product_id AND pp.active
+      LEFT JOIN broadcast_opt_outs oo ON oo.company_id = $1 AND oo.chat_id = c.chat_id
+      WHERE c.chat_id NOT LIKE '%@g.us'
+        AND c.chat_id NOT LIKE '%@broadcast'
+        AND c.chat_id NOT LIKE '%@newsletter'
+      ORDER BY inbound.last_at DESC NULLS LAST
+      LIMIT $2
+    `, [companyId, limit]);
+    return result.rows.map((row) => ({
+      ...row,
+      lastInboundAt: row.lastInboundAt === null ? null : Number(row.lastInboundAt),
+    }));
+  }
+
+  /**
+   * Membuat broadcast beserta daftar penerimanya dalam satu transaksi: tidak
+   * boleh ada broadcast yang terlanjur berjalan dengan daftar setengah jadi.
+   */
+  async createBroadcast({ name, body, optOutFooter = true, audience = {}, scheduledAt = null, createdBy = null, recipients }, companyId) {
+    if (!this.enabled) return null;
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const terjadwal = scheduledAt && new Date(scheduledAt).getTime() > Date.now();
+      const created = await client.query(`
+        INSERT INTO broadcasts
+          (company_id, name, body, opt_out_footer, audience, status, scheduled_at, created_by, started_at)
+        VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, CASE WHEN $6 = 'sending' THEN NOW() END)
+        RETURNING id
+      `, [companyId, name, body, optOutFooter, JSON.stringify(audience || {}),
+        terjadwal ? 'scheduled' : 'sending', terjadwal ? scheduledAt : null, createdBy]);
+      const broadcastId = created.rows[0].id;
+      await client.query(`
+        INSERT INTO broadcast_recipients (broadcast_id, company_id, chat_id, name, phone)
+        SELECT $1, $2, r.chat_id, r.name, r.phone
+        FROM jsonb_to_recordset($3::jsonb) AS r(chat_id TEXT, name TEXT, phone TEXT)
+        ON CONFLICT (broadcast_id, chat_id) DO NOTHING
+      `, [broadcastId, companyId, JSON.stringify(recipients.map((r) => ({
+        chat_id: r.chatId, name: r.name || null, phone: r.phone || null,
+      })))]);
+      await client.query('COMMIT');
+      return this.getBroadcast(broadcastId, companyId);
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async listBroadcasts(companyId, limit = 50) {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(`
+      SELECT ${BROADCAST_COLUMNS}
+      FROM broadcasts b
+      LEFT JOIN users u ON u.id = b.created_by
+      LEFT JOIN broadcast_recipients r ON r.broadcast_id = b.id
+      WHERE b.company_id = $1
+      GROUP BY b.id, u.display_name
+      ORDER BY b.created_at DESC
+      LIMIT $2
+    `, [companyId, limit]);
+    return result.rows;
+  }
+
+  async getBroadcast(broadcastId, companyId) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      SELECT ${BROADCAST_COLUMNS}
+      FROM broadcasts b
+      LEFT JOIN users u ON u.id = b.created_by
+      LEFT JOIN broadcast_recipients r ON r.broadcast_id = b.id
+      WHERE b.company_id = $1 AND b.id = $2
+      GROUP BY b.id, u.display_name
+    `, [companyId, broadcastId]);
+    return result.rows[0] || null;
+  }
+
+  async listBroadcastRecipients(broadcastId, companyId) {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(`
+      SELECT chat_id AS "chatId", name, phone, status, error, sent_at AS "sentAt"
+      FROM broadcast_recipients
+      WHERE company_id = $1 AND broadcast_id = $2
+      ORDER BY id
+    `, [companyId, broadcastId]);
+    return result.rows;
+  }
+
+  /**
+   * Jeda, lanjutkan, atau batalkan. Hanya perpindahan yang masuk akal yang
+   * dijalankan; selebihnya mengembalikan null supaya rute bisa menjawab 409
+   * alih-alih diam-diam menghidupkan broadcast yang sudah selesai.
+   */
+  async setBroadcastStatus(broadcastId, companyId, action) {
+    if (!this.enabled) return null;
+    const transitions = {
+      pause: { from: ['scheduled', 'sending'], set: `status = 'paused', pause_reason = NULL` },
+      resume: {
+        from: ['paused'],
+        set: `status = CASE WHEN scheduled_at > NOW() THEN 'scheduled' ELSE 'sending' END,
+              started_at = CASE WHEN scheduled_at > NOW() THEN started_at ELSE COALESCE(started_at, NOW()) END,
+              pause_reason = NULL`,
+      },
+      cancel: { from: ['scheduled', 'sending', 'paused'], set: `status = 'cancelled', finished_at = NOW()` },
+    };
+    const step = transitions[action];
+    if (!step) return null;
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const updated = await client.query(`
+        UPDATE broadcasts SET ${step.set}
+        WHERE company_id = $1 AND id = $2 AND status = ANY($3)
+        RETURNING id
+      `, [companyId, broadcastId, step.from]);
+      if (!updated.rowCount) {
+        await client.query('ROLLBACK');
+        return null;
+      }
+      if (action === 'cancel') {
+        await client.query(`
+          UPDATE broadcast_recipients SET status = 'skipped', error = 'Broadcast dibatalkan'
+          WHERE company_id = $1 AND broadcast_id = $2 AND status = 'pending'
+        `, [companyId, broadcastId]);
+      }
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
+    return this.getBroadcast(broadcastId, companyId);
+  }
+
+  /** Klaim yang tidak pernah selesai: jadi `unknown`, tidak dikirim ulang. */
+  async markStaleBroadcastClaims(minutes) {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(`
+      UPDATE broadcast_recipients
+      SET status = 'unknown',
+          error = 'Pengiriman terputus sebelum hasilnya tercatat. Tidak dikirim ulang supaya customer tidak menerima pesan ganda.'
+      WHERE status = 'sending' AND claimed_at < NOW() - ($1 || ' minutes')::INTERVAL
+      RETURNING company_id AS "companyId", broadcast_id AS "broadcastId"
+    `, [String(minutes)]);
+    return result.rows;
+  }
+
+  async activateDueBroadcasts() {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(`
+      UPDATE broadcasts SET status = 'sending', started_at = COALESCE(started_at, NOW())
+      WHERE status = 'scheduled' AND scheduled_at <= NOW()
+      RETURNING company_id AS "companyId", id AS "broadcastId"
+    `);
+    return result.rows;
+  }
+
+  /**
+   * Company yang punya broadcast berjalan, dengan waktu klaim terakhirnya.
+   * Company yang dihentikan dari /superhuman atau paketnya ditangguhkan tidak
+   * ikut — aturan yang sama dengan follow-up.
+   */
+  async listCompaniesWithSendingBroadcasts() {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(`
+      SELECT c.id AS "companyId", c.timezone,
+             COALESCE(c.whatsapp_provider, 'whatsapp_web') AS "provider",
+             (SELECT MAX(r.claimed_at) FROM broadcast_recipients r
+               WHERE r.company_id = c.id AND r.claimed_at IS NOT NULL) AS "lastSentAt"
+      FROM companies c
+      WHERE c.status = 'active'
+        AND COALESCE(c.plan_status, 'beta') <> 'suspended'
+        AND EXISTS (SELECT 1 FROM broadcasts b WHERE b.company_id = c.id AND b.status = 'sending')
+    `);
+    return result.rows;
+  }
+
+  async countBroadcastSentSince(companyId, since) {
+    if (!this.enabled) return 0;
+    const result = await this.pool.query(`
+      SELECT COUNT(*)::int AS n FROM broadcast_recipients
+      WHERE company_id = $1 AND claimed_at >= $2
+    `, [companyId, since]);
+    return result.rows[0]?.n || 0;
+  }
+
+  /** Customer yang membalas STOP setelah broadcast dibuat tetap tidak dikirimi. */
+  async skipOptedOutBroadcastRecipients(companyId) {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(`
+      UPDATE broadcast_recipients r
+      SET status = 'skipped', error = 'Customer membalas STOP'
+      FROM broadcasts b, broadcast_opt_outs oo
+      WHERE r.company_id = $1 AND r.status = 'pending'
+        AND b.id = r.broadcast_id AND b.status = 'sending'
+        AND oo.company_id = r.company_id AND oo.chat_id = r.chat_id
+      RETURNING r.broadcast_id AS "broadcastId"
+    `, [companyId]);
+    return result.rows;
+  }
+
+  /**
+   * Ambil satu penerima berikutnya dan tandai `sending` SEBELUM dikirim.
+   * Broadcast yang lebih dulu dimulai dihabiskan lebih dulu.
+   */
+  async claimNextBroadcastRecipient(companyId) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      UPDATE broadcast_recipients r
+      SET status = 'sending', claimed_at = NOW()
+      FROM broadcasts b
+      WHERE r.id = (
+        SELECT r2.id FROM broadcast_recipients r2
+        JOIN broadcasts b2 ON b2.id = r2.broadcast_id
+        WHERE r2.company_id = $1 AND r2.status = 'pending' AND b2.status = 'sending'
+        ORDER BY b2.started_at NULLS LAST, b2.created_at, r2.id
+        LIMIT 1
+        FOR UPDATE OF r2 SKIP LOCKED
+      )
+        AND b.id = r.broadcast_id
+      RETURNING r.id, r.broadcast_id AS "broadcastId", r.chat_id AS "chatId", r.name,
+                b.body, b.opt_out_footer AS "optOutFooter"
+    `, [companyId]);
+    return result.rows[0] || null;
+  }
+
+  async markBroadcastRecipient(recipientId, companyId, { status, messageId = null, error = null }) {
+    if (!this.enabled) return;
+    await this.pool.query(`
+      UPDATE broadcast_recipients
+      SET status = $3, message_id = $4, error = $5,
+          sent_at = CASE WHEN $3 = 'sent' THEN NOW() ELSE sent_at END
+      WHERE company_id = $1 AND id = $2
+    `, [companyId, recipientId, status, messageId, error]);
+  }
+
+  /** Kembali ke antrean tanpa dihitung ke plafon harian: belum ada yang keluar. */
+  async releaseBroadcastRecipient(recipientId, companyId) {
+    if (!this.enabled) return;
+    await this.pool.query(`
+      UPDATE broadcast_recipients SET status = 'pending', claimed_at = NULL
+      WHERE company_id = $1 AND id = $2 AND status = 'sending'
+    `, [companyId, recipientId]);
+  }
+
+  async pauseBroadcast(broadcastId, companyId, reason) {
+    if (!this.enabled) return;
+    await this.pool.query(`
+      UPDATE broadcasts SET status = 'paused', pause_reason = $3
+      WHERE company_id = $1 AND id = $2 AND status = 'sending'
+    `, [companyId, broadcastId, reason]);
+  }
+
+  /** Berapa percobaan terakhir broadcast ini yang gagal berturut-turut. */
+  async countTrailingBroadcastFailures(broadcastId, companyId, window) {
+    if (!this.enabled) return 0;
+    const result = await this.pool.query(`
+      SELECT status FROM broadcast_recipients
+      WHERE company_id = $1 AND broadcast_id = $2 AND status IN ('sent', 'failed')
+      ORDER BY claimed_at DESC, id DESC
+      LIMIT $3
+    `, [companyId, broadcastId, window]);
+    let n = 0;
+    for (const row of result.rows) {
+      if (row.status !== 'failed') break;
+      n += 1;
+    }
+    return n;
+  }
+
+  async finishDrainedBroadcasts(companyId) {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(`
+      UPDATE broadcasts b SET status = 'done', finished_at = NOW()
+      WHERE b.company_id = $1 AND b.status = 'sending'
+        AND NOT EXISTS (
+          SELECT 1 FROM broadcast_recipients r
+          WHERE r.broadcast_id = b.id AND r.status IN ('pending', 'sending')
+        )
+      RETURNING b.id AS "broadcastId"
+    `, [companyId]);
+    return result.rows;
+  }
+
+  /** Apakah chat ini pernah benar-benar dikirimi broadcast. */
+  async hasReceivedBroadcast(companyId, chatId) {
+    if (!this.enabled) return false;
+    const result = await this.pool.query(`
+      SELECT 1 FROM broadcast_recipients
+      WHERE company_id = $1 AND chat_id = $2 AND status IN ('sent', 'unknown')
+      LIMIT 1
+    `, [companyId, chatId]);
+    return result.rowCount > 0;
+  }
+
+  /** @returns {Promise<boolean>} true kalau customer ini baru saja keluar. */
+  async recordBroadcastOptOut(companyId, chatId, keyword) {
+    if (!this.enabled) return false;
+    const result = await this.pool.query(`
+      INSERT INTO broadcast_opt_outs (company_id, chat_id, keyword) VALUES ($1, $2, $3)
+      ON CONFLICT (company_id, chat_id) DO NOTHING
+    `, [companyId, chatId, keyword]);
+    return result.rowCount > 0;
+  }
+
+  async listBroadcastOptOuts(companyId) {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(`
+      SELECT oo.chat_id AS "chatId", oo.keyword, oo.created_at AS "createdAt",
+             cname.name,
+             CASE WHEN oo.chat_id LIKE '%@lid' THEN lpm.phone
+                  ELSE regexp_replace(oo.chat_id, '@.*$', '') END AS "phone"
+      FROM broadcast_opt_outs oo
+      LEFT JOIN contact_names cname ON cname.company_id = oo.company_id AND cname.chat_id = oo.chat_id
+      LEFT JOIN lid_phone_map lpm ON lpm.company_id = oo.company_id AND lpm.lid = oo.chat_id
+      WHERE oo.company_id = $1
+      ORDER BY oo.created_at DESC
+    `, [companyId]);
+    return result.rows;
+  }
+
+  async deleteBroadcastOptOut(companyId, chatId) {
+    if (!this.enabled) return false;
+    const result = await this.pool.query(
+      'DELETE FROM broadcast_opt_outs WHERE company_id = $1 AND chat_id = $2',
+      [companyId, chatId],
+    );
+    return result.rowCount > 0;
   }
 
   async close() {

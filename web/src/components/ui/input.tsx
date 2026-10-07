@@ -1,4 +1,4 @@
-import type { InputHTMLAttributes, TextareaHTMLAttributes } from 'react';
+import type { ComponentProps, InputHTMLAttributes } from 'react';
 import { cn } from '@/lib/utils';
 
 const field =
@@ -8,6 +8,8 @@ export function Input({ className, ...props }: InputHTMLAttributes<HTMLInputElem
   return <input className={cn(field, className)} {...props} />;
 }
 
-export function Textarea({ className, ...props }: TextareaHTMLAttributes<HTMLTextAreaElement>) {
+// ComponentProps, bukan TextareaHTMLAttributes: di React 19 `ref` adalah prop
+// biasa, dan penyusun broadcast perlu posisi kursor untuk menyisipkan {nama}.
+export function Textarea({ className, ...props }: ComponentProps<'textarea'>) {
   return <textarea className={cn(field, 'min-h-24 resize-y', className)} {...props} />;
 }

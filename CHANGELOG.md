@@ -2,6 +2,54 @@
 
 ### Added
 
+- **Satu company bisa punya beberapa produk, masing-masing dengan playbook
+  sendiri.** Company yang menjual beberapa layanan (Beweix: BeweiX AI CGI dan
+  Bewei Express) hanya punya satu set playbook, jadi harga, alur, dan larangan
+  satu layanan terbaca saat customer bertanya soal yang lain. Sekarang ada
+  playbook umum (berlaku untuk semua) ditambah satu set per produk. Migrasi
+  `043` menambah `playbook_products`, `playbook_docs.product_id`, dan
+  `chat_products`, serta menukar indeks unik `(company, kind)` menjadi
+  `(company, product, kind)`. Semua `ON CONFLICT` di kode, seed, dan ekspor
+  ikut dipindah.
+  Produk percakapan ditentukan berurutan: pilihan manual tim di Inbox, nama
+  produk disebut utuh, tebakan yang sudah tersimpan, lalu model menebak dari
+  deskripsi produk (jawab 0 kalau ragu). Kalau tetap tidak jelas, AI membaca
+  playbook umum plus katalog produk dan bertanya satu hal. Tebakan otomatis
+  tidak pernah menimpa pilihan manual. Follow-up memakai aturan follow-up
+  milik produk percakapan itu.
+  Train AI mendapat pemilih produk dan impor dokumen playbook (Markdown, Word,
+  PDF, teks) yang memecah bagian berdasarkan judul dan menampilkan hasilnya
+  untuk ditinjau sebelum disimpan.
+  Diuji sebelum deploy: migrasi dijalankan terhadap skema produksi (dump skema
+  saja) dengan data tiruan, 8 dokumen sebelum dan sesudah dengan checksum
+  identik; UI dicoba di peramban termasuk 375px; enam tes DB baru.
+- **Cara AI memperkenalkan diri jadi setelan per company** (Pengaturan, tab AI &
+  Follow-up). Aturan bawaan butir 7 menyuruh AI tidak pernah menyebut dirinya
+  AI atau bot untuk semua tenant. Pilihan `team_member` mempertahankan itu dan
+  teksnya identik byte demi byte dengan sebelumnya. Pilihan `chatbot` melarang
+  mengaku manusia dan menyuruh AI mengaku chatbot kalau ditanya. Migrasi `044`.
+  Pada "Kamu ini bot ya?" dengan model sungguhan, mode `team_member` menjawab
+  menghindar dan satu kali menyebut dirinya asisten virtual (melanggar
+  aturannya sendiri), sedangkan mode `chatbot` menjawab jujur. Sampelnya kecil.
+- **Playbook Beweix Digital** di `playbooks/beweix-digital/`: satu playbook
+  umum dan satu per layanan, disusun dari dua dokumen pemilik. Nila untuk
+  BeweiX AI CGI, Shinta untuk Bewei Express, konsultasi awal gratis.
+  `scripts/load-playbooks.js` memuat folder itu ke company dengan pemecah bagian
+  yang sama dengan impor di Train AI. Default-nya simulasi, `--apply` menulis,
+  dan jalan kedua tidak mengubah apa pun.
+
+### Outstanding
+
+- **Ekspor playbook ke repo hanya untuk playbook umum.** Playbook produk belum
+  punya jalur balik dari database ke berkas.
+- **Fakta terkonfirmasi, dokumen unggahan, dan skenario simulasi masih satu set
+  per company**, bukan per produk.
+- **Belum ada deteksi permintaan berhenti dihubungi.** Customer yang bilang
+  "stop" dijawab bahwa ia tidak akan dihubungi lagi, tetapi follow-up berikutnya
+  bisa terpasang lagi. Follow-up Beweix harus tetap mati.
+
+### Added
+
 - **Blok penutup funnel di landing page.** Banner CTA lama cuma menawarkan satu
   jalan (coba gratis) ke semua pembaca, jadi yang belum siap beli tidak punya
   apa-apa selain pergi. Diganti `FunnelPenutup`: tiga pintu disusun menaik

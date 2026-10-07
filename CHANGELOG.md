@@ -2,6 +2,16 @@
 
 ### Added
 
+- **Company AL Gold FX dengan CS Tari** (`playbooks/al-gold-fx/`, pack
+  `knowledge/clients/al-gold-fx`). Playbook umum untuk sapaan dan tanya jawab:
+  Tari kocak ala trader gold tapi dengan batas tertulis (satu candaan per pesan,
+  nol candaan saat customer rugi, komplain, atau membahas pembayaran), tidak
+  menyebut harga, profit, atau winrate, tidak memberi arah gold atau entry,
+  dan tidak membocorkan teknik zone Bang Al. Diuji 20 percakapan lewat
+  simulator Coach dengan model sungguhan; hasil dan keputusan di README folder.
+- `.claude/launch.json`: konfigurasi "Agnee Dev (port bebas)" untuk menjalankan
+  server lokal kedua saat port 4100/4101 dipakai sesi lain.
+
 - **Broadcast: satu pesan ke banyak customer** (`/broadcast`, supervisor saja).
   Sebelumnya fitur ini tidak ada sama sekali; kata "broadcast" di kode hanya
   nama fungsi SSE. Penerima diambil dari customer yang pernah chat ke company

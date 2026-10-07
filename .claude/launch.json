@@ -27,6 +27,16 @@
         "set -a && source .env 2>/dev/null || true && set +a && PORT=4101 WA_STARTUP_ENABLED=false WA_DEMO_MODE=true /opt/homebrew/opt/node@22/bin/node src/server.js"
       ],
       "port": 4101
+    },
+    {
+      "name": "Agnee Dev (port bebas)",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-lc",
+        "P=\"$PORT\"; set -a && source .env 2>/dev/null || true && set +a && PORT=\"$P\" WA_STARTUP_ENABLED=false WA_DEMO_MODE=true /opt/homebrew/opt/node@22/bin/node src/server.js"
+      ],
+      "port": 4102,
+      "autoPort": true
     }
   ]
 }

@@ -211,6 +211,22 @@
   selama ini cuma hidup di komentar kode.
 - **`anti-slop/audit-001-2026-10-07.md`**, audit 12 temuan plus tindak lanjutnya.
 
+### Added
+
+- **Broadcast dijual di landing page.** Satu section baru setelah Ringkasan &
+  label, ditulis sebagai empat aturan main dan bukan sebagai janji hasil: cuma
+  ke customer yang pernah chat, jeda acak 20 sampai 45 detik dengan jam kirim
+  08.00 sampai 20.00 dan maksimal 300 per hari, STOP dihormati, dan variasi
+  kata oleh AI yang angka, harga, dan link-nya dijaga kode. Tiap angka dicek ke
+  barisnya (`TEMPO.whatsapp_web` dan `JAM_KIRIM` di `src/broadcast.js`,
+  `Database.listBroadcastAudience`, `broadcastGuard` di `src/server.js`) dan
+  dicatat di komentar tepat di atas datanya. Masuk juga ke daftar fitur kedua
+  kartu harga, karena tidak ada gerbang paket di broadcast, hanya peran
+  supervisor.
+- **FAQ "Broadcast bisa bikin nomor saya diblokir?"** Jawabannya sengaja tidak
+  menjanjikan aman: risikonya tidak nol, WhatsApp yang menentukan, dan yang
+  Agnee lakukan mengurangi risikonya, bukan menghilangkannya.
+
 ### Changed
 
 - **Harga promo dikunci selama langganan jalan tanpa putus.** Landing page tidak

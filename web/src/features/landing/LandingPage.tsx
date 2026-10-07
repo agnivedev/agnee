@@ -103,6 +103,7 @@ export function LandingPage() {
       <UmpanEbook />
       <BandKnowledge />
       <BandRingkasan />
+      <BandBroadcast />
       <GridPendukung />
       <GridYangBerubah />
       <UmpanWebinar />
@@ -459,6 +460,77 @@ const PENDUKUNG: { judul: string; isi: string; utama?: boolean }[] = [
   },
 ];
 
+/**
+ * Aturan main broadcast. Tiap angka ada barisnya di kode:
+ *   20 sampai 45 detik, 300 per hari  src/broadcast.js, TEMPO.whatsapp_web
+ *   08.00 sampai 20.00                src/broadcast.js, JAM_KIRIM
+ *   cuma yang pernah chat             Database.listBroadcastAudience
+ *   STOP dikeluarkan                  broadcast_opt_outs, dibuang di server.js
+ *   kalimat berhenti otomatis         broadcast.js, susunPesan (default aktif)
+ *   variasi AI dijaga kode            broadcast.js, periksaVariasi
+ *   hanya supervisor                  server.js, broadcastGuard
+ *
+ * Halaman ini sengaja TIDAK menjanjikan nomor aman dari blokir. Broadcast dari
+ * WhatsApp Web selalu punya risiko dan yang memutuskan WhatsApp, bukan Agnee.
+ * Yang ditulis cuma rem yang memang dipasang. Jaga itu kalau menyunting.
+ */
+const ATURAN_BROADCAST: [string, string][] = [
+  [
+    'Cuma ke customer yang pernah chat kamu',
+    'Nomor yang belum pernah menghubungimu ga bisa dipilih. Pesan massal ke nomor asing itu jalan tercepat nomor diblokir, jadi Agnee ga menyediakannya.',
+  ],
+  [
+    'Pelan, dan di jam yang wajar',
+    'Pesan keluar satu per satu dengan jeda acak 20 sampai 45 detik, cuma jam 08.00 sampai 20.00 waktu perusahaanmu, maksimal 300 pesan per hari.',
+  ],
+  [
+    'STOP dihormati',
+    'Tiap pesan ditutup kalimat cara berhenti. Customer yang balas STOP otomatis masuk daftar keluar dan ga dikirimi broadcast lagi.',
+  ],
+  [
+    'Bunyi tiap pesan bisa dibuat beda',
+    'Opsional: AI mengubah dua sampai empat kata per penerima. Angka, harga, dan link dijaga di kode, jadi ga ikut berubah.',
+  ],
+];
+
+function BandBroadcast() {
+  return (
+    <Section className="py-16 sm:py-20">
+      <Eyebrow>Broadcast</Eyebrow>
+      <SectionTitle>Kirim kabar ke customer lama, dengan rem yang dipasang dari awal.</SectionTitle>
+      <Lead>
+        Pilih customer yang pernah chat kamu, saring berdasarkan tahap lead, produk, atau kapan terakhir mereka bales,
+        lalu kirim sekarang atau jadwalkan. Sapaan {'{nama}'} terisi otomatis per penerima, dan kamu bisa lihat siapa
+        yang udah terkirim, gagal, atau dilewati.
+      </Lead>
+
+      <ol className="m-0 mt-8 grid list-none gap-0 p-0">
+        {ATURAN_BROADCAST.map(([judul, isi], index) => (
+          <li
+            key={judul}
+            className="grid grid-cols-[auto_1fr] gap-x-5 border-t border-[#c6dcc0] py-5 last:border-b dark:border-[#24403a]"
+          >
+            <span className="pt-0.5 font-mono text-[13px] font-semibold text-green-dark dark:text-[#7fff4f]">
+              {String(index + 1).padStart(2, '0')}
+            </span>
+            <div>
+              <h3 className="mt-0 mb-1 text-base font-semibold sm:text-lg">{judul}</h3>
+              <p className="m-0 max-w-2xl text-[13px] leading-[1.6] text-[#4e6e5e] sm:text-[14px] dark:text-[#7aaa8a]">
+                {isi}
+              </p>
+            </div>
+          </li>
+        ))}
+      </ol>
+
+      <DuaSisi
+        perusahaan="Kabar promo atau pengingat sampai ke customer lama tanpa disalin satu per satu, dan cuma supervisor yang bisa memicunya."
+        cs="Ga perlu ngetik pesan yang sama ratusan kali, dan ga perlu ngurus balasan STOP satu-satu."
+      />
+    </Section>
+  );
+}
+
 function GridPendukung() {
   return (
     <Section className="py-16 sm:py-20">
@@ -646,6 +718,7 @@ const PLANS = [
       '1 dokumen playbook',
       '500 pesan AI per bulan',
       'Riwayat percakapan penuh',
+      'Broadcast ke customer yang pernah chat',
       'Bantuan via WhatsApp',
     ],
     href: WA_PERSONAL,
@@ -666,6 +739,7 @@ const PLANS = [
       'Pesan AI tanpa batas',
       'Follow-up berjadwal + pengaman',
       'Lead List + ekspor XLSX/CSV',
+      'Broadcast ke customer yang pernah chat',
       'Biaya AI dicatat per perusahaan',
     ],
     href: WA_COMPANY,
@@ -804,6 +878,10 @@ const FAQ_ITEMS: [string, string][] = [
   [
     'Apakah Agnee pakai WhatsApp Business API resmi?',
     'Ga. Agnee pakai WhatsApp Web, jadi kamu bisa langsung mulai dengan nomor yang udah ada, tanpa approval Meta dan tanpa biaya per pesan. Konsekuensinya, nomor itu harus tetap terhubung. Scan QR sekali, setelah itu jalan di belakang layar.',
+  ],
+  [
+    'Broadcast bisa bikin nomor saya diblokir?',
+    'Risikonya ga nol, dan kami ga akan bilang sebaliknya. Pesan massal dari WhatsApp Web selalu punya risiko, dan WhatsApp yang menentukan, bukan Agnee. Yang kami lakukan: cuma ke customer yang pernah chat kamu, jeda acak 20 sampai 45 detik, jam 08.00 sampai 20.00, maksimal 300 per hari, dan yang balas STOP langsung dikeluarkan. Itu mengurangi risikonya, bukan menghilangkannya.',
   ],
   [
     'Berapa CS yang bisa ditambahkan?',

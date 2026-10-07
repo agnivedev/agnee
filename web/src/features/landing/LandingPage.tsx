@@ -60,6 +60,22 @@ const MAYAR_WEBINAR = '';
  */
 const KUOTA_PROMO = 100;
 
+/**
+ * Penanda fokus keyboard.
+ *
+ * Halaman ini tidak pernah menghapus `outline`, jadi fokus bawaan peramban
+ * sebetulnya ada. Masalahnya outline bawaan itu nyaris tidak terlihat di band
+ * gelap (`bg-ink`, kartu webinar, blok penutup), jadi orang yang menyusuri
+ * halaman dengan Tab kehilangan jejak persis di tempat tombolnya berada.
+ *
+ * FOKUS dipakai di permukaan terang dan ikut mode gelap. FOKUS_GELAP dipakai
+ * pada elemen yang duduk di atas band gelap di KEDUA mode, jadi warnanya tidak
+ * boleh ikut berbalik.
+ */
+const FOKUS =
+  'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#087d4c] dark:focus-visible:outline-[#7fff4f]';
+const FOKUS_GELAP = 'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#7fff4f]';
+
 export function LandingPage() {
   useEffect(() => {
     document.title = 'Agnee: inbox WhatsApp untuk tim CS dan AI-mu';
@@ -81,7 +97,7 @@ export function LandingPage() {
       <HowItWorks />
       <Pricing />
       <Faq />
-      <CtaBanner />
+      <FunnelPenutup />
       <Footer />
     </div>
   );
@@ -134,7 +150,7 @@ function DuaSisi({ perusahaan, cs }: { perusahaan: ReactNode; cs: ReactNode }) {
 function Nav() {
   return (
     <header className="sticky top-0 z-50 flex items-center gap-6 border-b border-[#c6dcc0] bg-[#eef5eb]/85 px-5 py-3.5 backdrop-blur-md sm:px-8 dark:border-[#24403a] dark:bg-[#0c1912]/85">
-      <a href="/landing" className="shrink-0" aria-label="Agnee by Beweix">
+      <a href="/landing" className={`shrink-0 rounded-app py-2 ${FOKUS}`} aria-label="Agnee by Beweix">
         <img src="/brand/agnee-logo-primary.svg" alt="Agnee by Beweix" className="h-7 dark:brightness-0 dark:invert" />
       </a>
       <nav className="hidden gap-6 md:flex">
@@ -148,13 +164,16 @@ function Nav() {
           <a
             key={href}
             href={href}
-            className="text-sm font-medium text-[#4e6e5e] no-underline hover:text-ink dark:text-[#7aaa8a] dark:hover:text-[#f4f9f0]"
+            className={`rounded-app text-sm font-medium text-[#4e6e5e] no-underline hover:text-ink dark:text-[#7aaa8a] dark:hover:text-[#f4f9f0] ${FOKUS}`}
           >
             {label}
           </a>
         ))}
       </nav>
-      <a href={APP_URL} className="ml-auto rounded-full border border-[#c6dcc0] px-4 py-2 text-sm font-semibold no-underline dark:border-[#24403a]">
+      <a
+        href={APP_URL}
+        className={`ml-auto rounded-full border border-[#c6dcc0] px-4 py-3 text-sm font-semibold no-underline dark:border-[#24403a] ${FOKUS}`}
+      >
         Masuk
       </a>
     </header>
@@ -180,11 +199,14 @@ function Hero() {
           <div className="mt-7 flex flex-wrap gap-3">
             <a
               href={`${APP_URL}/?signup=1`}
-              className="rounded-app bg-ink px-5 py-3 text-[15px] font-semibold text-white no-underline transition hover:-translate-y-0.5 dark:bg-[#7fff4f] dark:text-[#0c1912]"
+              className={`rounded-app bg-ink px-5 py-3 text-[15px] font-semibold text-white no-underline transition hover:-translate-y-0.5 dark:bg-[#7fff4f] dark:text-[#0c1912] ${FOKUS}`}
             >
               Coba Gratis 7 Hari
             </a>
-            <a href="#ebook" className="rounded-app border border-[#c6dcc0] px-5 py-3 text-[15px] font-semibold no-underline dark:border-[#24403a]">
+            <a
+              href="#ebook"
+              className={`rounded-app border border-[#c6dcc0] px-5 py-3 text-[15px] font-semibold no-underline dark:border-[#24403a] ${FOKUS}`}
+            >
               Ambil Ebook Gratis
             </a>
           </div>
@@ -287,7 +309,7 @@ function TombolUmpan({ mayar, mayarLabel, wa, waLabel }: { mayar: string; mayarL
           href={mayar}
           target="_blank"
           rel="noopener noreferrer"
-          className="rounded-app bg-ink px-5 py-3 text-[15px] font-semibold text-white no-underline transition hover:-translate-y-0.5 dark:bg-[#7fff4f] dark:text-[#0c1912]"
+          className={`rounded-app bg-ink px-5 py-3 text-[15px] font-semibold text-white no-underline transition hover:-translate-y-0.5 dark:bg-[#7fff4f] dark:text-[#0c1912] ${FOKUS}`}
         >
           {mayarLabel}
         </a>
@@ -298,8 +320,8 @@ function TombolUmpan({ mayar, mayarLabel, wa, waLabel }: { mayar: string; mayarL
         rel="noopener noreferrer"
         className={
           mayar
-            ? 'rounded-app border border-[#c6dcc0] px-5 py-3 text-[15px] font-semibold no-underline dark:border-[#24403a]'
-            : 'inline-flex items-center gap-2 rounded-app bg-[#25d366] px-5 py-3 text-[15px] font-semibold text-white no-underline transition hover:bg-[#1dbd5e]'
+            ? `rounded-app border border-[#c6dcc0] px-5 py-3 text-[15px] font-semibold no-underline dark:border-[#24403a] ${FOKUS}`
+            : `inline-flex items-center gap-2 rounded-app bg-[#25d366] px-5 py-3 text-[15px] font-semibold text-white no-underline transition hover:bg-[#1dbd5e] ${FOKUS_GELAP}`
         }
       >
         {waLabel}
@@ -482,7 +504,7 @@ function GridYangBerubah() {
             key={masalah}
             className="rounded-panel border border-[#c6dcc0] bg-white p-5 dark:border-[#24403a] dark:bg-[#14241f]"
           >
-            <span className="block font-mono text-[11px] font-semibold text-[#9db99a] dark:text-[#4e6e5e]">
+            <span className="block font-mono text-[11px] font-semibold text-[#4e6e5e] dark:text-[#7aaa8a]">
               {String(index + 1).padStart(2, '0')}
             </span>
             <p className="mt-2 mb-2 text-[13px] leading-[1.5] text-[#4e6e5e] line-through decoration-[#c6dcc0] decoration-2 dark:text-[#7aaa8a] dark:decoration-[#24403a]">
@@ -599,7 +621,7 @@ const PLANS = [
     note: '',
   },
   {
-    badge: 'Paling banyak diambil tim',
+    badge: 'Buat tim CS',
     name: 'Company',
     oldPrice: 'Rp 8.900.000',
     price: 'Rp 3.900.000',
@@ -682,8 +704,8 @@ function Pricing() {
               rel="noopener noreferrer"
               className={
                 plan.note
-                  ? 'block rounded-app bg-[#25d366] px-5 py-3 text-center text-[15px] font-semibold text-white no-underline transition hover:bg-[#1dbd5e]'
-                  : 'mt-auto block rounded-app bg-[#25d366] px-5 py-3 text-center text-[15px] font-semibold text-white no-underline transition hover:bg-[#1dbd5e]'
+                  ? `block rounded-app bg-[#25d366] px-5 py-3 text-center text-[15px] font-semibold text-white no-underline transition hover:bg-[#1dbd5e] ${FOKUS}`
+                  : `mt-auto block rounded-app bg-[#25d366] px-5 py-3 text-center text-[15px] font-semibold text-white no-underline transition hover:bg-[#1dbd5e] ${FOKUS}`
               }
             >
               {plan.cta}
@@ -703,7 +725,7 @@ function Pricing() {
           href={WA_WHITELABEL}
           target="_blank"
           rel="noopener noreferrer"
-          className="rounded-app border border-[#c6dcc0] px-5 py-3 text-[15px] font-semibold no-underline dark:border-[#24403a]"
+          className={`rounded-app border border-[#c6dcc0] px-5 py-3 text-[15px] font-semibold no-underline dark:border-[#24403a] ${FOKUS}`}
         >
           Hubungi kami
         </a>
@@ -772,7 +794,7 @@ function Faq() {
               type="button"
               aria-expanded={open === index}
               onClick={() => setOpen((current) => (current === index ? null : index))}
-              className="flex w-full cursor-pointer items-center justify-between gap-4 border-0 bg-transparent p-5 text-left text-[15px] font-semibold text-inherit"
+              className={`flex w-full cursor-pointer items-center justify-between gap-4 rounded-panel border-0 bg-transparent p-5 text-left text-[15px] font-semibold text-inherit ${FOKUS}`}
             >
               {question}
               <svg
@@ -796,31 +818,120 @@ function Faq() {
   );
 }
 
-function CtaBanner() {
+/**
+ * Blok penutup: tiga pintu, lalu alasan untuk tidak menunda.
+ *
+ * Menggantikan banner CTA lama, yang cuma menawarkan satu jalan (coba gratis)
+ * ke semua orang. Pembaca yang belum siap beli tidak punya apa-apa selain
+ * pergi, padahal tiga pintunya sudah ada, cuma tersebar di tengah halaman.
+ *
+ * Disusun MENAIK menurut komitmen, sebagai baris bertumpuk, bukan tiga kolom
+ * sejajar: tiga kolom membuat ketiganya terlihat setara, padahal yang kita mau
+ * justru menunjukkan tangga. Penekanan visualnya ikut naik (garis tipis, garis
+ * biasa, garis aksen) supaya tangganya terbaca tanpa perlu dijelaskan.
+ *
+ * Soal FOMO: angkanya aritmetika dari harga yang sudah tertulis di halaman ini
+ * (8.900.000 - 3.900.000), bukan hitung mundur, bukan sisa kuota karangan.
+ * Kalau nanti sisa kuota mau ditampilkan, dia harus datang dari hitungan nyata
+ * tabel companies, bukan dari konstanta yang gampang basi.
+ */
+const PINTU = [
+  {
+    kondisi: 'Belum butuh sekarang',
+    isi: 'Ambil ebook buat tim CS-mu dulu. Gratis, ga perlu bikin akun, dan tetap kepakai walaupun kantormu ga pakai Agnee.',
+    aksi: 'Ambil ebook gratis',
+    href: '#ebook',
+    eksternal: false,
+    gaya: 'border border-[#c6dcc0] p-5 sm:p-6 dark:border-[#24403a]',
+    tombol:
+      'border border-[#c6dcc0] bg-transparent text-ink hover:bg-[#dff0d6] dark:border-[#24403a] dark:text-[#f4f9f0] dark:hover:bg-[#1b3028]',
+  },
+  {
+    kondisi: 'Masih menimbang',
+    isi: 'Ikut kelas 15 menit soal cara menutup penjualan lewat chat. Kerangka yang sama yang kami tanam di Agnee, jadi kamu sekalian lihat cara kerjanya.',
+    aksi: 'Ambil kursi webinar',
+    href: WA_WEBINAR,
+    eksternal: true,
+    gaya: 'border border-[#9db99a] bg-white p-6 sm:p-7 dark:border-[#3a5a4c] dark:bg-[#14241f]',
+    tombol: 'bg-[#25d366] text-white hover:bg-[#1dbd5e]',
+  },
+  {
+    kondisi: 'Mau lihat sendiri',
+    isi: 'Hubungkan nomor WhatsApp-mu dan jalankan Agnee di chat beneran selama 7 hari. Tanpa kartu kredit, dan bisa berhenti kapan aja.',
+    aksi: 'Coba Gratis 7 Hari',
+    href: APP_URL + '/?signup=1',
+    eksternal: false,
+    gaya: 'border-2 border-green-dark bg-white p-7 sm:p-8 dark:border-[#7fff4f] dark:bg-[#14241f]',
+    tombol: 'bg-ink text-white hover:-translate-y-0.5 dark:bg-[#7fff4f] dark:text-[#0c1912]',
+  },
+];
+
+function FunnelPenutup() {
   return (
-    <Section className="py-16 sm:py-20">
-      <div className="rounded-panel bg-ink p-10 text-center text-white dark:bg-[#14241f]">
-        <h2 className="m-0 text-[clamp(26px,4vw,40px)] leading-[1.15] font-semibold tracking-[-.035em]">
-          Coba Agnee gratis 7 hari.
-          <br />
-          Ga perlu kartu kredit.
-        </h2>
-        <p className="mt-3 mb-6 text-white/65">
-          Promo untuk {KUOTA_PROMO} perusahaan pertama. Setelah kuotanya penuh, harga kembali normal.
-        </p>
-        <div className="flex flex-wrap justify-center gap-3">
-          <a
-            href={`${APP_URL}/?signup=1`}
-            className="inline-block rounded-app bg-[#7fff4f] px-6 py-3 text-[15px] font-semibold text-[#0c1912] no-underline"
+    <Section id="mulai" className="py-16 sm:py-20">
+      <Eyebrow>Mulai dari mana</Eyebrow>
+      <SectionTitle>Tiga pintu. Pilih yang paling pas buat kamu hari ini.</SectionTitle>
+      <Lead>
+        Ga semua orang yang baca halaman ini lagi siap bayar, dan itu wajar. Jadi pintunya ada tiga, dari yang paling
+        ringan sampai yang paling serius.
+      </Lead>
+
+      <div className="mt-8 grid gap-3">
+        {PINTU.map((pintu, index) => (
+          <div
+            key={pintu.kondisi}
+            className={`flex flex-col gap-4 rounded-panel sm:flex-row sm:items-center sm:gap-6 ${pintu.gaya}`}
           >
-            Coba Gratis 7 Hari
-          </a>
-          <a
-            href="#ebook"
-            className="inline-block rounded-app border border-white/25 px-6 py-3 text-[15px] font-semibold text-white no-underline"
-          >
-            Atau ambil ebook gratisnya dulu
-          </a>
+            <span className="shrink-0 font-mono text-[11px] font-semibold text-green-dark dark:text-[#7fff4f]">
+              {String(index + 1).padStart(2, '0')}
+            </span>
+            <div className="min-w-0 flex-1">
+              <h3 className="mt-0 mb-1 text-base font-semibold sm:text-lg">{pintu.kondisi}</h3>
+              <p className="m-0 text-[13px] leading-[1.6] text-[#4e6e5e] sm:text-[14px] dark:text-[#7aaa8a]">
+                {pintu.isi}
+              </p>
+            </div>
+            <a
+              href={pintu.href}
+              {...(pintu.eksternal ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
+              className={`block shrink-0 rounded-app px-5 py-3 text-center text-[15px] font-semibold no-underline transition ${pintu.tombol} ${FOKUS}`}
+            >
+              {pintu.aksi}
+            </a>
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-8 rounded-panel bg-ink p-7 text-white sm:p-10 dark:bg-[#14241f]">
+        <div className="grid gap-6 lg:grid-cols-[1.2fr_.8fr] lg:items-center">
+          <div>
+            {/* "Batas promo", bukan "Sisa kuota": halaman ini tidak menampilkan
+                angka sisa, jadi eyebrow-nya tidak boleh menjanjikan angka. Kalau
+                nanti sisa kuota ditampilkan, dia harus dihitung dari tabel
+                companies, bukan dari konstanta yang gampang basi. */}
+            <p className="m-0 mb-2 font-mono text-[11px] font-medium tracking-[.14em] text-[#7fff4f] uppercase">
+              Batas promo
+            </p>
+            <h2 className="m-0 mb-3 text-[clamp(24px,3.4vw,34px)] leading-[1.15] font-semibold tracking-[-.035em]">
+              Harga promo berhenti di perusahaan ke-{KUOTA_PROMO}.
+            </h2>
+            <p className="m-0 text-[15px] leading-[1.65] text-white/70">
+              Setelah kuotanya penuh, Company balik ke Rp 8.900.000 per bulan. Selisihnya Rp 5.000.000 tiap bulan, dan
+              Personal naik dari Rp 99.000 ke Rp 899.000. Ga ada hitung mundur palsu di halaman ini: kuotanya yang
+              habis, bukan jamnya.
+            </p>
+          </div>
+          <div className="lg:text-right">
+            <a
+              href="#pricing"
+              className={`inline-block rounded-app bg-[#7fff4f] px-6 py-3 text-[15px] font-semibold text-[#0c1912] no-underline ${FOKUS_GELAP}`}
+            >
+              Lihat harga promo
+            </a>
+            <p className="mt-3 mb-0 text-[13px] leading-[1.6] text-white/55">
+              Masih ragu? Coba 7 hari dulu, tanpa kartu kredit.
+            </p>
+          </div>
         </div>
       </div>
     </Section>
@@ -867,7 +978,7 @@ function Footer() {
               href={WA_LINK}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-2 rounded-app bg-[#25d366] px-4 py-2.5 text-[13px] font-semibold text-white no-underline"
+              className={`inline-flex items-center gap-2 rounded-app bg-[#25d366] px-4 py-3 text-[13px] font-semibold text-white no-underline ${FOKUS}`}
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
                 <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z" />
@@ -880,13 +991,13 @@ function Footer() {
           {FOOTER_COLUMNS.map(([title, links]) => (
             <div key={title}>
               <h4 className="m-0 mb-3 text-[13px] font-semibold">{title}</h4>
-              <ul className="m-0 grid list-none gap-2 p-0">
+              <ul className="m-0 grid list-none p-0">
                 {links.map(([href, label]) => (
                   <li key={label}>
                     <a
                       href={href}
                       {...(href.startsWith('http') ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
-                      className="text-[13px] text-[#4e6e5e] no-underline hover:text-ink dark:text-[#7aaa8a] dark:hover:text-[#f4f9f0]"
+                      className={`block rounded-app py-3.5 text-[13px] text-[#4e6e5e] no-underline hover:text-ink dark:text-[#7aaa8a] dark:hover:text-[#f4f9f0] ${FOKUS}`}
                     >
                       {label}
                     </a>
@@ -900,10 +1011,16 @@ function Footer() {
         <div className="mt-10 flex flex-wrap items-center justify-between gap-3 border-t border-[#c6dcc0] pt-5 text-[12px] text-[#4e6e5e] dark:border-[#24403a] dark:text-[#7aaa8a]">
           <span>© 2026 Agnive. Hak cipta dilindungi.</span>
           <span className="flex flex-wrap items-center gap-x-4 gap-y-2">
-            <a href="/privasi" className="text-[#4e6e5e] no-underline hover:text-ink dark:text-[#7aaa8a] dark:hover:text-[#f4f9f0]">
+            <a
+              href="/privasi"
+              className={`inline-block rounded-app py-3.5 text-[#4e6e5e] no-underline hover:text-ink dark:text-[#7aaa8a] dark:hover:text-[#f4f9f0] ${FOKUS}`}
+            >
               Kebijakan Privasi
             </a>
-            <a href="/ketentuan" className="text-[#4e6e5e] no-underline hover:text-ink dark:text-[#7aaa8a] dark:hover:text-[#f4f9f0]">
+            <a
+              href="/ketentuan"
+              className={`inline-block rounded-app py-3.5 text-[#4e6e5e] no-underline hover:text-ink dark:text-[#7aaa8a] dark:hover:text-[#f4f9f0] ${FOKUS}`}
+            >
               Syarat &amp; Ketentuan
             </a>
             <span>Dibuat di Indonesia 🇮🇩</span>

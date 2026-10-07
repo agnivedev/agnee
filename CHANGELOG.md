@@ -2,6 +2,40 @@
 
 ### Added
 
+- **Blok penutup funnel di landing page.** Banner CTA lama cuma menawarkan satu
+  jalan (coba gratis) ke semua pembaca, jadi yang belum siap beli tidak punya
+  apa-apa selain pergi. Diganti `FunnelPenutup`: tiga pintu disusun menaik
+  menurut komitmen (ebook, webinar, coba 7 hari) sebagai baris bertumpuk yang
+  penekanannya ikut naik, bukan tiga kolom sejajar yang membuat ketiganya
+  terlihat setara. Ditutup blok FOMO yang memakai selisih harga yang memang
+  berlaku (Rp 8.900.000 dikurangi Rp 3.900.000), bukan hitung mundur palsu.
+- **`DESIGN.md`** berisi arah desain yang dibaca dari palet yang sudah berjalan,
+  lengkap dengan dial ENERGY 2 / RHYTHM 2 / MOTION 1 dan aturan jujur yang
+  selama ini cuma hidup di komentar kode.
+- **`anti-slop/audit-001-2026-10-07.md`**, audit 12 temuan plus tindak lanjutnya.
+
+### Fixed
+
+- **Badge "Paling banyak diambil tim" adalah klaim tanpa data.** Badge di kartu
+  Company menyatakan perilaku pelanggan yang datanya tidak ada di mana pun. Pola
+  yang sama dengan testimoni karangan yang sudah dibuang, cuma bentuknya badge.
+  Diganti "Buat tim CS", yang menyebut isi paket seperti dua badge lainnya.
+- **Nomor urut 01-15 gagal kontras di dua mode.** Terang 2,13:1 dan gelap
+  2,85:1, dua-duanya jauh di bawah ambang WCAG AA 4,5:1. Warna penggantinya
+  diambil dari palet yang sudah ada: 5,65:1 dan 6,10:1.
+- **Target sentuh di bawah 44px.** Navbar "Masuk" 38px, logo 28px, sebelas
+  tautan footer 17-18px, tombol WhatsApp footer 40px. Semua dinaikkan ke 44px ke
+  atas; jarak antar baris footer dipindah dari `gap` ke padding supaya footer
+  tidak ikut memanjang dua kali lipat.
+- **Tidak ada penanda fokus keyboard sama sekali.** Halaman tidak pernah
+  menghapus `outline`, tapi outline bawaan peramban nyaris tidak terlihat di
+  band gelap, jadi orang yang menyusuri halaman dengan Tab kehilangan jejak
+  persis di tempat tombolnya. Dua konstanta `FOKUS` dan `FOKUS_GELAP` dipasang
+  di seluruh tombol, tautan, dan tombol FAQ.
+
+
+### Added
+
 - **Daftar periksa onboarding untuk supervisor baru** (`OnboardingDialog`).
   Wizard lama hilang saat pindah ke React, dan `POST /v1/auth/onboarded` sejak
   itu tidak dipanggil siapa pun. Setiap langkah (sambungkan WhatsApp, isi

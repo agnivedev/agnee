@@ -64,6 +64,27 @@
 
 ### Fixed
 
+- **Semua tombol WhatsApp gagal kontras, 1,98:1.** Teks putih di atas `#25d366`,
+  di enam tombol yang semuanya CTA konversi utama. Hijaunya dipertahankan karena
+  dia penanda kanal, teksnya yang diganti jadi `#0c1912`: 9,10:1 normal dan
+  7,30:1 saat hover. Ketemu lewat sapuan kontras menyeluruh, bukan tebakan
+  pasangan warna seperti audit pertama.
+- **Eyebrow berhenti memakai mono huruf besar berjarak lebar**, bentuk yang
+  diulang sepuluh kali di halaman. Jumlahnya turun jadi lima: yang cuma
+  mengulang judul di bawahnya dibuang.
+- **Pil promo di atas judul utama** diganti garis pendek dan teks, motif yang
+  sama dengan sampul ebook. Isinya tetap, bentuk badge-nya hilang.
+- **"Cara kerja" berhenti jadi tiga lingkaran bernomor di tiga kolom**, jadi
+  tiga baris berurut dengan garis pemisah. Jumlah langkahnya tetap tiga, karena
+  langkahnya memang tiga.
+- **Harga berhenti jadi tiga kolom sejajar.** Personal dan Company ditagih
+  bulanan dan memang bisa dibandingkan berdampingan. Lifetime sekali bayar, jadi
+  dia bukan kolom ketiga melainkan pilihan lain, dan pindah ke barisnya sendiri.
+- **Kartu pendukung dapat hierarki.** "Data tiap perusahaan terpisah" jadi kartu
+  utama selebar dua kolom: tiga kartu lain menyebut kemudahan, yang satu ini
+  menjawab keberatan yang menahan orang membeli.
+- **Dua CTA generik diganti**: "Daftar sekarang" jadi "Ambil kursi webinar",
+  "Hubungi kami" jadi "Minta penawaran white label".
 - **Badge "Paling banyak diambil tim" adalah klaim tanpa data.** Badge di kartu
   Company menyatakan perilaku pelanggan yang datanya tidak ada di mana pun. Pola
   yang sama dengan testimoni karangan yang sudah dibuang, cuma bentuknya badge.

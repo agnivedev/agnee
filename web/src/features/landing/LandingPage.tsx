@@ -113,7 +113,8 @@ function Section({ children, className, id }: { children: ReactNode; className?:
 
 function Eyebrow({ children }: { children: ReactNode }) {
   return (
-    <p className="m-0 mb-2 font-mono text-[11px] font-medium tracking-[.14em] text-green-dark uppercase dark:text-[#7fff4f]">
+    <p className="m-0 mb-2.5 flex items-center gap-2 text-[12px] font-semibold text-green-dark dark:text-[#7fff4f]">
+      <span aria-hidden className="inline-block h-px w-5 bg-green-dark dark:bg-[#7fff4f]" />
       {children}
     </p>
   );
@@ -185,9 +186,10 @@ function Hero() {
     <Section className="py-14 sm:py-20">
       <div className="grid items-center gap-10 lg:grid-cols-[1.1fr_.9fr]">
         <div>
-          <span className="inline-block rounded-full bg-[#dff0d6] px-3 py-1 font-mono text-[11px] font-semibold text-[#205a38] dark:bg-[#1b3028] dark:text-[#7fff4f]">
+          <p className="m-0 flex items-center gap-2.5 text-[13px] font-semibold text-green-dark dark:text-[#7fff4f]">
+            <span aria-hidden className="inline-block h-0.5 w-7 bg-green-dark dark:bg-[#7fff4f]" />
             Promo beta untuk {KUOTA_PROMO} perusahaan pertama
-          </span>
+          </p>
           <h1 className="mt-4 mb-0 text-[clamp(36px,6vw,66px)] leading-[1.03] font-semibold tracking-[-.05em]">
             Satu inbox WhatsApp
             <br />
@@ -271,7 +273,8 @@ function BandSiapaBicara() {
 function BandFollowUp() {
   return (
     <Section className="bg-ink py-16 text-white sm:py-20 dark:bg-[#14241f]">
-      <p className="m-0 mb-2 font-mono text-[11px] font-medium tracking-[.14em] text-[#7fff4f] uppercase">
+      <p className="m-0 mb-2.5 flex items-center gap-2 text-[12px] font-semibold text-[#7fff4f]">
+        <span aria-hidden className="inline-block h-px w-5 bg-[#7fff4f]" />
         Follow-up otomatis
       </p>
       <SectionTitle>Follow-up ke lead yang diam, tanpa bikin pelanggan risih.</SectionTitle>
@@ -321,7 +324,7 @@ function TombolUmpan({ mayar, mayarLabel, wa, waLabel }: { mayar: string; mayarL
         className={
           mayar
             ? `rounded-app border border-[#c6dcc0] px-5 py-3 text-[15px] font-semibold no-underline dark:border-[#24403a] ${FOKUS}`
-            : `inline-flex items-center gap-2 rounded-app bg-[#25d366] px-5 py-3 text-[15px] font-semibold text-white no-underline transition hover:bg-[#1dbd5e] ${FOKUS_GELAP}`
+            : `inline-flex items-center gap-2 rounded-app bg-[#25d366] text-[#0c1912] px-5 py-3 text-[15px] font-semibold no-underline transition hover:bg-[#1dbd5e] ${FOKUS_GELAP}`
         }
       >
         {waLabel}
@@ -430,20 +433,18 @@ function BandRingkasan() {
   );
 }
 
-const PENDUKUNG: [string, string][] = [
-  ['Lead List bisa diekspor', 'Download datanya kapan aja dalam format XLSX atau CSV.'],
-  [
-    'Biaya AI tercatat per perusahaan',
-    'Tiap panggilan AI dicatat: token masuk, token keluar, model yang dipakai, dan biayanya.',
-  ],
-  [
-    'Data tiap perusahaan terpisah',
-    'Pemisahannya diterapkan di level database, dan udah kami uji dengan permintaan lintas perusahaan.',
-  ],
-  [
-    'Pakai nomor WhatsApp yang udah ada',
-    'Scan QR, langsung jalan. Ga perlu nunggu approval Meta dan ga ada biaya per pesan.',
-  ],
+const PENDUKUNG: { judul: string; isi: string; utama?: boolean }[] = [
+  {
+    judul: 'Data tiap perusahaan terpisah',
+    isi: 'Pemisahannya diterapkan di level database, bukan cuma disembunyikan di tampilan. Kami udah menguji dengan permintaan lintas perusahaan yang sengaja dibuat buat nembus, dan ditolak.',
+    utama: true,
+  },
+  { judul: 'Pakai nomor WhatsApp yang udah ada', isi: 'Scan QR, langsung jalan. Ga perlu nunggu approval Meta dan ga ada biaya per pesan.' },
+  { judul: 'Lead List bisa diekspor', isi: 'Download datanya kapan aja dalam format XLSX atau CSV.' },
+  {
+    judul: 'Biaya AI tercatat per perusahaan',
+    isi: 'Tiap panggilan AI dicatat: token masuk, token keluar, model yang dipakai, dan biayanya.',
+  },
 ];
 
 function GridPendukung() {
@@ -452,13 +453,27 @@ function GridPendukung() {
       <Eyebrow>Ikut di semua paket</Eyebrow>
       <SectionTitle>Yang juga kamu dapat</SectionTitle>
       <div className="grid gap-4 sm:grid-cols-2">
-        {PENDUKUNG.map(([judul, isi]) => (
+        {PENDUKUNG.map(({ judul, isi, utama }) => (
           <div
             key={judul}
-            className="rounded-panel border border-[#c6dcc0] bg-white p-6 dark:border-[#24403a] dark:bg-[#14241f]"
+            className={
+              utama
+                ? 'rounded-panel border-2 border-green-dark bg-[#dff0d6] p-7 sm:col-span-2 dark:border-[#7fff4f] dark:bg-[#1b3028]'
+                : 'rounded-panel border border-[#c6dcc0] bg-white p-6 dark:border-[#24403a] dark:bg-[#14241f]'
+            }
           >
-            <h3 className="mt-0 mb-1.5 text-base font-semibold">{judul}</h3>
-            <p className="m-0 text-[13px] leading-[1.6] text-[#4e6e5e] dark:text-[#7aaa8a]">{isi}</p>
+            <h3 className={utama ? 'mt-0 mb-2 text-lg font-semibold sm:text-xl' : 'mt-0 mb-1.5 text-base font-semibold'}>
+              {judul}
+            </h3>
+            <p
+              className={
+                utama
+                  ? 'm-0 max-w-2xl text-[14px] leading-[1.65] text-[#205a38] dark:text-[#cfeac2]'
+                  : 'm-0 text-[13px] leading-[1.6] text-[#4e6e5e] dark:text-[#7aaa8a]'
+              }
+            >
+              {isi}
+            </p>
           </div>
         ))}
       </div>
@@ -496,7 +511,6 @@ const YANG_BERUBAH: [string, string][] = [
 function GridYangBerubah() {
   return (
     <Section className="py-16 sm:py-20">
-      <Eyebrow>Masalah harian</Eyebrow>
       <SectionTitle>Masalah harian tim CS, dan jawabannya</SectionTitle>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {YANG_BERUBAH.map(([masalah, jawaban], index) => (
@@ -524,7 +538,8 @@ function UmpanWebinar() {
       <div className="rounded-panel bg-ink p-7 text-white sm:p-10 dark:bg-[#14241f]">
         <div className="grid gap-8 lg:grid-cols-[1.15fr_.85fr]">
           <div>
-            <p className="m-0 mb-2 font-mono text-[11px] font-medium tracking-[.14em] text-[#7fff4f] uppercase">
+            <p className="m-0 mb-2.5 flex items-center gap-2 text-[12px] font-semibold text-[#7fff4f]">
+              <span aria-hidden className="inline-block h-px w-5 bg-[#7fff4f]" />
               Kelas gratis, kuota terbatas
             </p>
             <h2 className="m-0 mb-4 text-[clamp(26px,3.6vw,38px)] leading-[1.15] font-semibold tracking-[-.035em]">
@@ -538,7 +553,7 @@ function UmpanWebinar() {
             </p>
             <TombolUmpan
               mayar={MAYAR_WEBINAR}
-              mayarLabel="Daftar sekarang"
+              mayarLabel="Ambil kursi webinar"
               wa={WA_WEBINAR}
               waLabel="Daftar via WhatsApp"
             />
@@ -577,19 +592,25 @@ const STEPS: [string, string][] = [
 function HowItWorks() {
   return (
     <Section className="py-16 sm:py-20">
-      <Eyebrow>Cara kerja</Eyebrow>
       <SectionTitle>Tiga langkah, langsung jalan</SectionTitle>
-      <div className="grid gap-6 sm:grid-cols-3">
+      <ol className="m-0 mt-8 grid list-none gap-0 p-0">
         {STEPS.map(([judul, isi], index) => (
-          <div key={judul}>
-            <span className="grid size-9 place-items-center rounded-full bg-[#dff0d6] font-semibold text-[#205a38] dark:bg-[#1b3028] dark:text-[#7fff4f]">
-              {index + 1}
+          <li
+            key={judul}
+            className="grid grid-cols-[auto_1fr] gap-x-5 border-t border-[#c6dcc0] py-5 last:border-b dark:border-[#24403a]"
+          >
+            <span className="pt-0.5 font-mono text-[13px] font-semibold text-green-dark dark:text-[#7fff4f]">
+              {String(index + 1).padStart(2, '0')}
             </span>
-            <h3 className="mt-3.5 mb-1.5 text-base font-semibold">{judul}</h3>
-            <p className="m-0 text-[13px] leading-[1.6] text-[#4e6e5e] dark:text-[#7aaa8a]">{isi}</p>
-          </div>
+            <div>
+              <h3 className="mt-0 mb-1 text-base font-semibold sm:text-lg">{judul}</h3>
+              <p className="m-0 max-w-2xl text-[13px] leading-[1.6] text-[#4e6e5e] sm:text-[14px] dark:text-[#7aaa8a]">
+                {isi}
+              </p>
+            </div>
+          </li>
         ))}
-      </div>
+      </ol>
     </Section>
   );
 }
@@ -641,7 +662,7 @@ const PLANS = [
     note: 'Pemakaian wajar: kalau pemakaianmu jauh di atas rata-rata, kami hubungin dulu. Layananmu ga akan kami putus tiba-tiba.',
   },
   {
-    badge: 'Sekali bayar',
+    badge: '',
     name: 'Lifetime',
     oldPrice: 'Rp 39.900.000',
     price: 'Rp 29.900.000',
@@ -661,13 +682,12 @@ const PLANS = [
 function Pricing() {
   return (
     <Section id="pricing" className="py-16 sm:py-20">
-      <Eyebrow>Promo pembukaan, {KUOTA_PROMO} perusahaan pertama</Eyebrow>
       <SectionTitle>Harga promo untuk {KUOTA_PROMO} perusahaan pertama.</SectionTitle>
       <Lead>
         Kuotanya beneran terbatas. Setelah {KUOTA_PROMO} perusahaan terdaftar, harga promo ditutup dan kembali ke harga normal. Ga ada hitung mundur palsu dan ga ada perpanjangan.
       </Lead>
-      <div className="mt-10 grid gap-4 lg:grid-cols-3">
-        {PLANS.map((plan) => (
+      <div className="mt-10 grid gap-4 md:grid-cols-2">
+        {PLANS.filter((plan) => plan.period === '/bulan').map((plan) => (
           <div
             key={plan.name}
             className={
@@ -704,8 +724,8 @@ function Pricing() {
               rel="noopener noreferrer"
               className={
                 plan.note
-                  ? `block rounded-app bg-[#25d366] px-5 py-3 text-center text-[15px] font-semibold text-white no-underline transition hover:bg-[#1dbd5e] ${FOKUS}`
-                  : `mt-auto block rounded-app bg-[#25d366] px-5 py-3 text-center text-[15px] font-semibold text-white no-underline transition hover:bg-[#1dbd5e] ${FOKUS}`
+                  ? `block rounded-app bg-[#25d366] text-[#0c1912] px-5 py-3 text-center text-[15px] font-semibold no-underline transition hover:bg-[#1dbd5e] ${FOKUS}`
+                  : `mt-auto block rounded-app bg-[#25d366] text-[#0c1912] px-5 py-3 text-center text-[15px] font-semibold no-underline transition hover:bg-[#1dbd5e] ${FOKUS}`
               }
             >
               {plan.cta}
@@ -713,6 +733,40 @@ function Pricing() {
           </div>
         ))}
       </div>
+
+      {PLANS.filter((plan) => plan.period === 'sekali bayar').map((plan) => (
+        <div
+          key={plan.name}
+          className="mt-4 grid gap-5 rounded-panel border border-[#c6dcc0] bg-white p-7 md:grid-cols-[1fr_auto] md:items-center dark:border-[#24403a] dark:bg-[#14241f]"
+        >
+          <div>
+            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+              <h3 className="m-0 text-xl font-semibold">{plan.name}</h3>
+              <s className="text-[13px] text-[#4e6e5e] dark:text-[#7aaa8a]">{plan.oldPrice}</s>
+              <span className="text-2xl font-semibold tracking-[-.03em]">{plan.price}</span>
+              <span className="text-[13px] text-[#4e6e5e] dark:text-[#7aaa8a]">{plan.period}</span>
+            </div>
+            <ul className="m-0 mt-3 flex list-none flex-wrap gap-x-5 gap-y-1.5 p-0 text-[13px]">
+              {plan.features.map((feature) => (
+                <li key={feature} className="flex items-start gap-2">
+                  <span aria-hidden className="text-green-dark dark:text-[#7fff4f]">
+                    ✓
+                  </span>
+                  {feature}
+                </li>
+              ))}
+            </ul>
+          </div>
+          <a
+            href={plan.href}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={`block rounded-app bg-[#25d366] text-[#0c1912] px-5 py-3 text-center text-[15px] font-semibold no-underline transition hover:bg-[#1dbd5e] md:w-max ${FOKUS}`}
+          >
+            {plan.cta}
+          </a>
+        </div>
+      ))}
 
       <div className="mt-4 flex flex-wrap items-center justify-between gap-4 rounded-panel border border-[#c6dcc0] bg-white p-6 dark:border-[#24403a] dark:bg-[#14241f]">
         <div>
@@ -727,7 +781,7 @@ function Pricing() {
           rel="noopener noreferrer"
           className={`rounded-app border border-[#c6dcc0] px-5 py-3 text-[15px] font-semibold no-underline dark:border-[#24403a] ${FOKUS}`}
         >
-          Hubungi kami
+          Minta penawaran white label
         </a>
       </div>
     </Section>
@@ -782,7 +836,6 @@ function Faq() {
   const [open, setOpen] = useState<number | null>(null);
   return (
     <Section id="faq" className="py-16 sm:py-20">
-      <Eyebrow>FAQ</Eyebrow>
       <SectionTitle>Pertanyaan yang sering ditanya</SectionTitle>
       <div className="grid gap-2">
         {FAQ_ITEMS.map(([question, answer], index) => (
@@ -853,7 +906,7 @@ const PINTU = [
     href: WA_WEBINAR,
     eksternal: true,
     gaya: 'border border-[#9db99a] bg-white p-6 sm:p-7 dark:border-[#3a5a4c] dark:bg-[#14241f]',
-    tombol: 'bg-[#25d366] text-white hover:bg-[#1dbd5e]',
+    tombol: 'bg-[#25d366] text-[#0c1912] hover:bg-[#1dbd5e]',
   },
   {
     kondisi: 'Mau lihat sendiri',
@@ -869,7 +922,6 @@ const PINTU = [
 function FunnelPenutup() {
   return (
     <Section id="mulai" className="py-16 sm:py-20">
-      <Eyebrow>Mulai dari mana</Eyebrow>
       <SectionTitle>Tiga pintu. Pilih yang paling pas buat kamu hari ini.</SectionTitle>
       <Lead>
         Ga semua orang yang baca halaman ini lagi siap bayar, dan itu wajar. Jadi pintunya ada tiga, dari yang paling
@@ -909,7 +961,8 @@ function FunnelPenutup() {
                 angka sisa, jadi eyebrow-nya tidak boleh menjanjikan angka. Kalau
                 nanti sisa kuota ditampilkan, dia harus dihitung dari tabel
                 companies, bukan dari konstanta yang gampang basi. */}
-            <p className="m-0 mb-2 font-mono text-[11px] font-medium tracking-[.14em] text-[#7fff4f] uppercase">
+            <p className="m-0 mb-2.5 flex items-center gap-2 text-[12px] font-semibold text-[#7fff4f]">
+        <span aria-hidden className="inline-block h-px w-5 bg-[#7fff4f]" />
               Batas promo
             </p>
             <h2 className="m-0 mb-3 text-[clamp(24px,3.4vw,34px)] leading-[1.15] font-semibold tracking-[-.035em]">
@@ -978,7 +1031,7 @@ function Footer() {
               href={WA_LINK}
               target="_blank"
               rel="noopener noreferrer"
-              className={`inline-flex items-center gap-2 rounded-app bg-[#25d366] px-4 py-3 text-[13px] font-semibold text-white no-underline ${FOKUS}`}
+              className={`inline-flex items-center gap-2 rounded-app bg-[#25d366] text-[#0c1912] px-4 py-3 text-[13px] font-semibold no-underline ${FOKUS}`}
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
                 <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z" />

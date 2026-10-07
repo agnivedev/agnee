@@ -61,6 +61,18 @@ const MAYAR_WEBINAR = '';
 const KUOTA_PROMO = 100;
 
 /**
+ * Kebijakan kunci harga, diputuskan pemilik 2026-10-07 ("kamu decide aja"):
+ * yang daftar sebelum kuota penuh tetap bayar harga promo selama langganannya
+ * jalan tanpa putus. Berhenti lalu mulai lagi setelah kuota penuh = harga normal.
+ *
+ * Ini janji komersial, bukan fakta dari kode: sistem tidak menyimpan harga dan
+ * tidak menagih otomatis (penjualan lewat WhatsApp), jadi tidak ada yang
+ * memaksa janji ini selain orang yang menagih. Kalau kebijakannya diubah,
+ * ubah di TIGA tempat: Pricing (Lead), FunnelPenutup, dan FAQ "Harga promonya
+ * naik bulan depan?".
+ */
+
+/**
  * Penanda fokus keyboard.
  *
  * Halaman ini tidak pernah menghapus `outline`, jadi fokus bawaan peramban
@@ -684,7 +696,7 @@ function Pricing() {
     <Section id="pricing" className="py-16 sm:py-20">
       <SectionTitle>Harga promo untuk {KUOTA_PROMO} perusahaan pertama.</SectionTitle>
       <Lead>
-        Kuotanya beneran terbatas. Setelah {KUOTA_PROMO} perusahaan terdaftar, harga promo ditutup dan kembali ke harga normal. Ga ada hitung mundur palsu dan ga ada perpanjangan.
+        Kuotanya beneran terbatas. Setelah {KUOTA_PROMO} perusahaan terdaftar, harga promo ditutup dan kembali ke harga normal. Yang udah daftar sebelum itu tetap bayar harga promo selama langganannya jalan tanpa putus. Ga ada hitung mundur palsu dan ga ada perpanjangan kuota.
       </Lead>
       <div className="mt-10 grid gap-4 md:grid-cols-2">
         {PLANS.filter((plan) => plan.period === '/bulan').map((plan) => (
@@ -820,6 +832,10 @@ const FAQ_ITEMS: [string, string][] = [
   [
     'Saya harus belajar aplikasi baru lagi?',
     'Chat-nya tetap chat. Bedanya, kamu ga perlu pindah-pindah HP dan ga perlu nebak siapa yang udah bales siapa.',
+  ],
+  [
+    'Harga promonya naik bulan depan?',
+    'Ga. Kalau kamu daftar sebelum kuota promo penuh, harga promo berlaku selama langgananmu jalan tanpa putus. Syaratnya cuma satu: kalau langgananmu berhenti lalu kamu mulai lagi setelah kuotanya penuh, yang berlaku harga normal. Paket Lifetime dibayar sekali dan ga ada tagihan lagi.',
   ],
   [
     'Ada masa percobaan?',
@@ -970,8 +986,9 @@ function FunnelPenutup() {
             </h2>
             <p className="m-0 text-[15px] leading-[1.65] text-white/70">
               Setelah kuotanya penuh, Company balik ke Rp 8.900.000 per bulan. Selisihnya Rp 5.000.000 tiap bulan, dan
-              Personal naik dari Rp 99.000 ke Rp 899.000. Ga ada hitung mundur palsu di halaman ini: kuotanya yang
-              habis, bukan jamnya.
+              Personal naik dari Rp 99.000 ke Rp 899.000. Yang daftar sebelum kuota penuh tetap bayar harga promo
+              selama langganannya jalan tanpa putus. Ga ada hitung mundur palsu di halaman ini: kuotanya yang habis,
+              bukan jamnya.
             </p>
           </div>
           <div className="lg:text-right">

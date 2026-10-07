@@ -62,6 +62,19 @@
   selama ini cuma hidup di komentar kode.
 - **`anti-slop/audit-001-2026-10-07.md`**, audit 12 temuan plus tindak lanjutnya.
 
+### Changed
+
+- **Harga promo dikunci selama langganan jalan tanpa putus.** Landing page tidak
+  menjawab pertanyaan yang pasti muncul di kepala pembaca ("harga ini naik bulan
+  depan?"), dan jawaban yang menggantung lebih merugikan konversi daripada
+  jawaban apa pun. Diputuskan 2026-10-07: yang daftar sebelum kuota 100 penuh
+  tetap bayar harga promo selama langganannya tidak putus; berhenti lalu mulai
+  lagi setelah kuota penuh berarti harga normal. Ditulis di tiga tempat (Lead
+  harga, blok penutup, dan FAQ "Harga promonya naik bulan depan?") dan dicatat
+  di komentar kode supaya perubahannya tidak ketinggalan satu tempat.
+  Ini janji komersial, bukan fakta dari kode: sistem tidak menyimpan harga dan
+  tidak menagih otomatis, jadi hanya orang yang menagih yang bisa menepatinya.
+
 ### Fixed
 
 - **Semua tombol WhatsApp gagal kontras, 1,98:1.** Teks putih di atas `#25d366`,

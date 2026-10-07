@@ -300,11 +300,7 @@ class FollowUpScheduler {
 
     const [previousSends, doc, recentOutbound, company] = await Promise.all([
       this.database.listFollowUpSends(row.chatId, row.companyId),
-      // Aturan follow-up milik produk yang sedang dibahas, kalau ada; kalau
-      // tidak, yang umum.
-      (this.database.getPlaybookDocForChat
-        ? this.database.getPlaybookDocForChat('followup', row.chatId, row.companyId)
-        : this.database.getPlaybookDoc('followup', row.companyId)).catch(() => null),
+      this.database.getPlaybookDoc('followup', row.companyId).catch(() => null),
       this.database.listOutboundRepliesForChat?.(row.companyId, row.chatId, 5).catch(() => []) ?? [],
       this.database.getCompanyConfig?.(row.companyId).catch(() => null) ?? null,
     ]);

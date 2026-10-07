@@ -1304,16 +1304,9 @@ class Database {
    * Facts come first because they are the most explicit and most recently
    * confirmed by a human.
    */
-  /**
-   * @param {object} opts
-   *   productId   - produk yang sedang dibahas; playbook-nya dibaca bersama
-   *                 playbook umum. Kosong = hanya playbook umum + katalog produk.
-   *   allProducts - semua playbook produk sekaligus (untuk juri Coach, yang
-   *                 menilai balasan tanpa tahu produk mana yang dibahas).
-   */
-  async getPlaybookContext(companyId, { productId = null, allProducts = false } = {}) {
+  async getPlaybookContext(companyId) {
     if (!this.enabled) return '';
-    const [playbook, facts, assets, docs, products] = await Promise.all([
+    const [playbook, facts, assets, docs] = await Promise.all([
       this.getPlaybook(companyId),
       this.listPlaybookFacts(companyId, { onlyAnswered: true }),
       this.pool.query(`
@@ -1323,12 +1316,10 @@ class Database {
         ORDER BY created_at DESC
       `, [companyId]),
       this.pool.query(`
-        SELECT kind, product_id AS "productId", content_md AS "contentMd"
+        SELECT kind, content_md AS "contentMd"
         FROM playbook_docs
         WHERE company_id = $1 AND btrim(content_md) <> ''
-          AND (product_id IS NULL OR $2::boolean OR product_id = $3::uuid)
-      `, [companyId, allProducts, productId]),
-      this.listPlaybookProducts(companyId, { onlyActive: true }),
+      `, [companyId]),
     ]);
     const parts = [];
 
@@ -1337,53 +1328,24 @@ class Database {
     // order so persona and compliance are read before the sales material —
     // a rule that forbids something has to be seen before the text that
     // might tempt the model into it.
-    const labels = {
-      persona: 'Persona & gaya bicara',
-      compliance: 'LARANGAN — patuhi di atas segalanya',
-      qna: 'Pertanyaan & jawaban',
-      discovery: 'Cara menggali kebutuhan',
-      objection: 'Menangani keberatan',
-      closing: 'Menutup penjualan',
-      followup: 'Aturan follow-up',
-      handoff: 'Kapan menyerahkan ke manusia',
-    };
-    const renderDocs = (rows) => {
-      const byKind = new Map(rows.map((row) => [row.kind, row.contentMd]));
-      return Database.PLAYBOOK_KINDS
+    if (docs.rows.length) {
+      const labels = {
+        persona: 'Persona & gaya bicara',
+        compliance: 'LARANGAN — patuhi di atas segalanya',
+        qna: 'Pertanyaan & jawaban',
+        discovery: 'Cara menggali kebutuhan',
+        objection: 'Menangani keberatan',
+        closing: 'Menutup penjualan',
+        followup: 'Aturan follow-up',
+        handoff: 'Kapan menyerahkan ke manusia',
+      };
+      const byKind = new Map(docs.rows.map((row) => [row.kind, row.contentMd]));
+      const ordered = Database.PLAYBOOK_KINDS
         .filter((kind) => byKind.has(kind))
-        .map((kind) => `### ${labels[kind] || kind}\n${byKind.get(kind).trim()}`)
-        .join('\n\n');
-    };
-    const general = renderDocs(docs.rows.filter((row) => !row.productId));
-    if (general) parts.push(`## PLAYBOOK YANG DITULIS PEMILIK BISNIS INI\n${general}`);
-
-    // Playbook produk datang SETELAH yang umum: aturan umum (misalnya larangan
-    // yang berlaku untuk semua layanan) dibaca dulu, lalu rincian produknya.
-    const productById = new Map(products.map((product) => [product.id, product]));
-    const productIds = allProducts
-      ? products.map((product) => product.id)
-      : (productId && productById.has(productId) ? [productId] : []);
-    for (const id of productIds) {
-      const rendered = renderDocs(docs.rows.filter((row) => row.productId === id));
-      if (!rendered) continue;
-      const product = productById.get(id);
-      const lead = allProducts
-        ? ''
-        : 'Percakapan ini membahas produk ini. Ikuti playbook di bawah untuk isi, alur, dan batasannya.\n\n';
-      parts.push(`## PLAYBOOK PRODUK: ${product.name}\n${lead}${rendered}`);
-    }
-
-    // Katalog: saat produk belum diketahui, AI perlu tahu apa saja yang dijual
-    // supaya bisa bertanya dengan tepat — tanpa membaca playbook semuanya.
-    if (products.length > 1 && !allProducts) {
-      const current = productId ? productById.get(productId) : null;
-      const lines = products
-        .filter((product) => product !== current)
-        .map((product) => `- *${product.name}*${product.description ? `: ${product.description}` : ''}`)
-        .join('\n');
-      parts.push(current
-        ? `## PRODUK LAIN PERUSAHAAN INI\nSelain ${current.name}, perusahaan ini juga melayani:\n${lines}\nKalau customer beralih ke produk lain, akui singkat dan tanyakan kebutuhannya — jangan memakai aturan, harga, atau janji produk ${current.name} untuk produk lain.`
-        : `## PRODUK YANG DILAYANI\nPerusahaan ini melayani beberapa produk:\n${lines}\nPercakapan ini belum jelas membahas yang mana. Kalau pesan customer belum menunjukkan produknya, tanyakan singkat kebutuhannya (satu pertanyaan) — jangan menjelaskan semua produk sekaligus, dan jangan menyebut harga atau janji produk mana pun sebelum jelas.`);
+        .map((kind) => `### ${labels[kind] || kind}\n${byKind.get(kind).trim()}`);
+      if (ordered.length) {
+        parts.push(`## PLAYBOOK YANG DITULIS PEMILIK BISNIS INI\n${ordered.join('\n\n')}`);
+      }
     }
 
     if (facts.length) {
@@ -1487,52 +1449,27 @@ class Database {
     return ['persona', 'compliance', 'qna', 'discovery', 'objection', 'closing', 'followup', 'handoff'];
   }
 
-  /**
-   * productId NULL = playbook umum. Semua metode dokumen menerimanya sebagai
-   * argumen terakhir dengan default null, supaya pemanggil lama (follow-up,
-   * seed) tetap membaca playbook umum tanpa diubah.
-   */
-  async listPlaybookDocs(companyId, productId = null) {
+  async listPlaybookDocs(companyId) {
     if (!this.enabled) return [];
     const result = await this.pool.query(`
       SELECT id, kind, content_md AS "contentMd", version,
              updated_at AS "updatedAt",
              length(btrim(content_md)) AS "contentLength"
       FROM playbook_docs
-      WHERE company_id = $1 AND product_id IS NOT DISTINCT FROM $2::uuid
+      WHERE company_id = $1
       ORDER BY kind
-    `, [companyId, productId]);
+    `, [companyId]);
     return result.rows;
   }
 
-  async getPlaybookDoc(kind, companyId, productId = null) {
+  async getPlaybookDoc(kind, companyId) {
     if (!this.enabled) return null;
     const result = await this.pool.query(`
       SELECT id, kind, content_md AS "contentMd", interview, version,
              updated_at AS "updatedAt"
       FROM playbook_docs
-      WHERE company_id = $1 AND kind = $2 AND product_id IS NOT DISTINCT FROM $3::uuid
-    `, [companyId, kind, productId]);
-    return result.rows[0] || null;
-  }
-
-  /**
-   * Dokumen yang berlaku untuk satu percakapan: milik produk yang sedang
-   * dibahas kalau ada isinya, kalau tidak playbook umum. Dipakai mesin
-   * follow-up, yang hanya membaca satu jenis dokumen.
-   */
-  async getPlaybookDocForChat(kind, chatId, companyId) {
-    if (!this.enabled) return null;
-    const result = await this.pool.query(`
-      SELECT d.id, d.kind, d.content_md AS "contentMd", d.version, d.updated_at AS "updatedAt"
-      FROM playbook_docs d
-      LEFT JOIN chat_products cp ON cp.company_id = d.company_id AND cp.chat_id = $3
-      LEFT JOIN playbook_products p ON p.id = d.product_id
-      WHERE d.company_id = $1 AND d.kind = $2 AND btrim(d.content_md) <> ''
-        AND (d.product_id IS NULL OR (d.product_id = cp.product_id AND p.active))
-      ORDER BY (d.product_id IS NULL) ASC
-      LIMIT 1
-    `, [companyId, kind, chatId]);
+      WHERE company_id = $1 AND kind = $2
+    `, [companyId, kind]);
     return result.rows[0] || null;
   }
 
@@ -1541,16 +1478,15 @@ class Database {
    * previous version first. Playbooks drive what the AI says to customers, so
    * an edit that turns out wrong has to be recoverable.
    */
-  async savePlaybookDoc({ kind, contentMd, interview, productId = null }, updatedBy, companyId) {
+  async savePlaybookDoc({ kind, contentMd, interview }, updatedBy, companyId) {
     if (!this.enabled) return null;
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
-      const existing = await client.query(`
-        SELECT id, content_md, version FROM playbook_docs
-        WHERE company_id = $1 AND kind = $2 AND product_id IS NOT DISTINCT FROM $3::uuid
-        FOR UPDATE
-      `, [companyId, kind, productId]);
+      const existing = await client.query(
+        'SELECT id, content_md, version FROM playbook_docs WHERE company_id = $1 AND kind = $2 FOR UPDATE',
+        [companyId, kind],
+      );
       const prev = existing.rows[0];
       if (prev && prev.content_md !== contentMd) {
         await client.query(
@@ -1559,9 +1495,9 @@ class Database {
         );
       }
       const result = await client.query(`
-        INSERT INTO playbook_docs (company_id, product_id, kind, content_md, interview, updated_by)
-        VALUES ($1, $6::uuid, $2, $3, COALESCE($4::jsonb, '[]'::jsonb), $5)
-        ON CONFLICT (company_id, product_id, kind) DO UPDATE
+        INSERT INTO playbook_docs (company_id, kind, content_md, interview, updated_by)
+        VALUES ($1, $2, $3, COALESCE($4::jsonb, '[]'::jsonb), $5)
+        ON CONFLICT (company_id, kind) DO UPDATE
           SET content_md = EXCLUDED.content_md,
               -- Reads $4 directly, not EXCLUDED: the insert branch coalesces
               -- NULL to '[]' for the NOT NULL column, so EXCLUDED is never
@@ -1573,7 +1509,7 @@ class Database {
               updated_by = EXCLUDED.updated_by,
               updated_at = NOW()
         RETURNING id, kind, content_md AS "contentMd", version, updated_at AS "updatedAt"
-      `, [companyId, kind, contentMd, interview ? JSON.stringify(interview) : null, updatedBy || null, productId]);
+      `, [companyId, kind, contentMd, interview ? JSON.stringify(interview) : null, updatedBy || null]);
       await client.query('COMMIT');
       return result.rows[0];
     } catch (err) {
@@ -1584,109 +1520,13 @@ class Database {
     }
   }
 
-  async deletePlaybookDoc(kind, companyId, productId = null) {
+  async deletePlaybookDoc(kind, companyId) {
     if (!this.enabled) return false;
     const result = await this.pool.query(
-      'DELETE FROM playbook_docs WHERE company_id = $1 AND kind = $2 AND product_id IS NOT DISTINCT FROM $3::uuid',
-      [companyId, kind, productId],
+      'DELETE FROM playbook_docs WHERE company_id = $1 AND kind = $2',
+      [companyId, kind],
     );
     return result.rowCount > 0;
-  }
-
-  // ── Produk: playbook per layanan yang dijual company ──────────────────────
-
-  async listPlaybookProducts(companyId, { onlyActive = false } = {}) {
-    if (!this.enabled) return [];
-    const result = await this.pool.query(`
-      SELECT p.id, p.name, p.description, p.active,
-             p.created_at AS "createdAt", p.updated_at AS "updatedAt",
-             COUNT(d.id) FILTER (WHERE btrim(d.content_md) <> '')::int AS "filledKinds"
-      FROM playbook_products p
-      LEFT JOIN playbook_docs d ON d.product_id = p.id
-      WHERE p.company_id = $1 AND ($2::boolean IS FALSE OR p.active)
-      GROUP BY p.id
-      ORDER BY p.created_at ASC
-    `, [companyId, onlyActive]);
-    return result.rows;
-  }
-
-  async getPlaybookProduct(productId, companyId) {
-    if (!this.enabled) return null;
-    const result = await this.pool.query(`
-      SELECT id, name, description, active
-      FROM playbook_products WHERE id = $1 AND company_id = $2
-    `, [productId, companyId]);
-    return result.rows[0] || null;
-  }
-
-  async createPlaybookProduct({ name, description = '' }, createdBy, companyId) {
-    if (!this.enabled) return null;
-    const result = await this.pool.query(`
-      INSERT INTO playbook_products (company_id, name, description, created_by)
-      VALUES ($1, $2, $3, $4)
-      RETURNING id, name, description, active, created_at AS "createdAt", updated_at AS "updatedAt"
-    `, [companyId, name.trim(), description.trim(), createdBy || null]);
-    return { ...result.rows[0], filledKinds: 0 };
-  }
-
-  async updatePlaybookProduct(productId, patch, companyId) {
-    if (!this.enabled) return null;
-    const fields = [];
-    const values = [];
-    const set = (column, value) => { values.push(value); fields.push(`${column} = $${values.length}`); };
-    if (patch.name !== undefined) set('name', patch.name.trim());
-    if (patch.description !== undefined) set('description', patch.description.trim());
-    if (patch.active !== undefined) set('active', Boolean(patch.active));
-    if (!fields.length) return this.getPlaybookProduct(productId, companyId);
-    values.push(productId, companyId);
-    const result = await this.pool.query(`
-      UPDATE playbook_products SET ${fields.join(', ')}, updated_at = NOW()
-      WHERE id = $${values.length - 1} AND company_id = $${values.length}
-      RETURNING id, name, description, active
-    `, values);
-    return result.rows[0] || null;
-  }
-
-  /** Ikut menghapus playbook produk itu (FK cascade); riwayat versinya ikut hilang. */
-  async deletePlaybookProduct(productId, companyId) {
-    if (!this.enabled) return false;
-    const result = await this.pool.query(
-      'DELETE FROM playbook_products WHERE id = $1 AND company_id = $2', [productId, companyId],
-    );
-    return result.rowCount > 0;
-  }
-
-  async getChatProduct(chatId, companyId) {
-    if (!this.enabled) return null;
-    const result = await this.pool.query(`
-      SELECT cp.product_id AS "productId", cp.source, cp.updated_at AS "updatedAt"
-      FROM chat_products cp
-      JOIN playbook_products p ON p.id = cp.product_id AND p.active
-      WHERE cp.company_id = $1 AND cp.chat_id = $2
-    `, [companyId, chatId]);
-    return result.rows[0] || null;
-  }
-
-  /**
-   * source 'auto' tidak pernah menimpa pilihan 'manual': yang dipilih orang di
-   * inbox adalah keputusan, tebakan model hanyalah tebakan.
-   */
-  async setChatProduct({ chatId, productId, source }, updatedBy, companyId) {
-    if (!this.enabled) return null;
-    if (!productId) {
-      await this.pool.query('DELETE FROM chat_products WHERE company_id = $1 AND chat_id = $2', [companyId, chatId]);
-      return null;
-    }
-    const result = await this.pool.query(`
-      INSERT INTO chat_products (company_id, chat_id, product_id, source, updated_by)
-      VALUES ($1, $2, $3, $4, $5)
-      ON CONFLICT (company_id, chat_id) DO UPDATE
-        SET product_id = EXCLUDED.product_id, source = EXCLUDED.source,
-            updated_by = EXCLUDED.updated_by, updated_at = NOW()
-        WHERE EXCLUDED.source = 'manual' OR chat_products.source = 'auto'
-      RETURNING product_id AS "productId", source, updated_at AS "updatedAt"
-    `, [companyId, chatId, productId, source, updatedBy || null]);
-    return result.rows[0] || null;
   }
 
   // ── Follow-up: settings, per-chat state, send log ─────────────────────────

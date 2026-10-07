@@ -300,7 +300,11 @@ class FollowUpScheduler {
 
     const [previousSends, doc, recentOutbound, company] = await Promise.all([
       this.database.listFollowUpSends(row.chatId, row.companyId),
-      this.database.getPlaybookDoc('followup', row.companyId).catch(() => null),
+      // Aturan follow-up milik produk yang sedang dibahas, kalau ada; kalau
+      // tidak, yang umum.
+      (this.database.getPlaybookDocForChat
+        ? this.database.getPlaybookDocForChat('followup', row.chatId, row.companyId)
+        : this.database.getPlaybookDoc('followup', row.companyId)).catch(() => null),
       this.database.listOutboundRepliesForChat?.(row.companyId, row.chatId, 5).catch(() => []) ?? [],
       this.database.getCompanyConfig?.(row.companyId).catch(() => null) ?? null,
     ]);
@@ -322,7 +326,13 @@ class FollowUpScheduler {
     if (!text || text.trim().toUpperCase() === 'SKIP') {
       return { ok: false, reason: 'nothing_worth_sending' };
     }
-    return { ok: true, text: text.trim(), dayIndex: verdict.dayIndex, attemptInDay: verdict.attemptInDay };
+    // Gap dan plafon yang BARU SAJA dipakai decide() ikut dibawa ke send(), yang
+    // memeriksanya ulang di bawah kunci baris: pemanggil manual memakai jarak
+    // yang dipersingkat, jadi send() tidak boleh menebak angkanya sendiri.
+    return {
+      ok: true, text: text.trim(), dayIndex: verdict.dayIndex, attemptInDay: verdict.attemptInDay,
+      minGapMinutes: row.minGapMinutes, dayCap: row.dayCaps[verdict.dayIndex],
+    };
   }
 
   /**
@@ -355,10 +365,13 @@ class FollowUpScheduler {
    * Aturan ini ada di sini, bukan di pemanggilnya, supaya jalur otomatis dan
    * jalur kirim manual tidak bisa menyimpang.
    */
-  async send(row, { text, dayIndex, attemptInDay }) {
-    await this.database.recordFollowUpSend({
-      chatId: row.chatId, dayIndex, attemptInDay, body: text,
+  async send(row, { text, dayIndex, attemptInDay, minGapMinutes, dayCap }) {
+    const recorded = await this.database.recordFollowUpSend({
+      chatId: row.chatId, dayIndex, attemptInDay, body: text, minGapMinutes, dayCap,
     }, row.companyId);
+    // Gerbang sudah tertutup oleh jalur lain selama kita menunggu LLM. Tidak
+    // ada yang dikirim dan rangkaiannya dibiarkan hidup: ini bukan kegagalan.
+    if (recorded?.refused) return { sent: false, refused: recorded.refused };
     try {
       await this.deps.sendMessage(row.companyId, row.chatId, text);
     } catch (error) {
@@ -368,6 +381,7 @@ class FollowUpScheduler {
         'Pengiriman tindak lanjut gagal; rangkaian dihentikan alih-alih diulang');
       throw error;
     }
+    return { sent: true };
   }
 
   async processOne(row, now = new Date()) {
@@ -376,12 +390,14 @@ class FollowUpScheduler {
       return prepared.stopped ? { stopped: prepared.reason } : { skipped: prepared.reason };
     }
 
+    let outcome;
     try {
-      await this.send(row, prepared);
+      outcome = await this.send(row, prepared);
     } catch {
       // `send` sudah menghentikan rangkaian dan mencatat alasannya.
       return { stopped: 'undeliverable' };
     }
+    if (outcome?.refused) return { skipped: outcome.refused };
     return { sent: true, dayIndex: prepared.dayIndex };
   }
 }

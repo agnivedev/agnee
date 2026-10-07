@@ -861,9 +861,9 @@ async function buildApp(overrides = {}) {
     return {
       log: app.log,
       onMessage: handleInboundMessage,
-      onStatusUpdate: async (companyId, status, phoneNumber) => {
+      onStatusUpdate: async (companyId, status, phoneNumber, connectionId) => {
         if (database.enabled && database.connected) {
-          await database.updateWhatsappStatus(companyId, status, phoneNumber).catch(() => {});
+          await database.updateWhatsappStatus(companyId, status, phoneNumber, connectionId).catch(() => {});
         }
       },
     };
@@ -4250,10 +4250,14 @@ Aturan:
       return reply.code(409).send({ error: 'Chat ini sedang dipegang agent.', reasonKey: 'fu.humanHandled' });
     }
 
+    let sendOutcome;
     try {
-      await followUpScheduler.send(
+      sendOutcome = await followUpScheduler.send(
         { companyId, chatId },
-        { text: request.body.text, dayIndex: verdict.dayIndex, attemptInDay: verdict.attemptInDay },
+        {
+          text: request.body.text, dayIndex: verdict.dayIndex, attemptInDay: verdict.attemptInDay,
+          minGapMinutes: withManualGap(row).minGapMinutes, dayCap: row.dayCaps[verdict.dayIndex],
+        },
       );
     } catch (error) {
       // `send` sudah menghentikan rangkaian. Yang tersisa di sini: beri tahu
@@ -4262,6 +4266,16 @@ Aturan:
       return reply.code(502).send({
         error: 'Pesan tidak dapat dikirim. Rangkaian dihentikan.',
         reasonKey: 'fu.sendFailed',
+      });
+    }
+    // Scheduler mengirim ke chat yang sama selama supervisor mengedit teks:
+    // gerbang di dalam send() menolak jalur yang kalah, tanpa mengirim apa pun.
+    if (sendOutcome?.refused) {
+      return reply.code(409).send({
+        error: 'Tindak lanjut tidak dapat dikirim sekarang.',
+        reason: sendOutcome.refused,
+        reasonKey: FOLLOW_UP_REFUSAL[sendOutcome.refused] || 'fu.exhausted',
+        vars: refusalVars(sendOutcome.refused, row),
       });
     }
     return { ok: true, day: verdict.dayIndex + 1, attemptInDay: verdict.attemptInDay };

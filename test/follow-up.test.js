@@ -545,3 +545,35 @@ test('follow-up: jendela kirim memakai zona waktu company, sama dengan SLA', () 
   // Zona yang tidak dikenal jatuh ke Jakarta, tidak melempar.
   assert.equal(withinSendWindow(10, 21, nineWib, 'Bukan/Zona'), false);
 });
+
+// ── Gerbang diperiksa ulang saat mencatat ──────────────────────────────────
+
+test('scheduler: gerbang yang ditutup jalur lain selama LLM berjalan membatalkan kirim', async () => {
+  // Dua jalur (tick otomatis dan tombol manual) lolos dari snapshot yang sama.
+  // Yang kalah di recordFollowUpSend tidak boleh mengirim apa pun, dan
+  // rangkaiannya tidak boleh dihentikan: ini bukan kegagalan kirim.
+  const { calls, scheduler } = harness({ dueRows: [dueRow] });
+  scheduler.database.recordFollowUpSend = async (row, companyId) => {
+    calls.recorded.push({ ...row, companyId });
+    return { refused: 'gap_not_elapsed' };
+  };
+  const result = await scheduler.tick(MIDDAY);
+  assert.equal(result.sent, 0);
+  assert.equal(result.skipped, 1);
+  assert.equal(calls.sent.length, 0, 'tidak ada pesan keluar');
+  assert.equal(calls.stopped.length, 0, 'rangkaian tetap hidup');
+});
+
+test('scheduler: gap dan plafon yang dipakai decide() ikut ke pencatatan', async () => {
+  // Jalur manual memakai jarak yang dipersingkat; kalau send() menebak sendiri
+  // angkanya, gerbang di database akan menolak pengiriman manual yang sah.
+  const { calls, scheduler } = harness({ dueRows: [] });
+  const manual = withManualGap({ ...dueRow, minGapMinutes: 240 });
+  const prepared = await scheduler.draft(manual, MIDDAY);
+  assert.equal(prepared.ok, true);
+  assert.equal(prepared.minGapMinutes, MANUAL_MIN_GAP_MINUTES);
+  assert.equal(prepared.dayCap, base.dayCaps[0]);
+  await scheduler.send(manual, prepared);
+  assert.equal(calls.recorded[0].minGapMinutes, MANUAL_MIN_GAP_MINUTES);
+  assert.equal(calls.recorded[0].dayCap, base.dayCaps[0]);
+});

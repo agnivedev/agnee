@@ -40,7 +40,7 @@ function resolveBrowserExecutable() {
  *   { client, state, sseClients, qrMirrorTimer, restoredSessionTimer }
  *
  * Callbacks passed to startFor / _createClient:
- *   { log, onMessage(companyId, message, { connectionId }), onStatusUpdate(companyId, status, phoneNumber) }
+ *   { log, onMessage(companyId, message, { connectionId }), onStatusUpdate(companyId, status, phoneNumber, connectionId) }
  */
 class WhatsappManager {
   // Satu aliran per tab peramban (satu `EventSource` dipakai bersama di dalam

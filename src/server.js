@@ -7152,6 +7152,7 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
           name: { type: 'string', minLength: 1, maxLength: 120 },
           body: { type: 'string', minLength: 1, maxLength: 4000 },
           optOutFooter: { type: 'boolean', default: true },
+          aiVariation: { type: 'boolean', default: false },
           chatIds: {
             type: 'array', minItems: 1, maxItems: broadcast.MAKS_PENERIMA,
             items: { type: 'string', minLength: 1, maxLength: 128 },
@@ -7196,6 +7197,7 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
       name,
       body,
       optOutFooter: request.body.optOutFooter !== false,
+      aiVariation: request.body.aiVariation === true,
       audience: request.body.audience || {},
       scheduledAt,
       createdBy: request.agneeSession.userId || null,
@@ -7206,7 +7208,7 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     // dicatat jumlah dan namanya; isi pesannya ada di broadcast itu sendiri.
     await catatAudit(request, 'broadcast.started', {
       entityType: 'broadcast', entityId: created.id,
-      metadata: { name, recipients: recipients.length, scheduledAt },
+      metadata: { name, recipients: recipients.length, scheduledAt, aiVariation: request.body.aiVariation === true },
     });
     kabariBroadcast(companyId, created.id);
     return reply.code(201).send({
@@ -7287,6 +7289,22 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
           database,
           logger: app.log,
           onProgress: kabariBroadcast,
+          // Satu variasi = satu pesan AI yang sampai ke customer, jadi ia
+          // memotong kuota AI seperti follow-up. Kuota habis → null → pesan
+          // asli yang terkirim.
+          variasikan: async (companyId, body) => {
+            const companyAi = await getCompanyAi(companyId);
+            if (!companyAi.enabled) return null;
+            const usage = await database.incrementAiMessageCount(companyId).catch(() => ({ exceeded: false }));
+            if (usage.exceeded) return null;
+            const result = await llmService.generateReply(body, {
+              systemPrompt: broadcast.PROMPT_VARIASI,
+              companyId,
+              purpose: 'broadcast_variation',
+              modelChain: companyAi.modelChain,
+            });
+            return result?.text || null;
+          },
           kirim: async (companyId, chatId, text) => {
             const sent = await sendOutbound(companyId, chatId, text);
             await database.recordOutboundReply({

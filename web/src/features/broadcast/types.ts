@@ -6,6 +6,7 @@ export type Broadcast = {
   name: string;
   body: string;
   optOutFooter: boolean;
+  aiVariation: boolean;
   status: BroadcastStatus;
   scheduledAt: string | null;
   pauseReason: string | null;
@@ -29,6 +30,8 @@ export type Recipient = {
   status: RecipientStatus;
   error: string | null;
   sentAt: string | null;
+  /** Teks yang benar-benar diterima customer, termasuk variasi AI. */
+  sentBody: string | null;
 };
 
 export type Candidate = {

@@ -11,6 +11,7 @@ const assert = require('node:assert/strict');
 const {
   TEMPO, KALIMAT_BERHENTI, GAGAL_BERUNTUN_MAKS,
   namaUntukSapaan, susunPesan, mintaBerhenti, dalamJamKirim, awalHariLokal, jedaSetelah, putaranBroadcast,
+  periksaVariasi,
 } = require('../src/broadcast');
 
 const JKT = 'Asia/Jakarta';
@@ -164,4 +165,79 @@ test('antrean kosong menutup broadcast-nya', async () => {
   const hasil = await putaranBroadcast({ database: db, sekarangMs: jamJakarta(10), kirim: async () => ({}) });
   assert.equal(hasil.selesai, 1);
   assert.deepEqual(db.log.finished, ['c1']);
+});
+
+const ASLI = 'Halo {nama}, kelas November dibuka. Diskon 20% sampai 31/10, daftar di https://agnive.co/kelas?ref=wa sebelum jam 20:00.';
+
+test('variasi yang faktanya utuh diterima, bungkus kutipnya dibuang', () => {
+  const variasi = '"Hai {nama}, kelas bulan November sudah buka. Ada diskon 20% sampai 31/10, daftarnya di https://agnive.co/kelas?ref=wa sebelum jam 20:00."';
+  assert.equal(periksaVariasi(ASLI, variasi), variasi.slice(1, -1));
+});
+
+test('padanan batas waktu yang setara tetap diterima', () => {
+  assert.ok(periksaVariasi(ASLI, ASLI.replace('sampai 31/10', 'hingga 31/10')));
+});
+
+test('variasi yang mengubah fakta ditolak', () => {
+  const kasus = {
+    'diskon berubah': ASLI.replace('20%', '25%'),
+    'diskon hilang': ASLI.replace('Diskon 20% ', ''),
+    'tanggal berubah': ASLI.replace('31/10', '30/10'),
+    // "sebelum 31" tidak termasuk tanggal 31; "sampai 31" termasuk.
+    'sampai jadi sebelum': ASLI.replace('sampai 31/10', 'sebelum 31/10'),
+    'jam berubah': ASLI.replace('20:00', '21:00'),
+    'link berubah': ASLI.replace('?ref=wa', ''),
+    'link tambahan': `${ASLI} Info: https://contoh.com`,
+    '{nama} hilang': ASLI.replace('{nama}', 'Kak'),
+    '{nama} dobel': `${ASLI} Ditunggu ya {nama}.`,
+    'terlalu panjang': `${ASLI} ${'Jangan sampai ketinggalan kesempatan emas ini. '.repeat(3)}`,
+    'terlalu pendek': 'Halo {nama}, 20% 31/10 https://agnive.co/kelas?ref=wa 20:00',
+    'kosong': '   ',
+  };
+  for (const [nama, variasi] of Object.entries(kasus)) {
+    assert.equal(periksaVariasi(ASLI, variasi), null, nama);
+  }
+});
+
+test('variasi AI dipakai kalau lolos, pesan asli kalau tidak', async () => {
+  const company = { companyId: 'c1', timezone: JKT, provider: 'whatsapp_web', lastSentAt: null };
+  const dengan = (body) => ({ ...penerima(1), body, aiVariation: true });
+  const terkirim = [];
+  const kirim = async (_c, _chat, teks) => { terkirim.push(teks); return { messageId: 'm' }; };
+
+  const lolos = fakeDatabase({ companies: [company], recipients: [dengan('Halo {nama}, promo 20% hari ini.')] });
+  await putaranBroadcast({
+    database: lolos, sekarangMs: jamJakarta(10), kirim,
+    variasikan: async () => 'Hai {nama}, hari ini ada promo 20%.',
+  });
+  assert.equal(terkirim[0], `Hai Budi, hari ini ada promo 20%.\n\n${KALIMAT_BERHENTI}`);
+  assert.equal(lolos.log.marked[0].sentBody, terkirim[0], 'teks yang terkirim disimpan apa adanya');
+
+  const curang = fakeDatabase({ companies: [company], recipients: [dengan('Halo {nama}, promo 20% hari ini.')] });
+  await putaranBroadcast({
+    database: curang, sekarangMs: jamJakarta(10), kirim,
+    variasikan: async () => 'Hai {nama}, hari ini ada promo 50%.',
+  });
+  assert.equal(terkirim[1], `Halo Budi, promo 20% hari ini.\n\n${KALIMAT_BERHENTI}`);
+
+  const gagal = fakeDatabase({ companies: [company], recipients: [dengan('Halo {nama}, promo 20% hari ini.')] });
+  await putaranBroadcast({
+    database: gagal, sekarangMs: jamJakarta(10), kirim,
+    variasikan: async () => { throw new Error('model mati'); },
+  });
+  assert.equal(terkirim[2], `Halo Budi, promo 20% hari ini.\n\n${KALIMAT_BERHENTI}`);
+  assert.equal(gagal.log.marked[0].status, 'sent', 'AI gagal tidak boleh menggagalkan pengiriman');
+});
+
+test('tanpa saklar variasi, AI tidak dipanggil', async () => {
+  const db = fakeDatabase({
+    companies: [{ companyId: 'c1', timezone: JKT, provider: 'whatsapp_web', lastSentAt: null }],
+    recipients: [penerima(1)],
+  });
+  let dipanggil = 0;
+  await putaranBroadcast({
+    database: db, sekarangMs: jamJakarta(10), kirim: async () => ({}),
+    variasikan: async () => { dipanggil += 1; return 'x'; },
+  });
+  assert.equal(dipanggil, 0, 'tiap panggilan memotong kuota AI company');
 });

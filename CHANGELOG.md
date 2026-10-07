@@ -2,6 +2,21 @@
 
 ### Added
 
+- **Broadcast: saklar "Variasi kata oleh AI"** dengan penjelasan (?). Tiap
+  penerima mendapat kalimat yang sedikit berbeda dengan arti sama, supaya
+  ratusan pesan identik dari satu nomor tidak mudah ditandai spam. Penjaganya
+  di kode, bukan di prompt: variasi dibuang dan pesan asli yang dikirim kalau
+  angka (harga, persen, tanggal, jam), link, jumlah `{nama}`, atau kata batas
+  waktu (sampai/sebelum/setelah/mulai) berubah, atau panjangnya meleset di luar
+  60–150%. AI gagal atau kuota AI habis juga jatuh ke pesan asli. Satu variasi
+  memotong 1 kuota AI (jalur yang sampai ke customer). Teks yang benar-benar
+  diterima tiap customer disimpan (`sent_body`) dan bisa dibaca per penerima di
+  halaman detail. Migrasi `046`.
+  Uji coba dengan model sungguhan (gemini-2.5-flash) di prompt pertama: 5/5
+  lolos penjaga angka, tapi nadanya berubah jadi bahasa brosur dan "sampai 31
+  Oktober" bergeser jadi "sebelum 31 Oktober". Prompt diubah ke "ubah sedikit,
+  gaya sama", dan penjaga kata batas waktu ditambahkan; percobaan ulang 5/5
+  dengan nada santai yang utuh.
 - **Company AL Gold FX dengan CS Tari** (`playbooks/al-gold-fx/`, pack
   `knowledge/clients/al-gold-fx`). Playbook umum untuk sapaan dan tanya jawab:
   Tari kocak ala trader gold tapi dengan batas tertulis (satu candaan per pesan,

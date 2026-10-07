@@ -38,17 +38,20 @@ const recipients = (n) => Array.from({ length: n }, (_, i) => ({
 
 test('penerima diklaim satu per satu, berurutan, dan tidak pernah dua kali', { skip }, async (t) => {
   await withCompanies(t, async (db, companyId) => {
-    const b = await db.createBroadcast({ name: 'Uji', body: 'Halo {nama}', recipients: recipients(3) }, companyId);
+    const b = await db.createBroadcast({ name: 'Uji', body: 'Halo {nama}', aiVariation: true, recipients: recipients(3) }, companyId);
     assert.equal(b.status, 'sending');
+    assert.equal(b.aiVariation, true);
     assert.equal(b.total, 3);
 
     const first = await db.claimNextBroadcastRecipient(companyId);
     assert.equal(first.chatId, '62810@c.us');
     assert.equal(first.body, 'Halo {nama}');
+    assert.equal(first.aiVariation, true);
     const second = await db.claimNextBroadcastRecipient(companyId);
     assert.notEqual(second.chatId, first.chatId);
 
-    await db.markBroadcastRecipient(first.id, companyId, { status: 'sent', messageId: 'wa-1' });
+    await db.markBroadcastRecipient(first.id, companyId, { status: 'sent', messageId: 'wa-1', sentBody: 'Halo Orang 0' });
+    assert.equal((await db.listBroadcastRecipients(b.id, companyId))[0].sentBody, 'Halo Orang 0');
     // Klaim yang tidak pernah selesai jadi `unknown`, bukan kembali ke antrean.
     await db.pool.query("UPDATE broadcast_recipients SET claimed_at = NOW() - INTERVAL '10 minutes' WHERE id = $1", [second.id]);
     const stale = await db.markStaleBroadcastClaims(5);

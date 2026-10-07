@@ -911,7 +911,14 @@ export const messages = {
       'broadcast.messageSent': 'Isi pesan',
       'broadcast.footerIncluded': 'Kalimat cara berhenti ditambahkan di akhir.',
       'broadcast.footerExcluded': 'Tanpa kalimat cara berhenti.',
-      'broadcast.nameReplaced': '{nama} diganti nama tiap customer.'
+      'broadcast.nameReplaced': '{nama} diganti nama tiap customer.',
+      'broadcast.variationLabel': 'Variasi kata oleh AI',
+      'broadcast.variationOn': 'Memakai 1 kuota AI per penerima. Kalau kuota habis atau hasilnya ditolak, pesan asli yang terkirim.',
+      'broadcast.variationHelp': 'AI menulis ulang pesan ini untuk tiap customer: kata dan susunan kalimatnya sedikit berbeda, artinya sama. Ratusan pesan yang persis sama dari satu nomor mudah ditandai WhatsApp sebagai spam. Angka, harga, persen, tanggal, link, dan {nama} dijaga tetap persis; kalau AI mengubah salah satunya, versinya dibuang dan pesan asli yang dikirim.',
+      'broadcast.whatIsThis': 'Apa ini?',
+      'broadcast.previewVariation': 'Ini versi asli. Tiap customer menerima kalimat yang sedikit berbeda; versi masing-masing bisa dibaca di halaman broadcast setelah terkirim.',
+      'broadcast.showSent': 'Lihat pesan terkirim',
+      'broadcast.variationIncluded': 'Tiap customer menerima variasi kata dari AI.'
     },
     en: {
       'settings.subtitleAgent': 'Your account and the team serving customers.',
@@ -1810,7 +1817,14 @@ export const messages = {
       'broadcast.messageSent': 'Message',
       'broadcast.footerIncluded': 'The opt-out line is added at the end.',
       'broadcast.footerExcluded': 'No opt-out line.',
-      'broadcast.nameReplaced': '{nama} is replaced with each customer\'s name.'
+      'broadcast.nameReplaced': '{nama} is replaced with each customer\'s name.',
+      'broadcast.variationLabel': 'AI word variation',
+      'broadcast.variationOn': 'Uses 1 AI quota per recipient. If the quota runs out or a version is rejected, the original message is sent.',
+      'broadcast.variationHelp': 'The AI rewrites this message for each customer: slightly different words and sentence order, same meaning. Hundreds of identical messages from one number are easy for WhatsApp to flag as spam. Numbers, prices, percentages, dates, links, and {nama} are kept exactly; if the AI changes any of them, that version is discarded and the original is sent.',
+      'broadcast.whatIsThis': 'What is this?',
+      'broadcast.previewVariation': 'This is the original. Each customer receives slightly different wording; each version can be read on the broadcast page once sent.',
+      'broadcast.showSent': 'Show sent message',
+      'broadcast.variationIncluded': 'Each customer gets AI word variation.'
     }
   } as const;
 export type Locale = keyof typeof messages;

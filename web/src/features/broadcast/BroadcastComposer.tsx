@@ -3,6 +3,7 @@ import { api, messageFromError } from '@/lib/api';
 import { useI18n } from '@/lib/i18n';
 import { Button } from '@/components/ui/button';
 import { Input, Textarea } from '@/components/ui/input';
+import { Switch } from '@/components/ui/switch';
 import { useConfirm } from '@/components/ui/confirm';
 import { cn } from '@/lib/utils';
 import { MessageBubble } from './parts';
@@ -44,6 +45,7 @@ export function BroadcastComposer({ onCancel, onCreated }: { onCancel: () => voi
   const [name, setName] = useState('');
   const [body, setBody] = useState('');
   const [footer, setFooter] = useState(true);
+  const [aiVariation, setAiVariation] = useState(false);
   const [stage, setStage] = useState<Stage>('any');
   const [recency, setRecency] = useState(30);
   const [product, setProduct] = useState('any');
@@ -160,6 +162,7 @@ export function BroadcastComposer({ onCancel, onCreated }: { onCancel: () => voi
           name: name.trim(),
           body: body.trim(),
           optOutFooter: footer,
+          aiVariation,
           chatIds: selected.map((row) => row.chatId),
           scheduledAt: when === 'later' ? new Date(scheduledAt).toISOString() : null,
           audience: { stage, lastInboundDays: recency, productId: product === 'any' || product === 'none' ? null : product },
@@ -201,13 +204,21 @@ export function BroadcastComposer({ onCancel, onCreated }: { onCancel: () => voi
               <span className="flex-1" />
               <span className="font-mono text-[11px] text-muted">{body.length}/4000</span>
             </div>
-            <label className="flex items-start gap-2 text-[13px]">
-              <input type="checkbox" checked={footer} onChange={(e) => setFooter(e.target.checked)} className="mt-0.5" />
-              <span>
-                {t('broadcast.footerLabel')}
-                <span className="block text-xs text-muted">{footer ? t('broadcast.footerOn') : t('broadcast.footerOff')}</span>
-              </span>
-            </label>
+            <div className="grid gap-3 border-t border-border pt-4">
+              <Option
+                checked={aiVariation}
+                onChange={setAiVariation}
+                label={t('broadcast.variationLabel')}
+                hint={aiVariation ? t('broadcast.variationOn') : null}
+                help={t('broadcast.variationHelp')}
+              />
+              <Option
+                checked={footer}
+                onChange={setFooter}
+                label={t('broadcast.footerLabel')}
+                hint={footer ? t('broadcast.footerOn') : t('broadcast.footerOff')}
+              />
+            </div>
           </Step>
 
           <Step number={2} title={t('broadcast.stepAudience')}>
@@ -316,6 +327,9 @@ export function BroadcastComposer({ onCancel, onCreated }: { onCancel: () => voi
             {body.trim()
               ? <MessageBubble text={renderPreview(body, previewName, footer, pace.optOutLine)} />
               : <p className="m-0 text-[13px] text-ink/50">{t('broadcast.previewEmpty')}</p>}
+            {body.trim() && aiVariation
+              ? <p className="mt-3 mb-0 text-xs text-ink/60">{t('broadcast.previewVariation')}</p>
+              : null}
           </div>
 
           <div className="grid gap-3 rounded-panel border border-border bg-card p-4">
@@ -363,6 +377,44 @@ function Shell({ onCancel, children }: { onCancel: () => void; children: React.R
       </header>
       <div className="mt-8">{children}</div>
     </>
+  );
+}
+
+/**
+ * Satu baris pilihan: saklar, label, dan penjelasan yang dibuka dengan (?).
+ * Penjelasannya diklik, bukan di-hover: tooltip hover tidak bisa dibuka di
+ * ponsel, padahal supervisor sering menyusun broadcast dari HP.
+ */
+function Option({
+  checked, onChange, label, hint, help,
+}: { checked: boolean; onChange: (next: boolean) => void; label: string; hint?: string | null; help?: string }) {
+  const { t } = useI18n();
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="grid gap-1">
+      <div className="flex items-center gap-2.5">
+        <Switch checked={checked} onChange={onChange} label={label} />
+        <span className="text-[13px] font-semibold">{label}</span>
+        {help ? (
+          <button
+            type="button"
+            onClick={() => setOpen((value) => !value)}
+            aria-expanded={open}
+            aria-label={t('broadcast.whatIsThis')}
+            className={cn(
+              'grid size-5 cursor-pointer place-items-center rounded-full border p-0 font-mono text-[11px] font-semibold transition',
+              open ? 'border-ink bg-ink text-white' : 'border-ink/25 bg-transparent text-ink/60 hover:border-ink/50 hover:text-ink',
+            )}
+          >
+            ?
+          </button>
+        ) : null}
+      </div>
+      {help && open ? (
+        <p className="m-0 ml-[50px] rounded-[10px] bg-ink/5 px-3 py-2 text-xs leading-[1.55] text-ink/75">{help}</p>
+      ) : null}
+      {hint ? <p className="m-0 ml-[50px] text-xs text-muted">{hint}</p> : null}
+    </div>
   );
 }
 

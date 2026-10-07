@@ -33,7 +33,7 @@ const MIGRATION_LOCK_KEY = 4_100_2026;
 
 /** Satu broadcast beserta hitungan status penerimanya. */
 const BROADCAST_COLUMNS = `
-  b.id, b.name, b.body, b.opt_out_footer AS "optOutFooter", b.audience, b.status,
+  b.id, b.name, b.body, b.opt_out_footer AS "optOutFooter", b.ai_variation AS "aiVariation", b.audience, b.status,
   b.scheduled_at AS "scheduledAt", b.pause_reason AS "pauseReason",
   b.created_at AS "createdAt", b.started_at AS "startedAt", b.finished_at AS "finishedAt",
   u.display_name AS "createdByName",
@@ -3806,7 +3806,7 @@ class Database {
    * Membuat broadcast beserta daftar penerimanya dalam satu transaksi: tidak
    * boleh ada broadcast yang terlanjur berjalan dengan daftar setengah jadi.
    */
-  async createBroadcast({ name, body, optOutFooter = true, audience = {}, scheduledAt = null, createdBy = null, recipients }, companyId) {
+  async createBroadcast({ name, body, optOutFooter = true, aiVariation = false, audience = {}, scheduledAt = null, createdBy = null, recipients }, companyId) {
     if (!this.enabled) return null;
     const client = await this.pool.connect();
     try {
@@ -3814,11 +3814,11 @@ class Database {
       const terjadwal = scheduledAt && new Date(scheduledAt).getTime() > Date.now();
       const created = await client.query(`
         INSERT INTO broadcasts
-          (company_id, name, body, opt_out_footer, audience, status, scheduled_at, created_by, started_at)
-        VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, CASE WHEN $6 = 'sending' THEN NOW() END)
+          (company_id, name, body, opt_out_footer, ai_variation, audience, status, scheduled_at, created_by, started_at)
+        VALUES ($1, $2, $3, $4, $9, $5::jsonb, $6, $7, $8, CASE WHEN $6 = 'sending' THEN NOW() END)
         RETURNING id
       `, [companyId, name, body, optOutFooter, JSON.stringify(audience || {}),
-        terjadwal ? 'scheduled' : 'sending', terjadwal ? scheduledAt : null, createdBy]);
+        terjadwal ? 'scheduled' : 'sending', terjadwal ? scheduledAt : null, createdBy, Boolean(aiVariation)]);
       const broadcastId = created.rows[0].id;
       await client.query(`
         INSERT INTO broadcast_recipients (broadcast_id, company_id, chat_id, name, phone)
@@ -3869,7 +3869,7 @@ class Database {
   async listBroadcastRecipients(broadcastId, companyId) {
     if (!this.enabled) return [];
     const result = await this.pool.query(`
-      SELECT chat_id AS "chatId", name, phone, status, error, sent_at AS "sentAt"
+      SELECT chat_id AS "chatId", name, phone, status, error, sent_at AS "sentAt", sent_body AS "sentBody"
       FROM broadcast_recipients
       WHERE company_id = $1 AND broadcast_id = $2
       ORDER BY id
@@ -4011,19 +4011,19 @@ class Database {
       )
         AND b.id = r.broadcast_id
       RETURNING r.id, r.broadcast_id AS "broadcastId", r.chat_id AS "chatId", r.name,
-                b.body, b.opt_out_footer AS "optOutFooter"
+                b.body, b.opt_out_footer AS "optOutFooter", b.ai_variation AS "aiVariation"
     `, [companyId]);
     return result.rows[0] || null;
   }
 
-  async markBroadcastRecipient(recipientId, companyId, { status, messageId = null, error = null }) {
+  async markBroadcastRecipient(recipientId, companyId, { status, messageId = null, error = null, sentBody = null }) {
     if (!this.enabled) return;
     await this.pool.query(`
       UPDATE broadcast_recipients
-      SET status = $3, message_id = $4, error = $5,
+      SET status = $3, message_id = $4, error = $5, sent_body = $6,
           sent_at = CASE WHEN $3 = 'sent' THEN NOW() ELSE sent_at END
       WHERE company_id = $1 AND id = $2
-    `, [companyId, recipientId, status, messageId, error]);
+    `, [companyId, recipientId, status, messageId, error, sentBody]);
   }
 
   /** Kembali ke antrean tanpa dihitung ke plafon harian: belum ada yang keluar. */

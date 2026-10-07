@@ -74,6 +74,92 @@ function namaUntukSapaan(nama) {
   return bersih.length > 40 ? bersih.slice(0, 40).trim() : bersih;
 }
 
+/**
+ * Bagian pesan yang tidak boleh disentuh variasi: link, angka (harga, persen,
+ * tanggal, jam, kode), dan {nama}. AI boleh mengganti kata, bukan fakta.
+ */
+const POLA_LINK = /https?:\/\/\S+|www\.\S+/gi;
+const POLA_ANGKA = /\d+(?:[.,:/]\d+)*%?/g;
+
+function tokenTetap(teks) {
+  const link = (teks.match(POLA_LINK) || []).map((l) => l.replace(/[.,!?)]+$/, ''));
+  const tanpaLink = teks.replace(POLA_LINK, ' ');
+  return {
+    link,
+    angka: tanpaLink.match(POLA_ANGKA) || [],
+    nama: (teks.match(PLACEHOLDER_NAMA) || []).length,
+  };
+}
+
+function hitung(daftar) {
+  const map = new Map();
+  for (const item of daftar) map.set(item, (map.get(item) || 0) + 1);
+  return map;
+}
+
+/**
+ * Kata batas waktu dikelompokkan menurut artinya. "Sampai 31 Oktober" dan
+ * "hingga 31 Oktober" sama; "sebelum 31 Oktober" tidak — tanggal 31 tidak
+ * termasuk. Angkanya utuh, jadi hanya penjaga ini yang menangkap pergeseran
+ * seperti itu. Ketemu di uji coba dengan model sungguhan, 7 Okt.
+ */
+const BATAS_WAKTU = [
+  ['sampai', /\b(?:sampai|hingga|s\.?\s?d\.?|s\/d|paling lambat|selambat-lambatnya|maksimal tanggal)\b/gi],
+  ['sebelum', /\bsebelum\b/gi],
+  ['setelah', /\b(?:setelah|sesudah|lewat dari)\b/gi],
+  ['mulai', /\b(?:mulai|sejak|terhitung)\b/gi],
+];
+
+function kelasBatasWaktu(teks) {
+  return BATAS_WAKTU.map(([kelas, pola]) => `${kelas}:${(teks.match(pola) || []).length}`).join(',');
+}
+
+function samaPersis(a, b) {
+  const ma = hitung(a);
+  const mb = hitung(b);
+  if (ma.size !== mb.size) return false;
+  for (const [k, v] of ma) if (mb.get(k) !== v) return false;
+  return true;
+}
+
+/**
+ * Menerima variasi AI hanya kalau faktanya utuh. Mengembalikan teks yang
+ * sudah dibersihkan, atau null — dan null berarti pesan asli yang dikirim.
+ *
+ * Penjaganya di kode, bukan di prompt: model yang "sedikit" mengubah
+ * "Diskon 20%" jadi "Diskon hingga 25%" sudah mengirim janji palsu atas nama
+ * perusahaan ke ratusan orang. Aturan di prompt pernah dua kali lolos di
+ * fitur lain (lihat aturan percakapan bawaan); aturan di sini tidak bisa.
+ */
+function periksaVariasi(asli, variasi) {
+  let teks = String(variasi || '').trim();
+  // Model kadang membungkus jawabannya dengan kutip atau label.
+  teks = teks.replace(/^(?:pesan|versi baru|hasil)\s*:\s*/i, '').replace(/^["'“”‘’]+|["'“”‘’]+$/g, '').trim();
+  if (!teks) return null;
+  const a = tokenTetap(String(asli));
+  const b = tokenTetap(teks);
+  if (a.nama !== b.nama) return null;
+  if (!samaPersis(a.link, b.link)) return null;
+  if (!samaPersis(a.angka, b.angka)) return null;
+  if (kelasBatasWaktu(String(asli)) !== kelasBatasWaktu(teks)) return null;
+  const rasio = teks.length / Math.max(1, String(asli).trim().length);
+  if (rasio < 0.6 || rasio > 1.5) return null;
+  return teks;
+}
+
+const PROMPT_VARIASI = `Ubah SEDIKIT pesan WhatsApp di bawah supaya tidak persis sama dengan versi yang dikirim ke orang lain. Artinya harus sama persis.
+
+Cara mengubah: ganti dua sampai empat kata dengan padanan yang setara, atau tukar urutan dua bagian kalimat. Sisanya biarkan.
+
+Wajib:
+- Nada dan gaya bahasanya sama. Kalau aslinya santai ("cuma", "ya", "udah", "kak"), hasilnya tetap santai. Jangan dibuat lebih formal atau lebih "jualan".
+- Jangan menambah kata iklan yang tidak ada di aslinya, seperti "Dapatkan", "Segera", "Jangan lewatkan", "Terbatas", "Eksklusif".
+- Semua angka, harga, persen, tanggal, jam, dan link ditulis persis seperti aslinya.
+- Kata batas waktu (sampai, sebelum, setelah, mulai) jangan diganti ke arti lain.
+- {nama} tetap ditulis {nama}, jumlahnya sama.
+- Jangan menambah informasi, janji, ajakan, emoji, atau salam.
+- Keluarkan HANYA teks pesannya.`;
+
 /** Isi yang benar-benar diterima satu customer. */
 function susunPesan(body, nama, denganKalimatBerhenti = true) {
   const isi = String(body || '').replace(PLACEHOLDER_NAMA, namaUntukSapaan(nama)).trim();
@@ -169,7 +255,7 @@ function ringkasError(error) {
  * @param deps.onProgress (companyId, broadcastId) => void — memberi tahu layar
  */
 async function putaranBroadcast({
-  database, kirim, onProgress = () => {}, logger = null, sekarangMs = Date.now(),
+  database, kirim, variasikan = null, onProgress = () => {}, logger = null, sekarangMs = Date.now(),
 }) {
   const hasil = { terkirim: 0, gagal: 0, dijeda: 0, selesai: 0 };
   const kabari = (companyId, broadcastId) => {
@@ -210,11 +296,21 @@ async function putaranBroadcast({
         continue;
       }
 
-      const teks = susunPesan(penerima.body, penerima.name, penerima.optOutFooter);
+      // Variasi gagal, ditolak penjaga, atau kuota AI habis: pesan asli tetap
+      // dikirim. Variasi adalah hiasan, bukan syarat terkirim.
+      let isi = penerima.body;
+      if (penerima.aiVariation && variasikan) {
+        const usulan = await Promise.resolve(variasikan(companyId, penerima.body)).catch((error) => {
+          logger?.warn?.({ err: error, companyId }, 'Broadcast: variasi AI gagal, memakai pesan asli');
+          return null;
+        });
+        isi = periksaVariasi(penerima.body, usulan) || penerima.body;
+      }
+      const teks = susunPesan(isi, penerima.name, penerima.optOutFooter);
       try {
         const sent = await kirim(companyId, penerima.chatId, teks);
         await database.markBroadcastRecipient(penerima.id, companyId, {
-          status: 'sent', messageId: sent?.messageId || null,
+          status: 'sent', messageId: sent?.messageId || null, sentBody: teks,
         });
         hasil.terkirim += 1;
       } catch (error) {
@@ -247,6 +343,7 @@ async function putaranBroadcast({
 
 module.exports = {
   TEMPO, JAM_KIRIM, MAKS_PENERIMA, KLAIM_KEDALUWARSA_MENIT, GAGAL_BERUNTUN_MAKS, KALIMAT_BERHENTI,
+  PROMPT_VARIASI,
   tempoUntuk, namaUntukSapaan, susunPesan, mintaBerhenti, dalamJamKirim, awalHariLokal,
-  jedaSetelah, putaranBroadcast,
+  jedaSetelah, periksaVariasi, putaranBroadcast,
 };

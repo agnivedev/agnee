@@ -2,6 +2,45 @@
 
 ### Added
 
+- **Jeda sebelum setiap balasan otomatis**, default 5–60 detik, dipilih acak
+  dan **lebih sering cepat**. Balasan yang selalu keluar dalam hitungan detik
+  dengan kecepatan seragam terbaca sebagai mesin oleh customer, dan pola
+  seragam itu juga yang paling mudah dikenali WhatsApp. Berlaku untuk jawaban
+  AI, balasan serah-terima, ack, dan konfirmasi STOP; balasan yang diketik
+  agent, follow-up, dan broadcast tidak lewat sini (agent memang sedang
+  menunggu; dua lainnya punya tempo sendiri). Setelan per company di
+  Settings → AI: saklar, jeda tercepat (0–120 dtk), jeda terlama (1–300 dtk).
+  **Default HIDUP untuk semua company begitu dideploy** (migrasi 047) —
+  permintaannya memang setiap balasan harus berjeda; yang tak mau
+  mematikannya dari Settings.
+  Bentuk sebaran: `min + (max-min) × acak³`. Dengan 5–60 detik, ~57% balasan
+  keluar dalam 15 detik, separuhnya dalam ~12 detik, dan hanya ~23% yang lewat
+  30 detik. Eksponennya tetap, bukan setelan — yang diatur supervisor adalah
+  batasnya.
+  Tiga hal yang membuatnya lebih dari `setTimeout`, semuanya diuji (dan
+  masing-masing punya tes yang terbukti merah kalau jaminannya dirusak):
+  1. **Jeda dihitung dari saat pesan customer masuk**, bukan dari saat balasan
+     siap. Waktu AI menyusun jawaban (1–3 detik) sudah terpakai; kalau
+     ditumpuk di atas jeda, "5 detik" berarti 5 + waktu AI.
+  2. **Balasan satu chat keluar berurutan.** Dua pesan beruntun menghasilkan
+     dua jeda acak; tanpa antrean, balasan kedua bisa menyalip yang pertama.
+     Bonus: balasan kedua baru disusun setelah yang pertama terkirim, jadi AI
+     membacanya di riwayat dan tidak mengulang. Menunggu pendahulu dibatasi
+     120 detik supaya satu panggilan yang menggantung tidak membisukan chat.
+  3. **Agent mengambil alih selama jeda → balasan AI yang menunggu dibuang**
+     dan tidak tercatat sebagai terkirim. Yang dibandingkan adalah mode chat
+     sesaat setelah balasan siap dengan mode setelah jeda, bukan mode saja:
+     balasan serah-terima ("saya teruskan ke tim") disusun justru ketika chat
+     sudah pindah ke manusia, dan itu harus tetap terkirim.
+  Diverifikasi ujung-ke-ujung lewat webhook Cloud API bertanda tangan (balasan
+  keluar ditangkap stub, bukan dikirim ke Meta): 8 chat serentak dengan jeda
+  3–15 dtk terkirim di 3,2–13,1 dtk dan bervariasi; jeda dimatikan 1,4–2,4 dtk;
+  pengambilalihan di detik ke-5 dari jeda 12 dtk membatalkan balasan; permintaan
+  bicara dengan manusia tetap dibalas setelah 3,0 dtk.
+  Rentang divalidasi di tiga lapis: skema API, perbandingan dengan nilai yang
+  tersimpan (satu permintaan boleh hanya membawa satu ujung), dan CHECK di
+  database.
+
 - **Broadcast: saklar "Variasi kata oleh AI"** dengan penjelasan (?). Tiap
   penerima mendapat kalimat yang sedikit berbeda dengan arti sama, supaya
   ratusan pesan identik dari satu nomor tidak mudah ditandai spam. Penjaganya
@@ -93,6 +132,24 @@
 
 ### Outstanding
 
+- **Balasan yang sedang menunggu jeda hilang kalau server restart.** Jedanya
+  hidup di memori satu proses, jadi deploy atau crash dalam jendela 5–60 detik
+  setelah pesan masuk membuat customer itu tidak pernah dibalas — tak ada
+  antrean tahan-restart. Dulu jendelanya hanya waktu AI menyusun (beberapa
+  detik); jeda memperlebarnya sampai batas atas. Deploy di jam sepi atau
+  setelah jam kerja mengurangi risikonya, dan baru layak dibangun antrean
+  tahan-restart kalau ini terbukti memakan korban.
+- **Indikator "sedang mengetik…" belum ada selama jeda.** Customer melihat
+  chat diam 5–60 detik lalu balasan muncul. whatsapp-web.js punya
+  `sendStateTyping`; Cloud API punya indikator mengetik lewat endpoint
+  read-receipt. Belum dibangun — dan kalau dibangun, harus dihentikan saat
+  balasan dibatalkan karena agent mengambil alih.
+- **Dua pesan beruntun masih menghasilkan dua balasan**, kini berurutan dan
+  yang kedua membaca yang pertama, tapi tidak digabung jadi satu jawaban.
+  Menggabungkannya (debounce: tunggu customer selesai mengetik) adalah
+  perubahan perilaku yang lebih besar dan belum diminta.
+- **Konfirmasi STOP broadcast ikut dijeda** (5–60 dtk). Tidak berbahaya, tapi
+  customer yang menulis "stop" menunggu konfirmasinya selama itu.
 - **Ekspor playbook ke repo hanya untuk playbook umum.** Playbook produk belum
   punya jalur balik dari database ke berkas.
 - **Fakta terkonfirmasi, dokumen unggahan, dan skenario simulasi masih satu set

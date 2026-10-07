@@ -25,6 +25,7 @@ const onedrive = require('./onedrive-sync.js');
 const gsheets = require('./gsheets-sync.js');
 const { HUB_REPLY_WORKING_DAYS, addWorkingDays, workingDaysSince } = require('./hub-followup.js');
 const mayarSync = require('./mayar-sync.js');
+const { createReplyPacer } = require('./reply-delay.js');
 const { buildXlsx } = require('./xlsx-writer.js');
 const Database = require('./database.js');
 const { extractPlaybookText } = require('./playbook-extractor.js');
@@ -791,6 +792,22 @@ async function buildApp(overrides = {}) {
   }
 
   /**
+   * Jeda dan urutan untuk setiap balasan OTOMATIS yang dipicu pesan masuk:
+   * jawaban AI, balasan serah-terima, ack, dan konfirmasi STOP. Balasan manusia
+   * tidak lewat sini — agent yang mengetik memang sedang menunggu. Follow-up
+   * dan broadcast punya tempo sendiri (jam dan puluhan detik) dan tidak
+   * dipicu pesan masuk.
+   */
+  const replyPacer = createReplyPacer({
+    onEvent: (event) => {
+      if (event.type === 'dibuang') {
+        app.log.info({ key: event.key, delayMs: event.delayMs },
+          'Balasan otomatis dibuang: chat berpindah ke manusia selama jeda');
+      }
+    },
+  });
+
+  /**
    * Shared inbound-message pipeline: rememberInbound → outbound webhook → AI
    * auto-reply → persist. Runs identically for a whatsapp-web.js `message`
    * event and a Cloud API webhook delivery — both normalize to the same
@@ -799,6 +816,8 @@ async function buildApp(overrides = {}) {
    * needs to know which provider produced the message.
    */
   async function handleInboundMessage(companyId, message, meta = {}) {
+    // Patokan jeda balasan: kapan customer menulis, bukan kapan balasan siap.
+    const receivedAt = Date.now();
     rememberInbound(companyId, message.from, message.body);
     // Catat pesan masuk supaya "pesan terakhir" tetap terbaca walau client
     // WhatsApp sedang bermasalah. Untuk jalur whatsapp-web.js, sebelum ini isi
@@ -840,24 +859,57 @@ async function buildApp(overrides = {}) {
       && await database.hasReceivedBroadcast(companyId, message.from).catch(() => false)) {
       const baru = await database.recordBroadcastOptOut(companyId, message.from, String(message.body).trim().slice(0, 40))
         .catch((error) => { app.log.warn({ err: error }, 'Permintaan berhenti broadcast tidak tercatat'); return false; });
-      if (baru) await message.reply('Oke, kamu tidak akan menerima pesan broadcast dari kami lagi. Chat biasa tetap bisa kapan saja.');
+      if (baru) {
+        await paceReply(companyId, message, receivedAt, {
+          produce: async () => ({
+            kind: 'stop',
+            text: 'Oke, kamu tidak akan menerima pesan broadcast dari kami lagi. Chat biasa tetap bisa kapan saja.',
+          }),
+        });
+      }
       return;
     }
-    const autoReply = await generateAutoReply(message, companyId);
-    if (autoReply) {
-      await message.reply(autoReply);
-      if (database.enabled && database.connected) {
-        await database.recordOutboundReply({
-          chatId: message.from,
-          author: 'ai',
-          body: autoReply,
-          inReplyTo: message.body || null,
-        }, companyId).catch((error) => app.log.warn({ err: error }, 'Could not record AI reply'));
-        await armFollowUp(companyId, message.from);
-      }
-    } else if (config.ackEnabled && message.body) {
-      await message.reply(config.ackText);
-    }
+    await paceReply(companyId, message, receivedAt, {
+      produce: async () => {
+        const autoReply = await generateAutoReply(message, companyId);
+        if (autoReply) return { kind: 'ai', text: autoReply };
+        if (config.ackEnabled && message.body) return { kind: 'ack', text: config.ackText };
+        return null;
+      },
+    });
+  }
+
+  /**
+   * Mengirim satu balasan otomatis lewat pengatur jeda.
+   *
+   * Pencatatan (outbound_replies, follow-up) ikut di dalam `send`, jadi hanya
+   * terjadi untuk balasan yang benar-benar keluar. Balasan yang dibuang karena
+   * agent mengambil alih tidak boleh tercatat sebagai terkirim.
+   */
+  function paceReply(companyId, message, receivedAt, { produce }) {
+    const readMode = async () => (await getRouting(message.from, companyId).catch(() => null))?.mode || 'ai';
+    return replyPacer.run(`${companyId}:${message.from}`, receivedAt, {
+      settings: () => (canCall('getReplyDelaySettings') ? database.getReplyDelaySettings(companyId) : null),
+      produce,
+      // Mode chat sesaat setelah balasan siap. Dibandingkan lagi setelah jeda:
+      // yang dibuang hanya balasan yang disiapkan SAAT chat masih dipegang AI.
+      // Balasan serah-terima ("saya teruskan ke tim") disiapkan ketika chat
+      // sudah pindah ke manusia, jadi tetap terkirim.
+      snapshot: readMode,
+      stillValid: async (modeBefore) => !(modeBefore !== 'human' && (await readMode()) === 'human'),
+      send: async ({ kind, text }) => {
+        await message.reply(text);
+        if (kind === 'ai' && database.enabled && database.connected) {
+          await database.recordOutboundReply({
+            chatId: message.from,
+            author: 'ai',
+            body: text,
+            inReplyTo: message.body || null,
+          }, companyId).catch((error) => app.log.warn({ err: error }, 'Could not record AI reply'));
+          await armFollowUp(companyId, message.from);
+        }
+      },
+    });
   }
 
   /**
@@ -2752,6 +2804,9 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan produk (m
       bankHolder: { type: 'string', maxLength: 100 },
       paymentNotes: { type: 'string', maxLength: 500 },
       rotationEnabled: { type: 'boolean' },
+      replyDelayEnabled: { type: 'boolean' },
+      replyDelayMinSeconds: { type: 'integer', minimum: 0, maximum: 120 },
+      replyDelayMaxSeconds: { type: 'integer', minimum: 1, maximum: 300 },
     } } },
   }, async (request, reply) => {
     if (!database.status().connected) return reply.code(503).send({ error: 'Tidak tersedia.' });
@@ -2763,6 +2818,17 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan produk (m
         app.log.warn({ companyId: request.agneeSession.companyId, userId: request.agneeSession.userId, attempted },
           'Blocked self-service entitlement change');
         return reply.code(403).send({ error: 'Paket dan batas langganan hanya dapat diubah oleh tim Agnee.' });
+      }
+    }
+    // Rentang jeda dinilai terhadap nilai yang sudah tersimpan: satu permintaan
+    // boleh hanya membawa salah satu ujungnya, dan ujung yang tidak dikirim
+    // tetap harus menghasilkan rentang yang masuk akal.
+    if (request.body.replyDelayMinSeconds !== undefined || request.body.replyDelayMaxSeconds !== undefined) {
+      const saat = await database.getReplyDelaySettings(request.agneeSession.companyId);
+      const min = request.body.replyDelayMinSeconds ?? saat?.replyDelayMinSeconds ?? 5;
+      const max = request.body.replyDelayMaxSeconds ?? saat?.replyDelayMaxSeconds ?? 60;
+      if (min > max) {
+        return reply.code(400).send({ error: 'Jeda tercepat tidak boleh lebih lama dari jeda terlama.' });
       }
     }
     const hasil = await database.updateCompanyConfig(request.body, request.agneeSession.companyId);

@@ -6,6 +6,7 @@ import { AppSidebar } from '@/components/AppSidebar';
 import { cn } from '@/lib/utils';
 import { PlanAndPayment } from './PlanAndPayment';
 import { FollowUpSection } from './FollowUpSection';
+import { ReplyDelaySection } from './ReplyDelaySection';
 import { AiSettingsSection } from './AiSettingsSection';
 import { AuditSection } from './AuditSection';
 import { ExportSection } from './ExportSection';
@@ -28,6 +29,7 @@ const SECTION_TAB: Record<string, TabId> = {
   waCloudSection: 'whatsapp',
   aiSection: 'ai',
   followUpSection: 'ai',
+  replyDelaySection: 'ai',
   exportSection: 'data',
   teamSection: 'tim',
   myAccount: 'tim',
@@ -164,6 +166,7 @@ export function SettingsPage() {
           {activeTab === 'ai' && isSupervisor ? (
             <>
               <AiSettingsSection />
+              <ReplyDelaySection />
               <FollowUpSection />
             </>
           ) : null}

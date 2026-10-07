@@ -93,7 +93,7 @@ BEGIN
 
   const body = rows.map((row) => `
   SELECT updated_at INTO db_updated FROM playbook_docs
-    WHERE company_id = target_company AND kind = ${dollarQuote(row.kind)};
+    WHERE company_id = target_company AND kind = ${dollarQuote(row.kind)} AND product_id IS NULL;
   IF db_updated IS NOT NULL AND db_updated > seed_written_at THEN
     RAISE NOTICE 'playbook % lebih baru di database (% > %) — dilewati, jalankan export-playbooks.js.',
       ${dollarQuote(row.kind)}, db_updated, seed_written_at;
@@ -101,7 +101,7 @@ BEGIN
   ELSE
     INSERT INTO playbook_docs (company_id, kind, content_md)
     VALUES (target_company, ${dollarQuote(row.kind)}, ${dollarQuote(row.contentMd)})
-    ON CONFLICT (company_id, kind) DO UPDATE
+    ON CONFLICT (company_id, product_id, kind) DO UPDATE
       SET content_md = EXCLUDED.content_md,
           version    = playbook_docs.version + 1,
           updated_at = NOW()
@@ -142,7 +142,7 @@ async function main() {
     const result = await pool.query(`
       SELECT kind, content_md AS "contentMd"
       FROM playbook_docs
-      WHERE company_id = $1 AND btrim(content_md) <> ''
+      WHERE company_id = $1 AND product_id IS NULL AND btrim(content_md) <> ''
     `, [company.rows[0].id]);
 
     // Urutan tetap mengikuti urutan baca di getPlaybookContext, bukan urutan

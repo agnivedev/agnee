@@ -19,7 +19,7 @@ DECLARE
   -- Stempel kapan isi berkas ini ditarik dari database. Diperiksa CI lewat
   -- scripts/check-playbook-stamps.js: berkas yang berubah tanpa stempelnya
   -- ikut maju akan menggagalkan build.
-  -- seed_content_sha: 2fa0d6d156967c54795f5504189326ab979a458c0d7475d116a084b072a41105
+  -- seed_content_sha: f20da532a2dede676f2f1029d7a24e2744104ae1699c0837902a5e95c6d63b02
   seed_written_at CONSTANT TIMESTAMPTZ := '2026-09-17'::timestamptz;
 BEGIN
   SELECT id INTO target_company FROM companies WHERE slug = $md$tradersmastermind$md$;
@@ -33,7 +33,7 @@ BEGIN
   END IF;
 
   SELECT updated_at INTO db_updated FROM playbook_docs
-    WHERE company_id = target_company AND kind = $md$persona$md$;
+    WHERE company_id = target_company AND kind = $md$persona$md$ AND product_id IS NULL;
   IF db_updated IS NOT NULL AND db_updated > seed_written_at THEN
     RAISE NOTICE 'playbook % lebih baru di database (% > %) — dilewati, jalankan export-playbooks.js.',
       $md$persona$md$, db_updated, seed_written_at;
@@ -82,7 +82,7 @@ link Telegram, ajak lead kembali mengabari di WhatsApp ini.
    ebook recovery, signal, dan pendampingan tim.
 4. Pertanyaan kondisi lead tetap ditanyakan, tapi ditempatkan setelah dua CTA.
 $md$)
-    ON CONFLICT (company_id, kind) DO UPDATE
+    ON CONFLICT (company_id, product_id, kind) DO UPDATE
       SET content_md = EXCLUDED.content_md,
           version    = playbook_docs.version + 1,
           updated_at = NOW()
@@ -90,7 +90,7 @@ $md$)
   END IF;
 
   SELECT updated_at INTO db_updated FROM playbook_docs
-    WHERE company_id = target_company AND kind = $md$compliance$md$;
+    WHERE company_id = target_company AND kind = $md$compliance$md$ AND product_id IS NULL;
   IF db_updated IS NOT NULL AND db_updated > seed_written_at THEN
     RAISE NOTICE 'playbook % lebih baru di database (% > %) — dilewati, jalankan export-playbooks.js.',
       $md$compliance$md$, db_updated, seed_written_at;
@@ -131,7 +131,7 @@ melanggar salah satu poin di bawah, jangan dikirim.
   percakapan sebelumnya tidak memuat pilihan bernomor yang jelas dirujuk,
   tanyakan dulu maksudnya. Jangan menebak lalu mengirim link checkout.
 $md$)
-    ON CONFLICT (company_id, kind) DO UPDATE
+    ON CONFLICT (company_id, product_id, kind) DO UPDATE
       SET content_md = EXCLUDED.content_md,
           version    = playbook_docs.version + 1,
           updated_at = NOW()
@@ -139,7 +139,7 @@ $md$)
   END IF;
 
   SELECT updated_at INTO db_updated FROM playbook_docs
-    WHERE company_id = target_company AND kind = $md$qna$md$;
+    WHERE company_id = target_company AND kind = $md$qna$md$ AND product_id IS NULL;
   IF db_updated IS NOT NULL AND db_updated > seed_written_at THEN
     RAISE NOTICE 'playbook % lebih baru di database (% > %) — dilewati, jalankan export-playbooks.js.',
       $md$qna$md$, db_updated, seed_written_at;
@@ -206,7 +206,7 @@ konsisten dengan pilihan copy trade, Fase 3 capital preservation.
 *Harga normal Rp1.900.000:* hanya dipakai kalau lead mempertanyakan nilai paket.
 Jangan dipakai sebagai pembanding di percakapan biasa.
 $md$)
-    ON CONFLICT (company_id, kind) DO UPDATE
+    ON CONFLICT (company_id, product_id, kind) DO UPDATE
       SET content_md = EXCLUDED.content_md,
           version    = playbook_docs.version + 1,
           updated_at = NOW()
@@ -214,7 +214,7 @@ $md$)
   END IF;
 
   SELECT updated_at INTO db_updated FROM playbook_docs
-    WHERE company_id = target_company AND kind = $md$discovery$md$;
+    WHERE company_id = target_company AND kind = $md$discovery$md$ AND product_id IS NULL;
   IF db_updated IS NOT NULL AND db_updated > seed_written_at THEN
     RAISE NOTICE 'playbook % lebih baru di database (% > %) — dilewati, jalankan export-playbooks.js.',
       $md$discovery$md$, db_updated, seed_written_at;
@@ -332,7 +332,7 @@ link checkout.
 
 Kalau call ditolak, baru turun ke Recovery Package, lalu ke free signal
 Telegram. Selengkapnya di bagian penutup.$md$)
-    ON CONFLICT (company_id, kind) DO UPDATE
+    ON CONFLICT (company_id, product_id, kind) DO UPDATE
       SET content_md = EXCLUDED.content_md,
           version    = playbook_docs.version + 1,
           updated_at = NOW()
@@ -340,7 +340,7 @@ Telegram. Selengkapnya di bagian penutup.$md$)
   END IF;
 
   SELECT updated_at INTO db_updated FROM playbook_docs
-    WHERE company_id = target_company AND kind = $md$objection$md$;
+    WHERE company_id = target_company AND kind = $md$objection$md$ AND product_id IS NULL;
   IF db_updated IS NOT NULL AND db_updated > seed_written_at THEN
     RAISE NOTICE 'playbook % lebih baru di database (% > %) — dilewati, jalankan export-playbooks.js.',
       $md$objection$md$, db_updated, seed_written_at;
@@ -412,7 +412,7 @@ Aku paham banget kak, itu frustrasi yang nyata. Bedanya, program yang cuma kasih
 materi meninggalkan kakak jalan sendiri setelah selesai. Di sini eksekusinya
 dibantu: ada copy trade, signal dari tim, dan pendampingan selama prosesnya.
 $md$)
-    ON CONFLICT (company_id, kind) DO UPDATE
+    ON CONFLICT (company_id, product_id, kind) DO UPDATE
       SET content_md = EXCLUDED.content_md,
           version    = playbook_docs.version + 1,
           updated_at = NOW()
@@ -420,7 +420,7 @@ $md$)
   END IF;
 
   SELECT updated_at INTO db_updated FROM playbook_docs
-    WHERE company_id = target_company AND kind = $md$closing$md$;
+    WHERE company_id = target_company AND kind = $md$closing$md$ AND product_id IS NULL;
   IF db_updated IS NOT NULL AND db_updated > seed_written_at THEN
     RAISE NOTICE 'playbook % lebih baru di database (% > %) — dilewati, jalankan export-playbooks.js.',
       $md$closing$md$, db_updated, seed_written_at;
@@ -542,7 +542,7 @@ Checkout: https://tradersmastermind.myr.id/pl/trading-recovery-mentorship-checko
 
 Jangan menawarkan bundle di balasan pertama dan jangan mengirim dua link
 checkout dalam satu pesan.$md$)
-    ON CONFLICT (company_id, kind) DO UPDATE
+    ON CONFLICT (company_id, product_id, kind) DO UPDATE
       SET content_md = EXCLUDED.content_md,
           version    = playbook_docs.version + 1,
           updated_at = NOW()
@@ -550,7 +550,7 @@ checkout dalam satu pesan.$md$)
   END IF;
 
   SELECT updated_at INTO db_updated FROM playbook_docs
-    WHERE company_id = target_company AND kind = $md$followup$md$;
+    WHERE company_id = target_company AND kind = $md$followup$md$ AND product_id IS NULL;
   IF db_updated IS NOT NULL AND db_updated > seed_written_at THEN
     RAISE NOTICE 'playbook % lebih baru di database (% > %) — dilewati, jalankan export-playbooks.js.',
       $md$followup$md$, db_updated, seed_written_at;
@@ -605,7 +605,7 @@ Semoga tradingnya makin terarah ya kak 🙏
 - Jangan mengulang kalimat follow-up sebelumnya. Kalau tidak ada yang baru untuk
   disampaikan, lebih baik tidak mengirim.
 - Jangan menjanjikan hasil, termasuk saat menawarkan call.$md$)
-    ON CONFLICT (company_id, kind) DO UPDATE
+    ON CONFLICT (company_id, product_id, kind) DO UPDATE
       SET content_md = EXCLUDED.content_md,
           version    = playbook_docs.version + 1,
           updated_at = NOW()
@@ -613,7 +613,7 @@ Semoga tradingnya makin terarah ya kak 🙏
   END IF;
 
   SELECT updated_at INTO db_updated FROM playbook_docs
-    WHERE company_id = target_company AND kind = $md$handoff$md$;
+    WHERE company_id = target_company AND kind = $md$handoff$md$ AND product_id IS NULL;
   IF db_updated IS NOT NULL AND db_updated > seed_written_at THEN
     RAISE NOTICE 'playbook % lebih baru di database (% > %) — dilewati, jalankan export-playbooks.js.',
       $md$handoff$md$, db_updated, seed_written_at;
@@ -643,7 +643,7 @@ Jam kerja tim: Senin-Jumat 09.00-17.00 WIB. Balasan otomatis Anya tetap 24/7,
 tetapi kalau handoff terjadi di luar jam kerja, beritahu lead bahwa tim akan
 membalas di hari kerja berikutnya.
 $md$)
-    ON CONFLICT (company_id, kind) DO UPDATE
+    ON CONFLICT (company_id, product_id, kind) DO UPDATE
       SET content_md = EXCLUDED.content_md,
           version    = playbook_docs.version + 1,
           updated_at = NOW()

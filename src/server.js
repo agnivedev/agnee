@@ -27,6 +27,9 @@ const mayarSync = require('./mayar-sync.js');
 const { buildXlsx } = require('./xlsx-writer.js');
 const Database = require('./database.js');
 const { extractPlaybookText } = require('./playbook-extractor.js');
+const {
+  MAX_IMPORT_CHARS, MAX_DOC_CHARS, splitSections, kindFromHeading, composeDocs, extractImportText,
+} = require('./playbook-import.js');
 
 /**
  * Penutup cadangan kalau model gagal membuatnya, dan penambal kalau penutup
@@ -896,6 +899,67 @@ async function buildApp(overrides = {}) {
     if (!response.ok) throw new Error(`Inbound webhook returned HTTP ${response.status}`);
   }
 
+  /** Nama produk disebut utuh di pesan, tanpa peduli huruf besar-kecil dan tanda baca. */
+  function mentionsProduct(text, product) {
+    const fold = (value) => ` ${String(value || '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim()} `;
+    const name = fold(product.name);
+    return name.trim().length >= 3 && fold(text).includes(name);
+  }
+
+  /**
+   * Produk mana yang sedang dibahas percakapan ini.
+   *
+   *  1. productId eksplisit (simulator) menang.
+   *  2. Pilihan manual tim di inbox tidak pernah ditebak ulang.
+   *  3. Hanya satu produk aktif → itu.
+   *  4. Customer menyebut nama produk secara utuh → itu (juga memindahkan
+   *     tebakan otomatis sebelumnya kalau customer berganti topik).
+   *  5. Tebakan otomatis yang tersimpan.
+   *  6. Model menebak dari pesan + ringkasan; hanya disimpan kalau yakin.
+   *
+   * Tebakan disimpan supaya model tidak dipanggil di setiap pesan. Kalau semua
+   * gagal, null: AI membaca playbook umum + katalog dan bertanya sendiri.
+   */
+  async function resolveConversationProduct({ companyId, chatId, text, productId, summary }) {
+    const products = await database.listPlaybookProducts(companyId, { onlyActive: true });
+    if (!products.length) return null;
+    const byId = new Map(products.map((product) => [product.id, product]));
+    if (productId) return byId.get(productId) || null;
+
+    const stored = chatId ? await database.getChatProduct(chatId, companyId).catch(() => null) : null;
+    if (stored?.source === 'manual' && byId.has(stored.productId)) return byId.get(stored.productId);
+    if (products.length === 1) return products[0];
+
+    const named = products.filter((product) => mentionsProduct(text, product));
+    if (named.length === 1) {
+      if (chatId && stored?.productId !== named[0].id) {
+        await database.setChatProduct({ chatId, productId: named[0].id, source: 'auto' }, null, companyId).catch(() => null);
+      }
+      return named[0];
+    }
+    if (stored && byId.has(stored.productId)) return byId.get(stored.productId);
+
+    const companyAi = await getCompanyAi(companyId);
+    if (!companyAi.enabled || !String(text || '').trim()) return null;
+    const result = await llmService.generateReply(
+      `${summary ? `Ringkasan percakapan sejauh ini:\n${summary}\n\n` : ''}Pesan terbaru customer:\n${text}`,
+      {
+        systemPrompt: `Tentukan produk mana yang sedang dibahas customer. Pilihan:
+${products.map((product, index) => `${index + 1}. ${product.name}${product.description ? `: ${product.description}` : ''}`).join('\n')}
+
+Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan produk (misalnya hanya salam, "info dong", atau cocok untuk lebih dari satu produk). Lebih baik 0 daripada menebak.`,
+        companyId,
+        purpose: 'product_detect',
+        modelChain: companyAi.modelChain,
+      },
+    ).catch(() => null);
+    const picked = products[Number.parseInt(String(result?.text || '').match(/\d+/)?.[0] || '0', 10) - 1];
+    if (picked && chatId) {
+      await database.setChatProduct({ chatId, productId: picked.id, source: 'auto' }, null, companyId).catch(() => null);
+    }
+    return picked || null;
+  }
+
   /**
    * Assemble everything the model needs to answer as this company: its own
    * knowledge pack, its confirmed facts + brief + uploaded documents, its
@@ -906,22 +970,28 @@ async function buildApp(overrides = {}) {
    * so what a supervisor tests is what a customer actually gets. Testing
    * against a different context than production is worse than not testing.
    */
-  async function buildReplyContext({ companyId, text, chatId = null }) {
+  async function buildReplyContext({ companyId, text, chatId = null, productId = null }) {
     const kb = await getKnowledgeBase(companyId);
     if (!kb.loaded) await kb.load().catch(() => {});
     const relevantFaqs = kb.findRelevantFaq(text || '');
 
     const dbLive = database.enabled && database.connected;
-    const [leadStateRaw, latestSummary, playbookContext, companyConfig] = await Promise.all([
+    const [leadStateRaw, latestSummary, companyConfig] = await Promise.all([
       chatId ? getLeadState(chatId, companyId).catch(() => null) : null,
       chatId && typeof database.getConversationSummary === 'function' && dbLive
         ? database.getConversationSummary(chatId, 'id', companyId).catch(() => null)
         : (chatId ? conversationSummaries.get(`${companyId}:${chatId}:id`) : null),
-      typeof database.getPlaybookContext === 'function' && dbLive
-        ? database.getPlaybookContext(companyId).catch(() => '')
-        : '',
       dbLive ? database.getCompanyConfig(companyId).catch(() => null) : null,
     ]);
+    // Produk ditentukan dulu karena menentukan playbook mana yang dibaca.
+    const product = dbLive && typeof database.listPlaybookProducts === 'function'
+      ? await resolveConversationProduct({
+        companyId, chatId, text, productId, summary: latestSummary?.summary || '',
+      }).catch(() => null)
+      : null;
+    const playbookContext = typeof database.getPlaybookContext === 'function' && dbLive
+      ? await database.getPlaybookContext(companyId, { productId: product?.id || null }).catch(() => '')
+      : '';
 
     // Sebuah company boleh punya link checkout DAN rekening bank sekaligus
     // ('both'). Keduanya disusun terpisah lalu digabung, supaya menambah
@@ -968,6 +1038,7 @@ async function buildApp(overrides = {}) {
     return {
       kb,
       relevantFaqs,
+      product,
       playbookContext,
       paymentContext,
       companyConfig,
@@ -3372,7 +3443,8 @@ ${thread || '(belum ada)'}${hubContext}`,
 
   /** The company's own truth, formatted for a judge prompt. */
   async function coachSourceOfTruth(companyId) {
-    const context = await database.getPlaybookContext(companyId).catch(() => '');
+    // Juri tidak tahu produk mana yang dibahas tiap skenario, jadi membaca semuanya.
+    const context = await database.getPlaybookContext(companyId, { allProducts: true }).catch(() => '');
     if (!context) return '';
     return `## SUMBER KEBENARAN PERUSAHAAN\n${context}`;
   }
@@ -3604,6 +3676,8 @@ Aturan:
       transcript: SIM_TRANSCRIPT_SCHEMA,
       scenarioId: { type: ['string', 'null'], maxLength: 100 },
       chatId: { type: ['string', 'null'], maxLength: 128 },
+      // Uji playbook satu produk tertentu; kosong = ditebak seperti chat asli.
+      productId: { anyOf: [{ type: 'string', format: 'uuid' }, { type: 'null' }] },
       compareWithAi: { type: 'boolean', default: false },
       grade: { type: 'boolean', default: true },
     } } },
@@ -3628,7 +3702,9 @@ Aturan:
     }
 
     // Same context the live WhatsApp path uses, so results match production.
-    const ctx = await buildReplyContext({ companyId, text: customerMessage, chatId: request.body.chatId || null });
+    const ctx = await buildReplyContext({
+      companyId, text: customerMessage, chatId: request.body.chatId || null, productId: request.body.productId || null,
+    });
     const history = transcript.map((turn) => ({
       role: turn.role === 'customer' ? 'user' : 'assistant',
       content: turn.text,
@@ -3716,6 +3792,7 @@ Aturan:
       reply: gradedReply,
       aiReply: mode === 'ai' ? null : aiReply,
       model: aiModel,
+      product: ctx.product ? { id: ctx.product.id, name: ctx.product.name } : null,
       rules,
       judge,
       newGaps,
@@ -3853,8 +3930,11 @@ Aturan:
     handoff: 'kapan chat diserahkan ke manusia, ke siapa, dan apa yang dikatakan',
   };
 
-  function playbookInterviewPrompt(kind, existingMd) {
-    return `Kamu adalah asisten admin Agnee. Kamu membantu pemilik bisnis menyusun playbook "${kind}" (${PLAYBOOK_KIND_BRIEF[kind]}) untuk tim customer service mereka.
+  function playbookInterviewPrompt(kind, existingMd, product = null) {
+    const scope = product
+      ? ` khusus produk "${product.name}"${product.description ? ` (${product.description})` : ''}`
+      : '';
+    return `Kamu adalah asisten admin Agnee. Kamu membantu pemilik bisnis menyusun playbook "${kind}" (${PLAYBOOK_KIND_BRIEF[kind]})${scope} untuk tim customer service mereka.
 
 Playbook ini akan dibaca oleh AI yang membalas customer sungguhan, jadi isinya harus konkret dan tidak boleh kamu karang.
 
@@ -3867,12 +3947,40 @@ Cara kerjamu:
 - Bahasa Indonesia, ringkas, maksimal 60 kata per balasan.`;
   }
 
-  app.get('/v1/playbooks', async (request, reply) => {
+  // ?product=<uuid> memilih playbook milik satu produk; tanpa itu, playbook
+  // umum yang berlaku untuk semua produk (perilaku lama).
+  const PLAYBOOK_PRODUCT_QUERY = {
+    type: 'object', additionalProperties: false,
+    properties: { product: { type: 'string', format: 'uuid' } },
+  };
+  const PLAYBOOK_KIND_PARAMS = {
+    type: 'object', required: ['kind'],
+    properties: { kind: { type: 'string', enum: Database.PLAYBOOK_KINDS } },
+  };
+
+  /** null berarti balasan error sudah dikirim. */
+  async function playbookScope(request, reply) {
+    const productId = request.query?.product || null;
+    if (!productId) return { productId: null, product: null };
+    const product = await database.getPlaybookProduct(productId, request.agneeSession.companyId);
+    if (!product) {
+      reply.code(404).send({ error: 'Produk tidak ditemukan.' });
+      return null;
+    }
+    return { productId, product };
+  }
+
+  app.get('/v1/playbooks', {
+    schema: { querystring: PLAYBOOK_PRODUCT_QUERY },
+  }, async (request, reply) => {
     if (!requireCoachSupervisor(request, reply)) return;
     if (!requireCoachDb(reply)) return;
-    const docs = await database.listPlaybookDocs(request.agneeSession.companyId);
+    const scope = await playbookScope(request, reply);
+    if (!scope) return;
+    const docs = await database.listPlaybookDocs(request.agneeSession.companyId, scope.productId);
     const byKind = new Map(docs.map((d) => [d.kind, d]));
     return {
+      product: scope.product,
       kinds: Database.PLAYBOOK_KINDS.map((kind) => ({
         kind,
         brief: PLAYBOOK_KIND_BRIEF[kind],
@@ -3884,13 +3992,13 @@ Cara kerjamu:
   });
 
   app.get('/v1/playbooks/:kind', {
-    schema: { params: { type: 'object', required: ['kind'], properties: {
-      kind: { type: 'string', enum: Database.PLAYBOOK_KINDS },
-    } } },
+    schema: { params: PLAYBOOK_KIND_PARAMS, querystring: PLAYBOOK_PRODUCT_QUERY },
   }, async (request, reply) => {
     if (!requireCoachSupervisor(request, reply)) return;
     if (!requireCoachDb(reply)) return;
-    const doc = await database.getPlaybookDoc(request.params.kind, request.agneeSession.companyId);
+    const scope = await playbookScope(request, reply);
+    if (!scope) return;
+    const doc = await database.getPlaybookDoc(request.params.kind, request.agneeSession.companyId, scope.productId);
     return {
       kind: request.params.kind,
       brief: PLAYBOOK_KIND_BRIEF[request.params.kind],
@@ -3904,9 +4012,8 @@ Cara kerjamu:
   /** One turn of the authoring conversation. Does not save on its own. */
   app.post('/v1/playbooks/:kind/chat', {
     schema: {
-      params: { type: 'object', required: ['kind'], properties: {
-        kind: { type: 'string', enum: Database.PLAYBOOK_KINDS },
-      } },
+      params: PLAYBOOK_KIND_PARAMS,
+      querystring: PLAYBOOK_PRODUCT_QUERY,
       body: {
         type: 'object', additionalProperties: false, required: ['message'],
         properties: { message: { type: 'string', minLength: 1, maxLength: 4000 } },
@@ -3916,17 +4023,19 @@ Cara kerjamu:
     if (!requireCoachSupervisor(request, reply)) return;
     if (!requireCoachDb(reply)) return;
     const companyId = request.agneeSession.companyId;
+    const scope = await playbookScope(request, reply);
+    if (!scope) return;
     const companyAi = await getCompanyAi(companyId);
     if (!companyAi.enabled) return aiUnavailable(reply, companyAi);
     if (coachRateLimited(companyId)) {
       return reply.code(429).send({ error: 'Terlalu banyak permintaan. Coba lagi beberapa menit.' });
     }
     const { kind } = request.params;
-    const doc = await database.getPlaybookDoc(kind, companyId);
+    const doc = await database.getPlaybookDoc(kind, companyId, scope.productId);
     const interview = Array.isArray(doc?.interview) ? doc.interview : [];
 
     const result = await llmService.generateReply(request.body.message, {
-      systemPrompt: playbookInterviewPrompt(kind, doc?.contentMd || ''),
+      systemPrompt: playbookInterviewPrompt(kind, doc?.contentMd || '', scope.product),
       history: interview,
       companyId,
       purpose: 'playbook_chat',
@@ -3941,7 +4050,7 @@ Cara kerjamu:
       { role: 'assistant', content: result.text },
     ].slice(-40);
     await database.savePlaybookDoc({
-      kind, contentMd: doc?.contentMd || '', interview: nextInterview,
+      kind, contentMd: doc?.contentMd || '', interview: nextInterview, productId: scope.productId,
     }, request.agneeSession.userId, companyId);
 
     return { reply: result.text, interview: nextInterview, model: result.model || null };
@@ -3949,20 +4058,20 @@ Cara kerjamu:
 
   /** Turns the conversation so far into the markdown playbook. */
   app.post('/v1/playbooks/:kind/compile', {
-    schema: { params: { type: 'object', required: ['kind'], properties: {
-      kind: { type: 'string', enum: Database.PLAYBOOK_KINDS },
-    } } },
+    schema: { params: PLAYBOOK_KIND_PARAMS, querystring: PLAYBOOK_PRODUCT_QUERY },
   }, async (request, reply) => {
     if (!requireCoachSupervisor(request, reply)) return;
     if (!requireCoachDb(reply)) return;
     const companyId = request.agneeSession.companyId;
+    const scope = await playbookScope(request, reply);
+    if (!scope) return;
     const companyAi = await getCompanyAi(companyId);
     if (!companyAi.enabled) return aiUnavailable(reply, companyAi);
     if (coachRateLimited(companyId)) {
       return reply.code(429).send({ error: 'Terlalu banyak permintaan. Coba lagi beberapa menit.' });
     }
     const { kind } = request.params;
-    const doc = await database.getPlaybookDoc(kind, companyId);
+    const doc = await database.getPlaybookDoc(kind, companyId, scope.productId);
     const interview = Array.isArray(doc?.interview) ? doc.interview : [];
     if (!interview.length) {
       return reply.code(400).send({ error: 'Belum ada percakapan untuk disusun jadi playbook.' });
@@ -3972,7 +4081,7 @@ Cara kerjamu:
       .map((m) => `${m.role === 'user' ? 'Pemilik bisnis' : 'Asisten'}: ${m.content}`)
       .join('\n');
     const result = await llmService.generateReply(
-      `Susun playbook "${kind}" dalam Markdown dari percakapan berikut.\n\n${transcript}`,
+      `Susun playbook "${kind}"${scope.product ? ` untuk produk "${scope.product.name}"` : ''} dalam Markdown dari percakapan berikut.\n\n${transcript}`,
       {
         systemPrompt: `Ubah percakapan menjadi playbook Markdown yang akan dibaca AI customer service.
 
@@ -3990,7 +4099,7 @@ Aturan:
     if (!result) return reply.code(502).send({ error: 'Mesin AI tidak dapat menyusun playbook.' });
 
     const saved = await database.savePlaybookDoc({
-      kind, contentMd: result.text.trim(), interview,
+      kind, contentMd: result.text.trim(), interview, productId: scope.productId,
     }, request.agneeSession.userId, companyId);
     return { kind, contentMd: saved.contentMd, version: saved.version, updatedAt: saved.updatedAt };
   });
@@ -3998,9 +4107,8 @@ Aturan:
   /** Direct edit, for when the supervisor would rather fix the markdown. */
   app.put('/v1/playbooks/:kind', {
     schema: {
-      params: { type: 'object', required: ['kind'], properties: {
-        kind: { type: 'string', enum: Database.PLAYBOOK_KINDS },
-      } },
+      params: PLAYBOOK_KIND_PARAMS,
+      querystring: PLAYBOOK_PRODUCT_QUERY,
       body: {
         type: 'object', additionalProperties: false, required: ['contentMd'],
         properties: { contentMd: { type: 'string', maxLength: 40000 } },
@@ -4009,23 +4117,282 @@ Aturan:
   }, async (request, reply) => {
     if (!requireCoachSupervisor(request, reply)) return;
     if (!requireCoachDb(reply)) return;
+    const scope = await playbookScope(request, reply);
+    if (!scope) return;
     const saved = await database.savePlaybookDoc(
-      { kind: request.params.kind, contentMd: request.body.contentMd },
+      { kind: request.params.kind, contentMd: request.body.contentMd, productId: scope.productId },
       request.agneeSession.userId, request.agneeSession.companyId,
     );
     return { kind: saved.kind, contentMd: saved.contentMd, version: saved.version, updatedAt: saved.updatedAt };
   });
 
   app.delete('/v1/playbooks/:kind', {
-    schema: { params: { type: 'object', required: ['kind'], properties: {
-      kind: { type: 'string', enum: Database.PLAYBOOK_KINDS },
-    } } },
+    schema: { params: PLAYBOOK_KIND_PARAMS, querystring: PLAYBOOK_PRODUCT_QUERY },
   }, async (request, reply) => {
     if (!requireCoachSupervisor(request, reply)) return;
     if (!requireCoachDb(reply)) return;
-    const removed = await database.deletePlaybookDoc(request.params.kind, request.agneeSession.companyId);
+    const scope = await playbookScope(request, reply);
+    if (!scope) return;
+    const removed = await database.deletePlaybookDoc(request.params.kind, request.agneeSession.companyId, scope.productId);
     if (!removed) return reply.code(404).send({ error: 'Playbook tidak ditemukan.' });
     return { ok: true };
+  });
+
+  // ── Impor playbook dari file ──────────────────────────────────────────────
+  //
+  // Dua langkah, sengaja: /preview memecah file dan menebak jenis tiap bagian
+  // TANPA menyimpan apa pun; /apply menyimpan pembagian yang sudah ditinjau
+  // supervisor. Menimpa dokumen yang dibaca AI ke semua customer harus jadi
+  // keputusan orang yang melihat hasilnya, bukan efek samping unggahan.
+
+  /**
+   * Menebak jenis untuk bagian yang judulnya tidak dikenali aturan. Model
+   * hanya memberi LABEL. Isi bagian tidak pernah ia tulis ulang.
+   */
+  async function guessImportKinds(sections, companyId) {
+    const unknown = sections.filter((section) => !section.kind);
+    if (!unknown.length) return;
+    const companyAi = await getCompanyAi(companyId);
+    if (!companyAi.enabled) return;
+    const listing = unknown.map((section) =>
+      `[${section.id}] ${section.heading || '(pembuka dokumen, tanpa judul)'}\n${section.body.slice(0, 700)}`).join('\n\n');
+    const result = await llmService.generateReply(
+      `Bagian-bagian dokumen:\n\n${listing}`,
+      {
+        systemPrompt: `Kamu memilah bagian dokumen playbook customer service ke salah satu jenis berikut:
+${Database.PLAYBOOK_KINDS.map((kind) => `- ${kind}: ${PLAYBOOK_KIND_BRIEF[kind]}`).join('\n')}
+- skip: catatan untuk manusia (status draf, catatan versi, instruksi penyusun) yang tidak boleh dibaca AI customer service
+
+Ringkasan brand/produk, positioning, dan identitas masuk persona. Panduan cara menjual, soft/hard selling masuk closing kecuali isinya jelas tentang menggali kebutuhan (discovery).
+Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
+        companyId,
+        purpose: 'playbook_import',
+        modelChain: companyAi.modelChain,
+      },
+    ).catch(() => null);
+    const match = result?.text?.match(/\{[\s\S]*\}/);
+    if (!match) return;
+    let guesses;
+    try { guesses = JSON.parse(match[0]); } catch { return; }
+    for (const section of unknown) {
+      const guess = String(guesses[section.id] || '').trim().toLowerCase();
+      if (guess === 'skip' || Database.PLAYBOOK_KINDS.includes(guess)) {
+        section.kind = guess;
+        section.matchedBy = 'ai';
+      }
+    }
+  }
+
+  app.post('/v1/playbooks/import/preview', {
+    schema: { querystring: PLAYBOOK_PRODUCT_QUERY },
+  }, async (request, reply) => {
+    if (!requireCoachSupervisor(request, reply)) return;
+    if (!requireCoachDb(reply)) return;
+    const companyId = request.agneeSession.companyId;
+    const scope = await playbookScope(request, reply);
+    if (!scope) return;
+
+    const file = await request.file().catch(() => null);
+    if (!file) return reply.code(400).send({ error: 'Tidak ada file yang diunggah.' });
+    const buffer = await file.toBuffer().catch(() => null);
+    if (!buffer) return reply.code(400).send({ error: 'Gagal membaca file.' });
+    if (file.file.truncated) return reply.code(413).send({ error: 'File maksimal 19 MB.' });
+
+    let text;
+    try {
+      text = await extractImportText(buffer, file.mimetype, file.filename);
+    } catch (error) {
+      return reply.code(error.statusCode || 422).send({ error: error.statusCode ? error.message : 'File tidak bisa dibaca.' });
+    }
+    text = String(text || '').trim();
+    if (!text) return reply.code(422).send({ error: 'File kosong atau teksnya tidak terbaca.' });
+    if (text.length > MAX_IMPORT_CHARS) {
+      return reply.code(413).send({ error: `Dokumen terlalu panjang (${text.length.toLocaleString('id-ID')} karakter). Pecah per produk atau per bagian.` });
+    }
+
+    const { title, sections: raw } = splitSections(text);
+    const sections = raw.map((section, index) => {
+      const kind = section.heading ? kindFromHeading(section.heading) : null;
+      return {
+        id: String(index + 1),
+        heading: section.heading,
+        body: section.body,
+        kind,
+        matchedBy: kind ? 'heading' : null,
+      };
+    });
+    await guessImportKinds(sections, companyId);
+    // Pembuka tanpa judul yang tidak bisa ditebak: biasanya catatan penyusun
+    // ("versi draft", "belum diterapkan"). Default-nya dilewati, bukan dibaca AI.
+    for (const section of sections) {
+      if (!section.kind && !section.heading) { section.kind = 'skip'; section.matchedBy = 'default'; }
+    }
+
+    const existing = await database.listPlaybookDocs(companyId, scope.productId);
+    return {
+      filename: file.filename,
+      title,
+      product: scope.product,
+      sections,
+      existing: Object.fromEntries(existing
+        .filter((doc) => doc.contentLength > 0)
+        .map((doc) => [doc.kind, { version: doc.version, updatedAt: doc.updatedAt }])),
+    };
+  });
+
+  app.post('/v1/playbooks/import/apply', {
+    schema: {
+      querystring: PLAYBOOK_PRODUCT_QUERY,
+      body: {
+        type: 'object', additionalProperties: false, required: ['sections'],
+        properties: {
+          sections: {
+            type: 'array', minItems: 1, maxItems: 200,
+            items: {
+              type: 'object', additionalProperties: false, required: ['kind', 'body'],
+              properties: {
+                heading: { type: 'string', maxLength: 300 },
+                body: { type: 'string', maxLength: MAX_DOC_CHARS },
+                kind: { type: 'string', enum: [...Database.PLAYBOOK_KINDS, 'skip'] },
+              },
+            },
+          },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    if (!requireCoachSupervisor(request, reply)) return;
+    if (!requireCoachDb(reply)) return;
+    const companyId = request.agneeSession.companyId;
+    const scope = await playbookScope(request, reply);
+    if (!scope) return;
+
+    const docs = composeDocs(request.body.sections);
+    if (!docs.size) return reply.code(400).send({ error: 'Tidak ada bagian yang diarahkan ke playbook.' });
+    for (const [kind, contentMd] of docs) {
+      if (contentMd.length > MAX_DOC_CHARS) {
+        return reply.code(413).send({ error: `Playbook "${kind}" jadi ${contentMd.length.toLocaleString('id-ID')} karakter, batasnya ${MAX_DOC_CHARS.toLocaleString('id-ID')}. Pindahkan sebagian bagian ke jenis lain.` });
+      }
+    }
+
+    // Satu per satu, urut seperti konteks dibaca. Tiap simpan sudah membuat
+    // snapshot versi sebelumnya, jadi impor yang salah bisa dikembalikan.
+    const saved = [];
+    for (const kind of Database.PLAYBOOK_KINDS) {
+      if (!docs.has(kind)) continue;
+      const doc = await database.savePlaybookDoc(
+        { kind, contentMd: docs.get(kind), productId: scope.productId },
+        request.agneeSession.userId, companyId,
+      );
+      saved.push({ kind, version: doc.version, updatedAt: doc.updatedAt });
+    }
+    return { product: scope.product, saved };
+  });
+
+  // ── Produk: playbook per layanan ──────────────────────────────────────────
+
+  const PRODUCT_BODY_PROPS = {
+    name: { type: 'string', minLength: 1, maxLength: 120 },
+    description: { type: 'string', maxLength: 1000 },
+  };
+
+  app.get('/v1/playbook-products', async (request, reply) => {
+    if (!requireCoachSupervisor(request, reply)) return;
+    if (!requireCoachDb(reply)) return;
+    return { products: await database.listPlaybookProducts(request.agneeSession.companyId) };
+  });
+
+  app.post('/v1/playbook-products', {
+    schema: { body: {
+      type: 'object', additionalProperties: false, required: ['name'], properties: PRODUCT_BODY_PROPS,
+    } },
+  }, async (request, reply) => {
+    if (!requireCoachSupervisor(request, reply)) return;
+    if (!requireCoachDb(reply)) return;
+    if (!request.body.name.trim()) return reply.code(400).send({ error: 'Nama produk wajib diisi.' });
+    try {
+      const product = await database.createPlaybookProduct(request.body, request.agneeSession.userId, request.agneeSession.companyId);
+      return reply.code(201).send({ product });
+    } catch (error) {
+      if (error.code === '23505') return reply.code(409).send({ error: 'Sudah ada produk dengan nama itu.' });
+      throw error;
+    }
+  });
+
+  app.patch('/v1/playbook-products/:id', {
+    schema: {
+      params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } },
+      body: {
+        type: 'object', additionalProperties: false, minProperties: 1,
+        properties: { ...PRODUCT_BODY_PROPS, active: { type: 'boolean' } },
+      },
+    },
+  }, async (request, reply) => {
+    if (!requireCoachSupervisor(request, reply)) return;
+    if (!requireCoachDb(reply)) return;
+    if (request.body.name !== undefined && !request.body.name.trim()) {
+      return reply.code(400).send({ error: 'Nama produk wajib diisi.' });
+    }
+    try {
+      const product = await database.updatePlaybookProduct(request.params.id, request.body, request.agneeSession.companyId);
+      if (!product) return reply.code(404).send({ error: 'Produk tidak ditemukan.' });
+      return { product };
+    } catch (error) {
+      if (error.code === '23505') return reply.code(409).send({ error: 'Sudah ada produk dengan nama itu.' });
+      throw error;
+    }
+  });
+
+  app.delete('/v1/playbook-products/:id', {
+    schema: { params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } } },
+  }, async (request, reply) => {
+    if (!requireCoachSupervisor(request, reply)) return;
+    if (!requireCoachDb(reply)) return;
+    const removed = await database.deletePlaybookProduct(request.params.id, request.agneeSession.companyId);
+    if (!removed) return reply.code(404).send({ error: 'Produk tidak ditemukan.' });
+    return { ok: true };
+  });
+
+  // Produk yang sedang dibahas satu percakapan. Semua anggota tim boleh
+  // membetulkannya karena yang memegang chat paling tahu customer sedang membahas
+  // apa. Pilihan manual tidak pernah ditimpa tebakan AI.
+  app.get('/v1/chats/:chatId/product', {
+    schema: { params: { type: 'object', required: ['chatId'], properties: { chatId: { type: 'string', minLength: 1, maxLength: 128 } } } },
+  }, async (request, reply) => {
+    if (!requireCoachDb(reply)) return;
+    const companyId = request.agneeSession.companyId;
+    const [current, products] = await Promise.all([
+      database.getChatProduct(request.params.chatId, companyId),
+      database.listPlaybookProducts(companyId, { onlyActive: true }),
+    ]);
+    return {
+      productId: current?.productId || null,
+      source: current?.source || null,
+      products: products.map(({ id, name }) => ({ id, name })),
+    };
+  });
+
+  app.put('/v1/chats/:chatId/product', {
+    schema: {
+      params: { type: 'object', required: ['chatId'], properties: { chatId: { type: 'string', minLength: 1, maxLength: 128 } } },
+      body: { type: 'object', additionalProperties: false, required: ['productId'], properties: {
+        productId: { anyOf: [{ type: 'string', format: 'uuid' }, { type: 'null' }] },
+      } },
+    },
+  }, async (request, reply) => {
+    if (!requireCoachDb(reply)) return;
+    const companyId = request.agneeSession.companyId;
+    const { productId } = request.body;
+    if (productId) {
+      const product = await database.getPlaybookProduct(productId, companyId);
+      if (!product || !product.active) return reply.code(404).send({ error: 'Produk tidak ditemukan.' });
+    }
+    // null = kembalikan ke tebakan otomatis.
+    const saved = await database.setChatProduct(
+      { chatId: request.params.chatId, productId, source: 'manual' },
+      request.agneeSession.userId, companyId,
+    );
+    return { productId: saved?.productId || null, source: saved?.source || null };
   });
 
   // ── Follow-up settings ────────────────────────────────────────────────────

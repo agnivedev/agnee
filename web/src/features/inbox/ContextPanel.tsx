@@ -237,6 +237,8 @@ export function ContextPanel({
         </div>
       </div>
 
+      <ChatProduct chatId={chatId} reloadToken={reloadToken} />
+
       <Section title={t('routing.title')} badge={routing ? (selectedMode === 'human' ? t('routing.human') : t('routing.ai')) : undefined}>
         <div className="grid gap-2">
           {(['ai', 'human'] as const).map((mode) => (
@@ -539,6 +541,64 @@ export function ContextPanel({
           everyone in it, which is never what a follow-up is for. */}
       {chat && !chat.isGroup && isSupervisor ? <ManualFollowUp chat={chat} /> : null}
     </aside>
+  );
+}
+
+/**
+ * Produk yang sedang dibahas percakapan ini. Menentukan playbook mana yang
+ * dibaca AI. Hanya muncul untuk company yang punya lebih dari satu produk;
+ * dengan satu produk tidak ada yang perlu dipilih.
+ */
+function ChatProduct({ chatId, reloadToken }: { chatId: string | null; reloadToken: number }) {
+  const { t } = useI18n();
+  const [data, setData] = useState<{ productId: string | null; source: string | null; products: { id: string; name: string }[] } | null>(null);
+  const [status, setStatus] = useState('');
+
+  useEffect(() => {
+    if (!chatId) return;
+    setData(null);
+    void api<{ productId: string | null; source: string | null; products: { id: string; name: string }[] }>(
+      `/v1/chats/${encodeURIComponent(chatId)}/product`,
+    ).then(setData).catch(() => setData(null));
+  }, [chatId, reloadToken]);
+
+  if (!chatId || !data || data.products.length < 2) return null;
+
+  async function choose(value: string) {
+    if (!chatId) return;
+    setStatus('');
+    try {
+      const saved = await api<{ productId: string | null; source: string | null }>(
+        `/v1/chats/${encodeURIComponent(chatId)}/product`,
+        { method: 'PUT', body: { productId: value || null } },
+      );
+      setData((current) => (current ? { ...current, ...saved } : current));
+    } catch (error) {
+      setStatus(messageFromError(error, t('chatProduct.failed')));
+    }
+  }
+
+  return (
+    <Section
+      title={t('chatProduct.title')}
+      badge={data.productId ? (data.source === 'manual' ? t('chatProduct.manual') : t('chatProduct.auto')) : undefined}
+    >
+      <select
+        value={data.source === 'manual' ? data.productId || '' : ''}
+        onChange={(event) => void choose(event.target.value)}
+        className="w-full rounded-[10px] border border-border bg-white px-2.5 py-2 text-xs"
+      >
+        <option value="">
+          {data.productId && data.source !== 'manual'
+            ? t('chatProduct.autoOption', { name: data.products.find((product) => product.id === data.productId)?.name || '' })
+            : t('chatProduct.unknown')}
+        </option>
+        {data.products.map((product) => (
+          <option key={product.id} value={product.id}>{product.name}</option>
+        ))}
+      </select>
+      <p className="mt-2 mb-0 text-[11px] text-muted">{status || t('chatProduct.help')}</p>
+    </Section>
   );
 }
 

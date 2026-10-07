@@ -17,6 +17,7 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { CoachSection } from './CoachSection';
 import { BriefSection } from './BriefSection';
+import { ProductBar, ImportPanel, productQuery, type Product } from './PlaybookProducts';
 // Satu renderer sebaris untuk seluruh app; dulu halaman ini punya salinannya sendiri.
 import { InlineText } from '@/features/inbox/InlineMarkdown';
 
@@ -141,8 +142,9 @@ function Markdown({ source }: { source: string }) {
  * menunggu. Menimpa dokumen yang dibaca AI ke semua customer adalah hal yang
  * harus diputuskan orang, bukan efek samping dari mengetik.
  */
-function ChatPanel({ kind, interview, onCompiled }: {
+function ChatPanel({ kind, productId, interview, onCompiled }: {
   kind: string;
+  productId: string | null;
   interview: Turn[];
   onCompiled: () => void;
 }) {
@@ -169,7 +171,7 @@ function ChatPanel({ kind, interview, onCompiled }: {
     setTurns((current) => [...current, { role: 'user', content: pesan }]);
     try {
       const hasil = await api<{ reply: string; interview: Turn[] }>(
-        `/v1/playbooks/${encodeURIComponent(kind)}/chat`, { method: 'POST', body: { message: pesan } },
+        `/v1/playbooks/${encodeURIComponent(kind)}/chat${productQuery(productId)}`, { method: 'POST', body: { message: pesan } },
       );
       setTurns(hasil.interview || []);
     } catch (error) {
@@ -183,7 +185,7 @@ function ChatPanel({ kind, interview, onCompiled }: {
     setBusy(true);
     setStatus('');
     try {
-      await api(`/v1/playbooks/${encodeURIComponent(kind)}/compile`, { method: 'POST' });
+      await api(`/v1/playbooks/${encodeURIComponent(kind)}/compile${productQuery(productId)}`, { method: 'POST' });
       setStatus(t('knowledge.compiled'));
       onCompiled();
     } catch (error) {
@@ -295,15 +297,35 @@ export function KnowledgePage() {
 
 function PlaybookDocs() {
   const { t, dateLocale } = useI18n();
+  const [products, setProducts] = useState<Product[]>([]);
+  const [productId, setProductId] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [notice, setNotice] = useState('');
   const [kinds, setKinds] = useState<Kind[]>([]);
   const [active, setActive] = useState<string | null>(null);
   const [doc, setDoc] = useState<Doc | null>(null);
   const [tab, setTab] = useState<'isi' | 'obrolan'>('isi');
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState('');
+  // Naik tiap kali isi berubah dari luar daftar (impor), supaya daftar dan
+  // dokumen yang terbuka dimuat ulang walau produk & jenisnya sama.
+  const [revision, setRevision] = useState(0);
+
+  const loadProducts = useCallback(async (select?: string | null) => {
+    try {
+      const data = await api<{ products: Product[] }>('/v1/playbook-products');
+      setProducts(data.products || []);
+      if (select !== undefined) setProductId(select);
+    } catch (error) {
+      setStatus(messageFromError(error, t('knowledge.loadFailed')));
+    }
+  }, [t]);
+
+  useEffect(() => { void loadProducts(); }, [loadProducts]);
 
   useEffect(() => {
-    void api<{ kinds: Kind[] }>('/v1/playbooks')
+    setLoading(true);
+    void api<{ kinds: Kind[] }>(`/v1/playbooks${productQuery(productId)}`)
       .then((data) => {
         setKinds(data.kinds || []);
         // Buka dokumen pertama yang ada isinya, bukan yang pertama dalam
@@ -312,32 +334,57 @@ function PlaybookDocs() {
       })
       .catch((error) => setStatus(messageFromError(error, t('knowledge.loadFailed'))))
       .finally(() => setLoading(false));
-  }, [t]);
+  }, [t, productId, revision]);
 
   const openDoc = useCallback(async (kind: string) => {
     setActive(kind);
     setDoc(null);
     setTab('isi');
     try {
-      setDoc(await api<Doc>(`/v1/playbooks/${encodeURIComponent(kind)}`));
+      setDoc(await api<Doc>(`/v1/playbooks/${encodeURIComponent(kind)}${productQuery(productId)}`));
     } catch (error) {
       setStatus(messageFromError(error, t('knowledge.loadFailed')));
     }
-  }, [t]);
+  }, [t, productId]);
 
   useEffect(() => {
     if (active) void openDoc(active);
     // openDoc sengaja tidak jadi dependency: ia berubah tiap render dan akan
     // memicu pengambilan ulang tanpa henti.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active]);
+  }, [active, productId, revision]);
+
+  const currentProduct = products.find((product) => product.id === productId) || null;
 
   return (
       <>
+        <ProductBar
+          products={products}
+          active={productId}
+          onSelect={(next) => { setProductId(next); setImporting(false); setNotice(''); }}
+          onChanged={(select) => void loadProducts(select)}
+          onImport={() => { setImporting(true); setNotice(''); }}
+        />
+        {notice ? <p className="mb-4 rounded-xl bg-green/10 px-3 py-2 text-[13px] text-green-dark">{notice}</p> : null}
         {status ? <p className="mb-4 text-[13px] text-danger">{status}</p> : null}
-        {loading ? <p className="font-mono text-sm text-muted">{t('common.loading')}</p> : null}
 
-        {!loading && kinds.length ? (
+        {importing ? (
+          <ImportPanel
+            productId={productId}
+            targetLabel={currentProduct ? currentProduct.name : t('knowledge.product.general')}
+            onCancel={() => setImporting(false)}
+            onDone={(message) => {
+              setImporting(false);
+              setNotice(message);
+              setRevision((value) => value + 1);
+              void loadProducts();
+            }}
+          />
+        ) : null}
+
+        {!importing && loading ? <p className="font-mono text-sm text-muted">{t('common.loading')}</p> : null}
+
+        {!importing && !loading && kinds.length ? (
           <div className="grid gap-5 lg:grid-cols-[260px_minmax(0,1fr)]">
             {/* Sticky under the page header on wide screens, with its own scroll
                 once the list outgrows the viewport — eight kinds fit today, but
@@ -412,6 +459,7 @@ function PlaybookDocs() {
                   {tab === 'obrolan' ? (
                     <ChatPanel
                       kind={doc.kind}
+                      productId={productId}
                       interview={doc.interview || []}
                       onCompiled={() => void openDoc(doc.kind)}
                     />

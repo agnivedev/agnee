@@ -46,7 +46,7 @@ DECLARE
   -- Naikkan stempelnya setiap kali menyunting isi playbook di berkas ini.
   -- scripts/check-playbook-stamps.js menggagalkan CI kalau berkasnya berubah
   -- tapi stempelnya tertinggal.
-  -- seed_content_sha: 93ba80aa59ca4daefb83ef4c75eaa7c847e33592199af9507886e58115d27774
+  -- seed_content_sha: d732fd5d8aa258314dc74b8cc475483afbe755053a955ceae080b5eec6e18208
   seed_written_at CONSTANT TIMESTAMPTZ := '2026-09-17'::timestamptz;
 BEGIN
   SELECT id INTO co FROM companies WHERE slug = 'tradersmastermind';
@@ -572,7 +572,7 @@ $md$
     -- Dokumen yang disunting di database SETELAH berkas ini ditulis tidak
     -- boleh ditimpa: seed adalah alat pemulihan, bukan alat pemundur.
     SELECT updated_at INTO db_updated FROM playbook_docs
-      WHERE company_id = co AND kind = kinds[i];
+      WHERE company_id = co AND kind = kinds[i] AND product_id IS NULL;
     IF db_updated IS NOT NULL AND db_updated > seed_written_at THEN
       RAISE NOTICE 'playbook % lebih baru di database (% > %) — dilewati; tarik dulu dengan scripts/export-playbooks.js',
         kinds[i], db_updated, seed_written_at;
@@ -586,7 +586,7 @@ $md$
     -- perubahan isi, bukan hitungan berapa kali skrip dijalankan.
     INSERT INTO playbook_docs (company_id, kind, content_md)
     VALUES (co, kinds[i], bodies[i])
-    ON CONFLICT (company_id, kind) DO UPDATE
+    ON CONFLICT (company_id, product_id, kind) DO UPDATE
       SET content_md = EXCLUDED.content_md,
           version = playbook_docs.version + 1,
           updated_at = NOW()

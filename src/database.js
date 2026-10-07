@@ -815,7 +815,7 @@ class Database {
              ai_message_limit AS "aiMessageLimit", ai_message_count AS "aiMessageCount",
              ai_count_reset_at AS "aiCountResetAt", max_users AS "maxUsers",
              max_playbooks AS "maxPlaybooks", max_whatsapp AS "maxWhatsapp", name, slug,
-             rotation_enabled AS "rotationEnabled",
+             rotation_enabled AS "rotationEnabled", ai_identity AS "aiIdentity",
              trial_ends_at AS "trialEndsAt",
              payment_method AS "paymentMethod", payment_link AS "paymentLink",
              bank_name AS "bankName", bank_account AS "bankAccount",
@@ -834,21 +834,27 @@ class Database {
    * ke company lain (lihat migrasi 033).
    */
   async getAiSettings(companyId) {
-    if (!this.enabled) return { enabled: true, modelChain: [] };
+    if (!this.enabled) return { enabled: true, modelChain: [], identity: 'team_member' };
     const result = await this.pool.query(
-      `SELECT ai_enabled AS "aiEnabled", ai_model_chain AS "aiModelChain" FROM companies WHERE id = $1`,
+      `SELECT ai_enabled AS "aiEnabled", ai_model_chain AS "aiModelChain", ai_identity AS "aiIdentity"
+       FROM companies WHERE id = $1`,
       [companyId],
     );
     const row = result.rows[0];
-    return { enabled: row ? row.aiEnabled !== false : true, modelChain: row?.aiModelChain || [] };
+    return {
+      enabled: row ? row.aiEnabled !== false : true,
+      modelChain: row?.aiModelChain || [],
+      identity: row?.aiIdentity || 'team_member',
+    };
   }
 
-  async setAiSettings(companyId, { enabled, modelChain }) {
+  async setAiSettings(companyId, { enabled, modelChain, identity }) {
     if (!this.enabled) return null;
     const sets = [];
     const values = [];
     if (typeof enabled === 'boolean') { values.push(enabled); sets.push(`ai_enabled = $${values.length}`); }
     if (Array.isArray(modelChain)) { values.push(modelChain); sets.push(`ai_model_chain = $${values.length}`); }
+    if (identity === 'team_member' || identity === 'chatbot') { values.push(identity); sets.push(`ai_identity = $${values.length}`); }
     if (!sets.length) return this.getAiSettings(companyId);
     values.push(companyId);
     await this.pool.query(`UPDATE companies SET ${sets.join(', ')} WHERE id = $${values.length}`, values);

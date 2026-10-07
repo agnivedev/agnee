@@ -16,6 +16,7 @@ export function AiSettingsSection() {
   const { t } = useI18n();
   const confirm = useConfirm();
   const [enabled, setEnabled] = useState(false);
+  const [identity, setIdentity] = useState<'team_member' | 'chatbot'>('team_member');
   const [chain, setChain] = useState<string[]>(Array(MODEL_SLOT_COUNT).fill(''));
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState('');
@@ -25,9 +26,10 @@ export function AiSettingsSection() {
   const { saved, flash } = useSavedFlag();
 
   useEffect(() => {
-    void api<{ enabled: boolean; effective?: boolean; reason?: string | null; modelChain: string[]; defaultModel: string }>('/v1/admin/ai-settings')
+    void api<{ enabled: boolean; effective?: boolean; reason?: string | null; modelChain: string[]; identity?: 'team_member' | 'chatbot'; defaultModel: string }>('/v1/admin/ai-settings')
       .then((data) => {
         setEnabled(data.enabled);
+        setIdentity(data.identity === 'chatbot' ? 'chatbot' : 'team_member');
         setBlockedReason(data.enabled && data.effective === false ? data.reason || 'off' : null);
         // An empty chain still shows the default in the primary slot, so the
         // page never implies "no model configured" when one is in use.
@@ -42,7 +44,7 @@ export function AiSettingsSection() {
     try {
       await api('/v1/admin/ai-settings', {
         method: 'PATCH',
-        body: { enabled, modelChain: chain.filter(Boolean) },
+        body: { enabled, modelChain: chain.filter(Boolean), identity },
       });
       flash();
     } catch (error) {
@@ -79,6 +81,26 @@ export function AiSettingsSection() {
           {t(blockedReason === 'suspended' ? 'admin.aiBlockedSuspended' : 'admin.aiBlockedPlatform')}
         </p>
       ) : null}
+
+      <fieldset className="mb-5 grid gap-2 border-0 p-0">
+        <legend className="mb-1 p-0 text-[13px] font-semibold">{t('ai.identity.title')}</legend>
+        {(['team_member', 'chatbot'] as const).map((option) => (
+          <label key={option} className="flex items-start gap-2.5 text-[13px]">
+            <input
+              type="radio"
+              name="aiIdentity"
+              value={option}
+              checked={identity === option}
+              onChange={() => setIdentity(option)}
+              className="mt-0.5 size-4 accent-green"
+            />
+            <span className="grid gap-0.5">
+              <strong>{t(`ai.identity.${option}`)}</strong>
+              <small className="text-[11px] text-muted">{t(`ai.identity.${option}.hint`)}</small>
+            </span>
+          </label>
+        ))}
+      </fieldset>
 
       <div className="grid gap-2">
         {chain.map((value, index) => {

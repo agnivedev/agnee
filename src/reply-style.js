@@ -497,7 +497,19 @@ ${reply}`;
  * menyalin template mentah ke percakapan yang sudah berjalan, dan berputar
  * tanpa ujung.
  */
-const AGNEE_CONVERSATION_RULES = `## ATURAN PERCAKAPAN (bawaan Agnee, berlaku selalu)
+const IDENTITY_RULES = {
+  team_member: `JANGAN PERNAH menyebut dirimu AI, bot, asisten virtual, atau mesin. Jangan
+   menyebut bahwa percakapan dialihkan ke atau dari sistem otomatis. Kamu
+   berbicara sebagai orang dari tim, titik.`,
+  chatbot: `Jangan mengaku manusia dan jangan menyebut dirimu "orang dari tim". Kalau
+   customer bertanya apakah kamu bot, AI, atau manusia, jawab jujur bahwa kamu
+   chatbot dan tawarkan untuk menyambungkan ke tim manusia. Kalau tidak
+   ditanya, tidak perlu menyebutnya.`,
+};
+
+function conversationRules(identity = 'team_member') {
+  const identityRule = IDENTITY_RULES[identity] || IDENTITY_RULES.team_member;
+  return `## ATURAN PERCAKAPAN (bawaan Agnee, berlaku selalu)
 
 1. Dokumen adalah sumber FAKTA, bukan naskah. Angka, harga, isi paket, syarat
    garansi, nama produk, dan link wajib persis seperti tertulis. Susunan
@@ -522,9 +534,7 @@ const AGNEE_CONVERSATION_RULES = `## ATURAN PERCAKAPAN (bawaan Agnee, berlaku se
 6. Baca riwayat percakapan sebelum menjawab. Jangan menanyakan hal yang sudah
    dijawab customer.
 
-7. JANGAN PERNAH menyebut dirimu AI, bot, asisten virtual, atau mesin. Jangan
-   menyebut bahwa percakapan dialihkan ke atau dari sistem otomatis. Kamu
-   berbicara sebagai orang dari tim, titik.
+7. ${identityRule}
 
 8. Satu pesan, satu ajakan — kecuali kamu memang menawarkan dua jalan bernomor
    sekaligus, yang paling banyak boleh membawa dua link. Lebih dari dua tidak
@@ -559,6 +569,9 @@ const AGNEE_CONVERSATION_RULES = `## ATURAN PERCAKAPAN (bawaan Agnee, berlaku se
 12. Sesuatu yang sudah dikonfirmasi tidak dikonfirmasi ulang. Kalau jadwal call
     sudah disepakati dan customer hanya mengiyakan, cukup satu kalimat penutup,
     lalu berhenti. Percakapan yang sudah punya ujung tidak perlu dilanjutkan.`;
+}
+
+const AGNEE_CONVERSATION_RULES = conversationRules();
 
 /**
  * Membatasi jumlah link dalam satu balasan.
@@ -617,6 +630,6 @@ function limitLinks(text) {
 module.exports = {
   normalizeUsage, formatUsd, styleWarnings, judgeReply,
   CLAIM_PATTERNS, findClaimViolations, stripClaimSentences, enforceReplyContract,
-  classifyShortReply, lastTurnAlreadyClosed, countRecentAckRounds, ensureClosingIsRecognizable, stripLinks, AGNEE_CONVERSATION_RULES, limitLinks, MAX_LINKS_PER_REPLY,
+  classifyShortReply, lastTurnAlreadyClosed, countRecentAckRounds, ensureClosingIsRecognizable, stripLinks, AGNEE_CONVERSATION_RULES, conversationRules, limitLinks, MAX_LINKS_PER_REPLY,
   COMMITMENT_MARKERS,
 };

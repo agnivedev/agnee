@@ -17,7 +17,7 @@ const KnowledgeBase = require('./knowledge-loader.js');
 const LlmService = require('./llm-service.js');
 const {
   normalizeUsage, styleWarnings, judgeReply, enforceReplyContract,
-  classifyShortReply, countRecentAckRounds, ensureClosingIsRecognizable, stripLinks, AGNEE_CONVERSATION_RULES, limitLinks,
+  classifyShortReply, countRecentAckRounds, ensureClosingIsRecognizable, stripLinks, conversationRules, limitLinks,
 } = require('./reply-style.js');
 const { FollowUpScheduler, decide: followUpDecide, withManualGap } = require('./follow-up.js');
 const onedrive = require('./onedrive-sync.js');
@@ -1032,7 +1032,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan produk (m
       // milik playbook di atas. Ditaruh paling akhir supaya paling dekat dengan
       // pesan customer — instruksi di ujung prompt lebih konsisten dipatuhi
       // daripada yang terkubur di tengah.
-      AGNEE_CONVERSATION_RULES,
+      conversationRules(companyConfig?.aiIdentity),
     ].filter(Boolean).join('\n\n');
 
     return {
@@ -3207,6 +3207,7 @@ ${thread || '(belum ada)'}${hubContext}`,
       effective: effective.enabled,
       reason: effective.reason,
       modelChain: effective.modelChain,
+      identity: raw?.identity || 'team_member',
       defaultModel: config.openrouterModel,
     };
   });
@@ -3223,6 +3224,7 @@ ${thread || '(belum ada)'}${hubContext}`,
             maxItems: 5,
             items: { type: 'string', minLength: 1, maxLength: 200 },
           },
+          identity: { type: 'string', enum: ['team_member', 'chatbot'] },
         },
       },
     },
@@ -3236,8 +3238,9 @@ ${thread || '(belum ada)'}${hubContext}`,
     const patch = {};
     if (typeof request.body.enabled === 'boolean') patch.enabled = request.body.enabled;
     if (Array.isArray(request.body.modelChain)) patch.modelChain = request.body.modelChain.filter(Boolean);
+    if (request.body.identity) patch.identity = request.body.identity;
     const settings = await database.setAiSettings(request.agneeSession.companyId, patch);
-    return { ok: true, enabled: settings.enabled, modelChain: settings.modelChain };
+    return { ok: true, enabled: settings.enabled, modelChain: settings.modelChain, identity: settings.identity };
   });
 
   // ── /superhuman: konsol platform Agnee ────────────────────────────────────

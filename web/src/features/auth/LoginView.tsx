@@ -10,7 +10,9 @@ type Plan = 'personal' | 'company';
 
 export function LoginView({ onAuthenticated }: { onAuthenticated: () => void }) {
   const { t } = useI18n();
-  const [mode, setMode] = useState<Mode>('login');
+  // Tombol "Coba Gratis" di landing membawa ?signup=1 — langsung ke form daftar.
+  const [mode, setMode] = useState<Mode>(() =>
+    new URLSearchParams(window.location.search).get('signup') === '1' ? 'signup' : 'login');
 
   return (
     <main className="grid min-h-dvh grid-rows-[auto_1fr] bg-ink lg:grid-cols-[minmax(0,1.35fr)_minmax(390px,.65fr)] lg:grid-rows-1">

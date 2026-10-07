@@ -1,0 +1,16 @@
+{
+  "company": "beweix-digital",
+  "umum": "umum.md",
+  "produk": [
+    {
+      "name": "BeweiX AI CGI",
+      "file": "beweix-ai-cgi.md",
+      "description": "Produksi visual dan video: product CGI, animasi 3D, DVC dan brand film, VFX, explainer, karakter dan maskot, visual event, videotron."
+    },
+    {
+      "name": "Bewei Express",
+      "file": "bewei-express.md",
+      "description": "Peninjauan performa iklan Meta dan Google: creative, penawaran, halaman tujuan, tracking, kualitas lead dan follow-up penjualan."
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 'use strict';
 
-const { sendCloudApiText, verifyCloudApiCredentials } = require('./cloud-api-sender.js');
+const { sendCloudApiText, sendCloudApiTyping, verifyCloudApiCredentials } = require('./cloud-api-sender.js');
 
 /**
  * Thin orchestration around a company's WhatsApp Cloud API credentials and
@@ -68,6 +68,15 @@ class CloudApiManager {
    */
   async attachInbound(companyId, chatId, connectionId) {
     return this.database.assignCloudChatNumber(companyId, chatId, connectionId);
+  }
+
+  /** Indikator mengetik lewat nomor yang menerima pesan itu (percakapan sudah menempel ke satu nomor). */
+  async sendTyping(companyId, chatId, inboundMessageId) {
+    const connection = await this.pickConnectionForChat(companyId, chatId);
+    if (!connection) throw new Error('Company has no WhatsApp Cloud API connection configured');
+    return sendCloudApiTyping({
+      phoneNumberId: connection.phoneNumberId, accessToken: connection.accessToken, messageId: inboundMessageId,
+    });
   }
 
   async sendText(companyId, chatId, text) {

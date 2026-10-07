@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { createReplyPacer, normalizeSettings, pickDelayMs, DEFAULTS } = require('../src/reply-delay');
+const { createReplyPacer, normalizeSettings, pickDelayMs, typingDurationMs, DEFAULTS, TYPING } = require('../src/reply-delay');
 
 const RANGE = { minMs: 5000, maxMs: 60000 };
 
@@ -199,4 +199,110 @@ test('antrean bersih setelah semua selesai', async () => {
   const h = harness({ settings: { replyDelayEnabled: false } });
   await Promise.all([run(h, 'a'), run(h, 'a'), run(h, 'b')]);
   assert.equal(h.pacer.pendingChats(), 0);
+});
+
+// ── indikator "sedang mengetik" ──────────────────────────────────────────
+
+/** Satu garis waktu: tidur, nyala, padam, kirim — urutannya yang diuji. */
+function timeline({ delaySeconds, text, enabled = true, elapsedMs = 0, typing = 'ok', stillValid }) {
+  const events = [];
+  const pacer = createReplyPacer({
+    sleep: async (ms) => { events.push(`sleep:${ms}`); },
+    now: () => elapsedMs, random: () => 0,
+  });
+  const hooks = typing === 'none' ? undefined : {
+    start: async () => { events.push('start'); if (typing === 'start-gagal') throw new Error('Meta menolak'); },
+    stop: async () => { events.push('stop'); if (typing === 'stop-gagal') throw new Error('gagal padam'); },
+  };
+  const result = pacer.run('a', 0, {
+    settings: () => ({ replyDelayEnabled: enabled, replyDelayMinSeconds: delaySeconds, replyDelayMaxSeconds: delaySeconds }),
+    produce: async () => ({ text }),
+    send: async () => { events.push('send'); },
+    typing: hooks,
+    stillValid,
+  });
+  return result.then((r) => ({ events, result: r }));
+}
+
+test('mengetik muncul di BAGIAN AKHIR jeda, lalu balasan keluar', async () => {
+  // 12 dtk jeda, 100 karakter -> 6 dtk mengetik, 6 dtk diam dulu.
+  const { events } = await timeline({ delaySeconds: 12, text: 'x'.repeat(100) });
+  assert.deepEqual(events, ['sleep:6000', 'start', 'sleep:6000', 'stop', 'send']);
+});
+
+test('balasan panjang dibatasi 20 detik mengetik, di bawah batas 25 detik WhatsApp', async () => {
+  const { events } = await timeline({ delaySeconds: 60, text: 'x'.repeat(1000) });
+  assert.deepEqual(events, ['sleep:40000', 'start', 'sleep:20000', 'stop', 'send']);
+  assert.ok(TYPING.maxMs < 25_000, 'harus di bawah umur indikator di WhatsApp');
+});
+
+test('balasan sangat pendek tetap mengetik selama batas minimum', async () => {
+  const { events } = await timeline({ delaySeconds: 12, text: 'oke' });
+  assert.deepEqual(events, ['sleep:10500', 'start', 'sleep:1500', 'stop', 'send']);
+});
+
+test('sisa jeda lebih pendek dari balasan: mengetik sepanjang sisa, tanpa diam dulu', async () => {
+  const { events } = await timeline({ delaySeconds: 4, text: 'x'.repeat(500) });
+  assert.deepEqual(events, ['start', 'sleep:4000', 'stop', 'send']);
+});
+
+test('sisa jeda terlalu pendek untuk layak: tidak ada kedipan mengetik', async () => {
+  const { events } = await timeline({ delaySeconds: 1, text: 'x'.repeat(100) });
+  assert.deepEqual(events, ['sleep:1000', 'send']);
+});
+
+test('jeda sudah terlampaui (AI lama menyusun): langsung kirim, tanpa mengetik', async () => {
+  const { events } = await timeline({ delaySeconds: 5, text: 'x'.repeat(100), elapsedMs: 9000 });
+  assert.deepEqual(events, ['send']);
+});
+
+test('jeda dimatikan: tidak ada mengetik sama sekali', async () => {
+  const { events } = await timeline({ delaySeconds: 12, text: 'x'.repeat(100), enabled: false });
+  assert.deepEqual(events, ['send']);
+});
+
+test('tanpa pengait mengetik: perilaku sama persis seperti sebelumnya', async () => {
+  const { events } = await timeline({ delaySeconds: 12, text: 'x'.repeat(100), typing: 'none' });
+  assert.deepEqual(events, ['sleep:12000', 'send']);
+});
+
+test('indikator gagal menyala: balasan tetap terkirim', async () => {
+  const { events, result } = await timeline({ delaySeconds: 12, text: 'x'.repeat(100), typing: 'start-gagal' });
+  assert.equal(result.sent, true);
+  assert.equal(events.at(-1), 'send');
+});
+
+test('indikator gagal padam: balasan tetap terkirim', async () => {
+  const { events, result } = await timeline({ delaySeconds: 12, text: 'x'.repeat(100), typing: 'stop-gagal' });
+  assert.equal(result.sent, true);
+  assert.equal(events.at(-1), 'send');
+});
+
+test('durasi mengetik: sebanding panjang balasan, dijepit, dan dipotong oleh sisa jeda', () => {
+  assert.equal(typingDurationMs(100, 99_000), 6000);           // 100 x 60 ms
+  assert.equal(typingDurationMs(1, 99_000), TYPING.minMs);     // minimum
+  assert.equal(typingDurationMs(5000, 99_000), TYPING.maxMs);  // maksimum
+  assert.equal(typingDurationMs(100, 3000), 3000);             // dipotong sisa jeda
+  assert.equal(typingDurationMs(100, 1000), 0);                // sisa < minimum: tak layak
+  assert.equal(typingDurationMs(0, 99_000), TYPING.minMs);     // teks kosong
+});
+
+test('agent mengambil alih selama MASA DIAM: indikator tidak pernah menyala untuk balasan yang pasti dibuang', async () => {
+  // Pemeriksaan pertama (sebelum menyala) sudah gagal.
+  const { events, result } = await timeline({
+    delaySeconds: 12, text: 'x'.repeat(100), stillValid: async () => false,
+  });
+  assert.equal(result.sent, false);
+  assert.ok(!events.includes('start'), 'indikator menyala padahal balasan sudah pasti dibuang');
+});
+
+test('agent mengambil alih SETELAH indikator menyala: dipadamkan lalu dibuang', async () => {
+  let calls = 0;
+  const { events, result } = await timeline({
+    delaySeconds: 12, text: 'x'.repeat(100),
+    // Sah saat akan menyalakan indikator, tidak sah setelah selesai mengetik.
+    stillValid: async () => { calls += 1; return calls === 1; },
+  });
+  assert.equal(result.sent, false);
+  assert.deepEqual(events, ['sleep:6000', 'start', 'sleep:6000', 'stop']);
 });

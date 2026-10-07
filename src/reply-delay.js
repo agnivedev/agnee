@@ -34,6 +34,18 @@ const SKEW = 3;
 
 const DEFAULTS = Object.freeze({ enabled: true, minSeconds: 5, maxSeconds: 60 });
 
+/**
+ * Indikator "sedang mengetik" hanya muncul di BAGIAN AKHIR jeda, bukan
+ * sepanjang jeda. Empat puluh detik berturut-turut "mengetik" terlihat janggal,
+ * dan WhatsApp sendiri memadamkannya di 25 detik (kedua provider). Dengan
+ * batas 20 detik, satu kali nyalakan cukup — tidak perlu loop penyegar yang
+ * bisa tertinggal menyala kalau prosesnya mati.
+ *
+ * Lamanya mengikuti panjang balasan: orang mengetik balasan panjang lebih
+ * lama daripada "oke".
+ */
+const TYPING = Object.freeze({ minMs: 1500, maxMs: 20_000, msPerChar: 60 });
+
 // Batas yang sama dengan CHECK di migrasi 047. Dipasang lagi di sini karena
 // nilai bisa datang dari baris lama atau jalur yang tidak melewati API.
 const LIMITS = Object.freeze({ minSecondsMax: 120, maxSecondsMax: 300 });
@@ -58,6 +70,23 @@ function normalizeSettings(raw) {
 function pickDelayMs({ minMs, maxMs }, random = Math.random) {
   if (maxMs <= minMs) return minMs;
   return Math.round(minMs + (maxMs - minMs) * random() ** SKEW);
+}
+
+/**
+ * Berapa lama indikator mengetik ditampilkan.
+ * @param textLength  panjang balasan
+ * @param availableMs sisa jeda yang masih harus ditunggu
+ * @returns 0 kalau sisa jedanya terlalu pendek untuk layak ditampilkan
+ */
+function typingDurationMs(textLength, availableMs) {
+  const wanted = Math.min(Math.max(textLength * TYPING.msPerChar, TYPING.minMs), TYPING.maxMs);
+  const shown = Math.min(wanted, availableMs);
+  return shown >= TYPING.minMs ? Math.round(shown) : 0;
+}
+
+/** Indikator itu kosmetik: gagalnya tidak boleh menggagalkan atau menunda balasan. */
+async function bestEffort(fn) {
+  try { await fn?.(); } catch { /* sengaja ditelan */ }
 }
 
 function sleepFor(ms) {
@@ -92,9 +121,10 @@ function createReplyPacer({
    * @param opts.send       async (muatan) => void
    * @param opts.snapshot   async (muatan) => keadaan chat sesaat setelah balasan siap
    * @param opts.stillValid async (snapshot) => false kalau balasan harus dibuang
+   * @param opts.typing     { start, stop } indikator mengetik; opsional dan kosmetik
    * @returns {Promise<{sent: boolean, reason?: string, delayMs?: number, waitedMs?: number}>}
    */
-  async function run(key, receivedAt, { settings, produce, send, snapshot, stillValid }) {
+  async function run(key, receivedAt, { settings, produce, send, snapshot, stillValid, typing }) {
     const previous = tails.get(key) || Promise.resolve();
     let release;
     const mine = new Promise((resolve) => { release = resolve; });
@@ -111,18 +141,38 @@ function createReplyPacer({
 
       let delayMs = 0;
       let waitedMs = 0;
+      const valid = () => !stillValid || stillValid(before, payload);
+      const discard = () => {
+        onEvent({ type: 'dibuang', key, delayMs });
+        return { sent: false, reason: 'chat-berubah', delayMs, waitedMs };
+      };
       if (config.enabled) {
         delayMs = pickDelayMs(config, random);
         // Yang sudah terpakai sejak pesan masuk (menyusun balasan, menunggu
         // balasan sebelumnya) dihitung sebagai bagian dari jeda.
         waitedMs = Math.max(0, delayMs - (now() - receivedAt));
-        if (waitedMs > 0) await sleep(waitedMs);
+        if (waitedMs > 0) {
+          const typingMs = typing ? typingDurationMs(String(payload?.text ?? '').length, waitedMs) : 0;
+          if (typingMs > 0) {
+            // Diam dulu, lalu "mengetik" sampai balasan keluar.
+            if (waitedMs - typingMs > 0) await sleep(waitedMs - typingMs);
+            // Agent bisa mengambil alih selama masa diam. Menyalakan indikator
+            // untuk balasan yang sudah pasti dibuang berarti customer melihat
+            // "mengetik…" dari bot yang sudah digantikan.
+            if (!(await valid())) return discard();
+            await bestEffort(typing.start);
+            await sleep(typingMs);
+            // Dipadamkan SEBELUM pemeriksaan di bawah: balasan yang dibatalkan
+            // karena agent mengambil alih tidak boleh meninggalkan indikator
+            // yang menggantung.
+            await bestEffort(typing.stop);
+          } else {
+            await sleep(waitedMs);
+          }
+        }
       }
 
-      if (stillValid && !(await stillValid(before, payload))) {
-        onEvent({ type: 'dibuang', key, delayMs });
-        return { sent: false, reason: 'chat-berubah', delayMs, waitedMs };
-      }
+      if (!(await valid())) return discard();
 
       await send(payload);
       onEvent({ type: 'terkirim', key, delayMs, waitedMs });
@@ -138,4 +188,4 @@ function createReplyPacer({
   return { run, pendingChats: () => tails.size };
 }
 
-module.exports = { createReplyPacer, normalizeSettings, pickDelayMs, DEFAULTS, LIMITS, SKEW };
+module.exports = { createReplyPacer, normalizeSettings, pickDelayMs, typingDurationMs, DEFAULTS, LIMITS, SKEW, TYPING };

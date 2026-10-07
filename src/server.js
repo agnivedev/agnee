@@ -26,6 +26,7 @@ const gsheets = require('./gsheets-sync.js');
 const { HUB_REPLY_WORKING_DAYS, addWorkingDays, workingDaysSince } = require('./hub-followup.js');
 const mayarSync = require('./mayar-sync.js');
 const { createReplyPacer } = require('./reply-delay.js');
+const { createTypingHooks } = require('./typing-indicator.js');
 const { buildXlsx } = require('./xlsx-writer.js');
 const Database = require('./database.js');
 const { extractPlaybookText } = require('./playbook-extractor.js');
@@ -860,7 +861,7 @@ async function buildApp(overrides = {}) {
       const baru = await database.recordBroadcastOptOut(companyId, message.from, String(message.body).trim().slice(0, 40))
         .catch((error) => { app.log.warn({ err: error }, 'Permintaan berhenti broadcast tidak tercatat'); return false; });
       if (baru) {
-        await paceReply(companyId, message, receivedAt, {
+        await paceReply(companyId, message, receivedAt, meta, {
           produce: async () => ({
             kind: 'stop',
             text: 'Oke, kamu tidak akan menerima pesan broadcast dari kami lagi. Chat biasa tetap bisa kapan saja.',
@@ -869,7 +870,7 @@ async function buildApp(overrides = {}) {
       }
       return;
     }
-    await paceReply(companyId, message, receivedAt, {
+    await paceReply(companyId, message, receivedAt, meta, {
       produce: async () => {
         const autoReply = await generateAutoReply(message, companyId);
         if (autoReply) return { kind: 'ai', text: autoReply };
@@ -880,13 +881,32 @@ async function buildApp(overrides = {}) {
   }
 
   /**
+   * Indikator mengetik bersifat kosmetik, jadi kegagalannya tidak menggagalkan
+   * balasan — tapi juga tidak boleh diam selamanya. Kalau Meta menolak
+   * (versi API, izin), satu-satunya jejaknya adalah baris ini. Dibatasi satu
+   * per company per 10 menit supaya satu penolakan tidak membanjiri log.
+   */
+  const typingWarnedAt = new Map();
+  function warnTypingFailure(companyId, error) {
+    const last = typingWarnedAt.get(companyId) || 0;
+    if (Date.now() - last < 10 * 60_000) return;
+    typingWarnedAt.set(companyId, Date.now());
+    app.log.warn({ companyId, err: error?.message }, 'Indikator mengetik gagal ditampilkan (balasan tetap dikirim)');
+  }
+
+  /**
    * Mengirim satu balasan otomatis lewat pengatur jeda.
    *
    * Pencatatan (outbound_replies, follow-up) ikut di dalam `send`, jadi hanya
    * terjadi untuk balasan yang benar-benar keluar. Balasan yang dibuang karena
    * agent mengambil alih tidak boleh tercatat sebagai terkirim.
    */
-  function paceReply(companyId, message, receivedAt, { produce }) {
+  function paceReply(companyId, message, receivedAt, meta, { produce }) {
+    const typing = createTypingHooks({
+      provider: meta?.provider || 'whatsapp_web',
+      message,
+      sendCloudTyping: (inboundId) => cloudApiManager.sendTyping(companyId, message.from, inboundId),
+    });
     const readMode = async () => (await getRouting(message.from, companyId).catch(() => null))?.mode || 'ai';
     return replyPacer.run(`${companyId}:${message.from}`, receivedAt, {
       settings: () => (canCall('getReplyDelaySettings') ? database.getReplyDelaySettings(companyId) : null),
@@ -895,6 +915,10 @@ async function buildApp(overrides = {}) {
       // yang dibuang hanya balasan yang disiapkan SAAT chat masih dipegang AI.
       // Balasan serah-terima ("saya teruskan ke tim") disiapkan ketika chat
       // sudah pindah ke manusia, jadi tetap terkirim.
+      typing: typing && {
+        start: () => typing.start().catch((error) => warnTypingFailure(companyId, error)),
+        stop: () => typing.stop().catch(() => {}),
+      },
       snapshot: readMode,
       stillValid: async (modeBefore) => !(modeBefore !== 'human' && (await readMode()) === 'human'),
       send: async ({ kind, text }) => {

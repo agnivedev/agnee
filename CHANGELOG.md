@@ -2,6 +2,41 @@
 
 ### Added
 
+- **Indikator "sedang mengetik…" selama jeda.** Di bagian AKHIR jeda, bukan
+  sepanjang jeda: empat puluh detik berturut-turut "mengetik" terlihat janggal,
+  dan WhatsApp sendiri memadamkannya di 25 detik. Lamanya mengikuti panjang
+  balasan (60 ms per karakter, dijepit 1,5–20 detik, dan dipotong oleh sisa
+  jeda), jadi cukup satu kali nyalakan tanpa loop penyegar yang bisa tertinggal
+  menyala kalau prosesnya mati. Sisa jeda di bawah 1,5 detik tidak ditampilkan
+  (kedipan, bukan mengetik), dan jeda yang dimatikan tidak memunculkannya.
+  Kosmetik murni: gagal menyala tidak menunda atau menggagalkan balasan, dan
+  kegagalannya dicatat satu kali per company per 10 menit supaya tak membisu
+  selamanya tapi juga tak membanjiri log.
+  Dua jalur provider, mekanismenya jujur berbeda:
+  - **whatsapp-web.js** (satu-satunya yang dipakai produksi): `sendStateTyping()`
+    lalu `clearState()` di chat yang sama.
+  - **Cloud API**: satu panggilan `status:"read"` + `typing_indicator:{type:"text"}`
+    ke `/messages`, memakai id pesan MASUK. Bentuknya dicocokkan dengan
+    dokumentasi Meta, yang menyebut versi API v25.0, sedangkan pengiriman pesan
+    kita di v20.0 — jadi panggilan ini memakai versi terpisah dan pengiriman
+    pesan tidak ikut pindah. Meta tidak punya panggilan "padamkan"; padam saat
+    balasan terkirim atau setelah 25 detik.
+  Indikator dipadamkan SEBELUM pemeriksaan "agent mengambil alih", dan
+  pemeriksaan itu juga dilakukan SEBELUM menyalakannya: agent yang mengambil
+  alih di masa diam tidak menyisakan "mengetik…" dari bot yang sudah digantikan.
+  Diuji ujung-ke-ujung lewat webhook Cloud API bertanda tangan dengan stub di
+  sisi Meta: indikator muncul di akhir jeda memakai id pesan masuk, lamanya
+  = min(panjang balasan, sisa jeda); pengambilalihan di masa diam tidak
+  memunculkannya sama sekali; Meta menolak → balasan tetap keluar tepat waktu
+  dan satu peringatan tercatat; jeda dimatikan → tak ada indikator. Setiap
+  jaminan inti punya tes yang terbukti merah kalau jaminannya dirusak.
+  **Yang BELUM terbukti: jalur whatsapp-web.js belum pernah dijalankan di
+  WhatsApp sungguhan** (hanya dengan objek tiruan), dan itu jalur produksi.
+  Metodenya ada di v1.34.7 dan dokumentasinya menyebut 25 detik. Memeriksanya:
+  kirim satu pesan dari ponsel ke nomor yang terhubung dan lihat apakah
+  "mengetik…" muncul menjelang balasan; log `Indikator mengetik gagal
+  ditampilkan` berarti ia gagal diam-diam.
+
 - **Jeda sebelum setiap balasan otomatis**, default 5–60 detik, dipilih acak
   dan **lebih sering cepat**. Balasan yang selalu keluar dalam hitungan detik
   dengan kecepatan seragam terbaca sebagai mesin oleh customer, dan pola
@@ -139,11 +174,15 @@
   detik); jeda memperlebarnya sampai batas atas. Deploy di jam sepi atau
   setelah jam kerja mengurangi risikonya, dan baru layak dibangun antrean
   tahan-restart kalau ini terbukti memakan korban.
-- **Indikator "sedang mengetik…" belum ada selama jeda.** Customer melihat
-  chat diam 5–60 detik lalu balasan muncul. whatsapp-web.js punya
-  `sendStateTyping`; Cloud API punya indikator mengetik lewat endpoint
-  read-receipt. Belum dibangun — dan kalau dibangun, harus dihentikan saat
-  balasan dibatalkan karena agent mengambil alih.
+- **Cloud API: agent mengambil alih SAAT indikator sedang menyala.** Meta tak
+  punya panggilan "padamkan", jadi "mengetik…" bertahan sampai pesan agent
+  terkirim atau 25 detik (paling lama 20 detik dari penyalaan). whatsapp-web.js
+  tidak mengalami ini karena `clearState()`. Pengambilalihan di masa diam
+  sebelum indikator menyala sudah dicegah.
+- **Cloud API: mengetik juga menandai pesan customer SUDAH DIBACA** (centang
+  biru), karena Meta menyatukan keduanya dalam satu panggilan. Itu terjadi
+  beberapa detik setelah pesan masuk, sebelumnya tidak. Sudah disebut di teks
+  Settings; belum ada setelan untuk mematikannya terpisah dari jeda.
 - **Dua pesan beruntun masih menghasilkan dua balasan**, kini berurutan dan
   yang kedua membaca yang pertama, tapi tidak digabung jadi satu jawaban.
   Menggabungkannya (debounce: tunggu customer selesai mengetik) adalah

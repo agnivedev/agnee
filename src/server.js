@@ -18,7 +18,7 @@ const KnowledgeBase = require('./knowledge-loader.js');
 const LlmService = require('./llm-service.js');
 const {
   normalizeUsage, styleWarnings, judgeReply, enforceReplyContract,
-  classifyShortReply, countRecentAckRounds, ensureClosingIsRecognizable, stripLinks, conversationRules, limitLinks,
+  classifyShortReply, countRecentAckRounds, ensureClosingIsRecognizable, stripLinks, conversationRules, mediaMarker, limitLinks,
 } = require('./reply-style.js');
 const { FollowUpScheduler, decide: followUpDecide, withManualGap } = require('./follow-up.js');
 const onedrive = require('./onedrive-sync.js');
@@ -1213,10 +1213,10 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan produk (m
         const { messages: recent } = await getMessagesForUi(wa, message.from, 20);
         const currentId = inboundMessageId(message);
         conversationHistory = recent
-          .filter(m => !hiddenTypes.has(m.type) && m.body
+          .filter(m => !hiddenTypes.has(m.type) && (m.body || mediaMarker(m))
             && (!currentId || inboundMessageId(m) !== currentId))
           .slice(-10)
-          .map(m => ({ role: m.fromMe ? 'assistant' : 'user', content: m.body }));
+          .map(m => ({ role: m.fromMe ? 'assistant' : 'user', content: m.body || mediaMarker(m) }));
       }
       // wa null berarti Cloud API — pesannya tidak lewat client whatsapp-web.js
       // sama sekali, jadi tanpa riwayat di sini memang keadaan yang benar.

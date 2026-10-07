@@ -165,6 +165,20 @@
   yang sama dengan impor di Train AI. Default-nya simulasi, `--apply` menulis,
   dan jalan kedua tidak mengubah apa pun.
 
+### Fixed
+
+- **AI tidak tahu customer sudah mengirim foto.** Riwayat untuk model membuang
+  semua pesan tanpa teks, jadi foto, dokumen, dan pesan suara customer tidak
+  ada di matanya. Di chat uji Beweix 7 Okt playbook mengajak "boleh kirim
+  foto", customer mengirim foto, lalu AI menanyakan produknya lagi dan
+  menjawab "tidak menemukan informasi produk" saat ditegur. Sekarang pesan
+  customer yang hanya berisi berkas masuk riwayat sebagai penanda
+  (`[Customer mengirim foto]`), dan aturan bawaan nomor 13 meminta AI
+  mengakui berkas itu sudah masuk dan dilihat tim, bukan meminta ulang atau
+  berpura-pura tahu isinya. Berlaku untuk semua company. Playbook BeweiX AI
+  CGI diubah: nama produk diminta lewat tulisan, foto hanya tambahan.
+  Belum ditangani: foto tanpa teks apa pun tetap tidak memicu balasan.
+
 ### Outstanding
 
 - **Balasan yang sedang menunggu jeda hilang kalau server restart.** Jedanya

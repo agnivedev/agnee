@@ -568,10 +568,41 @@ function conversationRules(identity = 'team_member') {
 
 12. Sesuatu yang sudah dikonfirmasi tidak dikonfirmasi ulang. Kalau jadwal call
     sudah disepakati dan customer hanya mengiyakan, cukup satu kalimat penutup,
-    lalu berhenti. Percakapan yang sudah punya ujung tidak perlu dilanjutkan.`;
+    lalu berhenti. Percakapan yang sudah punya ujung tidak perlu dilanjutkan.
+
+13. Penanda seperti "[Customer mengirim foto]" di riwayat berarti customer
+    mengirim berkas yang TIDAK bisa kamu lihat atau buka. Anggap sudah
+    diterima: katakan fotonya sudah masuk dan akan dilihat tim. Jangan
+    meminta customer mengirim ulang, jangan berpura-pura tahu isinya, dan
+    jangan menanyakan lagi hal yang sudah dijawab lewat berkas itu. Yang kamu
+    butuhkan dari customer, minta lewat tulisan (misalnya nama produknya).`;
 }
 
 const AGNEE_CONVERSATION_RULES = conversationRules();
+
+const MEDIA_LABELS = {
+  image: 'foto', album: 'foto', video: 'video', document: 'dokumen',
+  audio: 'pesan suara', ptt: 'pesan suara',
+};
+
+/**
+ * Teks pengganti untuk pesan customer yang hanya berisi berkas.
+ *
+ * Riwayat untuk model dulu membuang semua pesan tanpa teks, jadi foto yang
+ * baru dikirim customer tidak ada di mata model. Ditemukan 2026-10-07 di chat
+ * uji Beweix: playbook mengajak "boleh kirim foto", customer mengirim foto,
+ * lalu AI menanyakan produknya lagi dan menjawab "tidak menemukan informasi
+ * produk" saat ditegur.
+ *
+ * Null untuk pesan yang punya teks sendiri atau bukan berkas yang perlu
+ * diketahui model (stiker, panggilan, pesan dihapus).
+ */
+function mediaMarker(message) {
+  if (!message || message.fromMe) return null;
+  if (String(message.body || '').trim()) return null;
+  const label = MEDIA_LABELS[message.type];
+  return label ? `[Customer mengirim ${label}]` : null;
+}
 
 /**
  * Membatasi jumlah link dalam satu balasan.
@@ -630,6 +661,6 @@ function limitLinks(text) {
 module.exports = {
   normalizeUsage, formatUsd, styleWarnings, judgeReply,
   CLAIM_PATTERNS, findClaimViolations, stripClaimSentences, enforceReplyContract,
-  classifyShortReply, lastTurnAlreadyClosed, countRecentAckRounds, ensureClosingIsRecognizable, stripLinks, AGNEE_CONVERSATION_RULES, conversationRules, limitLinks, MAX_LINKS_PER_REPLY,
+  classifyShortReply, lastTurnAlreadyClosed, countRecentAckRounds, ensureClosingIsRecognizable, stripLinks, AGNEE_CONVERSATION_RULES, conversationRules, mediaMarker, limitLinks, MAX_LINKS_PER_REPLY,
   COMMITMENT_MARKERS,
 };

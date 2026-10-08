@@ -127,6 +127,7 @@ function LoginForm({ onAuthenticated, onSwitch }: { onAuthenticated: () => void;
   const { t } = useI18n();
   const [error, setError] = useState<string>();
   const [pending, setPending] = useState(false);
+  const [rememberMe, setRememberMe] = useState(false);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -136,7 +137,7 @@ function LoginForm({ onAuthenticated, onSwitch }: { onAuthenticated: () => void;
     try {
       await api('/v1/auth/login', {
         method: 'POST',
-        body: { email: form.get('email'), password: form.get('password') },
+        body: { email: form.get('email'), password: form.get('password'), rememberMe },
       });
       onAuthenticated();
     } catch (caught) {
@@ -161,6 +162,15 @@ function LoginForm({ onAuthenticated, onSwitch }: { onAuthenticated: () => void;
         minLength={6}
         required
       />
+      <label className="-mt-1 flex cursor-pointer items-center gap-2.5 text-[13px]">
+        <input
+          type="checkbox"
+          checked={rememberMe}
+          onChange={(e) => setRememberMe(e.target.checked)}
+          className="size-4 accent-green"
+        />
+        <span>{t('login.rememberMe')}</span>
+      </label>
       <FormError>{error}</FormError>
       <SubmitButton pending={pending}>{t('login.submit')}</SubmitButton>
       <p className="m-0 font-mono text-[11px] leading-[1.5] text-muted">

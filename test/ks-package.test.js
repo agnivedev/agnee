@@ -77,3 +77,12 @@ test('paket yang rusak menggagalkan pemuatan, tidak ditebak', () => {
   fs.writeFileSync(path.join(tmp, 'simulation/scenarios.json'), JSON.stringify(scenarios));
   assert.throws(() => loadPackage(tmp), /jenis cek tidak dikenal/);
 });
+
+test('link dan akun dikenali dari teks biasa', () => {
+  const { extractReferences } = require('../src/ks-package');
+  assert.deepEqual(
+    extractReferences('Follow @contohusaha. Lalu buka https://contoh.example/a, atau *@lain_lagi*!'),
+    ['https://contoh.example/a', '@contohusaha', '@lain_lagi'],
+  );
+  assert.deepEqual(extractReferences('Hubungi saya di nama@email.com'), []);
+});

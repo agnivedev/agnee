@@ -1,5 +1,18 @@
 'use strict';
 
+/**
+ * Balasan yang berhenti di tengah kalimat tidak boleh sampai ke customer.
+ * OpenRouter mengembalikan isi setengah jadi dengan finish_reason "error"
+ * saat penyedia modelnya terputus, dan "length" saat batas token habis;
+ * keduanya dulu diterima begitu saja sebagai balasan sah.
+ */
+function assertComplete(finishReason, model) {
+  if (finishReason !== 'error' && finishReason !== 'length') return;
+  const error = new Error(`Reply cut off (${model}, finish_reason=${finishReason})`);
+  error.interrupted = finishReason === 'error';
+  throw error;
+}
+
 class LlmService {
   constructor(config = {}) {
     this.apiKey = config.apiKey || process.env.OPENROUTER_API_KEY;
@@ -59,6 +72,7 @@ class LlmService {
     const data = await response.json();
     const reply = data.choices?.[0]?.message?.content;
     if (!reply) throw new Error(`No reply content from ${model}`);
+    assertComplete(data.choices?.[0]?.finish_reason, model);
 
     if (this.onUsage) {
       try {
@@ -128,6 +142,7 @@ class LlmService {
       const calls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
       if (!calls.length) {
         if (!message.content) throw new Error(`No reply content from ${model}`);
+        assertComplete(data.choices?.[0]?.finish_reason, model);
         return { text: String(message.content).trim(), model, usage: total, toolCalls };
       }
 
@@ -171,13 +186,19 @@ class LlmService {
 
     const withTools = Array.isArray(context.tools) && context.tools.length > 0;
     for (const model of chain) {
-      try {
-        return withTools
-          ? await this._callModelWithTools(model, userMessage, context)
-          : await this._callModel(model, userMessage, context);
-      } catch (err) {
-        console.warn(`Model ${model} failed: ${err.message}${chain.length > 1 ? ', trying next...' : ''}`);
-        lastError = err;
+      for (let attempt = 1; attempt <= 2; attempt += 1) {
+        try {
+          return withTools
+            ? await this._callModelWithTools(model, userMessage, context)
+            : await this._callModel(model, userMessage, context);
+        } catch (err) {
+          lastError = err;
+          // Gangguan di tengah penyusunan balasan biasanya sesaat: satu kali
+          // ulang pada model yang sama sebelum pindah ke model berikutnya.
+          if (err.interrupted && attempt === 1) continue;
+          console.warn(`Model ${model} failed: ${err.message}${chain.length > 1 ? ', trying next...' : ''}`);
+          break;
+        }
       }
     }
 
@@ -203,7 +224,11 @@ class LlmService {
 
     // Add conversation history (if available)
     if (context.history && Array.isArray(context.history)) {
-      for (const msg of context.history.slice(-5)) {
+      // Lima pesan cukup untuk obrolan pendek. Template yang berjenjang (KS)
+      // butuh lebih panjang, supaya tingkat yang sudah ditolak tidak keluar dari
+      // jendela lalu ditawarkan lagi; pemanggil menaikkannya lewat historyLimit.
+      const limit = Number.isInteger(context.historyLimit) ? Math.min(Math.max(context.historyLimit, 1), 30) : 5;
+      for (const msg of context.history.slice(-limit)) {
         if (msg.role === 'user' || msg.role === 'assistant') {
           messages.push({
             role: msg.role,

@@ -101,3 +101,11 @@ test('giliran penolakan menunggu tingkatnya disebut, dengan batas kalimat pengis
   await run(mute, ['tolak-turun-tingkat']);
   assert.equal(sent.filter((m) => m === pkg.simulation.filler).length, pkg.simulation.maxFillers);
 });
+
+test('akun atau link yang salah ketik tertangkap', async () => {
+  const typo = goodBot({ onOffer: (t) => t.replace('@contohusaha', '@contoh_usaha') });
+  const result = await run(typo, ['tolak-semua-sampai-gratis']);
+  assert.ok(failedTypes(result).includes('tolak-semua-sampai-gratis:only_known_references'));
+  const invented = goodBot({ onOffer: (t) => `${t} Bayar di https://bayar.example/xyz` });
+  assert.ok(failedTypes(await run(invented, ['terima-tingkat-1'])).includes('terima-tingkat-1:only_known_references'));
+});

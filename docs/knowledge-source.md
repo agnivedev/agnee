@@ -57,6 +57,7 @@ Customer berskrip. Giliran bertanda `waitForTier` atau `refuses` baru dikirim se
 | `offer_order_ascending` | tingkat muncul berurutan, tidak melompat, satu per balasan |
 | `no_repeat_after_refusal` | tingkat yang ditolak tidak diulang, harganya tidak diulang di balasan penolakan |
 | `only_known_amounts` | semua angka rupiah di balasan ada di data penawaran |
+| `only_known_references` | semua link dan @akun di balasan ada di data penawaran atau ditulis customer sendiri |
 | `ends_without_chasing` | balasan terakhir tanpa pertanyaan, harga, atau link |
 | `rubric` | kriteria bahasa bebas, dinilai model; dilewati kalau tidak ada penilai |
 
@@ -64,13 +65,20 @@ Sebuah tingkat dianggap "disebut" kalau balasan memuat namanya atau harganya.
 
 ## Status
 
-Sudah ada: format paket, pemuat dan pemeriksa, validasi isian SK, penyusun prompt, pemain skenario dan semua cek, paket KS-01 Funneling Closing (6 skenario). Diuji dengan bot tiruan yang patuh dan lima bot tiruan yang melanggar.
+Sudah ada:
+
+- Format paket, pemuat dan pemeriksa, validasi isian SK, penyusun prompt, pemain skenario dan semua cek, paket KS-01 Funneling Closing (6 skenario).
+- Tabel `ks_installs` (migrasi 048) dan rute `/v1/ks/*`: katalog, pasang, simpan isian, simulasi (berjalan di latar belakang, kemajuannya bisa dibaca), aktifkan, lepas. Hanya supervisor.
+- Gerbang aktivasi: isian lengkap, dan simulasi terakhir lulus untuk isian yang sekarang. Mengubah isian mematikan paket dan membuang hasil simulasinya.
+- Paket aktif masuk prompt balasan nyata (`buildReplyContext`) dengan jendela riwayat lebih panjang (12 pesan, bukan 5). Kalau KS dan playbook company bertentangan soal urutan penawaran, template yang menang; persona, larangan, dan fakta playbook tetap berlaku.
+- Simulasi memakai jalur balasan yang sama dengan produksi (konteks company, kontrak keluaran, batas link) dan penilai `rubric` berbasis model.
+
+Hasil dengan model sungguhan (`google/gemini-2.5-flash`, 8 Oktober 2026): 4 dari 4 putaran lulus 6 dari 6 skenario, setelah dokumen alur dan larangan diperketat dua kali. Putaran pertama menangkap garansi "30 hari" yang dikarang, akun Instagram yang salah satu huruf, dan melompat ke tingkat 2. Catatan jujur: dokumen disetel terhadap skenario yang sama, jadi lulusnya belum membuktikan chat nyata. Satu model, empat putaran.
 
 Belum ada:
 
-1. Tabel di Agnee untuk paket terpasang dan isian SK, dan rute pasang/isi/lepas.
-2. Penyisipan prompt KS ke `buildReplyContext` dan aturan siapa yang menang kalau playbook company juga mengatur closing.
-3. Menjalankan simulasi dengan model sungguhan, termasuk penilai `rubric`.
-4. Layar di web untuk pasang, isi SK, dan lihat hasil simulasi.
-5. Sisi Expertz: API/MCP katalog. Backend Expertz belum ada (repo `be` belum berisi kode Expertz, dan `expertz.agnive.co` membalas 502 per 8 Oktober).
-6. Template lain: KS-02 B2B Closing barang, KS-C1 dan KS-C2 Complain.
+1. Layar di web untuk pasang, isi SK, dan lihat hasil simulasi.
+2. Sisi Expertz: backend Node (diputuskan 8 Oktober) dengan API/MCP katalog, lalu sumber `expertz` di `src/ks-source.js`. Sanitasi isi paket dari pihak ketiga wajib ada sebelum paket dari luar boleh masuk prompt.
+3. Template lain: KS-02 B2B Closing barang, KS-C1 dan KS-C2 Complain.
+4. Penjaga di jalur balasan nyata untuk link dan @akun yang tidak ada di data company. Sekarang hanya simulasi yang menangkapnya; satu huruf salah pada akun terlihat sekali di simulasi.
+5. Simulasi dijalankan ulang otomatis kalau model company diganti.

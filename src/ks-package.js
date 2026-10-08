@@ -12,6 +12,7 @@
  * keduanya.
  */
 
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 
@@ -94,7 +95,7 @@ function checkSchema(schema) {
 
 const CHECK_TYPES = new Set([
   'offer_mentioned_by', 'offer_not_mentioned', 'offer_order_ascending',
-  'no_repeat_after_refusal', 'only_known_amounts', 'ends_without_chasing', 'rubric',
+  'no_repeat_after_refusal', 'only_known_amounts', 'only_known_references', 'ends_without_chasing', 'rubric',
 ]);
 
 function checkSimulation(simulation) {
@@ -239,4 +240,32 @@ function parseAmounts(text) {
   return found;
 }
 
-module.exports = { loadPackage, validateSpecific, compileKsPrompt, parseAmounts, rupiah, RULES, CHECK_TYPES };
+/**
+ * Link dan @akun yang disebut di sebuah teks. Dipakai untuk menangkap rujukan
+ * yang dikarang atau salah ketik: satu huruf berbeda pada akun Instagram atau
+ * link pembayaran sudah cukup membuat customer pergi ke tempat yang salah.
+ */
+function extractReferences(text) {
+  const source = String(text || '');
+  const urls = [...source.matchAll(/https?:\/\/[^\s)>\]*]+/gi)].map((m) => m[0].replace(/[.,;:!?]+$/, ''));
+  const handles = [...source.replace(/https?:\/\/\S+/gi, ' ').matchAll(/(?<![\w.])@[A-Za-z0-9_][A-Za-z0-9_.]*/g)]
+    .map((m) => m[0].replace(/\.+$/, ''));
+  return [...urls, ...handles];
+}
+
+function canonical(value) {
+  if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
+  if (value && typeof value === 'object') {
+    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonical(value[key])}`).join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
+/** Sidik isian: dua isian yang sama menghasilkan sidik yang sama, urutan kunci tidak berpengaruh. */
+function specificHash(specific) {
+  return crypto.createHash('sha256').update(canonical(specific || {})).digest('hex').slice(0, 16);
+}
+
+module.exports = {
+  loadPackage, validateSpecific, compileKsPrompt, parseAmounts, extractReferences, rupiah, specificHash, RULES, CHECK_TYPES,
+};

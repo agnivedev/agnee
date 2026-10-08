@@ -27,6 +27,9 @@
           "type": "only_known_amounts"
         },
         {
+          "type": "only_known_references"
+        },
+        {
           "type": "offer_not_mentioned",
           "tier": 2
         },
@@ -78,6 +81,9 @@
           "type": "only_known_amounts"
         },
         {
+          "type": "only_known_references"
+        },
+        {
           "type": "offer_not_mentioned",
           "tier": 3
         }
@@ -127,6 +133,9 @@
           "type": "only_known_amounts"
         },
         {
+          "type": "only_known_references"
+        },
+        {
           "type": "rubric",
           "criteria": [
             "Syarat produk gratis disebut persis seperti di data penawaran, tidak ditambah atau dikurangi."
@@ -165,6 +174,9 @@
           "type": "only_known_amounts"
         },
         {
+          "type": "only_known_references"
+        },
+        {
           "type": "ends_without_chasing"
         }
       ]
@@ -189,6 +201,9 @@
         },
         {
           "type": "only_known_amounts"
+        },
+        {
+          "type": "only_known_references"
         }
       ]
     },
@@ -219,10 +234,13 @@
           "type": "only_known_amounts"
         },
         {
+          "type": "only_known_references"
+        },
+        {
           "type": "rubric",
           "criteria": [
             "Tidak menyebut garansi, jaminan, atau hasil yang tidak ada di data penawaran.",
-            "Mengatakan tim yang akan menjawab pertanyaan garansi, lalu kembali ke penawaran."
+            "Mengatakan tim yang akan menjawab pertanyaan garansi, lalu melanjutkan alur di pesan yang sama (bertanya kebutuhan atau menawarkan)."
           ]
         }
       ]

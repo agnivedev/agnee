@@ -11,6 +11,9 @@ const QRCode = require('qrcode');
 const { WhatsappManager } = require('./whatsapp-manager.js');
 const { putaranSla } = require('./sla');
 const broadcast = require('./broadcast');
+const { compileKsPrompt, validateSpecific, specificHash } = require('./ks-package');
+const { runPackageSimulation, makeLlmGrader } = require('./ks-simulation');
+const { builtinSource } = require('./ks-source');
 const { pilihNomorUntukPercakapanBaru } = require('./rotator');
 const { neutralizeFormula } = require('./formula-guard');
 const { CloudApiManager } = require('./cloud-api-manager.js');
@@ -375,6 +378,8 @@ function demoDataset() {
     pinned: { '6281200000001@c.us': ['d2'] },
   };
 }
+
+const KS_PRECEDENCE = 'Template percakapan di bawah mengatur ALUR closing. Persona, larangan, dan fakta di playbook perusahaan tetap berlaku; kalau keduanya bertentangan soal urutan penawaran atau kapan menawar, ikuti template.';
 
 async function buildApp(overrides = {}) {
   const config = loadConfig(overrides);
@@ -1064,7 +1069,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan produk (m
    * so what a supervisor tests is what a customer actually gets. Testing
    * against a different context than production is worse than not testing.
    */
-  async function buildReplyContext({ companyId, text, chatId = null, productId = null }) {
+  async function buildReplyContext({ companyId, text, chatId = null, productId = null, ks = null }) {
     const kb = await getKnowledgeBase(companyId);
     if (!kb.loaded) await kb.load().catch(() => {});
     const relevantFaqs = kb.findRelevantFaq(text || '');
@@ -1117,9 +1122,24 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan produk (m
       if (companyConfig.paymentNotes) paymentContext += `\n\nCatatan: ${companyConfig.paymentNotes}`;
     }
 
+    // `ks` memaksa paket tertentu dipakai (simulasi paket yang belum aktif);
+    // tanpa itu yang dibaca adalah paket aktif milik company ini.
+    const ksInstalls = ks || (dbLive && typeof database.listActiveKs === 'function'
+      ? await database.listActiveKs(companyId).catch(() => [])
+      : []);
+    const ksContext = ksInstalls.map((install) => {
+      try {
+        return compileKsPrompt(install.package, install.specific);
+      } catch (error) {
+        app.log.warn({ err: error, companyId, code: install.code }, 'Paket KS gagal disusun, dilewati');
+        return '';
+      }
+    }).filter(Boolean).join('\n\n');
+
     const hubTools = companyConfig?.hubToolsEnabled ? hubListingTools() : [];
     const contextSections = [
       playbookContext ? `## PLAYBOOK PERUSAHAAN INI (SUMBER UTAMA — prioritaskan di atas knowledge umum di atas)\n${playbookContext}` : '',
+      ksContext ? `${KS_PRECEDENCE}\n\n${ksContext}` : '',
       paymentContext,
       hubTools.length ? HUB_TOOLS_GUIDE : '',
       // Bentuk percakapannya milik Agnee dan sama untuk semua tenant; isinya
@@ -1133,6 +1153,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan produk (m
       kb,
       relevantFaqs,
       product,
+      ks: ksInstalls.length > 0,
       playbookContext,
       paymentContext,
       companyConfig,
@@ -1218,7 +1239,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan produk (m
         conversationHistory = recent
           .filter(m => !hiddenTypes.has(m.type) && (m.body || mediaMarker(m))
             && (!currentId || inboundMessageId(m) !== currentId))
-          .slice(-10)
+          .slice(ctx.ks ? -14 : -10)
           .map(m => ({ role: m.fromMe ? 'assistant' : 'user', content: m.body || mediaMarker(m) }));
       }
       // wa null berarti Cloud API — pesannya tidak lewat client whatsapp-web.js
@@ -1257,7 +1278,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan produk (m
         : `Customer membalas "${message.body}" lagi, dan kamu SUDAH berterima kasih di giliran sebelumnya.\n\nJangan berterima kasih lagi, jangan mengulang kalimat yang sudah kamu kirim, jangan bertanya apa pun, jangan menanyakan maksudnya, jangan menawarkan produk, jangan menyebut harga, jangan mengirim link.\n\nTulis paling banyak DUA kalimat pendek dengan persona kamu yang menambahkan satu keterangan BARU dan berguna tentang apa yang sudah disepakati — misalnya apa yang terjadi berikutnya atau apa yang bisa disiapkan. Ambil keterangannya dari playbook, jangan mengarang. Keluarkan HANYA kalimatnya.`;
 
       const lanjutan = await llmService.generateReply(perintah,
-        { systemPrompt: ctx.systemPrompt, history: conversationHistory, companyId, purpose: 'auto_reply', modelChain: companyAi.modelChain },
+        { systemPrompt: ctx.systemPrompt, history: conversationHistory, historyLimit: ctx.ks ? 12 : undefined, companyId, purpose: 'auto_reply', modelChain: companyAi.modelChain },
       ).catch(() => null);
       const teksLanjutan = stripLinks(lanjutan?.text || '');
       app.log.info({ companyId, chatId: message.from, ronde },
@@ -1295,6 +1316,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan produk (m
       relevantFaqs: ctx.relevantFaqs,
       leadState: ctx.leadState,
       history: conversationHistory,
+      historyLimit: ctx.ks ? 12 : undefined,
       companyId,
       purpose: 'auto_reply',
       modelChain: companyAi.modelChain,
@@ -3920,6 +3942,265 @@ Aturan:
    * Defaults to human-written and not yet graded. Supervisor-only, because it
    * exposes every agent's work, not just the caller's own.
    */
+  // ── Knowledge Source (KS): template percakapan terpasang ─────────────────
+  //
+  // Paket dibaca dari sumbernya (folder bawaan, nanti Expertz), disalin ke
+  // database company saat dipasang, dan dari situ saja dibaca balasan nyata.
+  // Aktif hanya setelah simulasi terakhir lulus untuk isian yang berlaku.
+
+  const ksSources = overrides.ksSources || [builtinSource()];
+  const ksJobs = new Map();
+  const ksRunUsage = new Map();
+  const KS_RUNS_PER_HOUR = 3;
+  const KS_MAX_SPECIFIC_BYTES = 50_000;
+
+  // Satu simulasi memanggil model puluhan kali, jadi diberi jatah sendiri di
+  // luar jatah Coach per jam.
+  function ksRunLimited(companyId) {
+    const now = Date.now();
+    const entry = ksRunUsage.get(companyId) || { count: 0, resetAt: now + COACH_WINDOW_MS };
+    if (now > entry.resetAt) { entry.count = 0; entry.resetAt = now + COACH_WINDOW_MS; }
+    entry.count += 1;
+    ksRunUsage.set(companyId, entry);
+    return entry.count > KS_RUNS_PER_HOUR;
+  }
+
+  function ksGuard(request, reply) {
+    if (!isSupervisor(request.agneeSession)) {
+      reply.code(403).send({ error: 'Hanya supervisor yang dapat mengelola template percakapan.' });
+      return false;
+    }
+    return requireCoachDb(reply);
+  }
+
+  /** Alasan sebuah paket belum boleh aktif, atau null kalau boleh. */
+  function ksBlockReason(install) {
+    const problems = validateSpecific(install.package.specificSchema, install.specific);
+    if (problems.length) return `Isian belum lengkap: ${problems.slice(0, 3).join('; ')}.`;
+    const simulation = install.lastSimulation;
+    if (!simulation || simulation.specificHash !== specificHash(install.specific)) {
+      return 'Jalankan simulasi untuk isian yang sekarang lebih dulu.';
+    }
+    if (simulation.failed > 0) return `Simulasi terakhir belum lulus: ${simulation.failed} skenario gagal.`;
+    return null;
+  }
+
+  function ksView(install) {
+    const { manifest, general, specificSchema, example } = install.package;
+    return {
+      id: install.id,
+      code: install.code,
+      name: manifest.name,
+      summary: manifest.summary || '',
+      version: install.version,
+      kind: install.kind,
+      source: install.source,
+      active: install.active,
+      general,
+      specificSchema,
+      example: example || null,
+      specific: install.specific,
+      problems: validateSpecific(specificSchema, install.specific),
+      simulation: install.lastSimulation || null,
+      blockedReason: ksBlockReason(install),
+      installedAt: install.installedAt,
+    };
+  }
+
+  async function ksFind(request, reply) {
+    const install = await database.getKsInstall(request.params.installId, request.agneeSession.companyId);
+    if (!install) {
+      reply.code(404).send({ error: 'Template tidak ditemukan.' });
+      return null;
+    }
+    return install;
+  }
+
+  const KS_PARAMS = {
+    type: 'object', required: ['installId'],
+    properties: { installId: { type: 'string', format: 'uuid' } },
+  };
+
+  app.get('/v1/ks/catalog', async (request, reply) => {
+    if (!ksGuard(request, reply)) return reply;
+    const installed = new Set((await database.listKsInstalls(request.agneeSession.companyId)).map((install) => install.code));
+    const packages = ksSources.flatMap((source) => source.list().map((pkg) => ({
+      ...pkg, source: source.id, installed: installed.has(pkg.code),
+    })));
+    return { packages };
+  });
+
+  app.get('/v1/ks/installs', async (request, reply) => {
+    if (!ksGuard(request, reply)) return reply;
+    const installs = await database.listKsInstalls(request.agneeSession.companyId);
+    return { installs: installs.map(ksView) };
+  });
+
+  app.post('/v1/ks/installs', {
+    schema: { body: { type: 'object', additionalProperties: false, required: ['code'], properties: {
+      code: { type: 'string', minLength: 3, maxLength: 80 },
+      source: { type: 'string', maxLength: 40 },
+    } } },
+  }, async (request, reply) => {
+    if (!ksGuard(request, reply)) return reply;
+    const { code, source } = request.body;
+    let found = null;
+    for (const candidate of ksSources) {
+      if (source && candidate.id !== source) continue;
+      const pkg = candidate.get(code);
+      if (pkg) { found = { pkg, source: candidate.id }; break; }
+    }
+    if (!found) return reply.code(404).send({ error: 'Paket template tidak ditemukan.' });
+    try {
+      const install = await database.createKsInstall({
+        code: found.pkg.manifest.code,
+        version: found.pkg.manifest.version,
+        kind: found.pkg.manifest.kind,
+        source: found.source,
+        pkg: found.pkg,
+      }, request.agneeSession.userId, request.agneeSession.companyId);
+      return reply.code(201).send({ install: ksView(install) });
+    } catch (error) {
+      if (error?.code === '23505') {
+        return reply.code(409).send({ error: `Template jenis ${found.pkg.manifest.kind} sudah terpasang. Lepas dulu yang lama.` });
+      }
+      throw error;
+    }
+  });
+
+  // Isian boleh disimpan belum lengkap supaya bisa dicicil. Yang menjaga
+  // pelanggan adalah gerbang aktivasi, bukan penyimpanan.
+  app.put('/v1/ks/installs/:installId/specific', {
+    schema: {
+      params: KS_PARAMS,
+      body: { type: 'object', required: ['specific'], properties: { specific: { type: 'object' } } },
+    },
+  }, async (request, reply) => {
+    if (!ksGuard(request, reply)) return reply;
+    if (JSON.stringify(request.body.specific).length > KS_MAX_SPECIFIC_BYTES) {
+      return reply.code(413).send({ error: 'Isian terlalu besar.' });
+    }
+    const install = await ksFind(request, reply);
+    if (!install) return reply;
+    const saved = await database.saveKsSpecific(install.id, request.body.specific, request.agneeSession.companyId);
+    return { install: ksView(saved) };
+  });
+
+  app.post('/v1/ks/installs/:installId/simulate', { schema: { params: KS_PARAMS } }, async (request, reply) => {
+    if (!ksGuard(request, reply)) return reply;
+    const companyId = request.agneeSession.companyId;
+    const install = await ksFind(request, reply);
+    if (!install) return reply;
+    const problems = validateSpecific(install.package.specificSchema, install.specific);
+    if (problems.length) {
+      return reply.code(400).send({ error: `Isian belum lengkap: ${problems.slice(0, 3).join('; ')}.`, problems });
+    }
+    const companyAi = await getCompanyAi(companyId);
+    if (!companyAi.enabled) return aiUnavailable(reply, companyAi);
+    const jobKey = `${companyId}:${install.id}`;
+    if (ksJobs.get(jobKey)?.status === 'running') {
+      return reply.code(409).send({ error: 'Simulasi sedang berjalan.', job: ksJobs.get(jobKey) });
+    }
+    if (ksRunLimited(companyId)) {
+      return reply.code(429).send({ error: `Simulasi paling banyak ${KS_RUNS_PER_HOUR} kali per jam.` });
+    }
+
+    const job = {
+      status: 'running', total: install.package.simulation.scenarios.length, done: 0, startedAt: new Date().toISOString(),
+    };
+    ksJobs.set(jobKey, job);
+
+    // Jalur balasan yang sama dengan Coach dan WhatsApp: konteks lengkap
+    // company, lalu kontrak keluaran dan batas link. Yang dinilai adalah yang
+    // akan diterima customer, bukan keluaran mentah model.
+    let model = null;
+    const generate = async ({ history, customerMessage }) => {
+      const ctx = await buildReplyContext({ companyId, text: customerMessage, ks: [install] });
+      const generated = await llmService.generateReply(customerMessage, {
+        systemPrompt: ctx.systemPrompt,
+        relevantFaqs: ctx.relevantFaqs,
+        leadState: ctx.leadState,
+        history,
+        historyLimit: 12,
+        companyId,
+        purpose: 'ks_simulate',
+        modelChain: companyAi.modelChain,
+        tools: ctx.tools,
+      });
+      model = generated?.model || model;
+      if (!generated?.text) return '';
+      const enforced = await enforceReplyContract(llmService, {
+        text: generated.text, systemPrompt: ctx.systemPrompt, userMessage: customerMessage, history,
+      });
+      return enforced ? limitLinks(enforced.text).text : '';
+    };
+
+    (async () => {
+      try {
+        const result = await runPackageSimulation({
+          pkg: install.package,
+          specific: install.specific,
+          systemPrompt: '',
+          generate,
+          grade: makeLlmGrader(llmService, { companyId, modelChain: companyAi.modelChain }),
+          onScenarioDone: () => { job.done += 1; },
+        });
+        await database.saveKsSimulation(install.id, {
+          at: new Date().toISOString(),
+          version: install.version,
+          specificHash: specificHash(install.specific),
+          model,
+          passed: result.passed,
+          failed: result.failed,
+          scenarios: result.scenarios,
+        }, companyId);
+        job.status = 'done';
+      } catch (error) {
+        app.log.error({ err: error, companyId, installId: install.id }, 'Simulasi KS gagal dijalankan');
+        job.status = 'failed';
+        job.error = 'Simulasi gagal dijalankan. Coba lagi sebentar lagi.';
+      }
+    })();
+
+    return reply.code(202).send({ job });
+  });
+
+  app.get('/v1/ks/installs/:installId/simulation', { schema: { params: KS_PARAMS } }, async (request, reply) => {
+    if (!ksGuard(request, reply)) return reply;
+    const install = await ksFind(request, reply);
+    if (!install) return reply;
+    return {
+      job: ksJobs.get(`${request.agneeSession.companyId}:${install.id}`) || null,
+      simulation: install.lastSimulation || null,
+      blockedReason: ksBlockReason(install),
+    };
+  });
+
+  app.post('/v1/ks/installs/:installId/activate', {
+    schema: {
+      params: KS_PARAMS,
+      body: { type: 'object', additionalProperties: false, required: ['active'], properties: { active: { type: 'boolean' } } },
+    },
+  }, async (request, reply) => {
+    if (!ksGuard(request, reply)) return reply;
+    const install = await ksFind(request, reply);
+    if (!install) return reply;
+    if (request.body.active) {
+      const reason = ksBlockReason(install);
+      if (reason) return reply.code(409).send({ error: reason });
+    }
+    const saved = await database.setKsActive(install.id, request.body.active, request.agneeSession.companyId);
+    return { install: ksView(saved) };
+  });
+
+  app.delete('/v1/ks/installs/:installId', { schema: { params: KS_PARAMS } }, async (request, reply) => {
+    if (!ksGuard(request, reply)) return reply;
+    const removed = await database.deleteKsInstall(request.params.installId, request.agneeSession.companyId);
+    if (!removed) return reply.code(404).send({ error: 'Template tidak ditemukan.' });
+    ksJobs.delete(`${request.agneeSession.companyId}:${request.params.installId}`);
+    return reply.code(204).send();
+  });
+
   app.get('/v1/coach/review-queue', {
     schema: { querystring: { type: 'object', properties: {
       author: { type: 'string', enum: ['human', 'ai'], default: 'human' },

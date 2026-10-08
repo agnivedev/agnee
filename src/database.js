@@ -1662,6 +1662,93 @@ class Database {
     return result.rows[0] || null;
   }
 
+  // ── Knowledge Source (KS): paket template percakapan terpasang ───────────
+
+  static get KS_COLUMNS() {
+    return `id, code, version, kind, source, package, specific, active,
+            last_simulation AS "lastSimulation", installed_at AS "installedAt",
+            updated_at AS "updatedAt"`;
+  }
+
+  async listKsInstalls(companyId) {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(
+      `SELECT ${Database.KS_COLUMNS} FROM ks_installs WHERE company_id = $1 ORDER BY installed_at`, [companyId],
+    );
+    return result.rows;
+  }
+
+  async getKsInstall(installId, companyId) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(
+      `SELECT ${Database.KS_COLUMNS} FROM ks_installs WHERE id = $1 AND company_id = $2`, [installId, companyId],
+    );
+    return result.rows[0] || null;
+  }
+
+  /** Paket yang sedang menentukan balasan company ini. */
+  async listActiveKs(companyId) {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(
+      `SELECT ${Database.KS_COLUMNS} FROM ks_installs WHERE company_id = $1 AND active ORDER BY installed_at`, [companyId],
+    );
+    return result.rows;
+  }
+
+  /** Jenis yang sudah terisi melempar pelanggaran unik (23505); pemanggil menerjemahkannya. */
+  async createKsInstall({ code, version, kind, source, pkg }, installedBy, companyId) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(
+      `INSERT INTO ks_installs (company_id, code, version, kind, source, package, installed_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING ${Database.KS_COLUMNS}`,
+      [companyId, code, version, kind, source, JSON.stringify(pkg), installedBy || null],
+    );
+    return result.rows[0];
+  }
+
+  /** Mengubah isian mematikan paketnya dan membuang hasil simulasi yang sudah tidak berlaku. */
+  async saveKsSpecific(installId, specific, companyId) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(
+      `UPDATE ks_installs SET specific = $3, active = FALSE, last_simulation = NULL, updated_at = NOW()
+       WHERE id = $1 AND company_id = $2
+       RETURNING ${Database.KS_COLUMNS}`,
+      [installId, companyId, JSON.stringify(specific)],
+    );
+    return result.rows[0] || null;
+  }
+
+  async saveKsSimulation(installId, summary, companyId) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(
+      `UPDATE ks_installs SET last_simulation = $3, updated_at = NOW()
+       WHERE id = $1 AND company_id = $2
+       RETURNING ${Database.KS_COLUMNS}`,
+      [installId, companyId, JSON.stringify(summary)],
+    );
+    return result.rows[0] || null;
+  }
+
+  async setKsActive(installId, active, companyId) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(
+      `UPDATE ks_installs SET active = $3, updated_at = NOW()
+       WHERE id = $1 AND company_id = $2
+       RETURNING ${Database.KS_COLUMNS}`,
+      [installId, companyId, Boolean(active)],
+    );
+    return result.rows[0] || null;
+  }
+
+  async deleteKsInstall(installId, companyId) {
+    if (!this.enabled) return false;
+    const result = await this.pool.query(
+      'DELETE FROM ks_installs WHERE id = $1 AND company_id = $2', [installId, companyId],
+    );
+    return result.rowCount > 0;
+  }
+
   async createPlaybookProduct({ name, description = '' }, createdBy, companyId) {
     if (!this.enabled) return null;
     const result = await this.pool.query(`

@@ -174,11 +174,38 @@
   berurutan, harga karangan, mengejar setelah STOP, dan seterusnya). Paket
   pertama, KS-01 Funneling Closing, ada di `knowledge/ks/funneling-closing/`
   dengan enam skenario. Spesifikasi dan pembagian tugas dengan Expertz di
-  `docs/knowledge-source.md`. Belum tersambung ke balasan, database, atau
-  layar: tahap ini hanya fondasi yang bisa diuji.
+  `docs/knowledge-source.md`.
+- **Knowledge Source (KS), tahap 2: terpasang, aktif, dan disimulasikan.**
+  Tabel `ks_installs` (migrasi 048) menyimpan salinan paket dan isian
+  Specific Knowledge per company, dan rute `/v1/ks/*` (hanya supervisor)
+  mengurus katalog, pasang, isian, simulasi, aktivasi, dan lepas. Paket baru
+  boleh aktif setelah isiannya lengkap dan simulasi terakhir lulus untuk
+  isian yang berlaku; mengubah isian mematikannya lagi. Paket aktif masuk
+  prompt balasan nyata, dengan jendela riwayat 12 pesan. Simulasi berjalan di
+  latar belakang lewat jalur balasan yang sama dengan produksi, paling banyak
+  3 kali per jam per company. Dengan model sungguhan (gemini-2.5-flash) 4 dari
+  4 putaran lulus 6 dari 6 skenario setelah dokumen alur diperketat; putaran
+  awal menangkap garansi "30 hari" yang dikarang dan akun Instagram yang
+  salah satu hurufnya. Cek baru `only_known_references` menangkap link dan
+  akun yang tidak ada di data. Belum ada layar di web.
 
 ### Fixed
 
+- **Balasan model yang terputus di tengah kalimat ikut terkirim.** OpenRouter
+  mengembalikan isi setengah jadi dengan `finish_reason: "error"` saat
+  penyedia modelnya terputus, dan `"length"` saat batas token habis; layanan
+  model menerima keduanya begitu saja. Ketahuan di simulasi KS dengan
+  gemini-2.5-flash: 2 sampai 3 dari sekitar 35 panggilan per putaran
+  terputus ("...tanpa meng"). Sekarang terputus berarti diulang sekali pada
+  model yang sama, lalu pindah ke model berikutnya, dan kalau semuanya gagal
+  tidak ada balasan otomatis (percakapan jatuh ke manusia) alih-alih
+  potongan kalimat. Di produksi (model dan batas token yang sama) tidak
+  terlihat balasan terpotong dari 242 balasan AI 30 hari terakhir, jadi
+  frekuensinya di sana kemungkinan lebih rendah, tapi penjaganya berlaku
+  untuk semua company.
+- **Jendela riwayat ke model hanya 5 pesan** walau server menyiapkan 10.
+  Tetap 5 untuk obrolan biasa; pemanggil bisa menaikkannya lewat
+  `historyLimit` (KS memakai 12).
 - **Daftar penerima broadcast menampilkan digit id samaran sebagai "nomor".**
   Chat berbentuk `@lid` membawa id samaran WhatsApp, bukan nomor telepon. Lead
   List sudah menyelesaikannya lewat `fillLidPhones`, daftar broadcast tidak, dan

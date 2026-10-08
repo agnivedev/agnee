@@ -18,6 +18,8 @@ type Audience = {
 
 type Stage = 'any' | 'inbox' | 'qualified' | 'assigned' | 'none';
 const STAGES: Stage[] = ['any', 'inbox', 'qualified', 'assigned', 'none'];
+type Relation = 'replied' | 'unproven' | 'any';
+const RELATIONS: Relation[] = ['replied', 'unproven', 'any'];
 const RECENCY_DAYS = [0, 1, 7, 30, 90];
 /** Daftar yang dirender sekaligus. Sisanya dicapai lewat pencarian. */
 const LIST_LIMIT = 200;
@@ -49,6 +51,8 @@ export function BroadcastComposer({ onCancel, onCreated }: { onCancel: () => voi
   const [stage, setStage] = useState<Stage>('any');
   const [recency, setRecency] = useState(30);
   const [product, setProduct] = useState('any');
+  const [relation, setRelation] = useState<Relation>('replied');
+  const [label, setLabel] = useState('any');
   const [search, setSearch] = useState('');
   const [unchecked, setUnchecked] = useState<Set<string>>(new Set());
   const [when, setWhen] = useState<'now' | 'later'>('now');
@@ -73,9 +77,18 @@ export function BroadcastComposer({ onCancel, onCreated }: { onCancel: () => voi
       if (stage === 'none' ? row.leadStage : stage !== 'any' && row.leadStage !== stage) return false;
       if (recency && !(row.lastInboundAt && now - row.lastInboundAt * 1000 <= recency * DAY_MS)) return false;
       if (product === 'none' ? row.productId : product !== 'any' && row.productId !== product) return false;
+      if (relation !== 'any' && row.relation !== relation) return false;
+      if (label === 'none' ? row.waLabels.length : label !== 'any' && !row.waLabels.includes(label)) return false;
       return true;
     });
-  }, [audience, stage, recency, product]);
+  }, [audience, stage, recency, product, relation, label]);
+
+  // Label yang benar-benar ada di daftar ini. Akun WhatsApp biasa tidak punya,
+  // dan saringan yang tidak punya pilihan apa pun tidak perlu tampil.
+  const labels = useMemo(
+    () => [...new Set((audience?.recipients ?? []).flatMap((row) => row.waLabels))].sort((a, b) => a.localeCompare(b)),
+    [audience],
+  );
 
   const selected = useMemo(() => matching.filter((row) => !unchecked.has(row.chatId)), [matching, unchecked]);
 
@@ -83,6 +96,10 @@ export function BroadcastComposer({ onCancel, onCreated }: { onCancel: () => voi
   // yang tersaring hilang tanpa jejak: Beweix punya 3 calon penerima, layar
   // menampilkan 2, dan tidak ada tanda bahwa yang ketiga cuma tersaring.
   const hiddenByFilter = audience ? audience.recipients.length - matching.length : 0;
+
+  // Mereka hanya ikut terkirim kalau pemilik mengakui risikonya, dan server
+  // memeriksanya lagi: konfirmasi di layar saja bisa dilewati lewat API.
+  const selectedUnproven = useMemo(() => selected.filter((row) => row.relation === 'unproven').length, [selected]);
 
   const listed = useMemo(() => {
     const needle = search.trim().toLowerCase();
@@ -155,7 +172,9 @@ export function BroadcastComposer({ onCancel, onCreated }: { onCancel: () => voi
       : t('broadcast.confirmNow');
     const ok = await confirm({
       title: t('broadcast.confirmTitle', { count: selected.length }),
-      message: t('broadcast.confirmCopy', { when: whenText }),
+      message: selectedUnproven
+        ? `${t('broadcast.confirmUnproven', { count: selectedUnproven })}\n\n${t('broadcast.confirmCopy', { when: whenText })}`
+        : t('broadcast.confirmCopy', { when: whenText }),
       confirmLabel: when === 'later' ? t('broadcast.confirmSchedule') : t('broadcast.confirmStart'),
     });
     if (!ok) return;
@@ -168,6 +187,8 @@ export function BroadcastComposer({ onCancel, onCreated }: { onCancel: () => voi
           body: body.trim(),
           optOutFooter: footer,
           aiVariation,
+          // Hanya true setelah konfirmasi di atas yang menyebut risikonya.
+          acceptUnproven: selectedUnproven > 0,
           chatIds: selected.map((row) => row.chatId),
           scheduledAt: when === 'later' ? new Date(scheduledAt).toISOString() : null,
           audience: { stage, lastInboundDays: recency, productId: product === 'any' || product === 'none' ? null : product },
@@ -234,6 +255,22 @@ export function BroadcastComposer({ onCancel, onCreated }: { onCancel: () => voi
                   {STAGES.map((value) => <option key={value} value={value}>{t(`broadcast.stage.${value}`)}</option>)}
                 </select>
               </label>
+              <label className="grid gap-1 text-xs text-muted">
+                {t('broadcast.filterRelation')}
+                <select
+                  value={relation}
+                  onChange={(e) => {
+                    const next = e.target.value as Relation;
+                    setRelation(next);
+                    // Kontak yang belum terlihat membalas tidak punya tanggal
+                    // pesan masuk, jadi saringan hari akan membuangnya semua.
+                    if (next !== 'replied') setRecency(0);
+                  }}
+                  className={select}
+                >
+                  {RELATIONS.map((value) => <option key={value} value={value}>{t(`broadcast.relation.${value}`)}</option>)}
+                </select>
+              </label>
               {pace.provider === 'cloud_api' ? null : (
                 <label className="grid gap-1 text-xs text-muted">
                   {t('broadcast.filterRecency')}
@@ -251,6 +288,16 @@ export function BroadcastComposer({ onCancel, onCreated }: { onCancel: () => voi
                     <option value="any">{t('broadcast.productAny')}</option>
                     {audience.products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                     <option value="none">{t('broadcast.productNone')}</option>
+                  </select>
+                </label>
+              ) : null}
+              {labels.length ? (
+                <label className="grid gap-1 text-xs text-muted">
+                  {t('broadcast.filterLabel')}
+                  <select value={label} onChange={(e) => setLabel(e.target.value)} className={select}>
+                    <option value="any">{t('broadcast.labelAny')}</option>
+                    {labels.map((value) => <option key={value} value={value}>{value}</option>)}
+                    <option value="none">{t('broadcast.labelNone')}</option>
                   </select>
                 </label>
               ) : null}
@@ -285,9 +332,11 @@ export function BroadcastComposer({ onCancel, onCreated }: { onCancel: () => voi
                         </span>
                         <span className="hidden text-right text-[11px] text-muted sm:block">
                           {row.productName ? <span className="block">{row.productName}</span> : null}
+                          {row.relation === 'unproven' ? <span className="block">{t('broadcast.relation.unproven')}</span> : null}
+                          {row.waLabels.length ? <span className="block">{row.waLabels.join(', ')}</span> : null}
                           {row.lastInboundAt
                             ? t('broadcast.lastChat', { when: new Date(row.lastInboundAt * 1000).toLocaleDateString(dateLocale, { day: 'numeric', month: 'short' }) })
-                            : t('broadcast.lastChatUnknown')}
+                            : row.relation === 'unproven' ? null : t('broadcast.lastChatUnknown')}
                         </span>
                       </label>
                     </li>
@@ -350,6 +399,11 @@ export function BroadcastComposer({ onCancel, onCreated }: { onCancel: () => voi
                   : eta.minutes >= 60
                     ? t('broadcast.etaHours', { hours: Math.floor(eta.minutes / 60), minutes: eta.minutes % 60 })
                     : t('broadcast.etaMinutes', { minutes: eta.minutes })}
+              </p>
+            ) : null}
+            {selectedUnproven ? (
+              <p role="alert" className="m-0 rounded-[10px] border border-[#e8c7a8] bg-[#fdf3e8] px-3 py-2 text-xs leading-[1.55] text-[#7a3d0a]">
+                {t('broadcast.unprovenWarning', { count: selectedUnproven })}
               </p>
             ) : null}
             <Button onClick={() => void submit()} disabled={!canSend}>

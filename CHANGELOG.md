@@ -2,6 +2,35 @@
 
 ### Added
 
+- **Impor chat dari WhatsApp ke Lead List, dikelompokkan.** Agnee hanya tahu
+  percakapan yang lewat sejak nomor tersambung, sedangkan Inbox membaca daftar
+  chat langsung dari ponsel. Akibatnya Lead List dan broadcast tampak hampir
+  kosong untuk nomor yang sudah lama dipakai (Beweix, 8 Okt: 3 lawan bicara di
+  database). Tombol "Impor dari WhatsApp" (supervisor) membaca daftar chat dari
+  nomor yang sudah tersambung dan memasukkan tiap kontak perorangan ke Lead List
+  dengan tiga kategori baru: **Hubungan** (pernah membalas / belum terlihat
+  membalas), **Keaktifan** (30 hari / 31 sampai 90 hari / lebih lama), dan
+  **Label WhatsApp** (label WhatsApp Business, kosong untuk akun biasa); produk
+  ditebak lewat `resolveConversationProduct` yang sudah ada. Isi pesan tidak
+  disalin. Kolom dan saringan ikut ke XLSX dan CSV. Migrasi `049`.
+  - Satu proses paling banyak 300 chat dengan jeda 250 ms, yang sudah terimpor
+    dilewati, jadi "semua" tercapai bertahap dan tidak menghantam halaman
+    WhatsApp yang sedang melayani customer. Berhenti sendiri kalau nomor
+    terputus atau delapan chat gagal dibaca beruntun. Satu impor se-server pada
+    satu waktu. Tiap chat ditempelkan ke nomor tempat ia dibaca.
+  - Memakai ulang `getChatsForUi` dan `getMessagesForUi`, dua pembaca yang
+    sudah punya fallback untuk serialisasi whatsapp-web.js yang gampang gagal,
+    alih-alih menulis kode puppeteer baru di koneksi pelanggan yang hidup.
+  - **Belum pernah dijalankan terhadap WhatsApp sungguhan.** Diuji dengan klien
+    palsu (460 test lolos) dan layar di database lokal; impor pertama di Beweix
+    layak dipantau.
+- **Broadcast bisa dipilih per kelompok.** Composer punya saringan Hubungan dan
+  Label WhatsApp di samping tahap lead, hari, dan produk. Kontak yang belum
+  terlihat membalas TIDAK terpilih bawaan; memilihnya memunculkan peringatan dan
+  konfirmasi risiko, dan server membuang mereka kecuali permintaan membawa
+  `acceptUnproven: true` (konfirmasi di layar saja bisa dilewati lewat API).
+  Jumlah yang diikutkan dicatat di jejak audit `broadcast.started`.
+
 - **Indikator "sedang mengetik…" selama jeda.** Di bagian AKHIR jeda, bukan
   sepanjang jeda: empat puluh detik berturut-turut "mengetik" terlihat janggal,
   dan WhatsApp sendiri memadamkannya di 25 detik. Lamanya mengikuti panjang
@@ -188,6 +217,13 @@
   awal menangkap garansi "30 hari" yang dikarang dan akun Instagram yang
   salah satu hurufnya. Cek baru `only_known_references` menangkap link dan
   akun yang tidak ada di data. Belum ada layar di web.
+
+### Changed
+
+- **Teks yang jadi tidak benar diperbarui.** Aturan di halaman broadcast, di
+  layar penerima, dan di landing page semuanya menyatakan nomor yang tidak
+  pernah menghubungi tidak bisa dikirimi. Sekarang: bawaannya hanya yang pernah
+  membalas, dan sisanya hanya ikut kalau dipilih sendiri dan risikonya disetujui.
 
 ### Fixed
 

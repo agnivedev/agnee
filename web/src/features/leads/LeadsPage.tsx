@@ -18,6 +18,16 @@ type Column = { key: string; label: string };
 type Row = Record<string, string> & { chatId?: string; isGroup?: boolean; mayarTotalAmount?: number | null };
 type SortDirection = 'asc' | 'desc';
 
+/** Keadaan satu proses impor chat, persis seperti yang dilaporkan server. */
+type ImportRun = {
+  phase: 'starting' | 'listing' | 'reading' | 'products' | 'done' | 'error';
+  eligible: number; toDo: number; done: number; replied: number; unproven: number;
+  remaining: number; productsAssigned: number; productsTried: number; failed: number;
+  stoppedBecause: 'cancelled' | 'disconnected' | 'client_unstable' | null;
+  error: string | null;
+};
+const IMPORT_AKTIF = new Set(['starting', 'listing', 'reading', 'products']);
+
 /** Numbers sort as numbers; everything else as Indonesian text. */
 function compareValues(a: string, b: string) {
   const numA = Number(a);
@@ -43,7 +53,12 @@ export function LeadsPage() {
   const [stage, setStage] = useState('');
   const [handling, setHandling] = useState('');
   const [sort, setSort] = useState<{ key: string; direction: SortDirection } | null>(null);
-  const { confirm } = useConfirm();
+  const { confirm, error: showError } = useConfirm();
+  const [relation, setRelation] = useState('');
+  const [activity, setActivity] = useState('');
+  const [waLabel, setWaLabel] = useState('');
+  const [importRun, setImportRun] = useState<ImportRun | null>(null);
+  const [importBusyElsewhere, setImportBusyElsewhere] = useState(false);
   const [choiceRow, setChoiceRow] = useState<Row | null>(null);
   const [editRow, setEditRow] = useState<Row | null>(null);
 
@@ -103,8 +118,70 @@ export function LeadsPage() {
     void load();
   }, [load]);
 
+  const importing = importRun !== null && IMPORT_AKTIF.has(importRun.phase);
+
+  const loadImport = useCallback(async () => {
+    if (!isSupervisor) return null;
+    try {
+      const data = await api<{ run: ImportRun | null; busyElsewhere: boolean }>('/v1/contacts/import');
+      setImportRun(data.run);
+      setImportBusyElsewhere(data.busyElsewhere);
+      return data.run;
+    } catch {
+      return null;
+    }
+  }, [isSupervisor]);
+
+  useEffect(() => {
+    void loadImport();
+  }, [loadImport]);
+
+  // Dipantau selama berjalan, dan daftarnya dimuat ulang begitu selesai supaya
+  // baris hasil impor langsung tampil tanpa menekan Refresh.
+  useEffect(() => {
+    if (!importing) return undefined;
+    const timer = window.setInterval(() => {
+      void loadImport().then((run) => {
+        if (run && !IMPORT_AKTIF.has(run.phase)) void load();
+      });
+    }, 2000);
+    return () => window.clearInterval(timer);
+  }, [importing, loadImport, load]);
+
+  async function startImport() {
+    const ok = await confirm({
+      title: t('leads.importConfirmTitle'),
+      message: t('leads.importConfirmCopy'),
+      confirmLabel: t('leads.importConfirmGo'),
+    });
+    if (!ok) return;
+    try {
+      const data = await api<{ run: ImportRun }>('/v1/contacts/import', { method: 'POST', body: {} });
+      setImportRun(data.run);
+    } catch (caught) {
+      await showError(caught);
+    }
+  }
+
+  async function cancelImport() {
+    try {
+      await api('/v1/contacts/import', { method: 'DELETE' });
+    } catch (caught) {
+      await showError(caught);
+    }
+  }
+
   const stages = useMemo(
     () => [...new Set(rows.map((row) => row.leadStage).filter(Boolean))].sort(),
+    [rows],
+  );
+
+  // Pilihan saringan diambil dari yang benar-benar ada di daftar, jadi saringan
+  // yang tidak punya isi (mis. label di akun WhatsApp biasa) tidak tampil.
+  const relations = useMemo(() => [...new Set(rows.map((row) => row.relation).filter(Boolean))].sort(), [rows]);
+  const activities = useMemo(() => [...new Set(rows.map((row) => row.activity).filter(Boolean))], [rows]);
+  const waLabels = useMemo(
+    () => [...new Set(rows.flatMap((row) => String(row.waLabels || '').split(', ')).filter(Boolean))].sort(),
     [rows],
   );
 
@@ -113,6 +190,9 @@ export function LeadsPage() {
     let filtered = rows.filter((row) => {
       if (stage && row.leadStage !== stage) return false;
       if (handling && row.handlingMode !== handling) return false;
+      if (relation && row.relation !== relation) return false;
+      if (activity && row.activity !== activity) return false;
+      if (waLabel && !String(row.waLabels || '').split(', ').includes(waLabel)) return false;
       if (!needle) return true;
       return Object.values(row).some((value) =>
         String(value).toLocaleLowerCase('id-ID').includes(needle),
@@ -125,7 +205,7 @@ export function LeadsPage() {
       );
     }
     return filtered;
-  }, [rows, query, stage, handling, sort]);
+  }, [rows, query, stage, handling, relation, activity, waLabel, sort]);
 
   function toggleSort(key: string) {
     setSort((current) =>
@@ -174,6 +254,24 @@ export function LeadsPage() {
               <option value="AI">{t('leads.onlyAi')}</option>
               <option value="Manusia">{t('leads.onlyHuman')}</option>
             </Select>
+            {relations.length ? (
+              <Select value={relation} onChange={setRelation} aria-label={t('leads.filterRelation')}>
+                <option value="">{t('leads.allRelations')}</option>
+                {relations.map((option) => <option key={option} value={option}>{option}</option>)}
+              </Select>
+            ) : null}
+            {activities.length ? (
+              <Select value={activity} onChange={setActivity} aria-label={t('leads.filterActivity')}>
+                <option value="">{t('leads.allActivities')}</option>
+                {activities.map((option) => <option key={option} value={option}>{option}</option>)}
+              </Select>
+            ) : null}
+            {waLabels.length ? (
+              <Select value={waLabel} onChange={setWaLabel} aria-label={t('leads.filterLabel')}>
+                <option value="">{t('leads.allLabels')}</option>
+                {waLabels.map((option) => <option key={option} value={option}>{option}</option>)}
+              </Select>
+            ) : null}
             <span className="font-mono text-xs font-semibold whitespace-nowrap text-muted">
               {visibleRows.length === rows.length
                 ? t('leads.count', { count: rows.length })
@@ -186,6 +284,9 @@ export function LeadsPage() {
                 server menolak agent di kedua rute itu. */}
             {isSupervisor ? (
               <>
+                <Button size="sm" variant="outline" onClick={() => void startImport()} disabled={importing || importBusyElsewhere}>
+                  {t('leads.importButton')}
+                </Button>
                 <Button size="sm" onClick={() => { window.location.href = '/v1/export/contacts.xlsx'; }}>
                   {t('leads.downloadXlsx')}
                 </Button>
@@ -200,6 +301,31 @@ export function LeadsPage() {
           </div>
 
           {status ? <p className="mt-2 mb-0 text-[13px] text-muted">{status}</p> : null}
+
+          {isSupervisor && (importRun || importBusyElsewhere) ? (
+            <div role="status" aria-live="polite" className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-[10px] border border-border bg-white px-3 py-2 text-[13px]">
+              {importing ? (
+                <>
+                  <span>
+                    {importRun?.phase === 'products'
+                      ? t('leads.importProducts', { tried: importRun.productsTried })
+                      : t('leads.importRunning', { done: importRun?.done ?? 0, total: importRun?.toDo ?? 0 })}
+                  </span>
+                  <Button size="sm" variant="ghost" onClick={() => void cancelImport()}>{t('leads.importCancel')}</Button>
+                </>
+              ) : importRun?.phase === 'error' ? (
+                <span>{importRun.error}</span>
+              ) : importRun ? (
+                <span>
+                  {t('leads.importDone', { done: importRun.done, replied: importRun.replied, unproven: importRun.unproven })}
+                  {importRun.productsAssigned ? ` ${t('leads.importDoneProducts', { count: importRun.productsAssigned })}` : ''}
+                  {importRun.stoppedBecause ? ` ${t(`leads.importStopped.${importRun.stoppedBecause}`)}` : ''}
+                  {importRun.remaining ? ` ${t('leads.importRemaining', { count: importRun.remaining })}` : ''}
+                </span>
+              ) : null}
+              {importBusyElsewhere && !importing ? <span className="text-muted">{t('leads.importBusyElsewhere')}</span> : null}
+            </div>
+          ) : null}
 
           {/* 23 columns will not fit on any screen, so the table scrolls itself.
               The page outside it must never shift sideways. */}

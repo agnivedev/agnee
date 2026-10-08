@@ -43,6 +43,13 @@ export type Candidate = {
   leadStage: 'inbox' | 'qualified' | 'assigned' | null;
   productId: string | null;
   productName: string | null;
+  /**
+   * 'replied' = ada pesan masuk dari kontak ini. 'unproven' = belum terlihat
+   * membalas (hasil impor chat), bukan "tidak pernah": jendela baca terbatas.
+   */
+  relation: 'replied' | 'unproven';
+  /** Label WhatsApp Business; kosong untuk akun biasa. */
+  waLabels: string[];
 };
 
 /** Tempo pengirim, persis seperti yang dipakai server. */
@@ -65,7 +72,6 @@ export type OptOut = {
   createdAt: string;
 };
 
-/** Nomor yang bisa dibaca orang: dari kolom phone, atau bagian depan chatId. */
 /**
  * Nomor yang ditampilkan untuk satu penerima, atau '' kalau memang belum
  * diketahui. Chat '@lid' membawa id samaran: deretan angkanya BUKAN nomor

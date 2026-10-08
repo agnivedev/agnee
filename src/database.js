@@ -3187,6 +3187,7 @@ class Database {
         UNION SELECT DISTINCT chat_id FROM outbound_replies WHERE company_id = $1
         UNION SELECT DISTINCT chat_id FROM lead_states WHERE company_id = $1
         UNION SELECT DISTINCT chat_id FROM conversation_routing WHERE company_id = $1
+        UNION SELECT DISTINCT chat_id FROM imported_contacts WHERE company_id = $1
       ),
       -- Nomor HP per chat. Chat '@lid' membawa id samaran, bukan nomor, jadi
       -- nomornya diambil dari lid_phone_map. Dulu bagian digit '@lid' dipakai
@@ -3216,7 +3217,7 @@ class Database {
           c.chat_id LIKE '%@g.us' AS "isGroup",
           first_seen.first_at AS "firstSeenAt",
           inbound.body AS "lastInboundBody",
-          inbound.timestamp AS "lastInboundAt",
+          GREATEST(inbound.timestamp, imp.last_inbound_at) AS "lastInboundAt",
           outbound.body AS "lastOutboundBody",
           outbound.author AS "lastOutboundAuthor",
           outbound.created_at AS "lastOutboundAt",
@@ -3239,7 +3240,17 @@ class Database {
           CASE WHEN ml.id IS NOT NULL THEN 'both' ELSE 'whatsapp' END AS "source",
           ml.products AS "mayarProducts",
           ml.total_amount AS "mayarTotalAmount",
-          COALESCE(inbound.timestamp, 0) AS "sortAt"
+          -- Hubungan: 'replied' kalau Agnee pernah mencatat chat masuk (pesan,
+          -- lead_states, atau routing, yang ketiganya hanya lahir dari chat
+          -- yang masuk) ATAU hasil impor melihat pesan masuk. Selain itu
+          -- 'unproven': belum terlihat membalas, bukan "tidak pernah".
+          CASE WHEN c.chat_id LIKE '%@g.us' THEN NULL
+               WHEN counts.inbound_count > 0 OR lead.chat_id IS NOT NULL
+                    OR routing.chat_id IS NOT NULL OR imp.relation = 'replied' THEN 'replied'
+               ELSE 'unproven' END AS "relation",
+          GREATEST(inbound.timestamp, extract(epoch FROM outbound.created_at)::bigint, imp.last_message_at) AS "lastActivityAt",
+          COALESCE(imp.wa_labels, '[]'::jsonb) AS "waLabels",
+          COALESCE(GREATEST(inbound.timestamp, imp.last_message_at), 0) AS "sortAt"
         FROM chats c
         JOIN chat_phones cp ON cp.chat_id = c.chat_id
         LEFT JOIN LATERAL (
@@ -3287,6 +3298,8 @@ class Database {
         LEFT JOIN whatsapp_cloud_connections cnum ON cnum.id = cmap.connection_id
         LEFT JOIN contact_names cname
           ON cname.company_id = $1 AND cname.chat_id = c.chat_id
+        LEFT JOIN imported_contacts imp
+          ON imp.company_id = $1 AND imp.chat_id = c.chat_id
         LEFT JOIN mayar_leads ml
           ON ml.company_id = $1 AND ml.phone = cp.phone
       ),
@@ -3321,6 +3334,9 @@ class Database {
           'mayar'::text AS "source",
           ml.products AS "mayarProducts",
           ml.total_amount AS "mayarTotalAmount",
+          NULL::text AS "relation",
+          NULL::bigint AS "lastActivityAt",
+          NULL::jsonb AS "waLabels",
           COALESCE(extract(epoch FROM ml.last_transaction_at)::bigint, 0) AS "sortAt"
         FROM mayar_leads ml
         WHERE ml.company_id = $1
@@ -3405,6 +3421,78 @@ class Database {
         WHERE contact_names.name IS DISTINCT FROM EXCLUDED.name
     `, [companyId, chatId, clean]);
     return result.rowCount > 0;
+  }
+
+  // ── Impor chat dari WhatsApp ──────────────────────────────────────────────
+
+  /**
+   * Menyimpan hasil membaca daftar chat WhatsApp (lihat migrasi 049).
+   *
+   * Aturan penggabungan kalau chat yang sama diimpor lagi:
+   *   - relation tidak pernah turun dari 'replied' ke 'unproven'. Jendela baca
+   *     terbatas, jadi pembacaan kedua yang kebetulan tidak melihat pesan masuk
+   *     tidak boleh menghapus bukti yang sudah ada.
+   *   - waktu selalu yang paling baru (GREATEST), label diganti yang terbaru.
+   */
+  async upsertImportedContacts(companyId, rows) {
+    if (!this.enabled || !rows?.length) return 0;
+    const payload = rows.map((row) => ({
+      chat_id: row.chatId,
+      relation: row.relation === 'replied' ? 'replied' : 'unproven',
+      last_message_at: row.lastMessageAt ?? null,
+      last_inbound_at: row.lastInboundAt ?? null,
+      wa_labels: Array.isArray(row.waLabels) ? row.waLabels.slice(0, 20) : [],
+    }));
+    const result = await this.pool.query(`
+      INSERT INTO imported_contacts (company_id, chat_id, relation, last_message_at, last_inbound_at, wa_labels)
+      SELECT $1, r.chat_id, r.relation, r.last_message_at, r.last_inbound_at, r.wa_labels
+      FROM jsonb_to_recordset($2::jsonb)
+        AS r(chat_id text, relation text, last_message_at bigint, last_inbound_at bigint, wa_labels jsonb)
+      ON CONFLICT (company_id, chat_id) DO UPDATE SET
+        relation = CASE WHEN imported_contacts.relation = 'replied' OR EXCLUDED.relation = 'replied'
+                        THEN 'replied' ELSE 'unproven' END,
+        last_message_at = GREATEST(imported_contacts.last_message_at, EXCLUDED.last_message_at),
+        last_inbound_at = GREATEST(imported_contacts.last_inbound_at, EXCLUDED.last_inbound_at),
+        wa_labels = EXCLUDED.wa_labels,
+        updated_at = NOW()
+    `, [companyId, JSON.stringify(payload)]);
+    return result.rowCount;
+  }
+
+  /** Chat yang sudah pernah diimpor; proses berikutnya melewatinya. */
+  async listImportedChatIds(companyId) {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(
+      'SELECT chat_id FROM imported_contacts WHERE company_id = $1',
+      [companyId],
+    );
+    return result.rows.map((row) => row.chat_id);
+  }
+
+  /**
+   * Dari daftar chat ini, mana yang Agnee SENDIRI pernah catat sebagai chat
+   * yang masuk. lead_states dan conversation_routing hanya lahir dari chat yang
+   * masuk, jadi ikut dihitung (termasuk chat lama sebelum inbound_messages
+   * mulai mencatat).
+   */
+  async listChatIdsKnownToHaveChatted(companyId, chatIds) {
+    if (!this.enabled || !chatIds?.length) return [];
+    const result = await this.pool.query(`
+      SELECT chat_id FROM inbound_messages WHERE company_id = $1 AND chat_id = ANY($2)
+      UNION SELECT chat_id FROM lead_states WHERE company_id = $1 AND chat_id = ANY($2)
+      UNION SELECT chat_id FROM conversation_routing WHERE company_id = $1 AND chat_id = ANY($2)
+    `, [companyId, chatIds]);
+    return result.rows.map((row) => row.chat_id);
+  }
+
+  async countImportedContacts(companyId) {
+    if (!this.enabled) return { replied: 0, unproven: 0 };
+    const result = await this.pool.query(`
+      SELECT COUNT(*) FILTER (WHERE relation = 'replied')::int AS replied,
+             COUNT(*) FILTER (WHERE relation = 'unproven')::int AS unproven
+      FROM imported_contacts WHERE company_id = $1
+    `, [companyId]);
+    return result.rows[0] || { replied: 0, unproven: 0 };
   }
 
   /**
@@ -3878,12 +3966,20 @@ class Database {
         SELECT chat_id FROM inbound_messages WHERE company_id = $1
         UNION SELECT chat_id FROM lead_states WHERE company_id = $1
         UNION SELECT chat_id FROM conversation_routing WHERE company_id = $1
+        UNION SELECT chat_id FROM imported_contacts WHERE company_id = $1
       )
       SELECT c.chat_id AS "chatId",
              cname.name AS "name",
              CASE WHEN c.chat_id LIKE '%@lid' THEN lpm.phone
                   ELSE regexp_replace(c.chat_id, '@.*$', '') END AS "phone",
-             inbound.last_at AS "lastInboundAt",
+             GREATEST(inbound.last_at, imp.last_inbound_at) AS "lastInboundAt",
+             -- 'replied' kalau Agnee pernah mencatat chat masuk atau hasil impor
+             -- melihat pesan masuk. 'unproven' TIDAK ikut terkirim kecuali
+             -- pemilik mengakui risikonya (lihat POST /v1/broadcasts).
+             CASE WHEN inbound.last_at IS NOT NULL OR lead.chat_id IS NOT NULL
+                       OR rt.chat_id IS NOT NULL OR imp.relation = 'replied' THEN 'replied'
+                  ELSE 'unproven' END AS "relation",
+             COALESCE(imp.wa_labels, '[]'::jsonb) AS "waLabels",
              lead.stage AS "leadStage",
              cp.product_id AS "productId",
              pp.name AS "productName",
@@ -3896,13 +3992,15 @@ class Database {
       LEFT JOIN contact_names cname ON cname.company_id = $1 AND cname.chat_id = c.chat_id
       LEFT JOIN lid_phone_map lpm ON lpm.company_id = $1 AND lpm.lid = c.chat_id
       LEFT JOIN lead_states lead ON lead.company_id = $1 AND lead.chat_id = c.chat_id
+      LEFT JOIN conversation_routing rt ON rt.company_id = $1 AND rt.chat_id = c.chat_id
+      LEFT JOIN imported_contacts imp ON imp.company_id = $1 AND imp.chat_id = c.chat_id
       LEFT JOIN chat_products cp ON cp.company_id = $1 AND cp.chat_id = c.chat_id
       LEFT JOIN playbook_products pp ON pp.id = cp.product_id AND pp.active
       LEFT JOIN broadcast_opt_outs oo ON oo.company_id = $1 AND oo.chat_id = c.chat_id
       WHERE c.chat_id NOT LIKE '%@g.us'
         AND c.chat_id NOT LIKE '%@broadcast'
         AND c.chat_id NOT LIKE '%@newsletter'
-      ORDER BY inbound.last_at DESC NULLS LAST
+      ORDER BY GREATEST(inbound.last_at, imp.last_message_at) DESC NULLS LAST
       LIMIT $2
     `, [companyId, limit]);
     return result.rows.map((row) => ({

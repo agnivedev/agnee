@@ -14,6 +14,7 @@ const broadcast = require('./broadcast');
 const { compileKsPrompt, validateSpecific, specificHash } = require('./ks-package');
 const { runPackageSimulation, makeLlmGrader } = require('./ks-simulation');
 const { builtinSource } = require('./ks-source');
+const chatImport = require('./chat-import');
 const { pilihNomorUntukPercakapanBaru } = require('./rotator');
 const { neutralizeFormula } = require('./formula-guard');
 const { CloudApiManager } = require('./cloud-api-manager.js');
@@ -5397,6 +5398,9 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     ['name', 'Nama'],
     ['phone', 'Nomor WhatsApp'],
     ['source', 'Sumber'],
+    ['relation', 'Hubungan'],
+    ['activity', 'Keaktifan'],
+    ['waLabels', 'Label WhatsApp'],
     ['mayarProducts', 'Produk Mayar'],
     ['servedByNumber', 'Dilayani nomor'],
     ['firstSeenAt', 'Masuk pertama'],
@@ -5428,6 +5432,13 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     if (key === 'handlingMode') return value === 'ai' ? 'AI' : 'Manusia';
     if (key === 'lastOutboundAuthor') return value === 'ai' ? 'AI' : value === 'broadcast' ? 'Broadcast' : 'Manusia';
     if (key === 'source') return value === 'mayar' ? 'Mayar' : value === 'both' ? 'WhatsApp + Mayar' : 'WhatsApp';
+    // 'unproven' ditulis "Belum terlihat membalas", bukan "Tidak pernah":
+    // jendela baca riwayat terbatas, jadi yang tidak terlihat belum tentu tidak ada.
+    if (key === 'relation') return value === 'replied' ? 'Pernah membalas' : 'Belum terlihat membalas';
+    if (key === 'activity') {
+      return value === 'active' ? 'Aktif (30 hari)' : value === 'cooling' ? 'Mulai dingin (31-90 hari)' : value === 'old' ? 'Lama (lebih dari 90 hari)' : '';
+    }
+    if (key === 'waLabels') return Array.isArray(value) ? value.join(', ') : '';
     if (typeof value === 'boolean') return value ? 'Ya' : 'Tidak';
     // Kolom waktu pesan masuk disimpan sebagai detik epoch. Driver Postgres
     // mengembalikan BIGINT sebagai string, bukan number — mengecek typeof
@@ -5454,6 +5465,7 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     let rows = await database.listContactExportRows(companyId).catch(() => []);
     rows = await visibleToSession(rows, (row) => row.chatId, session, companyId);
     await fillLidPhones(companyId, rows).catch(() => {});
+    for (const row of rows) row.activity = chatImport.kelompokKeaktifan(row.lastActivityAt);
     // chatId never joins EXPORT_COLUMNS — it is an internal id, not a column
     // anyone downloading the sheet wants to see. Only the JSON route (the
     // Lead List page itself, to act on a row) asks for it.
@@ -5489,6 +5501,187 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
   // Tabel Lead List. Terbuka untuk agent, tapi barisnya tersaring per peran.
   // Unduhan massal di bawah tetap supervisor saja: satu berkas berisi seluruh
   // daftar customer adalah hal yang berbeda dari melihat percakapan sendiri.
+  // ── Impor chat dari WhatsApp ────────────────────────────────────────────────
+  //
+  // Inbox membaca daftar chat langsung dari ponsel, tetapi Lead List dan
+  // broadcast dibangun dari database yang baru mencatat sejak nomor tersambung.
+  // Impor menjembatani keduanya. Logika menilainya ada di src/chat-import.js
+  // dan bisa diuji tanpa WhatsApp; bagian ini hanya menyambungkannya ke klien
+  // yang sudah ada (getChatsForUi, getMessagesForUi) dan menjaga satu proses
+  // pada satu waktu.
+  const importState = new Map();   // companyId -> keadaan proses terakhir
+  const importStop = new Set();    // companyId yang diminta berhenti
+  // SATU impor se-server pada satu waktu, bukan satu per company: yang
+  // dikerjakan adalah membaca halaman WhatsApp Web milik pelanggan di server
+  // yang dipakai bersama, dan beberapa impor sekaligus menumpuk beban itu.
+  let importBerjalan = null;
+
+  function importGuard(request, reply) {
+    if (!isSupervisor(request.agneeSession)) {
+      reply.code(403).send({ error: 'Hanya supervisor yang dapat mengimpor chat.' });
+      return false;
+    }
+    if (!canCall('upsertImportedContacts')) {
+      reply.code(503).send({ error: 'Database tidak tersedia.' });
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * Label WhatsApp Business per chat. Akun WhatsApp biasa tidak punya label;
+   * pemanggil menelan kegagalan di sini, karena "tidak ada label" bukan
+   * kegagalan impor.
+   */
+  async function readWhatsappLabels(wa) {
+    const peta = new Map();
+    if (typeof wa?.getLabels !== 'function') return peta;
+    for (const label of (await wa.getLabels()) || []) {
+      const nama = String(label?.name || '').trim().slice(0, 40);
+      if (!nama) continue;
+      const chats = await label.getChats().catch(() => []);
+      for (const chat of chats || []) {
+        const id = chat?.id?._serialized;
+        if (!id) continue;
+        if (!peta.has(id)) peta.set(id, []);
+        peta.get(id).push(nama);
+      }
+    }
+    return peta;
+  }
+
+  function gabungHasilImpor(total, hasil) {
+    if (!total) return { ...hasil };
+    const jumlah = ['totalOnPhone', 'eligible', 'alreadyImported', 'toDo', 'done', 'replied', 'unproven', 'failed',
+      'remaining', 'productsAssigned', 'productsTried'];
+    const gabung = { ...total, phase: hasil.phase };
+    for (const kunci of jumlah) gabung[kunci] = (total[kunci] || 0) + (hasil[kunci] || 0);
+    gabung.labelsAvailable = total.labelsAvailable || hasil.labelsAvailable;
+    gabung.stoppedBecause = total.stoppedBecause || hasil.stoppedBecause;
+    return gabung;
+  }
+
+  app.get('/v1/contacts/import', async (request, reply) => {
+    if (!importGuard(request, reply)) return reply;
+    const companyId = request.agneeSession.companyId;
+    return {
+      run: importState.get(companyId) || null,
+      imported: await database.countImportedContacts(companyId).catch(() => ({ replied: 0, unproven: 0 })),
+      busyElsewhere: importBerjalan !== null && importBerjalan !== companyId,
+    };
+  });
+
+  app.delete('/v1/contacts/import', async (request, reply) => {
+    if (!importGuard(request, reply)) return reply;
+    const companyId = request.agneeSession.companyId;
+    if (importBerjalan === companyId) importStop.add(companyId);
+    return { ok: true };
+  });
+
+  app.post('/v1/contacts/import', {
+    schema: { body: { type: 'object', additionalProperties: false, properties: {
+      classifyProducts: { type: 'boolean', default: true },
+    } } },
+  }, async (request, reply) => {
+    if (!importGuard(request, reply)) return reply;
+    const companyId = request.agneeSession.companyId;
+
+    if (await getWhatsappProvider(companyId) === 'cloud_api') {
+      return reply.code(422).send({ error: 'Impor hanya untuk nomor WhatsApp yang tersambung lewat QR. Cloud API tidak menyediakan daftar chat lama.' });
+    }
+    if (config.demoMode) {
+      return reply.code(422).send({ error: 'Mode demo tidak punya chat sungguhan untuk diimpor.' });
+    }
+    const koneksi = (await listWaConns(companyId))
+      .filter((conn) => manager.getClient(conn.id) && manager.getState(conn.id).phase === 'ready');
+    if (!koneksi.length) {
+      return reply.code(409).send({ error: 'Nomor WhatsApp belum tersambung. Sambungkan dulu di Settings, lalu coba lagi.' });
+    }
+    if (importBerjalan) {
+      return reply.code(409).send({
+        error: importBerjalan === companyId
+          ? 'Impor sedang berjalan.'
+          : 'Impor perusahaan lain sedang berjalan. Coba lagi beberapa menit lagi.',
+      });
+    }
+
+    // Menebak produk hanya berarti kalau ada lebih dari satu produk aktif;
+    // dengan satu produk, resolveConversationProduct tidak menyimpan apa pun.
+    const produk = canCall('listPlaybookProducts')
+      ? await database.listPlaybookProducts(companyId, { onlyActive: true }).catch(() => [])
+      : [];
+    const tebakProduk = request.body.classifyProducts !== false && produk.length >= 2;
+
+    importBerjalan = companyId;
+    importStop.delete(companyId);
+    const mulai = new Date().toISOString();
+    importState.set(companyId, { phase: 'starting', startedAt: mulai, finishedAt: null, connections: koneksi.length, error: null });
+
+    // Berjalan di belakang; tidak ditunggu. Satu impor bisa makan beberapa menit.
+    void (async () => {
+      let total = null;
+      try {
+        for (const conn of koneksi) {
+          const wa = manager.getClient(conn.id);
+          if (!wa) continue;
+          const hasil = await chatImport.jalankanImpor({
+            wa, companyId, connectionId: conn.id,
+            options: { classifyProducts: tebakProduk },
+            onProgress: (keadaan) => {
+              // 'done' dari satu nomor BUKAN selesai untuk company: nomor
+              // berikutnya mungkin belum jalan, dan layar berhenti memantau
+              // begitu melihat 'done'. Yang final ditulis setelah semua nomor.
+              importState.set(companyId, {
+                ...gabungHasilImpor(total, keadaan),
+                phase: keadaan.phase === 'done' ? 'reading' : keadaan.phase,
+                startedAt: mulai, finishedAt: null, connections: koneksi.length, error: null,
+              });
+            },
+            deps: {
+              listChats: (client) => getChatsForUi(client),
+              readMessages: (client, chatId, jumlah) => getMessagesForUi(client, chatId, jumlah),
+              readLabels: readWhatsappLabels,
+              isReady: () => Boolean(manager.getClient(conn.id)) && manager.getState(conn.id).phase === 'ready',
+              shouldStop: () => importStop.has(companyId),
+              importedIds: async (cid) => new Set(await database.listImportedChatIds(cid)),
+              knownInboundIds: async (cid, ids) => new Set(await database.listChatIdsKnownToHaveChatted(cid, ids)),
+              async save(cid, connectionId, baris, nama) {
+                await database.upsertImportedContacts(cid, baris);
+                for (const item of nama) await database.upsertContactName(cid, item.chatId, item.name).catch(() => {});
+                // Percakapan menempel pada nomor tempat ia dibaca. Idempoten:
+                // yang sudah menempel di nomor lain tidak dipindahkan.
+                for (const item of baris) {
+                  await database.assignWhatsappChatNumber(cid, item.chatId, connectionId).catch(() => {});
+                }
+              },
+              async classifyProduct(chatId, teks) {
+                const dipilih = await resolveConversationProduct({ companyId, chatId, text: teks });
+                if (!dipilih) return false;
+                // Yang dihitung produk yang TERSIMPAN, bukan sekadar tertebak.
+                return Boolean(await database.getChatProduct(chatId, companyId).catch(() => null));
+              },
+              sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+            },
+          });
+          total = gabungHasilImpor(total, hasil);
+          if (total.stoppedBecause) break;
+        }
+        importState.set(companyId, { ...total, phase: 'done', startedAt: mulai, finishedAt: new Date().toISOString(), connections: koneksi.length, error: null });
+      } catch (error) {
+        app.log.error({ err: error, companyId }, 'Impor chat WhatsApp gagal');
+        importState.set(companyId, {
+          ...(total || {}), phase: 'error', startedAt: mulai, finishedAt: new Date().toISOString(),
+          connections: koneksi.length, error: 'Impor berhenti karena kesalahan. Yang sudah terbaca tetap tersimpan; coba lagi.',
+        });
+      } finally {
+        importBerjalan = null;
+        importStop.delete(companyId);
+      }
+    })();
+
+    return reply.code(202).send({ run: importState.get(companyId) });
+  });
+
   app.get('/v1/export/contacts', async (request) => {
     const rows = await buildExportRows(request.agneeSession.companyId, request.agneeSession, { includeChatId: true });
     return {
@@ -7476,6 +7669,8 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
         leadStage: row.leadStage || null,
         productId: row.productId || null,
         productName: row.productName || null,
+        relation: row.relation === 'unproven' ? 'unproven' : 'replied',
+        waLabels: Array.isArray(row.waLabels) ? row.waLabels : [],
       });
     }
     // Chat '@lid' membawa id samaran, bukan nomor telepon. Lead List sudah
@@ -7537,6 +7732,10 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
           body: { type: 'string', minLength: 1, maxLength: 4000 },
           optOutFooter: { type: 'boolean', default: true },
           aiVariation: { type: 'boolean', default: false },
+          // Pengakuan bahwa pemilik tahu risiko mengirim ke kontak yang belum
+          // terlihat membalas. Tanpa ini server membuang mereka, apa pun yang
+          // dikirim layar: konfirmasi di layar saja bisa dilewati lewat API.
+          acceptUnproven: { type: 'boolean', default: false },
           chatIds: {
             type: 'array', minItems: 1, maxItems: broadcast.MAKS_PENERIMA,
             items: { type: 'string', minLength: 1, maxLength: 128 },
@@ -7572,9 +7771,21 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     const provider = await getWhatsappProvider(companyId);
     const { recipients: sah } = await broadcastAudience(companyId, provider);
     const byChat = new Map(sah.map((row) => [row.chatId, row]));
-    const recipients = [...new Set(request.body.chatIds)].map((chatId) => byChat.get(chatId)).filter(Boolean);
+    let recipients = [...new Set(request.body.chatIds)].map((chatId) => byChat.get(chatId)).filter(Boolean);
+
+    // Kontak yang belum terlihat membalas hanya ikut kalau pemilik mengakui
+    // risikonya: pesan massal ke nomor yang tidak pernah menghubungi kita
+    // adalah jalan tercepat nomor diblokir.
+    const belumTerbukti = recipients.filter((row) => row.relation === 'unproven');
+    const droppedUnproven = request.body.acceptUnproven === true ? 0 : belumTerbukti.length;
+    if (droppedUnproven) recipients = recipients.filter((row) => row.relation !== 'unproven');
+
     if (!recipients.length) {
-      return reply.code(422).send({ error: 'Tidak ada penerima yang bisa dikirimi. Daftar mungkin berubah — muat ulang halaman.' });
+      return reply.code(422).send({
+        error: droppedUnproven
+          ? 'Semua penerima yang dipilih belum terlihat membalas. Konfirmasi risikonya dulu kalau tetap mau mengirim.'
+          : 'Tidak ada penerima yang bisa dikirimi. Daftar mungkin berubah — muat ulang halaman.',
+      });
     }
 
     const created = await database.createBroadcast({
@@ -7592,7 +7803,10 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     // dicatat jumlah dan namanya; isi pesannya ada di broadcast itu sendiri.
     await catatAudit(request, 'broadcast.started', {
       entityType: 'broadcast', entityId: created.id,
-      metadata: { name, recipients: recipients.length, scheduledAt, aiVariation: request.body.aiVariation === true },
+      metadata: {
+        name, recipients: recipients.length, scheduledAt, aiVariation: request.body.aiVariation === true,
+        unprovenRecipients: recipients.filter((row) => row.relation === 'unproven').length,
+      },
     });
     kabariBroadcast(companyId, created.id);
     return reply.code(201).send({
@@ -7600,6 +7814,7 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
       // Chat yang dikirim browser tapi tidak lolos penyaringan: biasanya
       // customer yang membalas STOP setelah halaman dimuat.
       dropped: request.body.chatIds.length - recipients.length,
+      droppedUnproven,
     });
   });
 

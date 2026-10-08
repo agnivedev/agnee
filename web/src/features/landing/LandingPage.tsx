@@ -464,7 +464,7 @@ const PENDUKUNG: { judul: string; isi: string; utama?: boolean }[] = [
  * Aturan main broadcast. Tiap angka ada barisnya di kode:
  *   20 sampai 45 detik, 300 per hari  src/broadcast.js, TEMPO.whatsapp_web
  *   08.00 sampai 20.00                src/broadcast.js, JAM_KIRIM
- *   cuma yang pernah chat             Database.listBroadcastAudience
+ *   bawaan cuma yang pernah membalas  Database.listBroadcastAudience (relation) + acceptUnproven di POST /v1/broadcasts
  *   STOP dikeluarkan                  broadcast_opt_outs, dibuang di server.js
  *   kalimat berhenti otomatis         broadcast.js, susunPesan (default aktif)
  *   variasi AI dijaga kode            broadcast.js, periksaVariasi
@@ -476,8 +476,8 @@ const PENDUKUNG: { judul: string; isi: string; utama?: boolean }[] = [
  */
 const ATURAN_BROADCAST: [string, string][] = [
   [
-    'Cuma ke customer yang pernah chat kamu',
-    'Nomor yang belum pernah menghubungimu ga bisa dipilih. Pesan massal ke nomor asing itu jalan tercepat nomor diblokir, jadi Agnee ga menyediakannya.',
+    'Bawaannya cuma ke customer yang pernah membalas',
+    'Kontak yang belum terlihat membalas ga ikut, kecuali kamu memilihnya sendiri dan menyetujui risikonya dulu. Pesan massal ke nomor yang ga pernah menghubungimu itu jalan tercepat nomor diblokir.',
   ],
   [
     'Pelan, dan di jam yang wajar',
@@ -499,7 +499,7 @@ function BandBroadcast() {
       <Eyebrow>Broadcast</Eyebrow>
       <SectionTitle>Kirim kabar ke customer lama, dengan rem yang dipasang dari awal.</SectionTitle>
       <Lead>
-        Pilih customer yang pernah chat kamu, saring berdasarkan tahap lead, produk, atau kapan terakhir mereka bales,
+        Pilih customer dari daftar chat kamu, saring berdasarkan hubungan, label WhatsApp, tahap lead, produk, atau kapan terakhir mereka bales,
         lalu kirim sekarang atau jadwalkan. Sapaan {'{nama}'} terisi otomatis per penerima, dan kamu bisa lihat siapa
         yang udah terkirim, gagal, atau dilewati.
       </Lead>
@@ -718,7 +718,7 @@ const PLANS = [
       '1 dokumen playbook',
       '500 pesan AI per bulan',
       'Riwayat percakapan penuh',
-      'Broadcast ke customer yang pernah chat',
+      'Broadcast dengan tempo dan batas harian',
       'Bantuan via WhatsApp',
     ],
     href: WA_PERSONAL,
@@ -739,7 +739,7 @@ const PLANS = [
       'Pesan AI tanpa batas',
       'Follow-up berjadwal + pengaman',
       'Lead List + ekspor XLSX/CSV',
-      'Broadcast ke customer yang pernah chat',
+      'Broadcast dengan tempo dan batas harian',
       'Biaya AI dicatat per perusahaan',
     ],
     href: WA_COMPANY,
@@ -881,7 +881,7 @@ const FAQ_ITEMS: [string, string][] = [
   ],
   [
     'Broadcast bisa bikin nomor saya diblokir?',
-    'Risikonya ga nol, dan kami ga akan bilang sebaliknya. Pesan massal dari WhatsApp Web selalu punya risiko, dan WhatsApp yang menentukan, bukan Agnee. Yang kami lakukan: cuma ke customer yang pernah chat kamu, jeda acak 20 sampai 45 detik, jam 08.00 sampai 20.00, maksimal 300 per hari, dan yang balas STOP langsung dikeluarkan. Itu mengurangi risikonya, bukan menghilangkannya.',
+    'Risikonya ga nol, dan kami ga akan bilang sebaliknya. Pesan massal dari WhatsApp Web selalu punya risiko, dan WhatsApp yang menentukan, bukan Agnee. Yang kami lakukan: bawaannya cuma ke customer yang pernah membalas (kontak lain harus kamu pilih sendiri dan setujui risikonya), jeda acak 20 sampai 45 detik, jam 08.00 sampai 20.00, maksimal 300 per hari, dan yang balas STOP langsung dikeluarkan. Itu mengurangi risikonya, bukan menghilangkannya.',
   ],
   [
     'Berapa CS yang bisa ditambahkan?',

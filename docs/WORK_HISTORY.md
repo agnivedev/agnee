@@ -119,6 +119,13 @@ Ringkasan jalur besar. Rinciannya ada di [`../CHANGELOG.md`](../CHANGELOG.md).
   lewat run `4991eaf`, dicek langsung di `agnee.agnive.co/landing`. Malamnya
   disk server diperiksa: 87% (sisa 2,7 GB), `docker builder prune -af` hanya
   melepas sekitar 0,5 GB, jadi ruang kosong cuma cukup untuk satu build.
+- 8 Oktober, alert biaya AI: kanal WhatsApp ditambahkan di samping email
+  (`ff10f54`), dikerjakan di sesi yang kehabisan kuota lalu diselesaikan di sesi
+  lain bersama pagar disk deploy (`fecf0c5`). Dinyalakan di produksi dengan
+  `beweix-digital` sebagai pengirim dan nomor Beweix sendiri sebagai penerima
+  (nomor supervisor tidak ada di database); `.env` lama dicadangkan di
+  `/opt/agnee/.env.bak-wa`. App di-restart dengan `up -d --no-deps app`
+  (sehat dalam 26 detik). Belum ada alert sungguhan yang terkirim.
 
 ## Referensi
 

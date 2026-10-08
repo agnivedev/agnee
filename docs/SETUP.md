@@ -498,6 +498,16 @@ Dua kejadian nyata, keduanya terlihat sama dari luar.
   app lama hilang pada kejadian di atas karena container dibuat ulang lebih
   dulu.
 
+### Alert biaya AI tidak sampai
+
+Kanal diatur di `.env` server: `COST_ALERT_EMAIL_TO` (butuh SMTP) dan
+`COST_ALERT_WA_COMPANY` + `COST_ALERT_WA_TO`. Tanpa keduanya alert hanya jadi
+lencana di `/superhuman`. Untuk WhatsApp, nomor company pengirim harus
+`ready`; jangan pakai nomor pelanggan karena balasan masuk ke inboxnya. Nomor
+tujuan yang sama dengan nomor pengirim masuk ke "Pesan ke diri sendiri" dan
+jarang membunyikan notifikasi. Setelah mengubah `.env`:
+`docker compose up -d --no-deps app` (jangan saat ada deploy berjalan).
+
 ### Deploy macet atau gagal build
 
 - cek `df -h /` lebih dulu. Disk VPS penuh dua kali pada 7 Oktober oleh build

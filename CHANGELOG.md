@@ -1,5 +1,24 @@
 ## [Unreleased]
 
+- **Alert biaya AI lewat email dan WhatsApp (8 Okt).** Perusahaan yang biaya AI
+  30 harinya melewati ambang paket (Rp 50.000 Personal, Rp 1.650.000
+  Company/Lifetime; `AI_COST_ALERT_IDR_PERSONAL` / `_COMPANY`, kurs 16.500)
+  memicu alert ke `/superhuman` (lencana "Biaya tinggi") dan ke dua kanal
+  opsional, dianggap terkirim bila minimal satu berhasil. Layanan tenant tidak
+  dihentikan. Email (`COST_ALERT_EMAIL_TO`, SMTP) sudah di main sejak `7f3389f`;
+  kanal WhatsApp (`ff10f54`) mengirim lewat `sendOutbound` dari satu company
+  (`COST_ALERT_WA_COMPANY`) ke nomor staf (`COST_ALERT_WA_TO`, `08xx`/`62xx`,
+  dipisah koma). Teks disusun satu kali di `buildAlertMessage`. Test: logika
+  kanal, kombinasi dua kanal (+ uji mutasi), dan wiring `server.js`; 31 lulus.
+  - **Aktif di produksi 8 Okt:** `beweix-digital` mengirim ke nomor Beweix itu
+    sendiri (chat "Pesan ke diri sendiri"), karena nomor pribadi supervisor tidak
+    tersimpan di database. Handler inbound mengabaikan `fromMe`, jadi tidak ada
+    balasan AI; kekurangannya notifikasi dering sering tidak muncul. Belum
+    pernah terkirim sungguhan (belum ada company yang melewati ambang sejak
+    kanal dinyalakan). SMTP masih kosong.
+  - Pengirim harus company milik sendiri, bukan nomor pelanggan: balasan staf
+    masuk ke inbox company pengirim dan AI-nya bisa menjawab.
+
 ### Added
 
 - **Impor chat dari WhatsApp ke Lead List, dikelompokkan.** Agnee hanya tahu

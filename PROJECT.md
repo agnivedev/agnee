@@ -87,6 +87,8 @@ perubahan ada di [`CHANGELOG.md`](CHANGELOG.md).
   start tanpa database.
 - Frontend React (`web/`, Vite) di `/app/`, konsol platform `/superhuman`, dan
   halaman hukum `/privasi` dan `/ketentuan`.
+- Alert biaya AI per company (ambang per paket) lewat lencana `/superhuman`,
+  email, dan WhatsApp; kanal diatur di `.env` (`COST_ALERT_*`).
 - Balasan otomatis AI via OpenRouter dengan rantai model per company, kontrak
   keluaran (klaim hasil, placeholder, link), jeda balasan 5 sampai 60 detik
   dengan indikator mengetik, follow-up, dan batas paket.

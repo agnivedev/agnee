@@ -1,0 +1,12 @@
+{
+  "code": "ks-funneling-closing",
+  "name": "Funneling Closing",
+  "version": "1.0.0",
+  "kind": "closing",
+  "language": "id",
+  "summary": "Mengarahkan percakapan ke closing dalam 3-4 balasan lewat tangga penawaran: tawarkan yang paling bernilai dulu, turun satu tingkat setiap kali ditolak, dan berakhir di produk gratis bersyarat.",
+  "general": ["general/tone.md", "general/flow.md", "general/guardrails.md"],
+  "specific": "specific.json",
+  "simulation": "simulation/scenarios.json",
+  "example": "examples/specific.example.json"
+}

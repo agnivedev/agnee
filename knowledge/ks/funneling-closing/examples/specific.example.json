@@ -1,0 +1,29 @@
+{
+  "offers": [
+    {
+      "name": "Paket Lengkap",
+      "kind": "paid",
+      "price": 2500000,
+      "pitch": "Cocok kalau kakak ingin semuanya ditangani sampai selesai tanpa mengurus sendiri.",
+      "link": "https://contoh.example/paket-lengkap"
+    },
+    {
+      "name": "Paket Hemat",
+      "kind": "paid",
+      "price": 750000,
+      "pitch": "Isinya bagian inti saja, cocok untuk memulai dengan anggaran lebih ringan.",
+      "link": "https://contoh.example/paket-hemat"
+    },
+    {
+      "name": "Panduan PDF Gratis",
+      "kind": "free_conditional",
+      "price": 0,
+      "pitch": "Bisa dipakai kakak untuk mencoba sendiri dulu.",
+      "condition": "Follow Instagram @contohusaha, lalu kirim tangkapan layarnya ke chat ini.",
+      "how": "Setelah syaratnya terpenuhi, tim mengirim PDF-nya langsung ke chat ini."
+    }
+  ],
+  "order": {
+    "how": "Kakak bisa bayar lewat link di atas, lalu kirim bukti bayarnya di chat ini. Tim akan menghubungi kakak maksimal 1x24 jam kerja."
+  }
+}

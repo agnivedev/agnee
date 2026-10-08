@@ -165,6 +165,18 @@
   yang sama dengan impor di Train AI. Default-nya simulasi, `--apply` menulis,
   dan jalan kedua tidak mengubah apa pun.
 
+- **Knowledge Source (KS), tahap 1: format paket dan simulasi.** Paket template
+  percakapan yang bisa dipasang ke company: General Knowledge (nada, alur,
+  larangan), skema isian Specific Knowledge (tangga penawaran dan cara
+  memesan), dan skenario simulasi. `src/ks-package.js` memuat dan memeriksa
+  paket serta menyusun prompt; `src/ks-simulation.js` memainkan skenario
+  dengan customer berskrip dan memeriksa hasilnya (tingkat ditawarkan
+  berurutan, harga karangan, mengejar setelah STOP, dan seterusnya). Paket
+  pertama, KS-01 Funneling Closing, ada di `knowledge/ks/funneling-closing/`
+  dengan enam skenario. Spesifikasi dan pembagian tugas dengan Expertz di
+  `docs/knowledge-source.md`. Belum tersambung ke balasan, database, atau
+  layar: tahap ini hanya fondasi yang bisa diuji.
+
 ### Fixed
 
 - **AI tidak tahu customer sudah mengirim foto.** Riwayat untuk model membuang

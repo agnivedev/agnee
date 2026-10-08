@@ -320,9 +320,12 @@ function isPlatformAdmin(session) {
   return session?.platformAdmin === true;
 }
 
-function createSession(user, secret) {
+const SESSION_TTL_SHORT = 12 * 60 * 60 * 1000;       // 12 jam
+const SESSION_TTL_LONG  = 30 * 24 * 60 * 60 * 1000;  // 30 hari
+
+function createSession(user, secret, ttl = SESSION_TTL_SHORT) {
   const identity = typeof user === 'string' ? { email: user } : user;
-  const payload = Buffer.from(JSON.stringify({ ...identity, exp: Date.now() + 12 * 60 * 60 * 1000 })).toString('base64url');
+  const payload = Buffer.from(JSON.stringify({ ...identity, exp: Date.now() + ttl })).toString('base64url');
   const signature = crypto.createHmac('sha256', secret).update(payload).digest('base64url');
   return `${payload}.${signature}`;
 }
@@ -2318,6 +2321,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan produk (m
         properties: {
           email: { type: 'string', minLength: 3, maxLength: 200 },
           password: { type: 'string', minLength: 6, maxLength: 200 },
+          rememberMe: { type: 'boolean' },
         },
       },
     },
@@ -2369,8 +2373,11 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan produk (m
       onboarded: !!user.onboardedAt,
       platformAdmin: user.isPlatformAdmin === true,
     };
-    const token = createSession(sessionUser, config.sessionSecret);
-    reply.header('set-cookie', `agnee_session=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=43200${config.cookieSecure ? '; Secure' : ''}`);
+    const rememberMe = request.body.rememberMe === true;
+    const ttl = rememberMe ? SESSION_TTL_LONG : SESSION_TTL_SHORT;
+    const maxAge = Math.floor(ttl / 1000);
+    const token = createSession(sessionUser, config.sessionSecret, ttl);
+    reply.header('set-cookie', `agnee_session=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${maxAge}${config.cookieSecure ? '; Secure' : ''}`);
     if (typeof database.setPresence === 'function') await database.setPresence(user.id, 'online', sessionUser.companyId);
     return { ok: true, user: sessionUser };
   });

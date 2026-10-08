@@ -1,0 +1,86 @@
+{
+  "categories": [
+    {
+      "key": "offers",
+      "title": "Tangga penawaran (produk atau jasa)",
+      "help": "Urutkan dari yang paling bernilai. Tingkat 1 ditawarkan lebih dulu; setiap kali customer menolak, AI turun satu tingkat. Tingkat terakhir adalah produk gratis bersyarat.",
+      "type": "list",
+      "min": 2,
+      "max": 6,
+      "rules": [
+        "paid_descending",
+        "free_last"
+      ],
+      "fields": [
+        {
+          "key": "name",
+          "label": "Nama",
+          "type": "text",
+          "required": true,
+          "max": 80
+        },
+        {
+          "key": "kind",
+          "label": "Jenis",
+          "type": "enum",
+          "values": [
+            "paid",
+            "free_conditional"
+          ],
+          "required": true
+        },
+        {
+          "key": "price",
+          "label": "Harga (rupiah, 0 untuk gratis)",
+          "type": "money",
+          "required": true
+        },
+        {
+          "key": "pitch",
+          "label": "Kenapa cocok untuk customer (1-2 kalimat)",
+          "type": "text",
+          "required": true,
+          "max": 300
+        },
+        {
+          "key": "condition",
+          "label": "Syarat mendapatkannya",
+          "type": "text",
+          "requiredWhen": {
+            "kind": "free_conditional"
+          },
+          "max": 300
+        },
+        {
+          "key": "how",
+          "label": "Cara mengambil tingkat ini (kosong = pakai Cara memesan umum)",
+          "type": "text",
+          "requiredWhen": {
+            "kind": "free_conditional"
+          },
+          "max": 300
+        },
+        {
+          "key": "link",
+          "label": "Link",
+          "type": "url"
+        }
+      ]
+    },
+    {
+      "key": "order",
+      "title": "Cara memesan",
+      "help": "Pesan yang dikirim AI saat customer setuju di tingkat berbayar. Tingkat yang punya cara mengambil sendiri memakai miliknya.",
+      "type": "object",
+      "fields": [
+        {
+          "key": "how",
+          "label": "Langkah memesan",
+          "type": "text",
+          "required": true,
+          "max": 500
+        }
+      ]
+    }
+  ]
+}

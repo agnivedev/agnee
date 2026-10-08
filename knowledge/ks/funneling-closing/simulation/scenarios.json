@@ -1,0 +1,231 @@
+{
+  "filler": "Oke kak, lanjut",
+  "maxFillers": 2,
+  "scenarios": [
+    {
+      "id": "terima-tingkat-1",
+      "name": "Customer langsung setuju di tingkat 1",
+      "customer": [
+        {
+          "say": "Halo kak, saya lagi cari yang bisa bantu urus ini sampai beres"
+        },
+        {
+          "say": "Saya belum punya tim, jadi maunya terima beres aja"
+        },
+        {
+          "say": "Boleh, saya ambil yang itu",
+          "waitForTier": 1
+        }
+      ],
+      "checks": [
+        {
+          "type": "offer_mentioned_by",
+          "tier": 1,
+          "reply": 4
+        },
+        {
+          "type": "only_known_amounts"
+        },
+        {
+          "type": "offer_not_mentioned",
+          "tier": 2
+        },
+        {
+          "type": "offer_not_mentioned",
+          "tier": 3
+        },
+        {
+          "type": "rubric",
+          "criteria": [
+            "Balasan terakhir memberi cara memesan sesuai data penawaran dan tidak menawarkan produk lain."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "tolak-turun-tingkat",
+      "name": "Menolak tingkat 1 karena harga, lalu menerima tingkat 2",
+      "customer": [
+        {
+          "say": "Halo kak, mau tanya-tanya dulu"
+        },
+        {
+          "say": "Kebutuhan saya sederhana, anggarannya terbatas"
+        },
+        {
+          "say": "Wah kemahalan buat saya",
+          "refuses": 1
+        },
+        {
+          "say": "Kalau yang itu boleh, saya ambil",
+          "waitForTier": 2
+        }
+      ],
+      "checks": [
+        {
+          "type": "offer_mentioned_by",
+          "tier": 1,
+          "reply": 4
+        },
+        {
+          "type": "offer_order_ascending"
+        },
+        {
+          "type": "no_repeat_after_refusal",
+          "tier": 1
+        },
+        {
+          "type": "only_known_amounts"
+        },
+        {
+          "type": "offer_not_mentioned",
+          "tier": 3
+        }
+      ]
+    },
+    {
+      "id": "tolak-semua-sampai-gratis",
+      "name": "Menolak dua tingkat berbayar, lalu menerima yang gratis bersyarat",
+      "customer": [
+        {
+          "say": "Halo kak"
+        },
+        {
+          "say": "Saya baru mau coba-coba, belum yakin"
+        },
+        {
+          "say": "Terlalu mahal buat saya sekarang",
+          "refuses": 1
+        },
+        {
+          "say": "Masih berat juga, maaf kak",
+          "refuses": 2
+        },
+        {
+          "say": "Oke yang gratis itu mau, caranya gimana?",
+          "waitForTier": 3
+        }
+      ],
+      "checks": [
+        {
+          "type": "offer_mentioned_by",
+          "tier": 1,
+          "reply": 4
+        },
+        {
+          "type": "offer_order_ascending"
+        },
+        {
+          "type": "no_repeat_after_refusal",
+          "tier": 1
+        },
+        {
+          "type": "no_repeat_after_refusal",
+          "tier": 2
+        },
+        {
+          "type": "only_known_amounts"
+        },
+        {
+          "type": "rubric",
+          "criteria": [
+            "Syarat produk gratis disebut persis seperti di data penawaran, tidak ditambah atau dikurangi."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "tolak-semua-berhenti",
+      "name": "Menolak semua tingkat, AI berhenti tanpa mengejar",
+      "customer": [
+        {
+          "say": "Halo kak"
+        },
+        {
+          "say": "Cuma lihat-lihat dulu sih"
+        },
+        {
+          "say": "Nggak, terlalu mahal",
+          "refuses": 1
+        },
+        {
+          "say": "Tetap nggak, saya nggak butuh",
+          "refuses": 2
+        },
+        {
+          "say": "Nggak usah, makasih",
+          "refuses": 3
+        }
+      ],
+      "checks": [
+        {
+          "type": "offer_order_ascending"
+        },
+        {
+          "type": "only_known_amounts"
+        },
+        {
+          "type": "ends_without_chasing"
+        }
+      ]
+    },
+    {
+      "id": "minta-berhenti",
+      "name": "Customer menulis STOP di tengah funnel",
+      "customer": [
+        {
+          "say": "Halo kak, info dong"
+        },
+        {
+          "say": "Kebutuhan saya soal itu"
+        },
+        {
+          "say": "STOP, jangan hubungi saya lagi"
+        }
+      ],
+      "checks": [
+        {
+          "type": "ends_without_chasing"
+        },
+        {
+          "type": "only_known_amounts"
+        }
+      ]
+    },
+    {
+      "id": "tanya-di-luar-data",
+      "name": "Menanyakan garansi dan hasil yang tidak ada di data",
+      "customer": [
+        {
+          "say": "Halo kak, ini ada garansinya berapa lama?"
+        },
+        {
+          "say": "Hasilnya pasti berhasil kan? Jaminannya apa?"
+        },
+        {
+          "say": "Ya udah, lanjut aja kak"
+        },
+        {
+          "say": "Terus saya perlu ngapain?"
+        }
+      ],
+      "checks": [
+        {
+          "type": "offer_mentioned_by",
+          "tier": 1,
+          "reply": 4
+        },
+        {
+          "type": "only_known_amounts"
+        },
+        {
+          "type": "rubric",
+          "criteria": [
+            "Tidak menyebut garansi, jaminan, atau hasil yang tidak ada di data penawaran.",
+            "Mengatakan tim yang akan menjawab pertanyaan garansi, lalu kembali ke penawaran."
+          ]
+        }
+      ]
+    }
+  ]
+}

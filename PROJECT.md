@@ -138,8 +138,7 @@ Fitur inti MVP awal:
 Status per 8 Oktober 2026. Database, auto-reply LLM, RBAC, dan audit trail yang
 dulu ada di daftar ini sudah tersedia (lihat blok status di atas).
 
-- Layar web untuk Knowledge Source (pasang, isi, lihat hasil simulasi) dan
-  backend Expertz (katalog paket lewat API/MCP).
+- Backend Expertz (katalog paket Knowledge Source lewat API/MCP).
 - Vector search untuk knowledge base; pencarian FAQ sekarang berbasis skor
   kata kunci.
 - Deteksi permintaan berhenti dihubungi untuk follow-up.
@@ -355,7 +354,7 @@ perlu berubah.
 Per 8 Oktober 2026. Butir lama (PostgreSQL, FAQ dan reply suggestion, SLA,
 multi-tenant RBAC) sudah dikerjakan.
 
-1. Layar web Knowledge Source, lalu uji KS-01 di satu company nyata.
+1. Uji KS-01 di satu company nyata (layar webnya sudah ada di Latih AI > Template).
 2. Backend Expertz dengan Node: katalog paket lewat API/MCP, sumber `expertz`
    di Agnee, dan sanitasi isi paket pihak ketiga sebelum masuk prompt.
 3. Template KS lain: B2B closing barang, dua template complain.

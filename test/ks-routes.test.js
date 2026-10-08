@@ -234,3 +234,15 @@ test('simulasi dibatasi per jam dan paket bisa dilepas', async (t) => {
   assert.equal((await call(a, 'DELETE', `/v1/ks/installs/${install.id}`)).statusCode, 204);
   assert.equal((await call(a, 'GET', '/v1/ks/installs')).json().installs.length, 0);
 });
+
+test('alasan penahan aktivasi punya kode untuk layar', async (t) => {
+  const { call, a } = await setup(t, 'keras-kepala');
+  const { install } = (await call(a, 'POST', '/v1/ks/installs', { code: 'ks-funneling-closing' })).json();
+  assert.equal(install.blockedCode, 'problems');
+  const saved = await call(a, 'PUT', `/v1/ks/installs/${install.id}/specific`, { specific: example });
+  assert.equal(saved.json().install.blockedCode, 'no_simulation');
+  await call(a, 'POST', `/v1/ks/installs/${install.id}/simulate`);
+  await untilDone(call, a, install.id);
+  const list = (await call(a, 'GET', '/v1/ks/installs')).json().installs[0];
+  assert.equal(list.blockedCode, 'failed');
+});

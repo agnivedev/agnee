@@ -91,6 +91,8 @@ Ringkasan jalur besar. Rinciannya ada di [`../CHANGELOG.md`](../CHANGELOG.md).
   simulasi sebagai gerbang aktivasi ([`knowledge-source.md`](knowledge-source.md)).
   Keputusan: tingkat penawaran ditentukan AI (bukan mesin status di kode),
   katalog paket kelak di Expertz dengan backend Node.
+  Sorenya layar webnya jadi: tab Template di Latih AI (pasang, isi, simulasi,
+  aktifkan).
 - 8 Oktober (sore): nama model, vendor, dan harga AI disembunyikan dari
   pelanggan. Settings AI memakai tingkatan (Low/Medium/High/Top-end), API
   bertukar kunci tingkatan alih-alih id OpenRouter, field `model` disaring di

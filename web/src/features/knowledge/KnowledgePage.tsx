@@ -17,6 +17,7 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { CoachSection } from './CoachSection';
 import { BriefSection } from './BriefSection';
+import { KsSection } from './ks/KsSection';
 import { ProductBar, ImportPanel, productQuery, type Product } from './PlaybookProducts';
 // Satu renderer sebaris untuk seluruh app; dulu halaman ini punya salinannya sendiri.
 import { InlineText } from '@/features/inbox/InlineMarkdown';
@@ -27,8 +28,8 @@ import { InlineText } from '@/features/inbox/InlineMarkdown';
  * di Admin, plus playground di Admin yang membangun prompt-nya sendiri —
  * padahal keempatnya digabung ke prompt yang sama.
  */
-type Section = 'playbook' | 'coach' | 'brief';
-const SECTIONS: Section[] = ['playbook', 'coach', 'brief'];
+type Section = 'playbook' | 'template' | 'coach' | 'brief';
+const SECTIONS: Section[] = ['playbook', 'template', 'coach', 'brief'];
 function sectionFromHash(): Section {
   const hash = window.location.hash.replace('#', '');
   return (SECTIONS as string[]).includes(hash) ? (hash as Section) : 'playbook';
@@ -288,6 +289,7 @@ export function KnowledgePage() {
         </div>
 
         {section === 'playbook' ? <PlaybookDocs /> : null}
+        {section === 'template' ? <div className="max-w-4xl"><KsSection /></div> : null}
         {section === 'coach' ? <div className="max-w-4xl"><CoachSection /></div> : null}
         {section === 'brief' ? <div className="max-w-4xl"><BriefSection /></div> : null}
       </main>

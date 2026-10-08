@@ -75,9 +75,11 @@ Sudah ada:
 
 Hasil dengan model sungguhan (`google/gemini-2.5-flash`, 8 Oktober 2026): 4 dari 4 putaran lulus 6 dari 6 skenario, setelah dokumen alur dan larangan diperketat dua kali. Putaran pertama menangkap garansi "30 hari" yang dikarang, akun Instagram yang salah satu huruf, dan melompat ke tingkat 2. Catatan jujur: dokumen disetel terhadap skenario yang sama, jadi lulusnya belum membuktikan chat nyata. Satu model, empat putaran.
 
+Layar web (8 Oktober 2026): tab Template di halaman Latih AI (`/knowledge#template`). Form isian dibentuk dari skema paket (`rowLabel` di skema memberi awalan nomor baris, misalnya "Tingkat"), simulasi menampilkan kemajuan dan hasil per skenario, dan tombol aktifkan terkunci memakai `blockedCode` (`problems`, `no_simulation`, `failed`) yang diterjemahkan layar.
+
 Belum ada:
 
-1. Layar di web untuk pasang, isi SK, dan lihat hasil simulasi.
+1. Uji di chat WhatsApp nyata.
 2. Sisi Expertz: backend Node (diputuskan 8 Oktober) dengan API/MCP katalog, lalu sumber `expertz` di `src/ks-source.js`. Sanitasi isi paket dari pihak ketiga wajib ada sebelum paket dari luar boleh masuk prompt.
 3. Template lain: KS-02 B2B Closing barang, KS-C1 dan KS-C2 Complain.
 4. Penjaga di jalur balasan nyata untuk link dan @akun yang tidak ada di data company. Sekarang hanya simulasi yang menangkapnya; satu huruf salah pada akun terlihat sekali di simulasi.

@@ -4023,17 +4023,23 @@ Aturan:
     return requireCoachDb(reply);
   }
 
-  /** Alasan sebuah paket belum boleh aktif, atau null kalau boleh. */
-  function ksBlockReason(install) {
+  /**
+   * Alasan sebuah paket belum boleh aktif, atau null kalau boleh. `code` untuk
+   * layar (yang menerjemahkannya sendiri), `text` untuk pemanggil API.
+   */
+  function ksBlock(install) {
     const problems = validateSpecific(install.package.specificSchema, install.specific);
-    if (problems.length) return `Isian belum lengkap: ${problems.slice(0, 3).join('; ')}.`;
+    if (problems.length) return { code: 'problems', text: `Isian belum lengkap: ${problems.slice(0, 3).join('; ')}.` };
     const simulation = install.lastSimulation;
     if (!simulation || simulation.specificHash !== specificHash(install.specific)) {
-      return 'Jalankan simulasi untuk isian yang sekarang lebih dulu.';
+      return { code: 'no_simulation', text: 'Jalankan simulasi untuk isian yang sekarang lebih dulu.' };
     }
-    if (simulation.failed > 0) return `Simulasi terakhir belum lulus: ${simulation.failed} skenario gagal.`;
+    if (simulation.failed > 0) {
+      return { code: 'failed', text: `Simulasi terakhir belum lulus: ${simulation.failed} skenario gagal.` };
+    }
     return null;
   }
+  const ksBlockReason = (install) => ksBlock(install)?.text ?? null;
 
   function ksView(install) {
     const { manifest, general, specificSchema, example } = install.package;
@@ -4053,6 +4059,7 @@ Aturan:
       problems: validateSpecific(specificSchema, install.specific),
       simulation: install.lastSimulation || null,
       blockedReason: ksBlockReason(install),
+      blockedCode: ksBlock(install)?.code ?? null,
       installedAt: install.installedAt,
     };
   }

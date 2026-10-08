@@ -246,7 +246,20 @@
   4 putaran lulus 6 dari 6 skenario setelah dokumen alur diperketat; putaran
   awal menangkap garansi "30 hari" yang dikarang dan akun Instagram yang
   salah satu hurufnya. Cek baru `only_known_references` menangkap link dan
-  akun yang tidak ada di data. Belum ada layar di web.
+  akun yang tidak ada di data.
+- **Knowledge Source, tahap 3: layar web.** Tab baru "Template" di halaman
+  Latih AI (`/knowledge#template`, supervisor saja). Katalog paket dengan tombol
+  Pasang, lalu tiga langkah per template: isi data usaha (form dibentuk dari
+  skema paket, jadi template baru tidak butuh kode layar baru), jalankan
+  simulasi (kemajuan "n dari 6 selesai", hasil per skenario dengan cek dan
+  transkrip yang bisa dibuka), lalu aktifkan lewat konfirmasi. Tombol aktifkan
+  terkunci dengan alasan yang diterjemahkan (`blockedCode` dari server) sampai
+  isian lengkap dan simulasi terakhir lulus. Diverifikasi di browser dengan
+  model sungguhan dan akun uji lokal: pasang, isi dari contoh, simpan,
+  simulasi 6 dari 6, aktifkan, dan balasan Coach pada percakapan dua giliran
+  langsung menawarkan Paket Lengkap Rp 2.500.000 dari data usaha; tampilan
+  ponsel 375 px tanpa scroll horizontal; Indonesia dan Inggris. Belum diuji di
+  chat WhatsApp nyata.
 
 ### Changed
 - **Nama model, vendor, dan harga AI tidak lagi tampil ke pelanggan (8 Okt).**
@@ -361,10 +374,10 @@
   container `Created` sisa `up -d` yang gagal dihapus; app dan mcp menjalankan
   `13a92d6`. Membuang kedua jaringan yatim butuh restart daemon Docker, yang ikut
   menghentikan stack Insight. `agnee-cost-dry` (sesi lain) masih di `agnee_net2`.
-- **Knowledge Source belum punya layar web.** Pasang, isi, simulasi, dan
-  aktivasi baru lewat rute `/v1/ks/*`. Belum diuji di chat nyata; hasil
-  simulasi (4 dari 4 putaran lulus) memakai satu model dan dokumen yang
-  disetel terhadap skenario yang sama.
+- **Knowledge Source belum diuji di chat nyata.** Layar webnya sudah ada,
+  tapi hasil simulasi (4 dari 4 putaran lulus) memakai satu model dan dokumen
+  yang disetel terhadap skenario yang sama. Pesan penahan aktivasi dari API
+  tetap berbahasa Indonesia; layar menerjemahkannya lewat `blockedCode`.
 - **Backend Expertz (Node) belum dimulai.** `expertz.agnive.co` membalas 502
   per 8 Oktober; repo Laravel `be` tidak berisi kode Expertz. Paket KS dibaca
   dari `knowledge/ks/` sampai ada. Paket pihak ketiga butuh sanitasi sebelum

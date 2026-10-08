@@ -65,7 +65,8 @@
           "label": "Link",
           "type": "url"
         }
-      ]
+      ],
+      "rowLabel": "Tingkat"
     },
     {
       "key": "order",

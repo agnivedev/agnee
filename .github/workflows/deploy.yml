@@ -64,6 +64,16 @@ jobs:
   deploy:
     needs: test
     runs-on: ubuntu-latest
+    # Satu deploy ke server pada satu waktu. 8 Okt dua push berdekatan membangun
+    # image Agnee bersamaan (ditambah build Insight di disk yang sama); disk
+    # 20 GB penuh dan Postgres produksi mati. Deploy berikutnya MENGANTRE, tidak
+    # membatalkan yang sedang jalan: membatalkan run hanya memutus SSH, build di
+    # server tetap jalan, jadi yang terjadi justru dua build paralel lagi.
+    # GitHub hanya menyimpan satu run yang menunggu; run menunggu yang lebih lama
+    # diganti yang baru, dan itu aman karena commit terbaru memuat yang lama.
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
     steps:
       - name: Trigger deployment
         env:

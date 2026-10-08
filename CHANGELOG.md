@@ -219,6 +219,9 @@
   akun yang tidak ada di data. Belum ada layar di web.
 
 ### Changed
+- Deploy produksi mengantre lewat concurrency group `deploy-production`: dua push
+  berdekatan tidak lagi membangun image di server bersamaan (8 Okt disk penuh dan
+  Postgres produksi mati karena itu). Run yang menunggu tidak dibatalkan paksa.
 - Landing page memakai suara halaman masuk app: "Kamu offline. AI tetap online.",
   "AI dan CS kamu, satu inbox", "Tiap balasan ketahuan siapa yang nulis: AI atau
   kamu". Menyapa pembaca langsung, bukan membingkai CS sebagai pihak ketiga. Tanpa

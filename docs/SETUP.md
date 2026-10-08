@@ -504,6 +504,20 @@ Dua kejadian nyata, keduanya terlihat sama dari luar.
 - `docker image prune` dan `docker builder prune` bisa membebaskan 0 B kalau cache
   sedang dipakai build lain; disk melonjak ke 100% di tengah build lalu turun
   lagi setelah build gagal, jadi jangan mengulang deploy sebelum `df -h /` aman.
+- Pemeriksaan disk 8 Oktober malam (tidak ada build jalan): 87%, sisa 2,7 GB.
+  `docker builder prune -af` melapor `Total: 0B` tetapi cache turun dari 4,1 ke
+  3,6 GB dan disk jadi 86% (sisa 3,0 GB): 38 entri cache yang tersisa dipakai
+  image yang jalan dan tidak bisa dibuang. Rinciannya: `/var/lib/docker` 13 GB
+  (image 3,9, volume 2,5, cache 3,6), `/opt/app` (Insight) 4,3 GB, `/opt/agnee`
+  122 MB, `/var/log` 20 MB. Build Agnee butuh sekitar 1,5 GB, jadi ruangnya cuma
+  cukup untuk satu build sekaligus. Jalan keluar yang sebenarnya struktural:
+  image Insight yang tidak terpakai, disk yang lebih besar, atau Insight pindah
+  server. Prune cache berulang tidak akan membantu lagi.
+- `npm error code ECONNRESET` di langkah `npm ci` saat build Docker (8 Oktober,
+  run `37734439672`) adalah jaringan putus sesaat, bukan kode: tahap test hijau
+  dan produksi tetap di versi lama karena build gagal sebelum container diganti.
+  Rerun aman, tetapi cek dulu apakah push lebih baru sudah membawa commitnya
+  (concurrency group membatalkan rerun yang tertinggal).
 - Beberapa sesi bisa push ke `main` bersamaan. Sebelum menyebut sebuah deploy
   "belum sampai", cek `git log -1` di `/opt/agnee` dan isi container: commit
   lain sering sudah membawa kodenya, jadi run yang merah tidak selalu perlu

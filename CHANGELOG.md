@@ -246,6 +246,13 @@
   kamu". Menyapa pembaca langsung, bukan membingkai CS sebagai pihak ketiga. Tanpa
   "24x7"/"24 jam" dan tanpa "Ga ada yang kelewat" (bisa dibuktikan salah saat server
   atau WhatsApp putus); larangannya tercatat di komentar kepala LandingPage.tsx.
+  Commit `5f97f60`, tayang lewat deploy `4991eaf` (run sendiri gagal `npm ci`
+  ECONNRESET lalu `Disk quota exceeded`, rerun-nya dibatalkan concurrency group
+  karena push lebih baru). Terverifikasi di halaman live.
+- Pemeriksaan disk server 8 Okt malam: 87% sebelum, 86% sesudah `docker builder
+  prune -af` (hanya sekitar 0,5 GB bebas, sisa cache dipakai image yang jalan).
+  Ruang kosong 3,0 GB cukup untuk satu build; pembersihan cache tidak lagi
+  menolong. Lihat `docs/SETUP.md`, Deploy macet atau gagal build.
 
 - **Teks yang jadi tidak benar diperbarui.** Aturan di halaman broadcast, di
   layar penerima, dan di landing page semuanya menyatakan nomor yang tidak

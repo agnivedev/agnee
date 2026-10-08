@@ -104,6 +104,13 @@ Ringkasan jalur besar. Rinciannya ada di [`../CHANGELOG.md`](../CHANGELOG.md).
   membuang chat tanpa catatan masuk) diperbaiki. Lalu impor chat WhatsApp ke
   Lead List dengan kategori dan broadcast per kelompok, live malam harinya
   (migrasi `049`). Impor pertama di Beweix menunggu login supervisor.
+- 8 Oktober, copy landing page: hero dan band fitur disamakan dengan layar masuk
+  app ("Kamu offline. AI tetap online."), `Ga ada yang kelewat` diganti `Ga ada
+  chat yang dibiarin nganggur`, commit `5f97f60`. Deploy run itu gagal dua kali
+  (`npm ci` ECONNRESET, lalu `Disk quota exceeded`) dan akhirnya ikut ter-deploy
+  lewat run `4991eaf`, dicek langsung di `agnee.agnive.co/landing`. Malamnya
+  disk server diperiksa: 87% (sisa 2,7 GB), `docker builder prune -af` hanya
+  melepas sekitar 0,5 GB, jadi ruang kosong cuma cukup untuk satu build.
 
 ## Referensi
 

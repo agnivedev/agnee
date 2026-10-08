@@ -74,14 +74,16 @@ type Doc = {
  * kode sebaris. Membangun elemen React — bukan innerHTML — supaya isi dokumen
  * tidak akan pernah menjadi markup, apa pun yang nanti ditempel orang ke sana.
  */
-function Markdown({ source }: { source: string }) {
+function Markdown({ source, added }: { source: string; added?: Set<number> }) {
   const blocks = useMemo(() => source.replace(/\r\n/g, '\n').split('\n'), [source]);
 
   return (
     <div className="grid gap-2">
       {blocks.map((line, index) => {
         const key = `${index}-${line.slice(0, 12)}`;
-        const heading = line.match(/^(#{1,4})\s+(.*)$/);
+        // Baris yang baru di usulan perubahan ditandai; baris biasa tidak.
+        const mark = added?.has(index) ? 'rounded bg-green/12 ring-4 ring-green/12' : '';
+        const heading = line.match(/^(#{1,6})\s+(.*)$/);
         if (heading) {
           const level = heading[1].length;
           return (
@@ -92,22 +94,26 @@ function Markdown({ source }: { source: string }) {
                 level === 1 && 'mt-4 text-[17px]',
                 level === 2 && 'mt-4 text-[15px]',
                 level >= 3 && 'mt-3 text-[13px] text-ink/75',
+                mark,
               )}
             >
               <InlineText text={heading[2]} />
             </p>
           );
         }
+        if (/^\s*([-*_])(\s*\1){2,}\s*$/.test(line)) {
+          return <hr key={key} className={cn('my-1 border-0 border-t border-border', mark)} />;
+        }
         if (/^>\s?/.test(line)) {
           return (
-            <p key={key} className="m-0 border-l-[3px] border-l-green/50 bg-green/6 py-1.5 pl-3 text-[13px] whitespace-pre-wrap">
+            <p key={key} className={cn('m-0 border-l-[3px] border-l-green/50 bg-green/6 py-1.5 pl-3 text-[13px] whitespace-pre-wrap', mark)}>
               <InlineText text={line.replace(/^>\s?/, '')} />
             </p>
           );
         }
         if (/^[-*]\s+/.test(line)) {
           return (
-            <p key={key} className="m-0 pl-4 text-[13px] -indent-3">
+            <p key={key} className={cn('m-0 pl-4 text-[13px] -indent-3', mark)}>
               <span aria-hidden className="text-muted">• </span>
               <InlineText text={line.replace(/^[-*]\s+/, '')} />
             </p>
@@ -115,14 +121,14 @@ function Markdown({ source }: { source: string }) {
         }
         if (/^\d+\.\s+/.test(line)) {
           return (
-            <p key={key} className="m-0 pl-4 text-[13px] -indent-4">
+            <p key={key} className={cn('m-0 pl-4 text-[13px] -indent-4', mark)}>
               <InlineText text={line} />
             </p>
           );
         }
         if (!line.trim()) return <span key={key} className="block h-1" />;
         return (
-          <p key={key} className="m-0 text-[13px] whitespace-pre-wrap">
+          <p key={key} className={cn('m-0 text-[13px] whitespace-pre-wrap', mark)}>
             <InlineText text={line} />
           </p>
         );
@@ -131,6 +137,213 @@ function Markdown({ source }: { source: string }) {
   );
 }
 
+/**
+ * Selisih per baris lewat LCS. Dokumen playbook paling banyak 40.000 karakter,
+ * jadi tabel O(n·m) cukup; tidak perlu pustaka diff untuk dua angka dan
+ * penanda baris baru.
+ */
+function diffLines(before: string, after: string) {
+  const a = before.replace(/\r\n/g, '\n').split('\n');
+  const b = after.replace(/\r\n/g, '\n').split('\n');
+  const table: number[][] = Array.from({ length: a.length + 1 }, () => new Array(b.length + 1).fill(0));
+  for (let i = a.length - 1; i >= 0; i -= 1) {
+    for (let j = b.length - 1; j >= 0; j -= 1) {
+      table[i][j] = a[i] === b[j] ? table[i + 1][j + 1] + 1 : Math.max(table[i + 1][j], table[i][j + 1]);
+    }
+  }
+  const added = new Set<number>();
+  let removed = 0;
+  let i = 0;
+  let j = 0;
+  while (i < a.length || j < b.length) {
+    if (i < a.length && j < b.length && a[i] === b[j]) { i += 1; j += 1; }
+    else if (j < b.length && (i === a.length || table[i][j + 1] >= table[i + 1][j])) { if (b[j].trim()) added.add(j); j += 1; }
+    else { if (a[i].trim()) removed += 1; i += 1; }
+  }
+  return { added, removed };
+}
+
+/**
+ * Edit langsung. Teks mentah Markdown di kiri, pratinjau lewat tab "Pratinjau".
+ * Menyimpan memakai PUT yang sudah ada; riwayat obrolan tidak tersentuh.
+ */
+function DocEditor({ kind, productId, initial, onSaved, onCancel }: {
+  kind: string;
+  productId: string | null;
+  initial: string;
+  onSaved: () => void;
+  onCancel: () => void;
+}) {
+  const { t } = useI18n();
+  const [text, setText] = useState(initial);
+  const [preview, setPreview] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState('');
+  const dirty = text !== initial;
+
+  async function simpan() {
+    setBusy(true);
+    setStatus('');
+    try {
+      await api(`/v1/playbooks/${encodeURIComponent(kind)}${productQuery(productId)}`, { method: 'PUT', body: { contentMd: text } });
+      onSaved();
+    } catch (error) {
+      setStatus(messageFromError(error, t('knowledge.saveFailed')));
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="grid gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex gap-1.5">
+          {([false, true] as const).map((showPreview) => (
+            <button
+              key={String(showPreview)}
+              type="button"
+              onClick={() => setPreview(showPreview)}
+              className={cn(
+                'cursor-pointer rounded-full border px-3 py-1 text-[12px] transition',
+                preview === showPreview ? 'border-green bg-green/10 font-semibold' : 'border-border bg-white/60 hover:border-green/40',
+              )}
+            >
+              {t(showPreview ? 'knowledge.editPreview' : 'knowledge.editWrite')}
+            </button>
+          ))}
+        </div>
+        <div className="flex gap-2">
+          <Button size="sm" variant="outline" disabled={busy} onClick={onCancel}>{t('knowledge.cancel')}</Button>
+          <Button size="sm" disabled={busy || !dirty} onClick={() => void simpan()}>
+            {busy ? t('knowledge.saving') : t('knowledge.save')}
+          </Button>
+        </div>
+      </div>
+
+      {preview ? (
+        <div className="min-h-[200px] rounded-xl bg-warm/40 p-3"><Markdown source={text} /></div>
+      ) : (
+        <textarea
+          value={text}
+          onChange={(event) => setText(event.target.value)}
+          maxLength={40000}
+          spellCheck={false}
+          aria-label={t(`playbook.kind.${kind}`)}
+          className="min-h-[50vh] w-full resize-y rounded-xl border border-border bg-white p-3 font-mono text-[12.5px] leading-relaxed"
+        />
+      )}
+
+      <p className="m-0 text-[11px] text-muted">{t('knowledge.editHint')}</p>
+      {status ? <p className="m-0 text-[12px] text-danger">{status}</p> : null}
+    </div>
+  );
+}
+
+/**
+ * Mengubah dokumen yang sudah ada lewat perintah biasa.
+ *
+ * AI hanya MENGUSULKAN: hasilnya ditampilkan dengan baris baru ditandai, dan
+ * baru tersimpan setelah supervisor menekan Terapkan. Alasannya sama dengan
+ * "Susun jadi dokumen" — dokumen ini yang dibaca AI untuk semua customer.
+ */
+function RevisePanel({ kind, productId, current, onApplied }: {
+  kind: string;
+  productId: string | null;
+  current: string;
+  onApplied: () => void;
+}) {
+  const { t } = useI18n();
+  const [draft, setDraft] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState('');
+  const [proposal, setProposal] = useState<string | null>(null);
+  const [lastAsk, setLastAsk] = useState('');
+
+  useEffect(() => { setProposal(null); setStatus(''); setDraft(''); }, [kind, productId]);
+
+  const diff = useMemo(() => (proposal === null ? null : diffLines(current, proposal)), [current, proposal]);
+
+  async function usulkan(event: FormEvent) {
+    event.preventDefault();
+    const ask = draft.trim();
+    if (!ask || busy) return;
+    setBusy(true);
+    setStatus('');
+    try {
+      const hasil = await api<{ contentMd: string }>(
+        `/v1/playbooks/${encodeURIComponent(kind)}/revise${productQuery(productId)}`, { method: 'POST', body: { instruction: ask } },
+      );
+      if (hasil.contentMd.trim() === current.trim()) {
+        setProposal(null);
+        setStatus(t('knowledge.reviseNoChange'));
+      } else {
+        setProposal(hasil.contentMd);
+        setLastAsk(ask);
+        setDraft('');
+      }
+    } catch (error) {
+      setStatus(messageFromError(error, t('knowledge.reviseFailed')));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function terapkan() {
+    if (proposal === null) return;
+    setBusy(true);
+    setStatus('');
+    try {
+      await api(`/v1/playbooks/${encodeURIComponent(kind)}${productQuery(productId)}`, { method: 'PUT', body: { contentMd: proposal } });
+      setProposal(null);
+      onApplied();
+    } catch (error) {
+      setStatus(messageFromError(error, t('knowledge.saveFailed')));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="grid gap-3">
+      <p className="m-0 text-[11px] text-muted">{t('knowledge.reviseIntro')}</p>
+
+      <form onSubmit={usulkan} className="flex gap-2">
+        <input
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          placeholder={t('knowledge.revisePlaceholder')}
+          maxLength={4000}
+          disabled={busy}
+          className="min-w-0 flex-1 rounded-xl border border-border bg-white px-3 py-2 text-[13px]"
+        />
+        <Button type="submit" size="sm" disabled={busy || !draft.trim()}>
+          {busy ? t('common.loading') : t('knowledge.reviseSend')}
+        </Button>
+      </form>
+
+      {status ? <p className="m-0 text-[12px] text-muted">{status}</p> : null}
+
+      {proposal !== null && diff ? (
+        <div className="grid gap-3 rounded-xl border border-green/40 bg-green/5 p-3">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <strong className="text-[12px]">{t('knowledge.reviseProposal')}</strong>
+            <span className="font-mono text-[11px] text-muted">
+              +{diff.added.size} {t('knowledge.reviseAdded')} · −{diff.removed} {t('knowledge.reviseRemoved')}
+            </span>
+          </div>
+          <p className="m-0 text-[11px] text-muted">“{lastAsk}”</p>
+          <div className="max-h-[46vh] overflow-y-auto rounded-lg bg-white p-3">
+            <Markdown source={proposal} added={diff.added} />
+          </div>
+          <p className="m-0 text-[11px] text-amber-900/80">{t('knowledge.reviseWarn')}</p>
+          <div className="flex gap-2">
+            <Button size="sm" disabled={busy} onClick={() => void terapkan()}>{t('knowledge.reviseApply')}</Button>
+            <Button size="sm" variant="outline" disabled={busy} onClick={() => setProposal(null)}>{t('knowledge.reviseDiscard')}</Button>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 /**
  * Menyusun dokumen lewat obrolan.
@@ -306,7 +519,8 @@ function PlaybookDocs() {
   const [kinds, setKinds] = useState<Kind[]>([]);
   const [active, setActive] = useState<string | null>(null);
   const [doc, setDoc] = useState<Doc | null>(null);
-  const [tab, setTab] = useState<'isi' | 'obrolan'>('isi');
+  const [tab, setTab] = useState<'isi' | 'obrolan' | 'ubah'>('isi');
+  const [editing, setEditing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState('');
   // Naik tiap kali isi berubah dari luar daftar (impor), supaya daftar dan
@@ -342,6 +556,7 @@ function PlaybookDocs() {
     setActive(kind);
     setDoc(null);
     setTab('isi');
+    setEditing(false);
     try {
       setDoc(await api<Doc>(`/v1/playbooks/${encodeURIComponent(kind)}${productQuery(productId)}`));
     } catch (error) {
@@ -442,20 +657,24 @@ function PlaybookDocs() {
                     </span>
                   </header>
 
-                  <div className="mb-4 flex gap-1.5">
-                    {(['isi', 'obrolan'] as const).map((id) => (
-                      <button
-                        key={id}
-                        type="button"
-                        onClick={() => setTab(id)}
-                        className={cn(
-                          'cursor-pointer rounded-full border px-3 py-1 text-[12px] transition',
-                          tab === id ? 'border-green bg-green/10 font-semibold' : 'border-border bg-white/60 hover:border-green/40',
-                        )}
-                      >
-                        {t(id === 'isi' ? 'knowledge.tabContent' : 'knowledge.tabChat')}
-                      </button>
-                    ))}
+                  <div className="mb-4 flex flex-wrap gap-1.5">
+                    {(['isi', 'ubah', 'obrolan'] as const)
+                      // "Ubah lewat obrolan" mengedit dokumen yang sudah ada; di dokumen kosong
+                      // yang masuk akal hanya menyusun dari nol.
+                      .filter((id) => id !== 'ubah' || doc.contentMd.trim())
+                      .map((id) => (
+                        <button
+                          key={id}
+                          type="button"
+                          onClick={() => setTab(id)}
+                          className={cn(
+                            'cursor-pointer rounded-full border px-3 py-1 text-[12px] transition',
+                            tab === id ? 'border-green bg-green/10 font-semibold' : 'border-border bg-white/60 hover:border-green/40',
+                          )}
+                        >
+                          {t(id === 'isi' ? 'knowledge.tabContent' : id === 'ubah' ? 'knowledge.tabEditChat' : 'knowledge.tabChat')}
+                        </button>
+                      ))}
                   </div>
 
                   {tab === 'obrolan' ? (
@@ -465,14 +684,37 @@ function PlaybookDocs() {
                       interview={doc.interview || []}
                       onCompiled={() => void openDoc(doc.kind)}
                     />
+                  ) : tab === 'ubah' ? (
+                    <RevisePanel
+                      kind={doc.kind}
+                      productId={productId}
+                      current={doc.contentMd}
+                      onApplied={() => { setTab('isi'); setRevision((value) => value + 1); }}
+                    />
+                  ) : editing ? (
+                    <DocEditor
+                      kind={doc.kind}
+                      productId={productId}
+                      initial={doc.contentMd}
+                      onCancel={() => setEditing(false)}
+                      onSaved={() => { setEditing(false); setRevision((value) => value + 1); }}
+                    />
                   ) : doc.contentMd.trim() ? (
-                    <Markdown source={doc.contentMd} />
+                    <div className="grid gap-3">
+                      <div className="flex justify-end">
+                        <Button size="sm" variant="outline" onClick={() => setEditing(true)}>{t('knowledge.edit')}</Button>
+                      </div>
+                      <Markdown source={doc.contentMd} />
+                    </div>
                   ) : (
                     <div className="grid gap-3 py-6 text-center">
                       <p className="m-0 text-sm text-muted">{t('knowledge.emptyBody')}</p>
-                      <div>
+                      <div className="flex justify-center gap-2">
                         <Button size="sm" variant="outline" onClick={() => setTab('obrolan')}>
                           {t('knowledge.startChat')}
+                        </Button>
+                        <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
+                          {t('knowledge.edit')}
                         </Button>
                       </div>
                     </div>

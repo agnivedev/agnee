@@ -4557,6 +4557,58 @@ Aturan:
     return { kind, contentMd: saved.contentMd, version: saved.version, updatedAt: saved.updatedAt };
   });
 
+  /**
+   * Edit the existing document from a plain instruction ("tambah larangan
+   * menyebut harga kompetitor"). Returns the proposed markdown and saves
+   * NOTHING: the supervisor sees it first and applies it with the PUT below,
+   * because this document is what the AI reads for every customer.
+   */
+  app.post('/v1/playbooks/:kind/revise', {
+    schema: {
+      params: PLAYBOOK_KIND_PARAMS,
+      querystring: PLAYBOOK_PRODUCT_QUERY,
+      body: {
+        type: 'object', additionalProperties: false, required: ['instruction'],
+        properties: { instruction: { type: 'string', minLength: 1, maxLength: 4000 } },
+      },
+    },
+  }, async (request, reply) => {
+    if (!requireCoachSupervisor(request, reply)) return;
+    if (!requireCoachDb(reply)) return;
+    const companyId = request.agneeSession.companyId;
+    const scope = await playbookScope(request, reply);
+    if (!scope) return;
+    const companyAi = await getCompanyAi(companyId);
+    if (!companyAi.enabled) return aiUnavailable(reply, companyAi);
+    if (coachRateLimited(companyId)) {
+      return reply.code(429).send({ error: 'Terlalu banyak permintaan. Coba lagi beberapa menit.' });
+    }
+    const { kind } = request.params;
+    const doc = await database.getPlaybookDoc(kind, companyId, scope.productId);
+    const current = doc?.contentMd || '';
+
+    const result = await llmService.generateReply(
+      `Dokumen sekarang:\n---\n${current || '(masih kosong)'}\n---\n\nPermintaan perubahan dari pemilik bisnis:\n${request.body.instruction}`,
+      {
+        systemPrompt: `Kamu mengedit playbook "${kind}" (${PLAYBOOK_KIND_BRIEF[kind]})${scope.product ? ` untuk produk "${scope.product.name}"` : ''} yang dibaca AI customer service.
+
+Aturan:
+- Terapkan HANYA perubahan yang diminta. Bagian lain dibiarkan persis seperti aslinya, kata per kata.
+- Jangan menambah angka, harga, janji, atau aturan yang tidak disebut pemilik bisnis.
+- Pertahankan format Markdown dokumen (heading, poin) dan bahasanya.
+- Keluarkan seluruh dokumen yang sudah diubah dalam Markdown saja, tanpa pembuka, penutup, atau pagar kode.`,
+        companyId,
+        purpose: 'playbook_revise',
+        modelChain: companyAi.modelChain,
+      },
+    );
+    if (!result?.text?.trim()) return reply.code(502).send({ error: 'Mesin AI tidak dapat mengubah dokumen.' });
+
+    // Models sometimes wrap the whole answer in a ``` fence despite the rule.
+    const contentMd = result.text.trim().replace(/^```(?:markdown|md)?\n([\s\S]*?)\n```$/i, '$1').trim();
+    return { kind, current, contentMd, model: result.model || null };
+  });
+
   /** Direct edit, for when the supervisor would rather fix the markdown. */
   app.put('/v1/playbooks/:kind', {
     schema: {

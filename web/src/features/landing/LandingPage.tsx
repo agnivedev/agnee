@@ -26,6 +26,18 @@ import { useEffect, useState, type ReactNode } from 'react';
  *
  * Blok testimoni boleh dipasang lagi HANYA dengan kutipan asli yang orangnya
  * sudah menyetujui namanya ditampilkan.
+ *
+ * SUARA HALAMAN = SUARA APP. Hero dan band "siapa bicara" memakai kata-kata
+ * halaman masuk app (login.eyebrow, login.headline, login.description di
+ * web/src/lib/messages.ts): bicara langsung ke pembaca ("kamu"), bukan
+ * membingkai CS sebagai pihak ketiga. Kalau salah satunya diubah, ubah
+ * keduanya. Em dash di app ditulis titik dua di sini (aturan antislop halaman).
+ *
+ * JANGAN menulis "24x7", "24 jam", atau "nonstop", dan jangan memakai "Ga ada
+ * yang kelewat" dari app. AI hanya membalas selama nomor WhatsApp tersambung
+ * dan server hidup, dan produksi pernah mati berjam-jam (7 Okt, container
+ * Postgres hilang ~4,5 jam). "AI tetap online" dipakai sebagai lawan dari
+ * "kamu offline", bukan janji uptime.
  */
 
 const APP_URL = 'https://app.agnee.agnive.co';
@@ -90,7 +102,7 @@ const FOKUS_GELAP = 'focus-visible:outline-2 focus-visible:outline-offset-2 focu
 
 export function LandingPage() {
   useEffect(() => {
-    document.title = 'Agnee: inbox WhatsApp untuk tim CS dan AI-mu';
+    document.title = 'Agnee: kamu offline, AI tetap online';
   }, []);
 
   return (
@@ -201,15 +213,15 @@ function Hero() {
         <div>
           <p className="m-0 flex items-center gap-2.5 text-[13px] font-semibold text-green-dark dark:text-[#7fff4f]">
             <span aria-hidden className="inline-block h-0.5 w-7 bg-green-dark dark:bg-[#7fff4f]" />
-            Promo beta untuk {KUOTA_PROMO} perusahaan pertama
+            AI dan CS kamu, satu inbox
           </p>
           <h1 className="mt-4 mb-0 text-[clamp(36px,6vw,66px)] leading-[1.03] font-semibold tracking-[-.05em]">
-            Satu inbox WhatsApp
+            Kamu offline.
             <br />
-            untuk tim CS dan AI-mu.
+            <span className="text-green-dark dark:text-[#7fff4f]">AI tetap online.</span>
           </h1>
           <p className="mt-5 mb-0 max-w-xl text-[17px] leading-[1.6] text-[#4e6e5e] dark:text-[#7aaa8a]">
-            Agnee bikin AI dan CS-mu bisa jawab pelanggan dari satu nomor WhatsApp tanpa saling tabrakan. CS mulai ngetik, AI minggir. CS pergi, AI lanjut jaga chat.
+            Satu inbox WhatsApp buat semua tim. Kamu mulai ngetik, AI minggir. Kamu pergi, AI lanjut jaga chat. Tiap balasan ketahuan siapa yang nulis: AI atau kamu. Ga ada chat yang dibiarin nganggur.
           </p>
           <div className="mt-7 flex flex-wrap gap-3">
             <a
@@ -225,6 +237,9 @@ function Hero() {
               Ambil Ebook Gratis
             </a>
           </div>
+          <p className="mt-4 mb-0 text-[13px] text-[#4e6e5e] dark:text-[#7aaa8a]">
+            Promo beta untuk {KUOTA_PROMO} perusahaan pertama.
+          </p>
         </div>
         <img src="/assets/hero-team.png" alt="Tim CS Agnee" className="w-full rounded-panel" />
       </div>
@@ -242,7 +257,7 @@ function Hero() {
 const BUKTI: [string, string][] = [
   ['30 menit', 'CS diam 30 menit, chat otomatis balik ke AI'],
   ['8 dokumen', 'Playbook yang mengatur cara AI menjawab, diisi lewat ngobrol'],
-  ['AI atau CS', 'Tiap balasan keluar tercatat siapa penulisnya'],
+  ['AI atau kamu', 'Tiap balasan ketahuan siapa yang nulis'],
   ['3 pengaman', 'Follow-up cuma jalan di jam, jumlah, dan jarak yang kamu atur'],
 ];
 
@@ -264,10 +279,10 @@ function ProofStrip() {
 function BandSiapaBicara() {
   return (
     <Section id="fitur" className="py-16 sm:py-20">
-      <Eyebrow>Inbox multi-agent</Eyebrow>
-      <SectionTitle>Tim CS dan AI jawab dari satu nomor, tanpa tabrakan.</SectionTitle>
+      <Eyebrow>AI dan CS kamu, satu inbox</Eyebrow>
+      <SectionTitle>Satu inbox buat semua tim, tanpa tabrakan.</SectionTitle>
       <Lead>
-        Kalau CS mulai ngetik di chat yang lagi dipegang AI, chat itu langsung jadi milik CS dan AI berhenti balas. Kalau CS pergi dan chat diam 30 menit, AI lanjut jaga. Tiap pesan keluar tercatat penulisnya: AI, atau nama CS-nya.
+        Kalau kamu mulai ngetik di chat yang lagi dipegang AI, chat itu langsung jadi milikmu dan AI berhenti balas. Kalau kamu pergi dan chat diam 30 menit, AI lanjut jaga. Tiap balasan ketahuan siapa yang nulis: AI, atau nama CS-nya.
       </Lead>
       <DuaSisi
         perusahaan="Satu nomor WhatsApp dipakai seluruh tim, dan riwayat siapa yang janji apa tinggal dicek."
@@ -576,7 +591,7 @@ function GridPendukung() {
  */
 const YANG_BERUBAH: [string, string][] = [
   ['Dua CS bales ke pelanggan yang sama', 'CS mulai ngetik, AI langsung berhenti'],
-  ['"Ini tadi siapa yang janji?"', 'Tiap balasan tercatat penulisnya'],
+  ['"Ini tadi siapa yang janji?"', 'Tiap balasan ketahuan siapa yang nulis'],
   ['Chat nganggur karena CS udah pulang', 'Setelah 30 menit diam, AI ambil alih lagi'],
   ['Follow-up kelupaan', 'Terjadwal, dengan batas harian dan jarak minimum'],
   ['Nomor kena report karena kebanyakan kirim', 'Ada batas jam, jumlah, dan jarak sebelum pesan terkirim'],
@@ -1120,7 +1135,7 @@ function Footer() {
           <div>
             <img src="/brand/agnee-logo-primary.svg" alt="Agnee by Beweix" className="h-7 dark:brightness-0 dark:invert" />
             <p className="mt-3 mb-4 max-w-xs text-[13px] leading-[1.6] text-[#4e6e5e] dark:text-[#7aaa8a]">
-              Inbox WhatsApp untuk tim CS yang dibantu AI.
+              AI dan CS kamu, satu inbox.
             </p>
             <a
               href={WA_LINK}

@@ -29,6 +29,7 @@
     "fastify": "5.12.1",
     "mammoth": "^1.12.2",
     "marked": "^13.0.0",
+    "nodemailer": "^10.0.16",
     "pdf-parse": "^2.4.5",
     "pg": "^8.23.0",
     "qrcode": "1.5.4",

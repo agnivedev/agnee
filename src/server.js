@@ -26,6 +26,10 @@ const {
   classifyShortReply, countRecentAckRounds, ensureClosingIsRecognizable, stripLinks, conversationRules, mediaMarker, limitLinks,
 } = require('./reply-style.js');
 const { FollowUpScheduler, decide: followUpDecide, withManualGap } = require('./follow-up.js');
+const {
+  CostAlertMonitor, createMailer, positiveNumber, thresholdFor, toRupiah,
+  DEFAULT_USD_IDR_RATE, DEFAULT_THRESHOLDS_IDR,
+} = require('./cost-alerts.js');
 const onedrive = require('./onedrive-sync.js');
 const gsheets = require('./gsheets-sync.js');
 const { HUB_REPLY_WORKING_DAYS, addWorkingDays, workingDaysSince } = require('./hub-followup.js');
@@ -120,6 +124,15 @@ function loadConfig(overrides = {}) {
     knowledgeClient: process.env.KNOWLEDGE_CLIENT || 'agnee',
     databaseUrl: process.env.DATABASE_URL || '',
     credentialsEncryptionKey: process.env.CREDENTIALS_ENCRYPTION_KEY || '',
+    // Biaya model ditagih dalam USD; semua angka untuk manusia (konsol, email
+    // alert) dalam Rupiah lewat kurs ini. Kurs dan ambang bisa diatur lewat env
+    // tanpa deploy ulang kode.
+    usdIdrRate: positiveNumber(process.env.USD_IDR_RATE, DEFAULT_USD_IDR_RATE),
+    costAlertIdr: {
+      personal: positiveNumber(process.env.AI_COST_ALERT_IDR_PERSONAL, DEFAULT_THRESHOLDS_IDR.personal),
+      company: positiveNumber(process.env.AI_COST_ALERT_IDR_COMPANY, DEFAULT_THRESHOLDS_IDR.company),
+    },
+    appBaseUrl: process.env.APP_BASE_URL || 'https://app.agnee.agnive.co',
     cloudApiWebhookVerifyToken: process.env.CLOUD_API_WEBHOOK_VERIFY_TOKEN || '',
     // X-Forwarded-For hanya dipercaya kalau permintaannya datang DARI alamat
     // proxy yang terdaftar; header kiriman klien langsung tetap diabaikan.
@@ -3428,6 +3441,25 @@ ${thread || '(belum ada)'}${hubContext}`,
     }
   }
 
+  /** Kurs dan ambang yang dipakai konsol, supaya angkanya sama dengan email alert. */
+  function platformCurrency() {
+    return { usdIdr: config.usdIdrRate, alertIdr: config.costAlertIdr };
+  }
+
+  function withCostAlert(row) {
+    const thresholdIdr = thresholdFor(row.plan, config.costAlertIdr);
+    const costIdr = toRupiah(row.costUsd30d, config.usdIdrRate);
+    return { ...row, costAlertIdr: thresholdIdr, costAlert: row.status === 'active' && costIdr >= thresholdIdr };
+  }
+
+  /** Bentuk detail tenant yang sama untuk GET dan hasil PATCH, supaya konsol tidak melihat dua versi. */
+  function platformDetailPayload(detail) {
+    return {
+      ...detail, company: withCostAlert(detail.company), knowledgePacks: knowledgePacks(),
+      currency: platformCurrency(),
+    };
+  }
+
   // Beranda konsol. Tidak dicatat di audit: yang dibacanya angka gabungan lintas
   // tenant, bukan data satu perusahaan — dan audit_logs memang menuntut satu
   // company_id yang di sini tidak ada.
@@ -3437,7 +3469,7 @@ ${thread || '(belum ada)'}${hubContext}`,
     }
     const overview = await database.getPlatformOverview();
     if (!overview) return reply.code(503).send({ error: 'Ringkasan tidak tersedia.' });
-    return overview;
+    return { ...overview, currency: platformCurrency() };
   });
 
   app.get('/v1/superhuman/companies', {
@@ -3459,7 +3491,10 @@ ${thread || '(belum ada)'}${hubContext}`,
       limit: request.query.limit || 100,
       offset: request.query.offset || 0,
     });
-    return { companies, total, offset: request.query.offset || 0 };
+    return {
+      companies: companies.map(withCostAlert), total, offset: request.query.offset || 0,
+      currency: platformCurrency(),
+    };
   });
 
   /**
@@ -3495,7 +3530,7 @@ ${thread || '(belum ada)'}${hubContext}`,
     await recordPlatformAudit(request, 'platform.company.viewed', detail.company.id, {
       slug: detail.company.slug,
     });
-    return { ...detail, knowledgePacks: knowledgePacks() };
+    return platformDetailPayload(detail);
   });
 
   app.patch('/v1/superhuman/companies/:companyId', {
@@ -3551,7 +3586,7 @@ ${thread || '(belum ada)'}${hubContext}`,
         changes,
       });
     }
-    return { ...detail, knowledgePacks: knowledgePacks() };
+    return platformDetailPayload(detail);
   });
 
   // ── Reply Coach: source of truth, simulation, and grading ─────────────────
@@ -7979,8 +8014,19 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
   });
   app.decorate('followUpScheduler', followUpScheduler);
 
+  const costAlertMonitor = new CostAlertMonitor({
+    database,
+    mailer: createMailer(process.env),
+    logger: app.log,
+    rate: config.usdIdrRate,
+    thresholds: config.costAlertIdr,
+    consoleUrl: `${config.appBaseUrl}/superhuman`,
+  });
+  app.decorate('costAlertMonitor', costAlertMonitor);
+
   app.addHook('onClose', async () => {
     followUpScheduler.stop();
+    costAlertMonitor.stop();
     if (oneDriveTimer) clearInterval(oneDriveTimer);
     oneDriveTimer = null;
     sendReceipts.clear();
@@ -8118,6 +8164,7 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     // Only in a real run: tests build the app with startupEnabled false and
     // must not get a live timer sending WhatsApp messages.
     if (database.enabled && database.connected) followUpScheduler.start();
+    if (database.enabled && database.connected) costAlertMonitor.start();
     if (database.enabled && database.connected) startOneDriveSyncLoop();
     if (database.enabled && database.connected) startAutoAssignSweeper();
     if (database.enabled && database.connected) startSlaSweeper();

@@ -1122,6 +1122,40 @@ class Database {
     };
   }
 
+  /**
+   * Biaya AI 30 hari per perusahaan, untuk pemantau alert (src/cost-alerts.js).
+   * Tanpa LIMIT: hanya segelintir kolom per baris, dan pemantau perlu melihat
+   * SEMUA tenant — tenant yang lolos dari daftar justru yang paling berbahaya.
+   */
+  async listCostAlertCandidates() {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(`
+      SELECT c.id, c.slug, c.name, c.plan, c.status,
+             c.cost_alert_notified_at AS "notifiedAt",
+             COALESCE(SUM(a.cost_usd), 0)::float8 AS "costUsd30d",
+             COUNT(a.id)::int AS "calls30d"
+      FROM companies c
+      LEFT JOIN ai_usage_logs a
+        ON a.company_id = c.id AND a.created_at >= NOW() - INTERVAL '30 days'
+      GROUP BY c.id
+    `);
+    return result.rows;
+  }
+
+  async markCostAlertNotified(companyIds) {
+    if (!this.enabled || !companyIds?.length) return;
+    await this.pool.query(
+      'UPDATE companies SET cost_alert_notified_at = NOW() WHERE id = ANY($1::uuid[])', [companyIds],
+    );
+  }
+
+  async clearCostAlerts(companyIds) {
+    if (!this.enabled || !companyIds?.length) return;
+    await this.pool.query(
+      'UPDATE companies SET cost_alert_notified_at = NULL WHERE id = ANY($1::uuid[])', [companyIds],
+    );
+  }
+
   async listPlatformCompanies({ search = '', status = null, planStatus = null, limit = 100, offset = 0 } = {}) {
     if (!this.enabled) return { companies: [], total: 0 };
     const result = await this.pool.query(`

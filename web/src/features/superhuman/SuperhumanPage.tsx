@@ -43,11 +43,18 @@ type CompanyRow = {
   whatsappNumbers: number;
   lastInboundAt: string | null;
   costUsd30d: number;
+  /** Dihitung server: biaya 30 hari sudah melewati ambang paketnya (Rupiah). */
+  costAlert?: boolean;
+  costAlertIdr?: number;
 };
+
+/** Kurs dan ambang dari server, supaya angka di konsol sama dengan email alert. */
+type Currency = { usdIdr: number; alertIdr: { personal: number; company: number } };
 
 type CompanyDetail = {
   /** Pack knowledge yang ada di server; satu-satunya tempat mengubahnya. */
   knowledgePacks?: string[];
+  currency?: Currency;
   company: CompanyRow & {
     timezone: string;
     knowledgeClient: string;
@@ -93,6 +100,7 @@ type Overview = {
   costByPurpose: { purpose: string; costUsd: number; calls: number }[];
   trialsEnding: { id: string; slug: string; name: string; trialEndsAt: string }[];
   planMix: { plan: string; planStatus: string; count: number }[];
+  currency?: Currency;
 };
 
 const PLANS = ['personal', 'company', 'lifetime'];
@@ -101,8 +109,27 @@ const STATUSES = ['active', 'suspended', 'closed'];
 
 const numberFormat = new Intl.NumberFormat('id-ID');
 
-function formatUsd(value: number | null | undefined) {
-  return `$${Number(value || 0).toFixed(4)}`;
+// Biaya tersimpan dalam USD karena itu yang ditagih penyedia model, tapi semua
+// yang tampil di konsol dalam Rupiah. Kurs ikut di tiap respons server, jadi
+// angkanya selalu sama dengan email alert; nilai awal ini hanya cadangan
+// sebelum respons pertama tiba.
+let usdIdrRate = 16_500;
+
+function applyCurrency(currency: Currency | undefined) {
+  if (currency && currency.usdIdr > 0) usdIdrRate = currency.usdIdr;
+}
+
+function formatRupiah(value: number | null | undefined) {
+  const amount = Number(value || 0);
+  // Panggilan tunggal bisa hanya beberapa rupiah; membulatkannya ke 0 membuat
+  // pemakaian yang nyata tampak gratis.
+  const digits = amount !== 0 && Math.abs(amount) < 100 ? 1 : 0;
+  return `Rp ${new Intl.NumberFormat('id-ID', { maximumFractionDigits: digits }).format(amount)}`;
+}
+
+/** Biaya USD dari server, ditampilkan dalam Rupiah. */
+function formatBiaya(costUsd: number | null | undefined) {
+  return formatRupiah(Number(costUsd || 0) * usdIdrRate);
 }
 
 function formatDate(value: string | null | undefined) {
@@ -260,7 +287,9 @@ function DashboardView({
 
   const load = useCallback(async () => {
     try {
-      setOverview(await api<Overview>('/v1/superhuman/overview'));
+      const data = await api<Overview>('/v1/superhuman/overview');
+      applyCurrency(data.currency);
+      setOverview(data);
       setError('');
     } catch (caught) {
       setError(messageFromError(caught, 'Gagal memuat ringkasan.'));
@@ -294,8 +323,8 @@ function DashboardView({
       <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <Tile label="Tenant aktif" value={`${totals.active} dari ${totals.companies}`} />
         <Tile label="Anggota aktif" value={numberFormat.format(totals.members)} />
-        <Tile label="Biaya AI 30 hari" value={formatUsd(totals.costUsd30d)} />
-        <Tile label="Biaya AI hari ini" value={formatUsd(totals.costUsdToday)} />
+        <Tile label="Biaya AI 30 hari" value={formatBiaya(totals.costUsd30d)} />
+        <Tile label="Biaya AI hari ini" value={formatBiaya(totals.costUsdToday)} />
       </div>
 
       <div className="mt-6 grid gap-6 xl:grid-cols-2">
@@ -318,7 +347,7 @@ function DashboardView({
         >
           <ColumnChart
             points={overview.dailyCost.map((row) => ({ label: dayLabel(row.day), value: row.costUsd }))}
-            formatValue={formatUsd}
+            formatValue={formatBiaya}
             emptyMessage="Belum ada pemakaian AI 30 hari terakhir."
           />
         </Card>
@@ -346,7 +375,7 @@ function DashboardView({
               sub: `${numberFormat.format(row.calls)} panggilan`,
               value: row.costUsd,
             }))}
-            formatValue={formatUsd}
+            formatValue={formatBiaya}
             emptyMessage="Belum ada pemakaian AI 30 hari terakhir."
             onSelect={(index) => onOpen(overview.topTenants[index].id)}
           />
@@ -370,7 +399,7 @@ function DashboardView({
               sub: `${numberFormat.format(row.calls)} panggilan`,
               value: row.costUsd,
             }))}
-            formatValue={formatUsd}
+            formatValue={formatBiaya}
             emptyMessage="Belum ada pemakaian AI 30 hari terakhir."
           />
         </Card>
@@ -481,9 +510,10 @@ function CompanyListView({ onOpen }: { onOpen: (companyId: string) => void }) {
     if (planStatus) params.set('planStatus', planStatus);
     try {
       const query = params.toString();
-      const data = await api<{ companies: CompanyRow[]; total: number }>(
+      const data = await api<{ companies: CompanyRow[]; total: number; currency?: Currency }>(
         `/v1/superhuman/companies${query ? `?${query}` : ''}`,
       );
+      applyCurrency(data.currency);
       setRows(data.companies);
       setTotal(data.total);
       setError('');
@@ -528,7 +558,7 @@ function CompanyListView({ onOpen }: { onOpen: (companyId: string) => void }) {
       <div className="mt-6 grid gap-3 sm:grid-cols-3">
         <Tile label="Tenant tampil" value={`${rows?.length ?? 0} dari ${total}`} />
         <Tile label="Berstatus aktif" value={String(totals.aktif)} />
-        <Tile label="Biaya AI 30 hari" value={formatUsd(totals.biaya)} />
+        <Tile label="Biaya AI 30 hari" value={formatBiaya(totals.biaya)} />
       </div>
 
       <div className="mt-5 flex flex-wrap items-end gap-3">
@@ -609,7 +639,10 @@ function CompanyRowView({ row, onOpen }: { row: CompanyRow; onOpen: (companyId: 
       <Td><QuotaBar className="w-40" used={row.aiMessageCount} limit={row.aiMessageLimit} /></Td>
       <Td><Ratio used={row.activeUsers} limit={row.maxUsers} /></Td>
       <Td><Ratio used={row.whatsappNumbers} limit={row.maxWhatsapp} /></Td>
-      <Td><span className="font-mono text-[12px]">{formatUsd(row.costUsd30d)}</span></Td>
+      <Td>
+        <span className="font-mono text-[12px]">{formatBiaya(row.costUsd30d)}</span>
+        {row.costAlert ? <span className="ml-2 align-middle"><Pill tone="bad">Biaya tinggi</Pill></span> : null}
+      </Td>
       <Td>
         <span className={cn('text-[12px]', row.lastInboundAt ? 'text-ink' : 'text-muted')}>
           {formatRelative(row.lastInboundAt)}
@@ -625,7 +658,9 @@ function CompanyDetailView({ companyId, onBack }: { companyId: string; onBack: (
 
   const load = useCallback(async () => {
     try {
-      setDetail(await api<CompanyDetail>(`/v1/superhuman/companies/${companyId}`));
+      const data = await api<CompanyDetail>(`/v1/superhuman/companies/${companyId}`);
+      applyCurrency(data.currency);
+      setDetail(data);
       setError('');
     } catch (caught) {
       setError(messageFromError(caught, 'Gagal memuat tenant.'));
@@ -671,8 +706,15 @@ function CompanyDetailView({ companyId, onBack }: { companyId: string; onBack: (
         <Tile label="Pesan masuk 30 hari" value={numberFormat.format(company.inbound30d)} />
         <Tile label="Pesan masuk terakhir" value={formatRelative(company.lastInboundAt)} />
         <Tile label="Anggota aktif" value={`${company.activeUsers} / ${company.maxUsers}`} />
-        <Tile label="Biaya AI 30 hari" value={formatUsd(company.costUsd30d)} />
+        <Tile label="Biaya AI 30 hari" value={formatBiaya(company.costUsd30d)} />
       </div>
+
+      {company.costAlert ? (
+        <p className="mt-4 mb-0 rounded-panel border border-danger p-3 text-[13px] text-danger">
+          Biaya AI 30 hari sudah melewati ambang {formatRupiah(company.costAlertIdr)} untuk paket {company.plan}.
+          Layanan tenant ini tidak dihentikan; ini hanya penanda supaya kamu bisa memutuskan lebih dulu.
+        </p>
+      ) : null}
 
       <SubscriptionForm detail={detail} onSaved={setDetail} />
       <MembersCard members={detail.members} />
@@ -733,6 +775,7 @@ function SubscriptionForm({
           knowledgeClient: form.knowledgeClient,
         },
       });
+      applyCurrency(next.currency);
       onSaved(next);
       setForm((current) => ({ ...current, trialEndsAt: toDateInput(next.company.trialEndsAt) }));
       setMessage('Tersimpan ✓');
@@ -914,7 +957,7 @@ function UsageCard({ usage }: { usage: CompanyDetail['usage'] }) {
                       {numberFormat.format(row.inputTokens)} → {numberFormat.format(row.outputTokens)}
                     </span>
                   </Td>
-                  <Td><span className="font-mono text-[12px]">{formatUsd(row.costUsd)}</span></Td>
+                  <Td><span className="font-mono text-[12px]">{formatBiaya(row.costUsd)}</span></Td>
                 </tr>
               ))
             )}
@@ -922,7 +965,7 @@ function UsageCard({ usage }: { usage: CompanyDetail['usage'] }) {
         </table>
       </div>
       {usage.length ? (
-        <p className="mt-3 mb-0 text-[13px] font-semibold">Total: {formatUsd(total)}</p>
+        <p className="mt-3 mb-0 text-[13px] font-semibold">Total: {formatBiaya(total)}</p>
       ) : null}
     </Card>
   );

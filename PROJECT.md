@@ -78,6 +78,32 @@ LLM berada di sisi ChatGPT, bukan di dalam MCP gateway.
 
 ## Fitur yang sudah tersedia
 
+Status per 8 Oktober 2026. Daftar di bawah blok ini adalah fitur inti MVP awal
+dan masih berlaku; blok ini mencatat yang ditambahkan sesudahnya. Detail per
+perubahan ada di [`CHANGELOG.md`](CHANGELOG.md).
+
+- PostgreSQL multi-tenant (migrasi `db/migrations/001` sampai `048`), login
+  per user dengan peran, dan isolasi data antar company. Produksi menolak
+  start tanpa database.
+- Frontend React (`web/`, Vite) di `/app/`, konsol platform `/superhuman`, dan
+  halaman hukum `/privasi` dan `/ketentuan`.
+- Balasan otomatis AI via OpenRouter dengan rantai model per company, kontrak
+  keluaran (klaim hasil, placeholder, link), jeda balasan 5 sampai 60 detik
+  dengan indikator mengetik, follow-up, dan batas paket.
+- Coach: fakta terkonfirmasi, wawancara, skenario, simulasi, dan penilaian
+  balasan. Playbook delapan jenis dengan dukungan per produk, dan setelan
+  identitas AI (anggota tim atau chatbot) per company.
+- Knowledge Source (KS): paket template percakapan yang dipasang ke company,
+  dengan simulasi sebagai gerbang aktivasi. Lihat
+  [`docs/knowledge-source.md`](docs/knowledge-source.md).
+- Broadcast ke customer yang pernah chat, dengan tempo, jam, dan batas harian.
+- Tugas dengan SLA jam kerja, jejak audit, rotasi nomor WhatsApp, dan integrasi
+  lead Mayar.
+- Jalur kedua WhatsApp Business Platform (Cloud API) tersedia di kode; produksi
+  memakai `whatsapp-web.js`.
+
+Fitur inti MVP awal:
+
 - Login dengan signed HttpOnly session cookie.
 - Pairing QR dan persistent WhatsApp session.
 - Inbox real, pencarian server-side, unread filter, dan pagination.
@@ -100,13 +126,17 @@ LLM berada di sisi ChatGPT, bukan di dalam MCP gateway.
 
 ## Yang belum tersedia
 
-- Database tenant, user, lead, funnel, dan assignment.
-- Knowledge base FAQ dan vector search.
-- Auto-reply atau copilot berbasis LLM.
-- Qualified filter yang tersambung ke data lead nyata.
+Status per 8 Oktober 2026. Database, auto-reply LLM, RBAC, dan audit trail yang
+dulu ada di daftar ini sudah tersedia (lihat blok status di atas).
+
+- Layar web untuk Knowledge Source (pasang, isi, lihat hasil simulasi) dan
+  backend Expertz (katalog paket lewat API/MCP).
+- Vector search untuk knowledge base; pencarian FAQ sekarang berbasis skor
+  kata kunci.
+- Deteksi permintaan berhenti dihubungi untuk follow-up.
+- Balasan untuk foto yang dikirim tanpa teks.
+- Antrean balasan yang tahan restart server (jeda balasan hidup di memori).
 - Full inline renderer video/audio/document.
-- Persistence database untuk Contacts, Funnel, dan assignment.
-- Database role-based access dan audit trail multi-tenant.
 - OAuth client registration sudah persisten, tetapi refresh grants masih
   in-memory; restart MCP dapat meminta user ChatGPT melakukan login ulang.
 - Adapter resmi WhatsApp Business Platform.
@@ -188,7 +218,15 @@ POST /v1/chats/:chatId/routing
 GET  /v1/chats/:chatId/avatar
 GET  /v1/messages/:messageId/media
 POST /v1/messages/send
+GET  /v1/ks/catalog
+GET  /v1/ks/installs
+POST /v1/ks/installs
+PUT  /v1/ks/installs/:id/specific
+POST /v1/ks/installs/:id/simulate
+POST /v1/ks/installs/:id/activate
 ```
+
+Daftar ini hanya rute inti dan KS; seluruh rute ada di `src/server.js`.
 
 Browser memakai session cookie. Integrasi internal memakai header
 `x-api-key`. MCP publik memakai OAuth 2.1 + PKCE; bearer token terpisah hanya
@@ -279,9 +317,14 @@ perlu berubah.
 
 ## Roadmap yang disarankan
 
-1. PostgreSQL untuk workspace, contacts, leads, funnel, assignments, dan audit.
-2. FAQ knowledge base + retrieval + reply suggestion.
-3. Human approval mode sebelum auto-reply.
-4. Sales handoff, SLA, notification, dan analytics.
-5. Multi-tenant auth/RBAC, persistent OAuth grants, dan audit log MCP.
-6. Migrasi channel production ke WhatsApp Business Platform.
+Per 8 Oktober 2026. Butir lama (PostgreSQL, FAQ dan reply suggestion, SLA,
+multi-tenant RBAC) sudah dikerjakan.
+
+1. Layar web Knowledge Source, lalu uji KS-01 di satu company nyata.
+2. Backend Expertz dengan Node: katalog paket lewat API/MCP, sumber `expertz`
+   di Agnee, dan sanitasi isi paket pihak ketiga sebelum masuk prompt.
+3. Template KS lain: B2B closing barang, dua template complain.
+4. Penjaga link dan @akun di jalur balasan nyata, deteksi permintaan berhenti,
+   dan antrean balasan yang tahan restart.
+5. Persistent OAuth grants dan audit log MCP.
+6. Migrasi channel produksi ke WhatsApp Business Platform.

@@ -185,3 +185,18 @@ Fase berikutnya yang planned:
 - [ ] Analytics & quality metrics
 - [ ] A/B testing berbagai model
 - [ ] Fine-tuning FAQ berdasarkan customer feedback
+
+## Balasan terputus dan jendela riwayat
+
+- OpenRouter bisa mengembalikan isi setengah jadi dengan `finish_reason`
+  `error` (penyedia model terputus) atau `length` (batas `LLM_MAX_TOKENS`
+  habis). `src/llm-service.js` tidak lagi menganggapnya balasan sah: `error`
+  diulang sekali pada model yang sama, lalu model berikutnya di chain; `length`
+  langsung pindah model. Kalau semua gagal, tidak ada balasan otomatis dan
+  percakapan jatuh ke manusia. Diukur 8 Oktober 2026 dengan
+  `google/gemini-2.5-flash`: 2 sampai 3 dari sekitar 35 panggilan per putaran
+  simulasi terputus.
+- Model hanya menerima 5 pesan riwayat terakhir. Pemanggil yang butuh lebih
+  panjang (template KS berjenjang memakai 12) mengisi `historyLimit`
+  (maksimal 30).
+

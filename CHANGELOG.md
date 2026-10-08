@@ -274,6 +274,28 @@
 
 ### Outstanding
 
+- **Knowledge Source belum punya layar web.** Pasang, isi, simulasi, dan
+  aktivasi baru lewat rute `/v1/ks/*`. Belum diuji di chat nyata; hasil
+  simulasi (4 dari 4 putaran lulus) memakai satu model dan dokumen yang
+  disetel terhadap skenario yang sama.
+- **Backend Expertz (Node) belum dimulai.** `expertz.agnive.co` membalas 502
+  per 8 Oktober; repo Laravel `be` tidak berisi kode Expertz. Paket KS dibaca
+  dari `knowledge/ks/` sampai ada. Paket pihak ketiga butuh sanitasi sebelum
+  boleh masuk prompt.
+- **Link dan @akun yang dikarang tidak dijaga di jalur balasan nyata.** Hanya
+  simulasi KS yang menangkapnya (cek `only_known_references`).
+- **Foto tanpa teks tidak memicu balasan** (`generateAutoReply` berhenti kalau
+  `body` kosong). Menjawabnya berisiko balasan ganda untuk album.
+- **Broadcast bisa mendarat di chat yang baru aktif.** Di uji Beweix 7 Oktober
+  dua broadcast masuk ke percakapan yang baru berjalan, dengan copy yang
+  menjanjikan jam telepon yang tidak ada di playbook. Belum ada aturan
+  "jangan broadcast ke chat aktif".
+- **Endpoint jaringan Docker `agnee_default` yatim masih tertinggal** di
+  produksi (stack kini di `agnee_net2`). Membersihkannya butuh restart daemon
+  Docker, yang juga menghentikan stack Insight di server yang sama. Pesan
+  masuk 11:47 sampai 16:32 UTC pada 7 Oktober tidak tercatat di database.
+- **`privasi@agnive.co` dan penghapusan data 90 hari** dijanjikan di halaman
+  hukum tapi belum punya mekanismenya.
 - **Balasan yang sedang menunggu jeda hilang kalau server restart.** Jedanya
   hidup di memori satu proses, jadi deploy atau crash dalam jendela 5–60 detik
   setelah pesan masuk membuat customer itu tidak pernah dibalas — tak ada

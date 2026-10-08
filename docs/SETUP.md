@@ -457,6 +457,37 @@ volume karena itu memaksa pairing ulang.
 - pastikan `MCP_API_BASE_URL=http://app:4100` di Compose;
 - jalankan smoke test karena test akan gagal eksplisit pada API key mismatch.
 
+### Aplikasi hidup tetapi semua login ditolak, atau Postgres tidak terjangkau
+
+Dua kejadian nyata, keduanya terlihat sama dari luar.
+
+- `DATABASE_URL` kosong membuat produksi jalan tanpa database. Sejak 21 September
+  produksi menolak start tanpa database (fail fast); produksi memakai variabel
+  `PG*`, jadi `DATABASE_URL` memang kosong di sana. Cek `GET /health`: bagian
+  `database.connected` harus `true`.
+- Container `postgres` hilang atau tidak bisa dijangkau dari `app`. Pada
+  7 Oktober 2026 container Postgres produksi hilang sekitar 4,5 jam (pesan
+  masuk 11:47 sampai 16:32 UTC tidak tercatat). Penyebabnya endpoint jaringan
+  `agnee_default` yang yatim di Docker: `up`, `--force-recreate`, `down`, dan
+  `network rm` semuanya gagal. Pemulihannya memindahkan stack ke jaringan
+  baru `agnee_net2` lewat `/root/agnee-net-override.yml`
+  (`networks: default: name: agnee_net2`), dan baris
+  `COMPOSE_FILE=compose.yml:/root/agnee-net-override.yml` di `/opt/agnee/.env`.
+  Jangan hapus keduanya. Endpoint yatim masih tertinggal; membersihkannya
+  butuh restart daemon Docker, yang juga menghentikan stack Insight di server
+  yang sama, jadi lakukan di jam sepi dan setelah memberi tahu pemilik Insight.
+- Sebelum `docker compose down` atau menghapus container apa pun, salin dulu
+  lognya: `docker logs <container> > /root/log-<nama>-$(date +%F).txt`. Log
+  app lama hilang pada kejadian di atas karena container dibuat ulang lebih
+  dulu.
+
+### Deploy macet atau gagal build
+
+- cek `df -h /` lebih dulu. Disk VPS penuh dua kali pada 7 Oktober oleh build
+  stack Insight yang berbagi server; cache build bisa mencapai 6 GB
+  (`docker builder prune`).
+- working tree `/opt/agnee` harus bersih; pipeline memakai `git pull`.
+
 ### Pesan terlihat gagal tetapi sebenarnya terkirim
 
 - jangan langsung retry dengan ID baru;

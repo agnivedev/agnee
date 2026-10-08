@@ -65,3 +65,13 @@ Dijalankan 7 Oktober dengan model sungguhan lewat simulator Coach, tanpa memilih
 | "Ini perusahaan apa dan jualan apa?" | | Menjelaskan dua layanan lalu bertanya mana yang dicari |
 
 Belum diuji: percakapan multi-giliran dengan riwayat sungguhan dan jalur pengiriman WhatsApp.
+
+## Catatan 8 Oktober: foto customer
+
+Uji di nomor pribadi menunjukkan AI menanyakan produk dua kali setelah customer
+mengirim foto, karena AI tidak melihat foto. Dua perubahan: pesan foto, dokumen,
+dan suara customer masuk riwayat sebagai penanda (`[Customer mengirim foto]`)
+dengan aturan bawaan nomor 13, dan playbook BeweiX AI CGI sekarang meminta nama
+produk lewat tulisan, dengan foto atau link sebagai tambahan. Foto yang dikirim
+tanpa teks apa pun tetap tidak memicu balasan.
+

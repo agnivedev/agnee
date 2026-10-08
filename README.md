@@ -7,6 +7,8 @@ Dokumentasi lengkap tersedia di:
 - [CHANGELOG.md](./CHANGELOG.md) — histori perubahan per versi.
 - [docs/SETUP.md](./docs/SETUP.md) — runbook setup lokal, Radmond, WhatsApp,
   MCP, OAuth, Nginx, testing, dan troubleshooting.
+- [docs/knowledge-source.md](./docs/knowledge-source.md) — Knowledge Source (KS):
+  paket template percakapan, format, simulasi, dan pembagian tugas dengan Expertz.
 - [docs/WORK_HISTORY.md](./docs/WORK_HISTORY.md) — ringkasan perjalanan desain,
   implementasi, integrasi, dan migrasi proyek.
 - [knowledge/README.md](./knowledge/README.md) — indeks FAQ, funneling sales, dan
@@ -77,7 +79,17 @@ GET  /v1/chats/:chatId/messages?limit=30
 GET  /v1/chats/:chatId/avatar
 GET  /v1/messages/:messageId/media
 POST /v1/messages/send
+GET  /v1/ks/catalog                         Knowledge Source: paket yang tersedia
+GET  /v1/ks/installs                        paket terpasang di company ini
+POST /v1/ks/installs                        pasang paket
+PUT  /v1/ks/installs/:id/specific           isi Specific Knowledge
+POST /v1/ks/installs/:id/simulate           jalankan simulasi (latar belakang)
+GET  /v1/ks/installs/:id/simulation         kemajuan dan hasil simulasi
+POST /v1/ks/installs/:id/activate           aktifkan atau matikan (butuh simulasi lulus)
 ```
+
+Knowledge Source (paket template percakapan) dijelaskan di
+[docs/knowledge-source.md](./docs/knowledge-source.md).
 
 Send a direct message:
 

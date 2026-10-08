@@ -66,6 +66,32 @@ Agnee. Detail perubahan teknis per versi tetap dicatat di [`../CHANGELOG.md`](..
   knowledge, dan histori kerja yang belum ada dimigrasikan tanpa menimpa `.env`
   atau sesi WhatsApp aktif.
 
+## 7. September sampai Oktober 2026
+
+Ringkasan jalur besar. Rinciannya ada di [`../CHANGELOG.md`](../CHANGELOG.md).
+
+- 14 September: frontend dipindah ke React/Vite (`web/`), migrasi database
+  sampai 022. Insiden follow-up spam melahirkan tiga pengaman tindak lanjut.
+- 16 sampai 17 September: insiden riwayat percakapan kosong (AI mengulang
+  pertanyaan yang sama) dan nyaris mundurnya playbook produksi oleh seed;
+  keduanya ditutup dengan penjaga di kode.
+- 21 September: audit keamanan 12 temuan (enam Wajib dan Penting selesai),
+  halaman `/privasi` dan `/ketentuan`, SLA tugas, dan insiden produksi berjalan
+  16 jam tanpa database (kini produksi menolak start tanpa database).
+- 22 September: jejak audit untuk tindakan yang akibatnya keluar dari Agnee, dan
+  perbaikan Rotasi nomor.
+- 3 Oktober: audit tuntas dan live (akun takeover ditutup, konsol Admin
+  dibubarkan, Coach menjadi satu-satunya simulator).
+- 7 Oktober: playbook per produk dan setelan identitas AI per company (Beweix
+  memakai dua produk), Broadcast, jeda balasan dengan indikator mengetik,
+  company AL Gold FX, insiden Postgres produksi hilang sekitar 4,5 jam (lihat
+  [`SETUP.md`](SETUP.md), Troubleshooting), dan disk VPS penuh dua kali.
+- 8 Oktober: foto customer masuk riwayat AI, balasan model yang terputus tidak
+  lagi terkirim, dan Knowledge Source: paket template percakapan dengan
+  simulasi sebagai gerbang aktivasi ([`knowledge-source.md`](knowledge-source.md)).
+  Keputusan: tingkat penawaran ditentukan AI (bukan mesin status di kode),
+  katalog paket kelak di Expertz dengan backend Node.
+
 ## Referensi
 
 - [`../README.md`](../README.md) — cara mulai dan navigasi dokumentasi.
@@ -73,3 +99,4 @@ Agnee. Detail perubahan teknis per versi tetap dicatat di [`../CHANGELOG.md`](..
 - [`SETUP.md`](SETUP.md) — setup lokal, server, OAuth, MCP, dan troubleshooting.
 - [`../knowledge/README.md`](../knowledge/README.md) — FAQ, funnel, dan reply policy.
 - [`../CHANGELOG.md`](../CHANGELOG.md) — perubahan teknis per versi.
+- [`knowledge-source.md`](knowledge-source.md) — Knowledge Source: paket template percakapan.

@@ -186,6 +186,19 @@ Fase berikutnya yang planned:
 - [ ] A/B testing berbagai model
 - [ ] Fine-tuning FAQ berdasarkan customer feedback
 
+## Nama model tidak tampil ke pelanggan
+
+Pelanggan tidak boleh melihat nama model, vendor, atau harganya. Settings AI
+menampilkan tingkatan (Low-end A/B/C, Medium-end A/B/C/D, High-end, Top-end AI
+model). Klien dan API bertukar kunci tingkatan (`low-a` sampai `top`, ditambah
+`custom` untuk id lama di luar daftar); pemetaan ke id OpenRouter ada di
+`src/model-tiers.js`, dan urutan serta kuncinya harus sama dengan
+`web/src/features/settings/models.ts`. Menambah model baru berarti menambah satu
+baris di kedua file, satu label tingkatan, dan memverifikasi id-nya hidup di
+OpenRouter. Field `model` di respons non-superhuman otomatis diganti label
+tingkatan oleh hook `onSend`; konsol `/superhuman` menampilkan id asli. Tabel
+harga di atas hanya untuk operator, jangan disalin ke UI.
+
 ## Balasan terputus dan jendela riwayat
 
 - OpenRouter bisa mengembalikan isi setengah jadi dengan `finish_reason`

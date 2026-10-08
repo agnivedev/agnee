@@ -72,7 +72,7 @@ GET  /v1/auth/session
 GET  /v1/whatsapp/status
 GET  /v1/whatsapp/qr
 GET  /v1/events
-GET  /v1/admin/ai-settings
+GET  /v1/admin/ai-settings   (modelChain/defaultModel = kunci tingkatan, bukan id model)
 POST /v1/coach/simulate
 GET  /v1/chats?limit=20&offset=0&q=&filter=all
 GET  /v1/chats/:chatId/messages?limit=30

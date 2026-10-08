@@ -91,6 +91,13 @@ Ringkasan jalur besar. Rinciannya ada di [`../CHANGELOG.md`](../CHANGELOG.md).
   simulasi sebagai gerbang aktivasi ([`knowledge-source.md`](knowledge-source.md)).
   Keputusan: tingkat penawaran ditentukan AI (bukan mesin status di kode),
   katalog paket kelak di Expertz dengan backend Node.
+- 8 Oktober (sore): nama model, vendor, dan harga AI disembunyikan dari
+  pelanggan. Settings AI memakai tingkatan (Low/Medium/High/Top-end), API
+  bertukar kunci tingkatan alih-alih id OpenRouter, field `model` disaring di
+  semua respons non-superhuman, pesan error tidak lagi menyebut
+  `OPENROUTER_API_KEY`, dan halaman Privasi tidak menyebut OpenRouter/UpCloud.
+  Commit `4991eaf`, live; dua deploy berikutnya gagal disk penuh dan satu gagal
+  label jaringan `agnee_net3`, server tetap sehat dan kini di `13a92d6`.
 
 ## Referensi
 

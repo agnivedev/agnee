@@ -219,6 +219,21 @@
   akun yang tidak ada di data. Belum ada layar di web.
 
 ### Changed
+- **Nama model, vendor, dan harga AI tidak lagi tampil ke pelanggan (8 Okt).**
+  Settings AI menampilkan tingkatan: Low-end A/B/C, Medium-end A/B/C/D (bawaan),
+  High-end, dan Top-end AI model, tanpa harga masuk/keluar. Klien dan server
+  hanya bertukar kunci tingkatan (`low-a`, `mid-d`, `high`, `top`, dan `custom`);
+  id OpenRouter asli tinggal di `src/model-tiers.js`, jadi tidak muncul di nilai
+  `<option>` maupun respons `GET`/`PATCH /v1/admin/ai-settings` (`modelChain`,
+  `defaultModel`). Rantai lama berisi id di luar daftar dikirim sebagai `custom`
+  dan dipulihkan sesuai urutan saat disimpan, jadi membuka lalu menyimpan halaman
+  tidak menulis ulang rantai. Hook `onSend` mengganti nilai `"model":"..."` di
+  semua respons selain `/v1/superhuman/*` dengan label tingkatan (coach,
+  playbook, insight, simulasi KS ikut mengirim field itu walau web tidak
+  memakainya). Teks "urutan biaya" di penjelasan Settings dibuang. Halaman
+  Privasi menyebut "penyedia layanan AI" dan "penyedia cloud (Singapura)", bukan
+  nama vendornya. Konsol `/superhuman` tetap menampilkan model asli (hanya untuk
+  platform admin). Tes baru: `test/model-tiers.test.js`; commit `4991eaf`.
 - Deploy produksi mengantre lewat concurrency group `deploy-production`: dua push
   berdekatan tidak lagi membangun image di server bersamaan (8 Okt disk penuh dan
   Postgres produksi mati karena itu). Run yang menunggu tidak dibatalkan paksa.
@@ -235,6 +250,10 @@
 
 ### Fixed
 
+- **Pesan 503 "AI mati" membocorkan nama variabel env.** Saat mesin AI
+  platform belum aktif, API menjawab "Periksa OPENROUTER_API_KEY" ke browser
+  pelanggan; sekarang "AI belum bisa dipakai saat ini. Hubungi tim Agnee."
+  Pesan paket berhenti tidak berubah.
 - **Balasan model yang terputus di tengah kalimat ikut terkirim.** OpenRouter
   mengembalikan isi setengah jadi dengan `finish_reason: "error"` saat
   penyedia modelnya terputus, dan `"length"` saat batas token habis; layanan
@@ -282,6 +301,19 @@
 
 ### Outstanding
 
+- **`PATCH /v1/admin/ai-settings` masih menerima id model mentah** (klien lama
+  yang belum refresh). Id itu tersimpan apa adanya dan dibaca balik sebagai
+  `custom`, jadi tidak bocor ke browser, tapi pelanggan yang membuat request
+  sendiri masih bisa menyetel model di luar daftar. Penyaring `model` di
+  `onSend` baru diuji sebagai fungsi, belum lewat rute asli di produksi.
+- **Deploy CI `13a92d6` merah padahal server sudah di commit itu (8 Okt).**
+  Build berhasil, `compose up` gagal: `network agnee_net3 was found but has
+  incorrect label com.docker.compose.network`. Di server `agnee_net3` sudah
+  dibuat manual (tanpa label compose, `external: true` lewat
+  `/root/agnee-net-override.yml`), dan `agnee_net2` masih memuat
+  `agnee-postgres-1` bersama `agnee-cost-dry`. Dua deploy sebelumnya (`7f3389f`,
+  `b31a34a`) gagal `Disk quota exceeded`. Belum ada yang diubah di jaringan;
+  `docker network rm` / `compose down` di produksi butuh persetujuan.
 - **Knowledge Source belum punya layar web.** Pasang, isi, simulasi, dan
   aktivasi baru lewat rute `/v1/ks/*`. Belum diuji di chat nyata; hasil
   simulasi (4 dari 4 putaran lulus) memakai satu model dan dokumen yang

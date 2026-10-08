@@ -274,6 +274,14 @@ app.agnee.agnive.co  -> 127.0.0.1:4100
 mcp.agnee.agnive.co  -> 127.0.0.1:4200
 ```
 
+Jalur deploy yang sebenarnya adalah `git push origin main`, yang memicu GitHub
+Actions "Test & Deploy to Production" (test lalu SSH ke server, `git pull`,
+`deploy/remote-deploy.sh`). Deploy mengantre lewat concurrency group
+`deploy-production`. Jangan push ke remote `deploy` (legacy). Di server,
+`COMPOSE_FILE=compose.yml:/root/agnee-net-override.yml` menaruh stack di jaringan
+eksternal `agnee_net3`. Per 8 Oktober server menjalankan `13a92d6`; lihat
+`docs/SETUP.md` bagian Deploy macet untuk penyebab yang sudah terjadi.
+
 Landing page `agnee.agnive.co` adalah deployment terpisah dari internal app.
 Selama landing page belum tersedia, Nginx mengalihkan hostname tersebut ke app.
 
@@ -312,6 +320,11 @@ perlu berubah.
   `MCP_BEARER_TOKEN`, dan `MCP_OAUTH_SIGNING_SECRET`.
 - Jangan expose port 4100/4200 langsung; gunakan TLS reverse proxy.
 - Batasi MCP send tool sebelum diberikan kepada client eksternal.
+- Nama model AI, vendor, dan harga per token adalah rahasia bisnis: pelanggan
+  hanya melihat tingkatan ("High-end AI model"). Klien dan API bertukar kunci
+  tingkatan; id OpenRouter asli hanya ada di `src/model-tiers.js`, dan field
+  `model` di respons selain `/v1/superhuman/*` disaring di `onSend`. Jangan
+  menaruh id model atau harga di label UI, pesan error, atau respons API baru.
 - Untuk production multi-tenant, tambahkan database, queue, RBAC, audit log,
   rate limiting, secret manager, backup, monitoring, dan adapter WhatsApp resmi.
 

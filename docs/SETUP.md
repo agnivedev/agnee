@@ -487,6 +487,15 @@ Dua kejadian nyata, keduanya terlihat sama dari luar.
   stack Insight yang berbagi server; cache build bisa mencapai 6 GB
   (`docker builder prune`).
 - working tree `/opt/agnee` harus bersih; pipeline memakai `git pull`.
+- `network agnee_net3 was found but has incorrect label` di langkah
+  `compose up` (8 Oktober): jaringan dibuat manual setelah insiden Postgres dan
+  dipasang lewat `COMPOSE_FILE=compose.yml:/root/agnee-net-override.yml`
+  (`external: true`). Run CI bisa merah padahal container sudah di commit
+  terbaru: cek `docker exec agnee-app-1 cat /app/.git-sha`. Jangan
+  `docker network rm` atau `compose down` tanpa persetujuan; Postgres
+  menyimpan data semua perusahaan. Kegagalan `Disk quota exceeded` pada hari
+  yang sama (`df -h /`, 87% setelah pulih) berasal dari build Insight dan
+  Agnee yang bersamaan.
 
 ### Pesan terlihat gagal tetapi sebenarnya terkirim
 
@@ -507,6 +516,9 @@ Dua kejadian nyata, keduanya terlihat sama dari luar.
 - [ ] Session WhatsApp dan backup terenkripsi.
 - [ ] Dependency audit diperiksa sebelum release.
 - [ ] Migrasi ke API WhatsApp resmi sebelum SLA production.
+- [ ] Tidak ada nama model, vendor AI, harga, atau nama variabel env di UI,
+  pesan error, maupun respons API pelanggan (cek DevTools: Settings AI hanya
+  berisi kunci tingkatan).
 
 ## 20. Release checklist
 

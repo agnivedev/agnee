@@ -11,6 +11,8 @@ import { displayPhone, renderPreview, type Broadcast, type Candidate, type Pace 
 
 type Audience = {
   recipients: Candidate[];
+  /** false = status baca tidak bisa dibaca (Cloud API, nomor terputus). */
+  unreadKnown: boolean;
   excluded: { optedOut: number; outsideCloudWindow: number };
   products: { id: string; name: string }[];
   pace: Pace;
@@ -53,6 +55,7 @@ export function BroadcastComposer({ onCancel, onCreated }: { onCancel: () => voi
   const [product, setProduct] = useState('any');
   const [relation, setRelation] = useState<Relation>('replied');
   const [label, setLabel] = useState('any');
+  const [readFilter, setReadFilter] = useState<'all' | 'unread'>('all');
   const [search, setSearch] = useState('');
   const [unchecked, setUnchecked] = useState<Set<string>>(new Set());
   const [when, setWhen] = useState<'now' | 'later'>('now');
@@ -70,7 +73,9 @@ export function BroadcastComposer({ onCancel, onCreated }: { onCancel: () => voi
       .catch((error) => setLoadError(messageFromError(error, '')));
   }, []);
 
-  const matching = useMemo(() => {
+  // Saringan lain dulu, baru status baca: angka di tab Semua / Belum dibaca
+  // menghitung orang yang sama dengan yang akan tampil kalau tab itu dipilih.
+  const base = useMemo(() => {
     if (!audience) return [];
     const now = Date.now();
     return audience.recipients.filter((row) => {
@@ -82,6 +87,13 @@ export function BroadcastComposer({ onCancel, onCreated }: { onCancel: () => voi
       return true;
     });
   }, [audience, stage, recency, product, relation, label]);
+
+  const unreadCount = useMemo(() => base.filter((row) => (row.unreadCount ?? 0) > 0).length, [base]);
+  const unreadOnly = Boolean(audience?.unreadKnown) && readFilter === 'unread';
+  const matching = useMemo(
+    () => (unreadOnly ? base.filter((row) => (row.unreadCount ?? 0) > 0) : base),
+    [base, unreadOnly],
+  );
 
   // Label yang benar-benar ada di daftar ini. Akun WhatsApp biasa tidak punya,
   // dan saringan yang tidak punya pilihan apa pun tidak perlu tampil.
@@ -191,7 +203,7 @@ export function BroadcastComposer({ onCancel, onCreated }: { onCancel: () => voi
           acceptUnproven: selectedUnproven > 0,
           chatIds: selected.map((row) => row.chatId),
           scheduledAt: when === 'later' ? new Date(scheduledAt).toISOString() : null,
-          audience: { stage, lastInboundDays: recency, productId: product === 'any' || product === 'none' ? null : product },
+          audience: { stage, lastInboundDays: recency, productId: product === 'any' || product === 'none' ? null : product, unreadOnly },
         },
       });
       onCreated(data.broadcast.id);
@@ -248,6 +260,25 @@ export function BroadcastComposer({ onCancel, onCreated }: { onCancel: () => voi
           </Step>
 
           <Step number={2} title={t('broadcast.stepAudience')}>
+            {audience.unreadKnown ? (
+              <div role="tablist" aria-label={t('broadcast.readFilter')} className="flex flex-wrap gap-2">
+                {(['all', 'unread'] as const).map((value) => (
+                  <button
+                    key={value}
+                    type="button"
+                    role="tab"
+                    aria-selected={readFilter === value}
+                    onClick={() => setReadFilter(value)}
+                    className={cn(
+                      'min-h-[38px] cursor-pointer rounded-full border px-4 py-1.5 text-[13px] font-semibold transition',
+                      readFilter === value ? 'border-ink bg-ink text-white' : 'border-border bg-white text-ink/70 hover:border-ink/40',
+                    )}
+                  >
+                    {value === 'all' ? t('broadcast.readAll', { count: base.length }) : t('broadcast.readUnread', { count: unreadCount })}
+                  </button>
+                ))}
+              </div>
+            ) : null}
             <div className="flex flex-wrap gap-2">
               <label className="grid gap-1 text-xs text-muted">
                 {t('broadcast.filterStage')}
@@ -331,6 +362,7 @@ export function BroadcastComposer({ onCancel, onCreated }: { onCancel: () => voi
                           <span className="block font-mono text-[11px] text-muted">{displayPhone(row) || t('broadcast.phoneUnknown')}</span>
                         </span>
                         <span className="hidden text-right text-[11px] text-muted sm:block">
+                          {row.unreadCount ? <span className="block font-semibold text-green-dark">{t('broadcast.unreadBadge', { count: row.unreadCount })}</span> : null}
                           {row.productName ? <span className="block">{row.productName}</span> : null}
                           {row.relation === 'unproven' ? <span className="block">{t('broadcast.relation.unproven')}</span> : null}
                           {row.waLabels.length ? <span className="block">{row.waLabels.join(', ')}</span> : null}

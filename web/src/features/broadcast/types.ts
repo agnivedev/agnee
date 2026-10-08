@@ -50,6 +50,8 @@ export type Candidate = {
   relation: 'replied' | 'unproven';
   /** Label WhatsApp Business; kosong untuk akun biasa. */
   waLabels: string[];
+  /** Pesan belum dibuka; null = tidak diketahui (Cloud API / nomor terputus). */
+  unreadCount: number | null;
 };
 
 /** Tempo pengirim, persis seperti yang dipakai server. */

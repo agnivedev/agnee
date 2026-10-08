@@ -261,3 +261,50 @@ test('status impor kosong sebelum pernah dijalankan', async (t) => {
   assert.equal(res.json().busyElsewhere, false);
 });
 
+
+// ---- filter "Belum dibaca" ----
+
+test('audiens membawa jumlah pesan belum dibaca dari WhatsApp, dan chat yang tidak terlihat dihitung 0', async (t) => {
+  const { WhatsappManager } = require('../src/whatsapp-manager');
+  const konek = { id: 'conn-1', companyId: 'company-1', connectionKey: 'whatsapp-main', label: 'Utama' };
+  const chat = (id, unreadCount) => ({
+    id: { _serialized: id, user: id.split('@')[0] }, name: id, isGroup: false, timestamp: NOW, unreadCount,
+    pinned: false, archived: false,
+    lastMessage: { type: 'chat', body: 'hai', hasMedia: false, timestamp: NOW, fromMe: false, _data: {} },
+  });
+  const klien = { async getChats() { return [chat('62901@c.us', 3), chat('62902@c.us', 0)]; } };
+  const asliGetClient = WhatsappManager.prototype.getClient;
+  const asliGetState = WhatsappManager.prototype.getState;
+  WhatsappManager.prototype.getClient = function getClient(id) { return id === konek.id ? klien : asliGetClient.call(this, id); };
+  WhatsappManager.prototype.getState = function getState(id) { return id === konek.id ? { phase: 'ready' } : asliGetState.call(this, id); };
+  t.after(() => { WhatsappManager.prototype.getClient = asliGetClient; WhatsappManager.prototype.getState = asliGetState; });
+
+  const database = { ...fakeDatabase({ audience: CAMPUR }), async listWhatsappConnections() { return [konek]; } };
+  const app = await buildApp({ logger: false, startupEnabled: false, demoMode: false, database, sessionSecret: 'broadcast-secret' });
+  t.after(() => app.close());
+  const cookie = await signIn(app, SUPERVISOR);
+  const res = await app.inject({ method: 'GET', url: '/v1/broadcasts/audience', headers: { cookie } });
+  const body = res.json();
+  assert.equal(body.unreadKnown, true);
+  const per = Object.fromEntries(body.recipients.map((r) => [r.chatId, r.unreadCount]));
+  assert.equal(per['62901@c.us'], 3);
+  assert.equal(per['62902@c.us'], 0);
+});
+
+test('tanpa nomor WhatsApp yang siap, status baca TIDAK DIKETAHUI, bukan "semua sudah dibaca"', async (t) => {
+  const app = await appWith(t, fakeDatabase({ audience: CAMPUR }));
+  const cookie = await signIn(app, SUPERVISOR);
+  const res = await app.inject({ method: 'GET', url: '/v1/broadcasts/audience', headers: { cookie } });
+  const body = res.json();
+  assert.equal(body.unreadKnown, false);
+  assert.ok(body.recipients.every((r) => r.unreadCount === null));
+});
+
+test('broadcast boleh membawa penanda unreadOnly di audience', async (t) => {
+  const database = fakeDatabase({ audience: CAMPUR });
+  const app = await appWith(t, database);
+  const cookie = await signIn(app, SUPERVISOR);
+  const res = await kirim(app, cookie, { chatIds: ['62901@c.us'], audience: { stage: 'any', lastInboundDays: 0, unreadOnly: true } });
+  assert.equal(res.statusCode, 201);
+  assert.equal(database.created[0].audience.unreadOnly, true);
+});

@@ -7760,6 +7760,7 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
    */
   async function broadcastAudience(companyId, provider) {
     const rows = await database.listBroadcastAudience(companyId);
+    const unread = await broadcastUnread(companyId, provider);
     const sekarangDetik = Math.floor(Date.now() / 1000);
     const excluded = { optedOut: 0, outsideCloudWindow: 0 };
     const recipients = [];
@@ -7779,6 +7780,8 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
         productName: row.productName || null,
         relation: row.relation === 'unproven' ? 'unproven' : 'replied',
         waLabels: Array.isArray(row.waLabels) ? row.waLabels : [],
+        // null = tidak diketahui (nomor terputus / Cloud API), bukan "sudah dibaca".
+        unreadCount: unread ? (unread.get(row.chatId) || 0) : null,
       });
     }
     // Chat '@lid' membawa id samaran, bukan nomor telepon. Lead List sudah
@@ -7787,7 +7790,37 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     // punya nomor sama sekali. fillLidPhones membatasi 20 per permintaan dan
     // menyimpan hasilnya, jadi sisanya terisi di pembukaan berikutnya.
     await fillLidPhones(companyId, recipients).catch(() => {});
-    return { recipients, excluded };
+    return { recipients, excluded, unreadKnown: Boolean(unread) };
+  }
+
+  /**
+   * Chat yang belum kita buka, dibaca langsung dari WhatsApp seperti filter
+   * "Belum dibaca" di Inbox. Mengembalikan null kalau tidak bisa diketahui:
+   * Cloud API tidak punya status baca, dan nomor yang terputus tidak bisa
+   * ditanya. Null jangan disamakan dengan "semua sudah dibaca" — filternya
+   * harus disembunyikan, bukan menampilkan nol orang.
+   */
+  async function broadcastUnread(companyId, provider) {
+    if (provider === 'cloud_api' || config.demoMode) return null;
+    const conns = (await listWaConns(companyId)).filter((conn) => manager.getClient(conn.id)
+      && manager.getState(conn.id).phase === 'ready');
+    if (!conns.length) return null;
+    const peta = new Map();
+    let berhasil = 0;
+    await Promise.all(conns.map(async (conn) => {
+      try {
+        const chats = await getChatsForUi(manager.getClient(conn.id));
+        berhasil += 1;
+        for (const chat of chats) {
+          peta.set(chat.id, Math.max(peta.get(chat.id) || 0, Number(chat.unreadCount) || 0));
+        }
+      } catch (error) {
+        app.log.warn({ err: error }, 'Status baca broadcast tidak terbaca dari satu nomor');
+      }
+    }));
+    // Satu nomor gagal dibaca berarti chat-chat di nomor itu terlihat "sudah
+    // dibaca" padahal tidak diketahui; lebih aman menyatakan tidak diketahui.
+    return berhasil === conns.length ? peta : null;
   }
 
   function broadcastGuard(request, reply) {
@@ -7856,6 +7889,7 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
               stage: { type: 'string', enum: ['any', ...BROADCAST_STAGES] },
               lastInboundDays: { type: 'integer', minimum: 0, maximum: 3650 },
               productId: { anyOf: [{ type: 'string', format: 'uuid' }, { type: 'null' }] },
+              unreadOnly: { type: 'boolean' },
             },
           },
         },

@@ -219,6 +219,11 @@
   akun yang tidak ada di data. Belum ada layar di web.
 
 ### Changed
+- Landing page memakai suara halaman masuk app: "Kamu offline. AI tetap online.",
+  "AI dan CS kamu, satu inbox", "Tiap balasan ketahuan siapa yang nulis: AI atau
+  kamu". Menyapa pembaca langsung, bukan membingkai CS sebagai pihak ketiga. Tanpa
+  "24x7"/"24 jam" dan tanpa "Ga ada yang kelewat" (bisa dibuktikan salah saat server
+  atau WhatsApp putus); larangannya tercatat di komentar kepala LandingPage.tsx.
 
 - **Teks yang jadi tidak benar diperbarui.** Aturan di halaman broadcast, di
   layar penerima, dan di landing page semuanya menyatakan nomor yang tidak

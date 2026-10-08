@@ -83,7 +83,8 @@ function ChatItem({
   onSelect: () => void;
 }) {
   const { t } = useI18n();
-  const preview = chat.preview || t('inbox.noMessageYet');
+  const preview = chat.preview
+    || (chat.unreadCount ? t('inbox.unreadNoPreview', { count: chat.unreadCount }) : t('inbox.noMessageYet'));
   return (
     <button
       type="button"

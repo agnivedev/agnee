@@ -1456,6 +1456,70 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan produk (m
     }
   }
 
+  // WhatsApp Web memuat riwayat per chat secara bertahap: chat yang belum
+  // dibuka sejak sesi tertaut punya unreadCount tapi tanpa lastMessage di
+  // memori, jadi daftar menampilkan "belum ada pesan" padahal ada. Untuk
+  // chat di halaman yang sedang tampil saja, ambil satu pesan terakhir.
+  // Hasil (juga yang kosong) di-cache sebentar supaya polling daftar tidak
+  // membebani browser WhatsApp.
+  const previewFillCache = new Map();
+  const PREVIEW_FILL_TTL_MS = 5 * 60 * 1000;
+  const PREVIEW_FILL_EMPTY_TTL_MS = 60 * 1000;
+  const PREVIEW_FILL_CONCURRENCY = 4;
+  const PREVIEW_FILL_TIMEOUT_MS = 4000;
+
+  async function fetchLastPreview(wa, chatId) {
+    const chat = await wa.getChatById(chatId);
+    const messages = await chat.fetchMessages({ limit: 10 });
+    const last = [...messages].reverse().find(isConversationMessageForUi);
+    if (!last) return null;
+    return {
+      preview: messagePreviewForUi(last.type, last.body, last.hasMedia, last._data?.caption || last.caption),
+      lastSenderName: chat.isGroup && !last.fromMe ? last._data?.notifyName || null : null,
+    };
+  }
+
+  async function fillEmptyPreviews(chats) {
+    const missing = chats.filter((chat) => !chat.preview && chat.connectionId);
+    if (!missing.length) return;
+    const now = Date.now();
+    const todo = [];
+    for (const chat of missing) {
+      const key = `${chat.connectionId}:${chat.id}`;
+      const hit = previewFillCache.get(key);
+      if (hit && hit.expires > now) {
+        if (hit.value) Object.assign(chat, hit.value);
+      } else {
+        todo.push({ chat, key });
+      }
+    }
+    let next = 0;
+    const worker = async () => {
+      while (next < todo.length) {
+        const { chat, key } = todo[next++];
+        const wa = manager.getClient(chat.connectionId);
+        let value = null;
+        if (wa) {
+          let timer;
+          try {
+            value = await Promise.race([
+              fetchLastPreview(wa, chat.id),
+              new Promise((resolve) => { timer = setTimeout(() => resolve(null), PREVIEW_FILL_TIMEOUT_MS); }),
+            ]);
+          } catch (error) {
+            app.log.debug({ err: error, chatId: chat.id }, 'Gagal mengambil pesan terakhir untuk pratinjau');
+          } finally {
+            clearTimeout(timer);
+          }
+        }
+        if (previewFillCache.size > 2000) previewFillCache.clear();
+        previewFillCache.set(key, { value, expires: Date.now() + (value ? PREVIEW_FILL_TTL_MS : PREVIEW_FILL_EMPTY_TTL_MS) });
+        if (value) Object.assign(chat, value);
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(PREVIEW_FILL_CONCURRENCY, todo.length) }, worker));
+  }
+
   async function getMessagesForUi(wa, chatId, limit) {
     const hiddenTypes = ['e2e_notification', 'protocol', 'notification_template', 'gp2'];
     try {
@@ -6897,8 +6961,10 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     if (filter === 'all') chats = chats;
     if (query) chats = chats.filter((chat) => `${chat.name} ${chat.preview}`.toLocaleLowerCase('id-ID').includes(query));
     chats.sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) || Number(b.timestamp || 0) - Number(a.timestamp || 0));
+    const page = chats.slice(offset, offset + limit);
+    if (provider !== 'cloud_api' && !config.demoMode) await fillEmptyPreviews(page);
     return {
-      chats: chats.slice(offset, offset + limit),
+      chats: page,
       hasMore: offset + limit < chats.length,
     };
   });

@@ -212,6 +212,11 @@ POST /v1/chats/:chatId/routing
 GET  /v1/chats/:chatId/avatar
 GET  /v1/messages/:messageId/media
 POST /v1/messages/send
+GET  /v1/broadcasts
+GET  /v1/broadcasts/audience
+POST /v1/broadcasts
+GET  /v1/contacts/import
+POST /v1/contacts/import
 ```
 
 Setiap send harus membawa `clientRequestId` stabil ketika request di-retry.
@@ -496,6 +501,13 @@ Dua kejadian nyata, keduanya terlihat sama dari luar.
   menyimpan data semua perusahaan. Kegagalan `Disk quota exceeded` pada hari
   yang sama (`df -h /`, 87% setelah pulih) berasal dari build Insight dan
   Agnee yang bersamaan.
+- `docker image prune` dan `docker builder prune` bisa membebaskan 0 B kalau cache
+  sedang dipakai build lain; disk melonjak ke 100% di tengah build lalu turun
+  lagi setelah build gagal, jadi jangan mengulang deploy sebelum `df -h /` aman.
+- Beberapa sesi bisa push ke `main` bersamaan. Sebelum menyebut sebuah deploy
+  "belum sampai", cek `git log -1` di `/opt/agnee` dan isi container: commit
+  lain sering sudah membawa kodenya, jadi run yang merah tidak selalu perlu
+  diulang.
 
 ### Pesan terlihat gagal tetapi sebenarnya terkirim
 

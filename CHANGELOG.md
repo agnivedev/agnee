@@ -22,8 +22,12 @@
     sudah punya fallback untuk serialisasi whatsapp-web.js yang gampang gagal,
     alih-alih menulis kode puppeteer baru di koneksi pelanggan yang hidup.
   - **Belum pernah dijalankan terhadap WhatsApp sungguhan.** Diuji dengan klien
-    palsu (460 test lolos) dan layar di database lokal; impor pertama di Beweix
-    layak dipantau.
+    palsu (446 test lolos, termasuk test database) dan layar di database lokal;
+    impor pertama di Beweix layak dipantau.
+  - Live di produksi 8 Oktober (digabung `0346222`, ikut terbawa deploy
+    `4991eaf`; run Actions milik merge ini merah karena disk server penuh saat
+    build, bukan karena kode). Migrasi `049` sudah diterapkan, tabel
+    `imported_contacts` kosong sampai impor pertama.
 - **Broadcast bisa dipilih per kelompok.** Composer punya saringan Hubungan dan
   Label WhatsApp di samping tahap lead, hari, dan produk. Kontak yang belum
   terlihat membalas TIDAK terpilih bawaan; memilihnya memunculkan peringatan dan

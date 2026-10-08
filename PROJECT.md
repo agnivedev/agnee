@@ -82,7 +82,7 @@ Status per 8 Oktober 2026. Daftar di bawah blok ini adalah fitur inti MVP awal
 dan masih berlaku; blok ini mencatat yang ditambahkan sesudahnya. Detail per
 perubahan ada di [`CHANGELOG.md`](CHANGELOG.md).
 
-- PostgreSQL multi-tenant (migrasi `db/migrations/001` sampai `048`), login
+- PostgreSQL multi-tenant (migrasi `db/migrations/001` sampai `049`), login
   per user dengan peran, dan isolasi data antar company. Produksi menolak
   start tanpa database.
 - Frontend React (`web/`, Vite) di `/app/`, konsol platform `/superhuman`, dan
@@ -96,7 +96,14 @@ perubahan ada di [`CHANGELOG.md`](CHANGELOG.md).
 - Knowledge Source (KS): paket template percakapan yang dipasang ke company,
   dengan simulasi sebagai gerbang aktivasi. Lihat
   [`docs/knowledge-source.md`](docs/knowledge-source.md).
-- Broadcast ke customer yang pernah chat, dengan tempo, jam, dan batas harian.
+- Broadcast ke customer yang pernah chat, dengan tempo, jam, dan batas harian,
+  bisa dipilih per kelompok (tahap lead, hari, produk, hubungan, label
+  WhatsApp). Daftar penerima memakai `inbound_messages`, `lead_states`,
+  `conversation_routing`, dan kontak hasil impor.
+- Impor chat dari WhatsApp ke Lead List (supervisor): membaca daftar chat nomor
+  yang tersambung, tanpa isi pesan, lalu mengelompokkan menurut hubungan,
+  keaktifan, label WhatsApp Business, dan produk. Live 8 Oktober, belum pernah
+  dicoba di WhatsApp sungguhan.
 - Tugas dengan SLA jam kerja, jejak audit, rotasi nomor WhatsApp, dan integrasi
   lead Mayar.
 - Jalur kedua WhatsApp Business Platform (Cloud API) tersedia di kode; produksi
@@ -134,6 +141,9 @@ dulu ada di daftar ini sudah tersedia (lihat blok status di atas).
 - Vector search untuk knowledge base; pencarian FAQ sekarang berbasis skor
   kata kunci.
 - Deteksi permintaan berhenti dihubungi untuk follow-up.
+- Entri jejak audit untuk impor chat (memotong kuota AI dan membuka kontak ke
+  broadcast, tetapi akibatnya tidak keluar dari Agnee), dan impor CSV nomor
+  dingin untuk broadcast (sengaja tidak didukung: risiko nomor QR diblokir).
 - Balasan untuk foto yang dikirim tanpa teks.
 - Antrean balasan yang tahan restart server (jeda balasan hidup di memori).
 - Full inline renderer video/audio/document.
@@ -224,6 +234,13 @@ POST /v1/ks/installs
 PUT  /v1/ks/installs/:id/specific
 POST /v1/ks/installs/:id/simulate
 POST /v1/ks/installs/:id/activate
+GET  /v1/broadcasts
+GET  /v1/broadcasts/audience
+POST /v1/broadcasts
+GET  /v1/broadcasts/:id
+GET  /v1/contacts/import
+POST /v1/contacts/import
+DELETE /v1/contacts/import
 ```
 
 Daftar ini hanya rute inti dan KS; seluruh rute ada di `src/server.js`.

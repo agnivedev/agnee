@@ -88,14 +88,16 @@ test('supervisor company A mengganti AI setting tidak menyentuh company B', asyn
   // yang dulu bocor ke semua tenant lain.
   const patched = await app.inject({
     method: 'PATCH', url: '/v1/admin/ai-settings', headers: { cookie: cookieA },
-    payload: { enabled: false, modelChain: ['openai/gpt-4-turbo-mahal'] },
+    payload: { enabled: false, modelChain: ['top'] },
   });
   assert.equal(patched.statusCode, 200);
   assert.equal(patched.json().enabled, false);
-  assert.deepEqual(patched.json().modelChain, ['openai/gpt-4-turbo-mahal']);
+  // Klien hanya bertukar kunci tingkatan; id asli tidak ikut ke browser.
+  assert.deepEqual(patched.json().modelChain, ['top']);
+  assert.doesNotMatch(patched.body, /claude|anthropic/i);
 
   // Baris company A di "database" berubah…
-  assert.deepEqual(database.aiRows.get(COMPANY_A), { enabled: false, modelChain: ['openai/gpt-4-turbo-mahal'] });
+  assert.deepEqual(database.aiRows.get(COMPANY_A), { enabled: false, modelChain: ['anthropic/claude-sonnet-5'] });
   // …tapi company B tidak pernah disentuh.
   assert.deepEqual(database.aiRows.get(COMPANY_B), { enabled: true, modelChain: [] });
 
@@ -103,6 +105,7 @@ test('supervisor company A mengganti AI setting tidak menyentuh company B', asyn
   const readB = await app.inject({ method: 'GET', url: '/v1/admin/ai-settings', headers: { cookie: cookieB } });
   assert.equal(readB.statusCode, 200);
   assert.deepEqual(readB.json().modelChain, []);
+  assert.equal(readB.json().defaultModel, 'mid-d');
 });
 
 test('GET /v1/admin/ai-settings mengembalikan baris company milik pemanggil, bukan company lain', async (t) => {

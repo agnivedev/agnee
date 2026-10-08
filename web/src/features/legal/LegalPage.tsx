@@ -98,7 +98,7 @@ const PRIVASI: Bagian[] = [
     blok: [
       {
         jenis: 'paragraf',
-        isi: 'Saat Agnee menyusun balasan, meringkas percakapan, atau menjawab pertanyaan tim di catatan, bagian percakapan yang relevan dikirim ke OpenRouter, yang meneruskannya ke penyedia model bahasa. Yang dikirim adalah bagian yang dibutuhkan untuk menjawab, bukan seluruh riwayat.',
+        isi: 'Saat Agnee menyusun balasan, meringkas percakapan, atau menjawab pertanyaan tim di catatan, bagian percakapan yang relevan dikirim ke penyedia layanan AI kami, yang meneruskannya ke penyedia model bahasa. Yang dikirim adalah bagian yang dibutuhkan untuk menjawab, bukan seluruh riwayat.',
       },
       {
         jenis: 'paragraf',
@@ -113,8 +113,8 @@ const PRIVASI: Bagian[] = [
         jenis: 'tabel',
         kepala: ['Pihak', 'Perannya'],
         baris: [
-          ['UpCloud (Singapura)', 'Tempat server dan database Agnee berjalan.'],
-          ['OpenRouter', 'Meneruskan permintaan ke penyedia model bahasa untuk balasan dan ringkasan AI.'],
+          ['Penyedia cloud (Singapura)', 'Tempat server dan database Agnee berjalan.'],
+          ['Penyedia layanan AI', 'Meneruskan permintaan ke penyedia model bahasa untuk balasan dan ringkasan AI.'],
           ['Meta / WhatsApp', 'Jalur pesan itu sendiri — pesan masuk dan keluar melewati WhatsApp.'],
           ['Google Fonts', 'Memuat huruf pada halaman; server Google menerima alamat IP pengunjung.'],
           ['Microsoft OneDrive', 'Hanya kalau perusahaanmu menyambungkannya sendiri untuk sinkronisasi kontak.'],
@@ -129,7 +129,7 @@ const PRIVASI: Bagian[] = [
     blok: [
       {
         jenis: 'paragraf',
-        isi: 'Server dan database Agnee berjalan di pusat data UpCloud di Singapura, jadi datamu disimpan di luar Indonesia. Penyedia AI, WhatsApp, dan layanan lain di daftar di atas juga memproses data di luar negeri. Dengan memakai Agnee, kamu memahami bahwa data diproses lintas negara seperti yang dijelaskan di sini.',
+        isi: 'Server dan database Agnee berjalan di pusat data penyedia cloud kami di Singapura, jadi datamu disimpan di luar Indonesia. Penyedia AI, WhatsApp, dan layanan lain di daftar di atas juga memproses data di luar negeri. Dengan memakai Agnee, kamu memahami bahwa data diproses lintas negara seperti yang dijelaskan di sini.',
       },
     ],
   },

@@ -123,9 +123,10 @@ export function AiSettingsSection() {
                 }
                 className="min-w-0 flex-1 rounded-app border border-input bg-white/60 px-3 py-2 text-[13px]"
               >
-                {/* A model id saved before this list existed must stay selectable,
-                    otherwise opening the page silently rewrites the chain. */}
-                {value && !known ? <option value={value}>{`${value}  ·  (${t('admin.custom')})`}</option> : null}
+                {/* A model saved before this list existed comes back as 'custom' and
+                    must stay selectable, otherwise opening the page silently
+                    rewrites the chain. */}
+                {value && !known ? <option value={value}>{`AI ${t('admin.custom')}`}</option> : null}
                 {AVAILABLE_MODELS.map((model) => (
                   <option key={model.value || 'none'} value={model.value}>
                     {model.labelKey ? t(model.labelKey) : model.label}

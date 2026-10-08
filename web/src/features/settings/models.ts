@@ -1,27 +1,28 @@
 /**
- * Price per one million tokens (in / out). WhatsApp replies are short, so the
- * bill is dominated by the input price — a model with an expensive output price
- * is not necessarily expensive in real use.
- *
- * Every id below was verified live on OpenRouter (2026-09-10). A dead id fails
- * at send time, not at save time, so do not add one from memory.
+ * Labels are tiers on purpose: a customer sees "High-end AI model", never the
+ * vendor, the model name, or what we pay per token. Do not put either back in
+ * a label, and do not put a real model id in a `value`: these values travel to
+ * and from the server and show up in DevTools. The server maps each key to the
+ * real OpenRouter id (src/model-tiers.js, same keys and same order). A chain
+ * saved with an id outside this list comes back as 'custom'.
  */
+export const CUSTOM_MODEL_KEY = 'custom';
+
 export const AVAILABLE_MODELS: { value: string; label?: string; labelKey?: string }[] = [
   { value: '', labelKey: 'admin.notUsed' },
-  { value: 'mistralai/mistral-nemo', label: 'Mistral Nemo  ·  masuk $0,02 / keluar $0,03' },
-  { value: 'meta-llama/llama-3.1-8b-instruct', label: 'Llama 3.1 8B  ·  masuk $0,05 / keluar $0,08' },
-  { value: 'google/gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash Lite  ·  masuk $0,10 / keluar $0,40' },
-  { value: 'meta-llama/llama-3.3-70b-instruct', label: 'Llama 3.3 70B  ·  masuk $0,10 / keluar $0,32' },
-  { value: 'openai/gpt-4o-mini', label: 'GPT-4o mini  ·  masuk $0,15 / keluar $0,60' },
-  { value: 'google/gemini-2.5-flash', label: 'Gemini 2.5 Flash  ·  masuk $0,30 / keluar $2,50 (default)' },
-  { value: 'qwen/qwen-2.5-72b-instruct', label: 'Qwen 2.5 72B  ·  masuk $0,36 / keluar $0,40' },
-  { value: 'anthropic/claude-haiku-4.5', label: 'Claude Haiku 4.5  ·  masuk $1,00 / keluar $5,00' },
-  { value: 'anthropic/claude-sonnet-5', label: 'Claude Sonnet 5  ·  masuk $2,00 / keluar $10,00' },
+  { value: 'low-a', label: 'Low-end AI model A' },
+  { value: 'low-b', label: 'Low-end AI model B' },
+  { value: 'low-c', label: 'Low-end AI model C' },
+  { value: 'mid-a', label: 'Medium-end AI model A' },
+  { value: 'mid-b', label: 'Medium-end AI model B' },
+  { value: 'mid-c', label: 'Medium-end AI model C' },
+  { value: 'mid-d', label: 'Medium-end AI model D (default)' },
+  { value: 'high', label: 'High-end AI model' },
+  { value: 'top', label: 'Top-end AI model' },
 ];
 
 export const MODEL_SLOT_COUNT = 5;
 
-/** Matches exactly, or by the part after the slash ("qwen-2.5-72b" vs "qwen/qwen-2.5-72b"). */
 export function findModel(value: string) {
-  return AVAILABLE_MODELS.find((model) => model.value === value || (value && model.value.endsWith(`/${value}`)));
+  return AVAILABLE_MODELS.find((model) => model.value === value);
 }

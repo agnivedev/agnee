@@ -5,6 +5,7 @@ const fs = require('node:fs/promises');
 const fsSync = require('node:fs');
 const path = require('node:path');
 const Fastify = require('fastify');
+const modelTiers = require('./model-tiers');
 const fastifyStatic = require('@fastify/static');
 const fastifyMultipart = require('@fastify/multipart');
 const QRCode = require('qrcode');
@@ -558,7 +559,7 @@ async function buildApp(overrides = {}) {
     return reply.code(503).send({
       error: companyAi?.reason === 'suspended'
         ? 'Paket perusahaan ini sedang berhenti, jadi AI ikut berhenti. Aktifkan paketnya lebih dulu.'
-        : 'Mesin AI belum aktif. Periksa OPENROUTER_API_KEY.',
+        : 'AI belum bisa dipakai saat ini. Hubungi tim Agnee.',
     });
   }
 
@@ -2024,7 +2025,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan produk (m
   }, 60_000).unref?.();
 
   // Security headers on every response
-  app.addHook('onSend', async (_request, reply) => {
+  app.addHook('onSend', async (request, reply, payload) => {
     reply.header('x-content-type-options', 'nosniff');
     reply.header('x-frame-options', 'DENY');
     reply.header('referrer-policy', 'strict-origin-when-cross-origin');
@@ -2040,6 +2041,11 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan produk (m
       "frame-ancestors 'none'",
     ].join('; ');
     reply.header('content-security-policy', csp);
+    // Id model asli hanya boleh sampai ke konsol platform admin.
+    if (typeof payload === 'string' && !request.url.startsWith('/v1/superhuman')) {
+      return modelTiers.maskModelFields(payload);
+    }
+    return payload;
   });
 
   await app.register(fastifyMultipart, {
@@ -3341,9 +3347,10 @@ ${thread || '(belum ada)'}${hubContext}`,
       enabled: raw ? raw.enabled !== false : effective.enabled,
       effective: effective.enabled,
       reason: effective.reason,
-      modelChain: effective.modelChain,
+      // Kunci tingkatan, bukan id model: lihat src/model-tiers.js.
+      modelChain: modelTiers.chainToKeys(effective.modelChain),
       identity: raw?.identity || 'team_member',
-      defaultModel: config.openrouterModel,
+      defaultModel: modelTiers.keyForId(config.openrouterModel),
     };
   });
 
@@ -3372,10 +3379,17 @@ ${thread || '(belum ada)'}${hubContext}`,
     }
     const patch = {};
     if (typeof request.body.enabled === 'boolean') patch.enabled = request.body.enabled;
-    if (Array.isArray(request.body.modelChain)) patch.modelChain = request.body.modelChain.filter(Boolean);
+    const companyId = request.agneeSession.companyId;
+    if (Array.isArray(request.body.modelChain)) {
+      const stored = await database.getAiSettings?.(companyId).catch(() => null);
+      patch.modelChain = modelTiers.keysToChain(request.body.modelChain, {
+        storedChain: stored?.modelChain,
+        defaultModel: config.openrouterModel,
+      });
+    }
     if (request.body.identity) patch.identity = request.body.identity;
-    const settings = await database.setAiSettings(request.agneeSession.companyId, patch);
-    return { ok: true, enabled: settings.enabled, modelChain: settings.modelChain, identity: settings.identity };
+    const settings = await database.setAiSettings(companyId, patch);
+    return { ok: true, enabled: settings.enabled, modelChain: modelTiers.chainToKeys(settings.modelChain), identity: settings.identity };
   });
 
   // ── /superhuman: konsol platform Agnee ────────────────────────────────────

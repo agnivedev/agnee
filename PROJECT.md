@@ -294,7 +294,9 @@ mcp.agnee.agnive.co  -> 127.0.0.1:4200
 Jalur deploy yang sebenarnya adalah `git push origin main`, yang memicu GitHub
 Actions "Test & Deploy to Production" (test lalu SSH ke server, `git pull`,
 `deploy/remote-deploy.sh`). Deploy mengantre lewat concurrency group
-`deploy-production`. Jangan push ke remote `deploy` (legacy). Di server,
+`deploy-production`, dan `remote-deploy.sh` menunggu build lain di server
+(misalnya Insight) lalu batal sebelum build kalau sisa disk di bawah 2 GB.
+Jangan push ke remote `deploy` (legacy). Di server,
 `COMPOSE_FILE=compose.yml:/root/agnee-net-override.yml` menaruh stack di jaringan
 eksternal `agnee_net3`. Per 8 Oktober server menjalankan `13a92d6`; lihat
 `docs/SETUP.md` bagian Deploy macet untuk penyebab yang sudah terjadi.

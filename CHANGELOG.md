@@ -261,6 +261,19 @@
 
 ### Fixed
 
+- **Produksi down ~12 menit, 8 Okt 06:48–07:00 UTC (Postgres tidak terjangkau).**
+  Build Agnee dan deploy Insight jalan bersamaan dan mengisi disk server 20 GB
+  sampai 0 byte. Deploy Insight terhenti setelah build sebelum `up -d`, jadi
+  image lamanya (1,9 GB) tetap terpakai; Postgres Agnee `Exited (1)` tanpa log,
+  dan Docker meninggalkan endpoint hantu `agnee-postgres-1` di `agnee_net2`.
+  Dipulihkan atas izin pemilik: deploy Insight dituntaskan (`up -d --no-deps`
+  tiga layanan Insight), image dan build cache lama dibuang (~5,5 GB),
+  Postgres dinyalakan (recovery WAL bersih), dan stack dipindah ke jaringan
+  baru `agnee_net3` (override kini `external: true`). Data utuh: 641 pesan
+  masuk, terakhir 03:35 UTC, tidak ada pesan masuk selama gangguan. Satu
+  langkah pemulihan memperpanjang gangguan beberapa menit: melepas jaringan
+  container yang sedang mati membuat `start` berikutnya jalan tanpa jaringan.
+  Pencegahan: concurrency group deploy dan pagar disk di `remote-deploy.sh`.
 - **Pesan 503 "AI mati" membocorkan nama variabel env.** Saat mesin AI
   platform belum aktif, API menjawab "Periksa OPENROUTER_API_KEY" ke browser
   pelanggan; sekarang "AI belum bisa dipakai saat ini. Hubungi tim Agnee."
@@ -317,14 +330,11 @@
   `custom`, jadi tidak bocor ke browser, tapi pelanggan yang membuat request
   sendiri masih bisa menyetel model di luar daftar. Penyaring `model` di
   `onSend` baru diuji sebagai fungsi, belum lewat rute asli di produksi.
-- **Deploy CI `13a92d6` merah padahal server sudah di commit itu (8 Okt).**
-  Build berhasil, `compose up` gagal: `network agnee_net3 was found but has
-  incorrect label com.docker.compose.network`. Di server `agnee_net3` sudah
-  dibuat manual (tanpa label compose, `external: true` lewat
-  `/root/agnee-net-override.yml`), dan `agnee_net2` masih memuat
-  `agnee-postgres-1` bersama `agnee-cost-dry`. Dua deploy sebelumnya (`7f3389f`,
-  `b31a34a`) gagal `Disk quota exceeded`. Belum ada yang diubah di jaringan;
-  `docker network rm` / `compose down` di produksi butuh persetujuan.
+- **Jaringan Docker yatim `agnee_default` dan `agnee_net2` masih tertinggal.**
+  Deploy `13a92d6` sudah hijau setelah override diberi `external: true` dan satu
+  container `Created` sisa `up -d` yang gagal dihapus; app dan mcp menjalankan
+  `13a92d6`. Membuang kedua jaringan yatim butuh restart daemon Docker, yang ikut
+  menghentikan stack Insight. `agnee-cost-dry` (sesi lain) masih di `agnee_net2`.
 - **Knowledge Source belum punya layar web.** Pasang, isi, simulasi, dan
   aktivasi baru lewat rute `/v1/ks/*`. Belum diuji di chat nyata; hasil
   simulasi (4 dari 4 putaran lulus) memakai satu model dan dokumen yang
@@ -341,10 +351,12 @@
   dua broadcast masuk ke percakapan yang baru berjalan, dengan copy yang
   menjanjikan jam telepon yang tidak ada di playbook. Belum ada aturan
   "jangan broadcast ke chat aktif".
-- **Endpoint jaringan Docker `agnee_default` yatim masih tertinggal** di
-  produksi (stack kini di `agnee_net2`). Membersihkannya butuh restart daemon
-  Docker, yang juga menghentikan stack Insight di server yang sama. Pesan
-  masuk 11:47 sampai 16:32 UTC pada 7 Oktober tidak tercatat di database.
+- **Pesan masuk 11:47 sampai 16:32 UTC pada 7 Oktober tidak tercatat di
+  database** (insiden Postgres pertama). Stack kini di `agnee_net3`; jaringan
+  yatim dibahas di butir di atas.
+- **Deploy Insight di server yang sama tidak memakai pagar disk Agnee.** Pagar
+  `remote-deploy.sh` hanya mencegah Agnee memulai build; build Insight yang
+  dimulai sesudahnya tetap bisa menghabiskan disk.
 - **`privasi@agnive.co` dan penghapusan data 90 hari** dijanjikan di halaman
   hukum tapi belum punya mekanismenya.
 - **Balasan yang sedang menunggu jeda hilang kalau server restart.** Jedanya
@@ -409,6 +421,15 @@
 
 ### Changed
 
+- **Deploy menolak membangun kalau server tidak siap.** `deploy/remote-deploy.sh`
+  sekarang menunggu build lain di server selesai (misalnya deploy Insight;
+  maksimal `DEPLOY_BUILD_WAIT_SECONDS`, bawaan 900) dan membatalkan deploy
+  sebelum build kalau sisa disk di bawah `DEPLOY_MIN_FREE_MB` (bawaan 2048),
+  setelah sekali mencoba `docker image prune`. Build yang tidak dimulai tidak
+  merusak apa pun: container lama tetap melayani. Pendeteksi build berjangkar
+  pada program docker/docker-compose, jadi `grep "docker build"` milik orang
+  yang sedang memeriksa server tidak ikut menahan deploy (diuji di server: 4
+  bentuk build tertangkap, `grep`, `up -d`, dan `builder prune` tidak).
 - **Harga promo dikunci selama langganan jalan tanpa putus.** Landing page tidak
   menjawab pertanyaan yang pasti muncul di kepala pembaca ("harga ini naik bulan
   depan?"), dan jawaban yang menggantung lebih merugikan konversi daripada

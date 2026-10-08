@@ -481,6 +481,18 @@ Dua kejadian nyata, keduanya terlihat sama dari luar.
   Jangan hapus keduanya. Endpoint yatim masih tertinggal; membersihkannya
   butuh restart daemon Docker, yang juga menghentikan stack Insight di server
   yang sama, jadi lakukan di jam sepi dan setelah memberi tahu pemilik Insight.
+- Terulang 8 Oktober 2026 (~12 menit, 06:48 sampai 07:00 UTC) setelah disk
+  penuh: `EHOSTUNREACH` ke Postgres, endpoint hantu `agnee-postgres-1` di
+  `agnee_net2` ("endpoint ... already exists" saat `start`/`network connect`).
+  Stack dipindah ke `agnee_net3` yang dibuat manual; override sekarang
+  `networks: default: {name: agnee_net3, external: true}`. Langkahnya:
+  `docker network create agnee_net3`, lalu `docker network connect --alias
+  postgres agnee_net3 agnee-postgres-1` (begitu juga `app` dan `mcp`), lalu
+  lepaskan app/mcp dari jaringan lama. Uji dari container segar dengan
+  `pg_isready -h postgres` sebelum menganggap beres.
+- **Jangan `docker network disconnect` container yang sedang mati lalu
+  `docker start`:** jaringannya terhapus dari konfigurasi container dan Postgres
+  menyala tanpa jaringan. Sambungkan jaringan saat container sudah berjalan.
 - Sebelum `docker compose down` atau menghapus container apa pun, salin dulu
   lognya: `docker logs <container> > /root/log-<nama>-$(date +%F).txt`. Log
   app lama hilang pada kejadian di atas karena container dibuat ulang lebih
@@ -500,7 +512,21 @@ Dua kejadian nyata, keduanya terlihat sama dari luar.
   `docker network rm` atau `compose down` tanpa persetujuan; Postgres
   menyimpan data semua perusahaan. Kegagalan `Disk quota exceeded` pada hari
   yang sama (`df -h /`, 87% setelah pulih) berasal dari build Insight dan
-  Agnee yang bersamaan.
+  Agnee yang bersamaan. Label jaringan sudah beres dengan `external: true`.
+- `Conflict. The container name "/<id>_agnee-app-1" is already in use`: sisa
+  `compose up` yang gagal di tengah. Hapus HANYA container berstatus `Created`
+  (`docker ps -a --filter name=agnee`), lalu jalankan ulang deploy.
+- Sebelum menjalankan ulang deploy secara manual, cek
+  `docker compose up -d --dry-run app mcp`: `agnee-postgres-1` harus tertulis
+  `Running`, bukan `Recreate`.
+- Pagar di `deploy/remote-deploy.sh` (8 Oktober): deploy menunggu build lain
+  di server selesai (maksimal `DEPLOY_BUILD_WAIT_SECONDS`, bawaan 900 detik)
+  dan batal sebelum build kalau sisa disk di bawah `DEPLOY_MIN_FREE_MB`
+  (bawaan 2048). Pesan "GAGAL: sisa disk ..." di log CI berarti produksi tidak
+  tersentuh; bebaskan ruang (`docker builder prune -af`, `docker image prune
+  -f`; jangan volume) lalu jalankan ulang. Workflow juga punya concurrency
+  group `deploy-production`, jadi dua push berdekatan mengantre. Membatalkan
+  run di GitHub tidak menghentikan build yang sudah jalan di server.
 - `docker image prune` dan `docker builder prune` bisa membebaskan 0 B kalau cache
   sedang dipakai build lain; disk melonjak ke 100% di tengah build lalu turun
   lagi setelah build gagal, jadi jangan mengulang deploy sebelum `df -h /` aman.

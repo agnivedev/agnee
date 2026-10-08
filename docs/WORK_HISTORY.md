@@ -98,6 +98,14 @@ Ringkasan jalur besar. Rinciannya ada di [`../CHANGELOG.md`](../CHANGELOG.md).
   `OPENROUTER_API_KEY`, dan halaman Privasi tidak menyebut OpenRouter/UpCloud.
   Commit `4991eaf`, live; dua deploy berikutnya gagal disk penuh dan satu gagal
   label jaringan `agnee_net3`, server tetap sehat dan kini di `13a92d6`.
+- 8 Oktober (sore, lanjutan): copy landing page memakai suara halaman masuk app
+  ("Kamu offline. AI tetap online.", `5f97f60`, tanpa klaim 24x7). Saat
+  deploy-nya, build Agnee dan Insight bersamaan menghabiskan disk sampai 0 byte
+  dan produksi down ~12 menit (Postgres mati, endpoint jaringan hantu).
+  Dipulihkan dengan menuntaskan deploy Insight, membuang image/cache lama,
+  menyalakan Postgres, dan memindah stack ke `agnee_net3`; data utuh.
+  Pencegahan: concurrency group `deploy-production` (`13a92d6`) dan pagar
+  build-lain/sisa-disk di `deploy/remote-deploy.sh`.
 - 8 Oktober, broadcast: daftar penerima Beweix hanya 2 nama karena Agnee baru
   mencatat 3 lawan bicara (rancangan, bukan kerusakan); dua bug yang ikut
   menyempitkan (nomor `@lid` tampil sebagai digit samaran, saringan 30 hari

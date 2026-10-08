@@ -125,7 +125,10 @@ Ringkasan jalur besar. Rinciannya ada di [`../CHANGELOG.md`](../CHANGELOG.md).
   `beweix-digital` sebagai pengirim dan nomor Beweix sendiri sebagai penerima
   (nomor supervisor tidak ada di database); `.env` lama dicadangkan di
   `/opt/agnee/.env.bak-wa`. App di-restart dengan `up -d --no-deps app`
-  (sehat dalam 26 detik). Belum ada alert sungguhan yang terkirim.
+  (sehat dalam 26 detik). Diuji dengan ambang Company sementara Rp 1.000: log
+  `delivered:["whatsapp"], failed:[]` untuk `tradersmastermind` dalam ~90
+  detik, ambang lalu dikembalikan (app di-restart dua kali). Alert nyata belum
+  ada.
 
 ## Referensi
 

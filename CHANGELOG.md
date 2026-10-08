@@ -13,9 +13,13 @@
   - **Aktif di produksi 8 Okt:** `beweix-digital` mengirim ke nomor Beweix itu
     sendiri (chat "Pesan ke diri sendiri"), karena nomor pribadi supervisor tidak
     tersimpan di database. Handler inbound mengabaikan `fromMe`, jadi tidak ada
-    balasan AI; kekurangannya notifikasi dering sering tidak muncul. Belum
-    pernah terkirim sungguhan (belum ada company yang melewati ambang sejak
-    kanal dinyalakan). SMTP masih kosong.
+    balasan AI; kekurangannya notifikasi dering sering tidak muncul. Terkirim
+    pada uji dengan ambang sementara (lihat di bawah); belum ada alert nyata. SMTP masih kosong.
+    **Diuji ujung ke ujung 8 Okt:** ambang Company diturunkan sementara ke
+    Rp 1.000, app di-recreate, dalam sekitar 90 detik log mencatat
+    `delivered:["whatsapp"], failed:[]` untuk `tradersmastermind` (satu pesan
+    ringkasan lewat `beweix-digital`); ambang lalu dikembalikan dari cadangan
+    `.env`. Isi pesan di ponsel belum diperiksa pemilik.
   - Pengirim harus company milik sendiri, bukan nomor pelanggan: balasan staf
     masuk ke inbox company pengirim dan AI-nya bisa menjawab.
 

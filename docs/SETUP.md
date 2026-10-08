@@ -505,7 +505,10 @@ Kanal diatur di `.env` server: `COST_ALERT_EMAIL_TO` (butuh SMTP) dan
 lencana di `/superhuman`. Untuk WhatsApp, nomor company pengirim harus
 `ready`; jangan pakai nomor pelanggan karena balasan masuk ke inboxnya. Nomor
 tujuan yang sama dengan nomor pengirim masuk ke "Pesan ke diri sendiri" dan
-jarang membunyikan notifikasi. Setelah mengubah `.env`:
+jarang membunyikan notifikasi. Uji ujung ke ujung: tambahkan
+`AI_COST_ALERT_IDR_COMPANY=1000` di `.env` (cadangkan dulu), recreate app,
+cari `Alert biaya AI terkirim` di log (~90 detik), lalu pulihkan `.env` dan
+recreate lagi. Setelah mengubah `.env`:
 `docker compose up -d --no-deps app` (jangan saat ada deploy berjalan).
 
 ### Deploy macet atau gagal build

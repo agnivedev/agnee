@@ -127,8 +127,8 @@ Ringkasan jalur besar. Rinciannya ada di [`../CHANGELOG.md`](../CHANGELOG.md).
   `/opt/agnee/.env.bak-wa`. App di-restart dengan `up -d --no-deps app`
   (sehat dalam 26 detik). Diuji dengan ambang Company sementara Rp 1.000: log
   `delivered:["whatsapp"], failed:[]` untuk `tradersmastermind` dalam ~90
-  detik, ambang lalu dikembalikan (app di-restart dua kali). Alert nyata belum
-  ada.
+  detik, ambang lalu dikembalikan (app di-restart dua kali). Pesan sampai di ponsel dan
+  dikonfirmasi pemilik. Alert nyata belum ada.
 
 ## Referensi
 

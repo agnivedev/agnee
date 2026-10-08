@@ -19,7 +19,10 @@
     Rp 1.000, app di-recreate, dalam sekitar 90 detik log mencatat
     `delivered:["whatsapp"], failed:[]` untuk `tradersmastermind` (satu pesan
     ringkasan lewat `beweix-digital`); ambang lalu dikembalikan dari cadangan
-    `.env`. Isi pesan di ponsel belum diperiksa pemilik.
+    `.env`. Pesan sampai di
+    ponsel dan dikonfirmasi pemilik: judul "Agnee: biaya AI tinggi", satu
+    baris per company (nama, paket, biaya, persen dari ambang), "Layanan tidak
+    dihentikan", dan tautan `/superhuman`.
   - Pengirim harus company milik sendiri, bukan nomor pelanggan: balasan staf
     masuk ke inbox company pengirim dan AI-nya bisa menjawab.
 

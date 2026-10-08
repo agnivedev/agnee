@@ -79,6 +79,11 @@ export function BroadcastComposer({ onCancel, onCreated }: { onCancel: () => voi
 
   const selected = useMemo(() => matching.filter((row) => !unchecked.has(row.chatId)), [matching, unchecked]);
 
+  // Yang ada di audiens tapi tidak lolos saringan. Tanpa hitungan ini orang
+  // yang tersaring hilang tanpa jejak: Beweix punya 3 calon penerima, layar
+  // menampilkan 2, dan tidak ada tanda bahwa yang ketiga cuma tersaring.
+  const hiddenByFilter = audience ? audience.recipients.length - matching.length : 0;
+
   const listed = useMemo(() => {
     const needle = search.trim().toLowerCase();
     const rows = needle
@@ -260,6 +265,7 @@ export function BroadcastComposer({ onCancel, onCreated }: { onCancel: () => voi
             <div className="rounded-xl border border-border bg-white">
               <div className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-2">
                 <strong className="text-[13px]">{t('broadcast.selectedCount', { selected: selected.length, matching: matching.length })}</strong>
+                {hiddenByFilter > 0 ? <span className="text-xs text-muted">{t('broadcast.hiddenByFilter', { count: hiddenByFilter })}</span> : null}
                 <span className="flex-1" />
                 <Button variant="ghost" size="sm" onClick={() => setAll(true)}>{t('broadcast.checkAll')}</Button>
                 <Button variant="ghost" size="sm" onClick={() => setAll(false)}>{t('broadcast.uncheckAll')}</Button>
@@ -275,7 +281,7 @@ export function BroadcastComposer({ onCancel, onCreated }: { onCancel: () => voi
                         <input type="checkbox" checked={!unchecked.has(row.chatId)} onChange={() => toggle(row.chatId)} />
                         <span className="min-w-0 flex-1">
                           <span className={cn('block truncate', !row.name && 'text-muted italic')}>{row.name || t('broadcast.noName')}</span>
-                          <span className="block font-mono text-[11px] text-muted">{displayPhone(row)}</span>
+                          <span className="block font-mono text-[11px] text-muted">{displayPhone(row) || t('broadcast.phoneUnknown')}</span>
                         </span>
                         <span className="hidden text-right text-[11px] text-muted sm:block">
                           {row.productName ? <span className="block">{row.productName}</span> : null}

@@ -7197,6 +7197,12 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
         productName: row.productName || null,
       });
     }
+    // Chat '@lid' membawa id samaran, bukan nomor telepon. Lead List sudah
+    // menyelesaikannya lewat fillLidPhones; daftar ini dulu tidak, jadi di
+    // company yang petanya masih kosong (Beweix, 8 Okt) layar broadcast tidak
+    // punya nomor sama sekali. fillLidPhones membatasi 20 per permintaan dan
+    // menyimpan hasilnya, jadi sisanya terisi di pembukaan berikutnya.
+    await fillLidPhones(companyId, recipients).catch(() => {});
     return { recipients, excluded };
   }
 

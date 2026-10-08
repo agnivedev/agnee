@@ -179,6 +179,24 @@
 
 ### Fixed
 
+- **Daftar penerima broadcast menampilkan digit id samaran sebagai "nomor".**
+  Chat berbentuk `@lid` membawa id samaran WhatsApp, bukan nomor telepon. Lead
+  List sudah menyelesaikannya lewat `fillLidPhones`, daftar broadcast tidak, dan
+  `displayPhone` jatuh ke digit id itu, jadi di company yang `lid_phone_map`-nya
+  masih kosong (Beweix, 8 Okt: kosong, dan ketiga chatnya `@lid`) layar
+  menampilkan deretan angka yang terlihat seperti nomor telepon tapi bukan.
+  Sekarang server ikut menyelesaikan nomornya (20 per permintaan, hasilnya
+  disimpan), dan layar menulis "nomor belum terbaca" alih-alih menebak.
+- **Customer yang tersaring hilang tanpa jejak di layar broadcast.** Saringan
+  bawaan "chat terakhir dalam 30 hari" membuang chat yang tidak punya catatan
+  pesan masuk (hanya `lead_states`), padahal layarnya sudah punya label
+  "chat lama" untuk baris seperti itu. Beweix punya 3 calon penerima, layar
+  menampilkan 2, tanpa tanda apa pun. Sekarang ada catatan "N customer lain
+  tersaring" beserta petunjuk mengubah saringannya. Saringan bawaannya sengaja
+  TIDAK diubah: itu pengaman agar tidak mengirim ke orang yang sudah lama diam.
+- Test regresi di `test/broadcast-routes.test.js`: gagal tanpa perbaikan server,
+  lolos dengannya.
+
 - **AI tidak tahu customer sudah mengirim foto.** Riwayat untuk model membuang
   semua pesan tanpa teks, jadi foto, dokumen, dan pesan suara customer tidak
   ada di matanya. Di chat uji Beweix 7 Okt playbook mengajak "boleh kirim

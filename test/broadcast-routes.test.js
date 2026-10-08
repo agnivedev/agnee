@@ -15,7 +15,7 @@ const AGENT = {
 
 const NOW = Math.floor(Date.now() / 1000);
 
-function fakeDatabase({ provider = 'whatsapp_web' } = {}) {
+function fakeDatabase({ provider = 'whatsapp_web', audience = null, lidPhones = {} } = {}) {
   const users = [SUPERVISOR, AGENT];
   const audits = [];
   const created = [];
@@ -34,7 +34,10 @@ function fakeDatabase({ provider = 'whatsapp_web' } = {}) {
     async getCompanyConfig() { return { whatsappProvider: provider }; },
     async listPlaybookProducts() { return []; },
     async recordAuditLog(entry, companyId) { audits.push({ ...entry, companyId }); return entry; },
+    async getPhonesForLids() { return lidPhones; },
+    async savePhoneForLid() {},
     async listBroadcastAudience() {
+      if (audience) return audience;
       return [
         { chatId: '62811@c.us', name: 'Budi', phone: '62811', lastInboundAt: NOW - 60, leadStage: 'qualified', optedOut: false },
         { chatId: '62812@c.us', name: 'Sari', phone: '62812', lastInboundAt: NOW - 3 * 86400, leadStage: null, optedOut: false },
@@ -133,4 +136,34 @@ test('tanpa satu pun penerima sah, broadcast tidak dibuat', async (t) => {
   assert.equal(res.statusCode, 422);
   assert.equal(database.created.length, 0);
   assert.equal(database.audits.length, 0);
+});
+
+// Beweix, 8 Okt: semua calon penerimanya berbentuk '@lid' dan lid_phone_map
+// masih kosong. Lead List menyelesaikan nomornya lewat fillLidPhones, daftar
+// broadcast tidak, jadi layar menampilkan digit id samaran seolah nomor telepon.
+test('chat @lid mendapat nomor dari peta, bukan dibiarkan kosong', async (t) => {
+  const app = await appWith(t, fakeDatabase({
+    audience: [
+      { chatId: '98765432100@lid', name: 'Dewi', phone: null, lastInboundAt: NOW - 60, leadStage: null, optedOut: false },
+    ],
+    lidPhones: { '98765432100@lid': '628123456789' },
+  }));
+  const cookie = await signIn(app, SUPERVISOR);
+  const res = await app.inject({ method: 'GET', url: '/v1/broadcasts/audience', headers: { cookie } });
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.json().recipients[0].phone, '628123456789');
+});
+
+test('chat @lid yang belum terpetakan tetap tanpa nomor, tidak diisi digit id samaran', async (t) => {
+  const app = await appWith(t, fakeDatabase({
+    audience: [
+      { chatId: '98765432100@lid', name: null, phone: null, lastInboundAt: NOW - 60, leadStage: null, optedOut: false },
+    ],
+    lidPhones: {},
+  }));
+  const cookie = await signIn(app, SUPERVISOR);
+  const res = await app.inject({ method: 'GET', url: '/v1/broadcasts/audience', headers: { cookie } });
+  const [row] = res.json().recipients;
+  assert.equal(row.phone, null);
+  assert.ok(!JSON.stringify(row).includes('phone":"98765432100'), 'id samaran tidak boleh jadi nomor');
 });

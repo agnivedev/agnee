@@ -66,8 +66,17 @@ export type OptOut = {
 };
 
 /** Nomor yang bisa dibaca orang: dari kolom phone, atau bagian depan chatId. */
+/**
+ * Nomor yang ditampilkan untuk satu penerima, atau '' kalau memang belum
+ * diketahui. Chat '@lid' membawa id samaran: deretan angkanya BUKAN nomor
+ * telepon, dan menampilkannya seolah nomor menyesatkan orang yang sedang
+ * memilih siapa yang akan dikirimi. Kesalahan yang sama pernah terjadi di
+ * Lead List dan diperbaiki di sana lebih dulu.
+ */
 export function displayPhone(row: { phone: string | null; chatId: string }) {
-  return row.phone || row.chatId.replace(/@.*$/, '');
+  if (row.phone) return row.phone;
+  if (row.chatId.endsWith('@lid')) return '';
+  return row.chatId.replace(/@.*$/, '');
 }
 
 /** Pratinjau sama persis dengan yang disusun server (`susunPesan`). */

@@ -300,8 +300,9 @@ Actions "Test & Deploy to Production" (test lalu SSH ke server, `git pull`,
 (misalnya Insight) lalu batal sebelum build kalau sisa disk di bawah 2 GB.
 Jangan push ke remote `deploy` (legacy). Di server,
 `COMPOSE_FILE=compose.yml:/root/agnee-net-override.yml` menaruh stack di jaringan
-eksternal `agnee_net3`. Per 8 Oktober server menjalankan `13a92d6`; lihat
-`docs/SETUP.md` bagian Deploy macet untuk penyebab yang sudah terjadi.
+eksternal `agnee_net3`. Commit yang sedang jalan di server dibaca dari
+`docker exec agnee-app-1 cat /app/.git-sha`; lihat `docs/SETUP.md` bagian Deploy
+macet untuk penyebab yang sudah terjadi.
 
 Landing page `agnee.agnive.co` adalah deployment terpisah dari internal app.
 Selama landing page belum tersedia, Nginx mengalihkan hostname tersebut ke app.

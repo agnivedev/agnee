@@ -81,8 +81,18 @@ function evaluate(rows, { rate, thresholds, now = new Date() }) {
   return { alerts, rearm };
 }
 
-/** Satu email ringkasan per putaran, bukan satu email per tenant. */
-function buildEmail(alerts, { consoleUrl }) {
+/** Maksimal tenant yang dirinci di WhatsApp; sisanya diringkas supaya pesan tetap bisa dibaca di ponsel. */
+const WHATSAPP_MAX_TENANTS = 5;
+
+/** Nama tenant dikendalikan pelanggan; tanda format WhatsApp di dalamnya bukan untuk dieksekusi. */
+const stripWhatsappFormatting = (value) => String(value).replace(/[*_~`]/g, '');
+
+/**
+ * Satu ringkasan per putaran, bukan satu pesan per tenant, dalam dua bentuk:
+ * `subject`+`text` untuk email dan `whatsapp` untuk chat. Isinya sama, hanya
+ * dipadatkan untuk WhatsApp.
+ */
+function buildAlertMessage(alerts, { consoleUrl }) {
   const count = alerts.length;
   const subject = count === 1
     ? `[Agnee] Biaya AI tinggi: ${alerts[0].name}`
@@ -108,7 +118,22 @@ function buildEmail(alerts, { consoleUrl }) {
     '',
     'Angka Rupiah adalah perkiraan dari biaya USD penyedia model dengan kurs yang diatur di server (USD_IDR_RATE).',
   );
-  return { subject, text: lines.join('\n') };
+
+  const shown = alerts.slice(0, WHATSAPP_MAX_TENANTS).map((row) => {
+    const percent = Math.round((row.costIdr / row.thresholdIdr) * 100);
+    return `- ${stripWhatsappFormatting(row.name)} (${row.plan}): ${formatRupiah(row.costIdr)}, ${percent}% dari ambang ${formatRupiah(row.thresholdIdr)}`;
+  });
+  const extra = alerts.length - shown.length;
+  const whatsapp = [
+    '*Agnee: biaya AI tinggi*',
+    ...shown,
+    ...(extra > 0 ? [`(+${extra} perusahaan lainnya)`] : []),
+    '',
+    'Layanan tidak dihentikan. Biaya AI 30 hari, perkiraan dalam Rupiah.',
+    consoleUrl,
+  ].join('\n');
+
+  return { subject, text: lines.join('\n'), whatsapp };
 }
 
 /**
@@ -139,6 +164,7 @@ function createMailer(env = process.env, { transport = null } = {}) {
   }
 
   return {
+    name: 'email',
     configured,
     to,
     async send({ subject, text }) {
@@ -149,18 +175,65 @@ function createMailer(env = process.env, { transport = null } = {}) {
   };
 }
 
+/**
+ * Kanal WhatsApp: mengirim ringkasan dari nomor SATU company (COST_ALERT_WA_COMPANY)
+ * ke nomor staf (COST_ALERT_WA_TO, dipisah koma). Memakai jalur kirim yang sama
+ * dengan balasan biasa, jadi nomor pengirim harus sedang tersambung.
+ *
+ * Dianggap berhasil kalau minimal satu penerima menerima; kalau semua gagal,
+ * melempar supaya monitor mencoba lagi putaran berikutnya. Sebagian gagal
+ * tidak melempar — itu akan mengirim ulang ke penerima yang SUDAH menerima.
+ *
+ * @param {object} options
+ * @param options.env
+ * @param options.resolveCompanyId async (slugOrId) => companyId | null
+ * @param options.sendText         async (companyId, chatId, text) => void
+ * @param options.toChatId         (nomorMentah) => chatId; melempar kalau nomor tidak sah
+ */
+function createWhatsappChannel({ env = process.env, resolveCompanyId, sendText, toChatId, logger = console }) {
+  const company = String(env.COST_ALERT_WA_COMPANY || '').trim();
+  const recipients = String(env.COST_ALERT_WA_TO || '')
+    .split(',').map((item) => item.trim()).filter(Boolean);
+  const configured = Boolean(company && recipients.length);
+
+  return {
+    name: 'whatsapp',
+    configured,
+    recipients,
+    async send({ whatsapp }) {
+      if (!configured) throw new Error('Alert WhatsApp belum dikonfigurasi');
+      const companyId = await resolveCompanyId(company);
+      if (!companyId) throw new Error(`Company pengirim alert WhatsApp tidak ditemukan: ${company}`);
+
+      let delivered = 0;
+      let lastError = null;
+      for (const raw of recipients) {
+        try {
+          await sendText(companyId, toChatId(raw), whatsapp);
+          delivered += 1;
+        } catch (error) {
+          lastError = error;
+          logger.warn?.({ err: error, recipient: `…${String(raw).slice(-4)}` }, 'Alert WhatsApp ke satu penerima gagal');
+        }
+      }
+      if (delivered === 0) throw lastError || new Error('Alert WhatsApp tidak terkirim ke siapa pun');
+      return { delivered, total: recipients.length };
+    },
+  };
+}
+
 class CostAlertMonitor {
   /**
    * @param {object} options
    * @param options.database   butuh listCostAlertCandidates / markCostAlertNotified / clearCostAlerts
-   * @param options.mailer     hasil createMailer
+   * @param options.channels   kanal pengirim ({name, configured, send(message)}), mis. createMailer dan createWhatsappChannel
    * @param options.rate       kurs USD→IDR
    * @param options.thresholds { personal, company } dalam Rupiah
    * @param options.consoleUrl alamat konsol platform untuk tautan di email
    */
-  constructor({ database, mailer, logger = console, rate, thresholds, consoleUrl, intervalMs = 60 * 60 * 1000 }) {
+  constructor({ database, channels = [], logger = console, rate, thresholds, consoleUrl, intervalMs = 60 * 60 * 1000 }) {
     this.database = database;
-    this.mailer = mailer;
+    this.channels = channels;
     this.logger = logger;
     this.rate = rate;
     this.thresholds = thresholds;
@@ -176,8 +249,10 @@ class CostAlertMonitor {
     this.timer = setInterval(() => { this.check().catch(() => {}); }, this.intervalMs);
     this.timer.unref?.();
     setTimeout(() => { this.check().catch(() => {}); }, firstDelayMs).unref?.();
-    this.logger.info?.({ intervalMs: this.intervalMs, emailConfigured: this.mailer.configured },
-      'Pemantau biaya AI dimulai');
+    this.logger.info?.({
+      intervalMs: this.intervalMs,
+      channels: this.channels.map((channel) => ({ name: channel.name, configured: channel.configured })),
+    }, 'Pemantau biaya AI dimulai');
   }
 
   stop() {
@@ -199,28 +274,40 @@ class CostAlertMonitor {
       if (rearm.length) await this.database.clearCostAlerts(rearm);
       if (!alerts.length) return { alerts: 0, rearmed: rearm.length };
 
-      if (!this.mailer.configured) {
-        // Tidak ditandai terkabari: begitu SMTP dipasang, putaran berikutnya
-        // langsung mengirim. Lencana di konsol tetap menampilkannya.
+      const active = this.channels.filter((channel) => channel.configured);
+      if (!active.length) {
+        // Tidak ditandai terkabari: begitu satu kanal dipasang, putaran
+        // berikutnya langsung mengirim. Lencana di konsol tetap menampilkannya.
         if (!this.warnedUnconfigured) {
           this.warnedUnconfigured = true;
           this.logger.warn?.({ tenants: alerts.map((a) => a.slug) },
-            'Biaya AI melewati ambang tetapi email alert belum dikonfigurasi (COST_ALERT_EMAIL_TO, SMTP_HOST, SMTP_FROM)');
+            'Biaya AI melewati ambang tetapi belum ada kanal alert (email: COST_ALERT_EMAIL_TO + SMTP_HOST + SMTP_FROM; WhatsApp: COST_ALERT_WA_COMPANY + COST_ALERT_WA_TO)');
         }
         return { alerts: alerts.length, sent: false, reason: 'not_configured', rearmed: rearm.length };
       }
 
-      const email = buildEmail(alerts, { consoleUrl: this.consoleUrl });
-      try {
-        await this.mailer.send(email);
-      } catch (error) {
-        // Gagal kirim = belum terkabari; coba lagi di putaran berikutnya.
-        this.logger.warn?.({ err: error }, 'Email alert biaya AI gagal terkirim');
-        return { alerts: alerts.length, sent: false, reason: 'send_failed', rearmed: rearm.length };
+      const message = buildAlertMessage(alerts, { consoleUrl: this.consoleUrl });
+      const outcomes = await Promise.allSettled(active.map((channel) => channel.send(message)));
+      const delivered = [];
+      const failed = [];
+      outcomes.forEach((outcome, index) => {
+        const name = active[index].name;
+        if (outcome.status === 'fulfilled') delivered.push(name);
+        else {
+          failed.push(name);
+          this.logger.warn?.({ err: outcome.reason, channel: name }, 'Alert biaya AI gagal terkirim lewat satu kanal');
+        }
+      });
+
+      // Terkabari lewat SATU kanal sudah cukup untuk menandai. Menunggu semua
+      // kanal berarti satu kanal yang mati terus mengulang pesan ke kanal
+      // yang sehat setiap jam.
+      if (!delivered.length) {
+        return { alerts: alerts.length, sent: false, reason: 'send_failed', failed, rearmed: rearm.length };
       }
       await this.database.markCostAlertNotified(alerts.map((a) => a.id));
-      this.logger.info?.({ tenants: alerts.map((a) => a.slug) }, 'Email alert biaya AI terkirim');
-      return { alerts: alerts.length, sent: true, rearmed: rearm.length };
+      this.logger.info?.({ tenants: alerts.map((a) => a.slug), delivered, failed }, 'Alert biaya AI terkirim');
+      return { alerts: alerts.length, sent: true, delivered, failed, rearmed: rearm.length };
     } catch (error) {
       this.logger.warn?.({ err: error }, 'Pemeriksaan biaya AI gagal');
       return { error: true };
@@ -231,6 +318,6 @@ class CostAlertMonitor {
 }
 
 module.exports = {
-  CostAlertMonitor, positiveNumber, createMailer, evaluate, buildEmail, thresholdFor, toRupiah, formatRupiah,
+  CostAlertMonitor, positiveNumber, createMailer, createWhatsappChannel, evaluate, buildAlertMessage, thresholdFor, toRupiah, formatRupiah,
   REMINDER_DAYS, DEFAULT_USD_IDR_RATE, DEFAULT_THRESHOLDS_IDR,
 };

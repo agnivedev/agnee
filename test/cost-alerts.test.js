@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
-  CostAlertMonitor, createMailer, evaluate, buildEmail, thresholdFor, positiveNumber,
+  CostAlertMonitor, createMailer, createWhatsappChannel, evaluate, buildAlertMessage, thresholdFor, positiveNumber,
   DEFAULT_USD_IDR_RATE, DEFAULT_THRESHOLDS_IDR, REMINDER_DAYS,
 } = require('../src/cost-alerts');
 
@@ -84,7 +84,7 @@ test('email: Rupiah semua, satu ringkasan, dan menegaskan layanan tidak dihentik
     row({ id: 'a', name: 'Acme', costUsd30d: 150, calls30d: 4321 }),
     row({ id: 'b', name: 'Budi Store', slug: 'budi', plan: 'personal', costUsd30d: 8 }),
   ], options);
-  const email = buildEmail(alerts, { consoleUrl: 'https://app.agnee.agnive.co/superhuman' });
+  const email = buildAlertMessage(alerts, { consoleUrl: 'https://app.agnee.agnive.co/superhuman' });
   assert.match(email.subject, /2 perusahaan/);
   assert.match(email.text, /Rp 2\.475\.000/);          // 150 x 16.500
   assert.match(email.text, /Rp 1\.650\.000/);          // ambangnya
@@ -97,7 +97,7 @@ test('email: Rupiah semua, satu ringkasan, dan menegaskan layanan tidak dihentik
 
 test('email: satu tenant memakai namanya di subjek', () => {
   const { alerts } = evaluate([row({ costUsd30d: 150 })], options);
-  assert.equal(buildEmail(alerts, { consoleUrl: 'x' }).subject, '[Agnee] Biaya AI tinggi: Acme');
+  assert.equal(buildAlertMessage(alerts, { consoleUrl: 'x' }).subject, '[Agnee] Biaya AI tinggi: Acme');
 });
 
 test('positiveNumber: nilai env rusak jatuh ke cadangan, bukan mematikan alert', () => {
@@ -132,7 +132,7 @@ test('mailer: mengirim lewat transport dengan from/to yang benar; menolak kalau 
 
 // ── Monitor ────────────────────────────────────────────────────────────────
 
-function monitorHarness({ rows, mailerConfigured = true, failSends = 0 } = {}) {
+function monitorHarness({ rows, mailerConfigured = true, failSends = 0, extraChannels = [] } = {}) {
   const state = { rows, sent: [], warns: 0, sendAttempts: 0, failSends };
   const database = {
     async listCostAlertCandidates() { return state.rows.map((r) => ({ ...r })); },
@@ -140,6 +140,7 @@ function monitorHarness({ rows, mailerConfigured = true, failSends = 0 } = {}) {
     async clearCostAlerts(ids) { for (const r of state.rows) if (ids.includes(r.id)) r.notifiedAt = null; },
   };
   const mailer = {
+    name: 'email',
     configured: mailerConfigured,
     async send(email) {
       state.sendAttempts += 1;
@@ -148,7 +149,7 @@ function monitorHarness({ rows, mailerConfigured = true, failSends = 0 } = {}) {
     },
   };
   const monitor = new CostAlertMonitor({
-    database, mailer, rate: RATE, thresholds: THRESHOLDS, consoleUrl: 'https://x/superhuman',
+    database, channels: [mailer, ...extraChannels], rate: RATE, thresholds: THRESHOLDS, consoleUrl: 'https://x/superhuman',
     logger: { info() {}, warn() { state.warns += 1; } },
   });
   return { state, monitor };
@@ -209,9 +210,139 @@ test('monitor: turun ke bawah ambang mereset penanda, lonjakan berikutnya dikaba
 test('monitor: kegagalan database tidak melempar keluar dari timer', async () => {
   const monitor = new CostAlertMonitor({
     database: { async listCostAlertCandidates() { throw new Error('db mati'); } },
-    mailer: { configured: true, async send() {} },
+    channels: [{ name: 'email', configured: true, async send() {} }],
     rate: RATE, thresholds: THRESHOLDS, consoleUrl: 'x', logger: { info() {}, warn() {} },
   });
   assert.deepEqual(await monitor.check(NOW), { error: true });
   assert.equal(monitor.running, false, 'penanda berjalan dilepas supaya putaran berikutnya jalan');
+});
+
+// ── WhatsApp ───────────────────────────────────────────────────────────────
+
+test('pesan WhatsApp: ringkas, Rupiah, dan nama tenant tidak bisa menyuntik format', () => {
+  const { alerts } = evaluate([
+    row({ id: 'a', name: '*Acme* _Store_', costUsd30d: 150 }),
+  ], options);
+  const { whatsapp } = buildAlertMessage(alerts, { consoleUrl: 'https://app.agnee.agnive.co/superhuman' });
+  assert.match(whatsapp, /^\*Agnee: biaya AI tinggi\*\n/);
+  assert.match(whatsapp, /- Acme Store \(company\): Rp 2\.475\.000, 150% dari ambang Rp 1\.650\.000/);
+  assert.match(whatsapp, /Layanan tidak dihentikan/);
+  assert.match(whatsapp, /https:\/\/app\.agnee\.agnive\.co\/superhuman$/);
+  assert.ok(!whatsapp.includes('$'), 'tidak ada tanda dolar');
+  assert.equal((whatsapp.match(/\*/g) || []).length, 2, 'satu-satunya format tebal adalah judulnya sendiri');
+});
+
+test('pesan WhatsApp: dipotong di 5 tenant dengan penanda sisanya', () => {
+  const many = Array.from({ length: 8 }, (_, i) => row({ id: `t${i}`, slug: `t${i}`, name: `Tenant ${i}`, costUsd30d: 120 + i }));
+  const { alerts } = evaluate(many, options);
+  const { whatsapp } = buildAlertMessage(alerts, { consoleUrl: 'x' });
+  assert.equal(whatsapp.split('\n').filter((line) => line.startsWith('- ')).length, 5);
+  assert.match(whatsapp, /\(\+3 perusahaan lainnya\)/);
+});
+
+function waHarness({ env, failFor = [], companyId = 'co-pengirim' } = {}) {
+  const sent = [];
+  const channel = createWhatsappChannel({
+    env,
+    logger: { warn() {} },
+    resolveCompanyId: async (slug) => (slug === 'beweix-digital' ? companyId : null),
+    sendText: async (cid, chatId, text) => {
+      if (failFor.includes(chatId)) throw new Error('nomor mati');
+      sent.push({ cid, chatId, text });
+    },
+    toChatId: (raw) => {
+      const digits = String(raw).replace(/\D/g, '').replace(/^0/, '62');
+      if (digits.length < 8) throw new Error('nomor tidak sah');
+      return `${digits}@c.us`;
+    },
+  });
+  return { channel, sent };
+}
+
+test('kanal WhatsApp: butuh company pengirim DAN penerima sekaligus', () => {
+  const ok = { COST_ALERT_WA_COMPANY: 'beweix-digital', COST_ALERT_WA_TO: '0812111' };
+  assert.equal(waHarness({ env: ok }).channel.configured, true);
+  assert.equal(waHarness({ env: { ...ok, COST_ALERT_WA_COMPANY: '' } }).channel.configured, false);
+  assert.equal(waHarness({ env: { ...ok, COST_ALERT_WA_TO: ' , ' } }).channel.configured, false);
+  assert.equal(waHarness({ env: {} }).channel.configured, false);
+});
+
+test('kanal WhatsApp: mengirim dari company yang ditunjuk ke tiap penerima', async () => {
+  const { channel, sent } = waHarness({ env: { COST_ALERT_WA_COMPANY: 'beweix-digital', COST_ALERT_WA_TO: '08121111111, 62812222222' } });
+  const result = await channel.send({ whatsapp: 'halo' });
+  assert.deepEqual(result, { delivered: 2, total: 2 });
+  assert.deepEqual(sent.map((m) => [m.cid, m.chatId, m.text]), [
+    ['co-pengirim', '628121111111@c.us', 'halo'],
+    ['co-pengirim', '62812222222@c.us', 'halo'],
+  ]);
+});
+
+test('kanal WhatsApp: sebagian gagal tetap berhasil; semua gagal melempar', async () => {
+  const env = { COST_ALERT_WA_COMPANY: 'beweix-digital', COST_ALERT_WA_TO: '08121111111,08122222222' };
+  const partial = waHarness({ env, failFor: ['628121111111@c.us'] });
+  assert.deepEqual(await partial.channel.send({ whatsapp: 'x' }), { delivered: 1, total: 2 },
+    'tidak melempar: itu akan mengirim ulang ke yang sudah menerima');
+
+  const none = waHarness({ env, failFor: ['628121111111@c.us', '628122222222@c.us'] });
+  await assert.rejects(none.channel.send({ whatsapp: 'x' }), /nomor mati/);
+});
+
+test('kanal WhatsApp: company pengirim tidak ada atau belum dikonfigurasi menolak', async () => {
+  const missing = waHarness({ env: { COST_ALERT_WA_COMPANY: 'tidak-ada', COST_ALERT_WA_TO: '08121111111' } });
+  await assert.rejects(missing.channel.send({ whatsapp: 'x' }), /tidak ditemukan/);
+  await assert.rejects(waHarness({ env: {} }).channel.send({ whatsapp: 'x' }), /belum dikonfigurasi/);
+});
+
+// ── Monitor dengan dua kanal ───────────────────────────────────────────────
+
+function fakeChannel(name, { configured = true, fail = false } = {}) {
+  const sent = [];
+  return {
+    name, configured, sent,
+    async send(message) { if (fail) throw new Error(`${name} mati`); sent.push(message); },
+  };
+}
+
+test('monitor: email dan WhatsApp sama-sama dikirim, penanda dipasang sekali', async () => {
+  const wa = fakeChannel('whatsapp');
+  const { state, monitor } = monitorHarness({ rows: [row({ costUsd30d: 150 })], extraChannels: [wa] });
+  const result = await monitor.check(NOW);
+  assert.deepEqual(result.delivered, ['email', 'whatsapp']);
+  assert.equal(state.sent.length, 1);
+  assert.equal(wa.sent.length, 1);
+  assert.match(wa.sent[0].whatsapp, /Agnee: biaya AI tinggi/);
+  assert.ok(state.rows[0].notifiedAt);
+});
+
+test('monitor: satu kanal mati tidak menahan yang lain, dan tetap ditandai terkabari', async () => {
+  const wa = fakeChannel('whatsapp', { fail: true });
+  const { state, monitor } = monitorHarness({ rows: [row({ costUsd30d: 150 })], extraChannels: [wa] });
+  const result = await monitor.check(NOW);
+  assert.equal(result.sent, true);
+  assert.deepEqual(result.delivered, ['email']);
+  assert.deepEqual(result.failed, ['whatsapp']);
+  assert.ok(state.rows[0].notifiedAt, 'sudah ada yang menerima, jangan mengulang tiap jam');
+});
+
+test('monitor: semua kanal gagal berarti belum terkabari dan dicoba lagi', async () => {
+  const wa = fakeChannel('whatsapp', { fail: true });
+  const { state, monitor } = monitorHarness({ rows: [row({ costUsd30d: 150 })], failSends: 1, extraChannels: [wa] });
+  const first = await monitor.check(NOW);
+  assert.equal(first.reason, 'send_failed');
+  assert.deepEqual(first.failed.sort(), ['email', 'whatsapp']);
+  assert.equal(state.rows[0].notifiedAt, null);
+
+  wa.send = async (message) => { wa.sent.push(message); };   // WhatsApp pulih
+  const retry = await monitor.check(NOW);
+  assert.equal(retry.sent, true);
+  assert.deepEqual(retry.delivered, ['email', 'whatsapp']);
+});
+
+test('monitor: hanya WhatsApp yang dikonfigurasi sudah cukup', async () => {
+  const wa = fakeChannel('whatsapp');
+  const { state, monitor } = monitorHarness({ rows: [row({ costUsd30d: 150 })], mailerConfigured: false, extraChannels: [wa] });
+  const result = await monitor.check(NOW);
+  assert.deepEqual(result.delivered, ['whatsapp']);
+  assert.equal(state.sendAttempts, 0, 'email yang belum dikonfigurasi tidak dicoba');
+  assert.ok(state.rows[0].notifiedAt);
 });

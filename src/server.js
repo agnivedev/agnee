@@ -27,7 +27,7 @@ const {
 } = require('./reply-style.js');
 const { FollowUpScheduler, decide: followUpDecide, withManualGap } = require('./follow-up.js');
 const {
-  CostAlertMonitor, createMailer, positiveNumber, thresholdFor, toRupiah,
+  CostAlertMonitor, createMailer, createWhatsappChannel, positiveNumber, thresholdFor, toRupiah,
   DEFAULT_USD_IDR_RATE, DEFAULT_THRESHOLDS_IDR,
 } = require('./cost-alerts.js');
 const onedrive = require('./onedrive-sync.js');
@@ -8016,7 +8016,16 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
 
   const costAlertMonitor = new CostAlertMonitor({
     database,
-    mailer: createMailer(process.env),
+    channels: [
+      createMailer(process.env),
+      createWhatsappChannel({
+        env: process.env,
+        logger: app.log,
+        resolveCompanyId: (company) => database.resolveCompanyId(company),
+        sendText: (companyId, chatId, text) => sendOutbound(companyId, chatId, text),
+        toChatId: (raw) => normalizeChatId(raw, config.defaultCountryCode),
+      }),
+    ],
     logger: app.log,
     rate: config.usdIdrRate,
     thresholds: config.costAlertIdr,

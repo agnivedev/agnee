@@ -131,6 +131,21 @@ Ringkasan jalur besar. Rinciannya ada di [`../CHANGELOG.md`](../CHANGELOG.md).
   `delivered:["whatsapp"], failed:[]` untuk `tradersmastermind` dalam ~90
   detik, ambang lalu dikembalikan (app di-restart dua kali). Pesan sampai di ponsel dan
   dikonfirmasi pemilik. Alert nyata belum ada.
+- 9 Oktober, Latih AI lewat chat: Hanny minta dokumen playbook (Prohibitions,
+  Persona, dst.) bisa diedit sebagai Markdown dan diubah lewat chat dengan AI,
+  lalu diperluas ke seluruh Latih AI. Dua langkah: (1) tombol Edit + tab "Edit by
+  chatting" per dokumen (`4234d7c`); (2) satu asisten chat untuk semua tab
+  (`6b2fc68`). Keputusan yang dipegang: asisten hanya **mengusulkan**, pemilik
+  menekan Terapkan, karena dokumen ini dibaca AI untuk semua customer. Diuji di
+  browser dengan model sungguhan di company uji lokal. Temuan penting: batas
+  `LLM_MAX_TOKENS=512` memotong penulisan ulang dokumen panjang (memengaruhi juga
+  `/compile` dan `/revise` di produksi, kini 4.000 per panggilan); model
+  Gemini Flash menebak id dan menyerah setelah satu error, jadi keadaan Latih AI
+  dan skema template dimasukkan ke prompt dan alat dibuat toleran; sesudah
+  jaringan OpenRouter putus-nyambung, jalur tanpa alat mengarang "usulan sudah
+  siap", jadi dimatikan untuk asisten (`requireTools`). Belum dicoba: klik
+  "Jalankan simulasi" dari kartu (memanggil AI puluhan kali), dan kecepatan serta
+  isi playbook Al Gold yang panjang di produksi.
 
 ## Referensi
 

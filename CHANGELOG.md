@@ -1,5 +1,58 @@
 ## [Unreleased]
 
+- **Seluruh Latih AI bisa diubah lewat satu chat (9 Okt, `6b2fc68`).** Tombol
+  "Train by chat" di pojok halaman Latih AI (semua tab) membuka asisten yang
+  membaca dan mengusulkan perubahan untuk playbook (8 dokumen), fakta
+  terkonfirmasi, skenario latihan, brief perusahaan, dan template KS (pasang,
+  isi, simulasi, aktifkan/matikan). Asisten **hanya mengusulkan**: tiap usulan
+  jadi kartu dan baru berlaku setelah Terapkan, yang memanggil rute simpan biasa
+  (jadi peran supervisor, batas ukuran, dan gerbang aktivasi KS tetap berlaku).
+  File yang tidak bisa lewat chat: unggah/hapus di "Brief & files".
+  - Rute `POST /v1/train/chat` (`src/train-assistant.js`), hanya supervisor,
+    memakai jatah Coach per jam dan berhenti bersama paket (`ai-suspended-plan`).
+    Alat baca: `overview`, `list_playbook`, `read_playbook`, `list_facts`,
+    `read_brief`, `list_scenarios`, `list_templates`, `read_template`. Alat
+    usul: `propose_playbook_edit`, `propose_fact`, `propose_fact_delete`,
+    `propose_scenario`, `propose_scenario_delete`, `propose_brief`,
+    `propose_template_install`, `_fill`, `_simulate`, `_activate`.
+  - Dokumen yang sudah ada diubah lewat `edits` (replace, insert_after, delete,
+    append, prepend) yang diterapkan server ke isi asli; model tidak menulis ulang
+    dokumen panjang, jadi bagian lain tetap persis. Dokumen lebih dari 7.000
+    karakter hanya boleh lewat `edits` (keluaran alat dipotong 8.000 karakter).
+  - Ringkasan keadaan Latih AI (id fakta, skenario, template, skema isian)
+    ikut di system prompt tiap giliran. Tanpa itu model menebak id dan sering
+    mengulang; satu pesan berisi tiga permintaan dulu 67 detik, kini sekitar 4.
+  - Isian template: harga "Rp 2.000.000" dinormalkan jadi 2000000, kategori
+    objek yang dikirim sebagai teks dibungkus ke kolom satunya, dan bentuk yang
+    salah di kategori yang diubah dikembalikan ke model beserta bentuk yang
+    benar. Usulan ganda untuk hal yang sama dalam satu giliran digabung.
+  - Log `train chat` mencatat nama alat dan error-nya (tanpa isi dokumen).
+  - Test: `test/train-assistant.test.js` (14), `test/playbook-chat-edit.test.js`
+    (5); rute baru masuk `test/ai-suspended-plan.test.js`.
+- **`llm-service`: batas token per panggilan, banyak alat sekaligus, tanpa
+  jawaban cadangan palsu, ulang untuk error jaringan (9 Okt, `6b2fc68`).**
+  - `context.maxTokens` (maks 8.000) menimpa `LLM_MAX_TOKENS` (512) untuk
+    pekerjaan yang menulis ulang dokumen. **Perbaikan bug:** `/v1/playbooks/:kind/compile`
+    dan `/revise` memakai batas 512, sehingga dokumen panjang (playbook Al Gold)
+    ditolak sebagai "cut off"; keduanya kini 4.000.
+  - `context.maxToolCalls` (bawaan 4, maks 12) menaikkan jumlah panggilan alat
+    yang dilayani per putaran; sisanya dulu ditolak dan model mengulang.
+  - `context.requireTools`: bila jalur dengan alat gagal, tidak ada jawaban tanpa
+    alat sebagai cadangan. Dipakai asisten Latih AI, karena balasan tanpa alat
+    di sana bisa mengaku "usulan sudah disiapkan" padahal tidak ada kartu.
+  - `TypeError: fetch failed` (jaringan putus) diulang sekali pada model yang
+    sama dengan koneksi baru, dan penyebabnya (`err.cause`) ikut di log. Berlaku
+    juga untuk balasan ke customer. Error dari penyedia tidak diulang.
+- **Edit playbook sebagai Markdown dan ubah lewat chat per dokumen (9 Okt,
+  `4234d7c`).** Tab Dokumen punya tombol Edit (textarea Markdown, Tulis/Pratinjau,
+  simpan lewat `PUT /v1/playbooks/:kind`) dan tab "Edit by chatting" yang meminta
+  `POST /v1/playbooks/:kind/revise`: AI mengusulkan dokumen baru, baris yang
+  berubah ditandai, dan baru tersimpan setelah Terapkan. Renderer Markdown kini
+  mengenali heading level 1 sampai 6 dan garis pemisah (dulu `######` tampil
+  mentah); renderer dan perbandingan baris dipindah ke
+  `web/src/features/knowledge/DocMarkdown.tsx`. Memuat ulang setelah simpan atau
+  terapkan tidak lagi melompat ke dokumen terisi pertama.
+
 - **Alert biaya AI lewat email dan WhatsApp (8 Okt).** Perusahaan yang biaya AI
   30 harinya melewati ambang paket (Rp 50.000 Personal, Rp 1.650.000
   Company/Lifetime; `AI_COST_ALERT_IDR_PERSONAL` / `_COMPANY`, kurs 16.500)

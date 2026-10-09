@@ -77,6 +77,8 @@ Hasil dengan model sungguhan (`google/gemini-2.5-flash`, 8 Oktober 2026): 4 dari
 
 Layar web (8 Oktober 2026): tab Template di halaman Latih AI (`/knowledge#template`). Form isian dibentuk dari skema paket (`rowLabel` di skema memberi awalan nomor baris, misalnya "Tingkat"), simulasi menampilkan kemajuan dan hasil per skenario, dan tombol aktifkan terkunci memakai `blockedCode` (`problems`, `no_simulation`, `failed`) yang diterjemahkan layar.
 
+Chat Latih AI (9 Oktober 2026): paket bisa dipasang, diisi, disimulasikan, dan diaktifkan lewat tombol "Train by chat" (`POST /v1/train/chat`, `src/train-assistant.js`). Asisten hanya mengusulkan; kartu usulan baru berlaku setelah Terapkan, yang memanggil rute `/v1/ks/*` yang sama, jadi gerbang aktivasi tetap server yang memegang. Isian dari ucapan pemilik dinormalkan (harga "Rp 2.000.000" jadi 2000000) dan bentuk yang salah ditolak sebelum jadi kartu. Diuji dengan model sungguhan: pasang dan isi KS-01 dari satu pesan, aktivasi tanpa simulasi ditolak. Menjalankan simulasi dari kartu belum dicoba.
+
 Belum ada:
 
 1. Uji di chat WhatsApp nyata.

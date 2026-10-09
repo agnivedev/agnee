@@ -209,6 +209,17 @@ harga di atas hanya untuk operator, jangan disalin ke UI.
   percakapan jatuh ke manusia. Diukur 8 Oktober 2026 dengan
   `google/gemini-2.5-flash`: 2 sampai 3 dari sekitar 35 panggilan per putaran
   simulasi terputus.
+- `LLM_MAX_TOKENS` (bawaan 512) cocok untuk balasan chat, bukan untuk menulis
+  ulang dokumen. Pemanggil yang menulis dokumen panjang mengisi `maxTokens`
+  pada konteks (maks 8.000; `/compile` dan `/revise` playbook memakai 4.000),
+  bila tidak, dokumen terpotong dan ditolak sebagai `length`.
+- Pemanggil dengan alat (`tools`) bisa mengisi `maxToolCalls` (bawaan 4 per
+  putaran, maks 12) dan `requireTools: true`. Yang kedua mematikan jawaban
+  cadangan tanpa alat; asisten Latih AI memakainya karena jawaban tanpa alat di
+  sana bisa mengaku sudah mengusulkan sesuatu.
+- Error jaringan murni (`TypeError: fetch failed`, biasanya koneksi lama yang
+  sudah mati setelah jaringan putus-nyambung) diulang sekali pada model yang
+  sama; log mencatat `err.cause`. Jawaban error dari OpenRouter tidak diulang.
 - Model hanya menerima 5 pesan riwayat terakhir. Pemanggil yang butuh lebih
   panjang (template KS berjenjang memakai 12) mengisi `historyLimit`
   (maksimal 30).

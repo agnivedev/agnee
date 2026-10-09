@@ -85,6 +85,8 @@ GET  /v1/ks/catalog                         Knowledge Source: paket yang tersedi
 GET  /v1/ks/installs                        paket terpasang di company ini
 POST /v1/ks/installs                        pasang paket
 PUT  /v1/ks/installs/:id/specific           isi Specific Knowledge
+POST /v1/train/chat                         asisten Latih AI: mengusulkan perubahan, tidak menyimpan
+POST /v1/playbooks/:kind/revise             usulan dokumen playbook baru dari satu perintah (tidak menyimpan)
 POST /v1/ks/installs/:id/simulate           jalankan simulasi (latar belakang)
 GET  /v1/ks/installs/:id/simulation         kemajuan dan hasil simulasi
 POST /v1/ks/installs/:id/activate           aktifkan atau matikan (butuh simulasi lulus)

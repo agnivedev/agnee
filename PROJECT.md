@@ -98,6 +98,13 @@ perubahan ada di [`CHANGELOG.md`](CHANGELOG.md).
 - Knowledge Source (KS): paket template percakapan yang dipasang ke company,
   dengan simulasi sebagai gerbang aktivasi. Lihat
   [`docs/knowledge-source.md`](docs/knowledge-source.md).
+- Latih AI lewat chat (9 Oktober): tombol "Train by chat" di semua tab Latih AI
+  membuka asisten yang mengusulkan perubahan untuk playbook, fakta, skenario,
+  brief, dan template KS. Asisten tidak pernah menyimpan; tiap usulan berupa
+  kartu yang baru berlaku setelah Terapkan lewat rute simpan biasa. Playbook juga
+  bisa diedit sebagai Markdown dan diubah lewat chat per dokumen. Kode:
+  `src/train-assistant.js`, `web/src/features/knowledge/TrainAssistant.tsx`.
+  Unggah/hapus file di "Brief & files" tidak bisa lewat chat.
 - Broadcast ke customer yang pernah chat, dengan tempo, jam, dan batas harian,
   bisa dipilih per kelompok (tahap lead, hari, produk, hubungan, label
   WhatsApp). Daftar penerima memakai `inbound_messages`, `lead_states`,
@@ -237,6 +244,9 @@ POST /v1/ks/installs
 PUT  /v1/ks/installs/:id/specific
 POST /v1/ks/installs/:id/simulate
 POST /v1/ks/installs/:id/activate
+POST /v1/train/chat                 (asisten Latih AI; hanya mengusulkan)
+POST /v1/playbooks/:kind/revise     (usulan dokumen baru dari satu perintah; tidak menyimpan)
+PUT  /v1/playbooks/:kind            (simpan dokumen playbook)
 GET  /v1/broadcasts
 GET  /v1/broadcasts/audience
 POST /v1/broadcasts

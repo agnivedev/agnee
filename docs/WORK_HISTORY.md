@@ -131,6 +131,14 @@ Ringkasan jalur besar. Rinciannya ada di [`../CHANGELOG.md`](../CHANGELOG.md).
   `delivered:["whatsapp"], failed:[]` untuk `tradersmastermind` dalam ~90
   detik, ambang lalu dikembalikan (app di-restart dua kali). Pesan sampai di ponsel dan
   dikonfirmasi pemilik. Alert nyata belum ada.
+- 9 Oktober, company Citilux: Hanny tidak punya akses SSH/UpCloud, jadi company
+  dibuat lewat form signup web (paket Company, owner/supervisor
+  `citilux2000@gmail.com`) dan agent CS `cscitilux@gmail.com` lewat Settings >
+  Team. Skrip `scripts/create-company-user.js` (`10aad38`) disiapkan untuk jalur
+  server (company + owner + agent, password acak dicetak sekali), belum dipakai.
+  Form tambah anggota ternyata menampilkan error "reading 'reset'" walau anggota
+  sudah terbuat (`event.currentTarget` null setelah `await`), diperbaiki di
+  `8dad3e8`. Password awal dibuat di chat dan harus diganti pada login pertama.
 - 9 Oktober, Latih AI lewat chat: Hanny minta dokumen playbook (Prohibitions,
   Persona, dst.) bisa diedit sebagai Markdown dan diubah lewat chat dengan AI,
   lalu diperluas ke seluruh Latih AI. Dua langkah: (1) tombol Edit + tab "Edit by

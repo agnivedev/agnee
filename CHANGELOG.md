@@ -53,6 +53,15 @@
   `web/src/features/knowledge/DocMarkdown.tsx`. Memuat ulang setelah simpan atau
   terapkan tidak lagi melompat ke dokumen terisi pertama.
 
+- **Form tambah anggota tim tidak lagi error palsu (9 Okt).** Setelah anggota
+  berhasil dibuat, form menampilkan "Cannot read properties of null (reading
+  'reset')" karena `event.currentTarget` sudah null setelah `await`; elemen form
+  kini dipegang sebelum permintaan (`8dad3e8`, `TeamSection.tsx`).
+- **Skrip `scripts/create-company-user.js` (9 Okt).** Membuat company baru +
+  owner (+ satu agent bila `--agent`) dengan password acak yang dicetak sekali,
+  untuk dijalankan di server (`10aad38`). `--plan personal` ditolak bila ada
+  agent karena plafonnya 1 pengguna.
+
 - **Alert biaya AI lewat email dan WhatsApp (8 Okt).** Perusahaan yang biaya AI
   30 harinya melewati ambang paket (Rp 50.000 Personal, Rp 1.650.000
   Company/Lifetime; `AI_COST_ALERT_IDR_PERSONAL` / `_COMPANY`, kurs 16.500)

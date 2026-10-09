@@ -55,7 +55,7 @@ class LlmService {
           { role: 'user', content: userMessage },
         ],
         temperature: 0.7,
-        max_tokens: this.maxTokens,
+        max_tokens: this.maxTokensFor(context),
         top_p: 0.95,
         // Tanpa ini OpenRouter hanya mengembalikan jumlah token, tanpa biaya.
         // `normalizeUsage` sudah lama membaca `usage.cost` — field yang tidak
@@ -89,6 +89,16 @@ class LlmService {
    * `maxToolRounds` times; the last round forbids tools so it must answer.
    * Tool output goes back as data in a "tool" message, never as instructions.
    */
+  /**
+   * Balasan chat pendek cukup di batas platform (512). Pekerjaan yang
+   * menulis ulang seluruh dokumen minta batas sendiri lewat `context.maxTokens`;
+   * tanpa itu dokumen panjang terpotong dan balasannya ditolak sebagai "cut off".
+   */
+  maxTokensFor(context = {}) {
+    const asked = Number(context.maxTokens);
+    return Number.isInteger(asked) && asked > 0 ? Math.min(asked, 8000) : this.maxTokens;
+  }
+
   async _callModelWithTools(model, userMessage, context) {
     const systemPrompt = context.systemPrompt || this.getDefaultSystemPrompt();
     const conversation = [
@@ -102,6 +112,9 @@ class LlmService {
     }));
     const byName = new Map(context.tools.map((t) => [t.name, t]));
     const rounds = Math.max(0, Math.min(context.maxToolRounds ?? 3, 5));
+    // Alat cari cukup empat per putaran; pemanggil yang memang butuh banyak
+    // sekaligus (asisten Latih AI) menaikkannya lewat `maxToolCalls`.
+    const perRound = Number.isInteger(context.maxToolCalls) ? Math.min(Math.max(context.maxToolCalls, 1), 12) : 4;
     const toolCalls = [];
     const total = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0, cost: 0 };
 
@@ -121,7 +134,7 @@ class LlmService {
           tools: specs,
           tool_choice: round < rounds ? 'auto' : 'none',
           temperature: 0.7,
-          max_tokens: this.maxTokens,
+          max_tokens: this.maxTokensFor(context),
           top_p: 0.95,
           usage: { include: true },
         }),
@@ -147,7 +160,7 @@ class LlmService {
       }
 
       conversation.push({ role: 'assistant', content: message.content || '', tool_calls: calls });
-      for (const call of calls.slice(0, 4)) {
+      for (const call of calls.slice(0, perRound)) {
         const tool = byName.get(call.function?.name);
         let output;
         let args = {};
@@ -162,7 +175,7 @@ class LlmService {
       }
       // Calls beyond four in one turn are answered as refused, so the model
       // is not left waiting on a result that never comes.
-      for (const call of calls.slice(4)) {
+      for (const call of calls.slice(perRound)) {
         conversation.push({ role: 'tool', tool_call_id: call.id, content: '{"error":"Too many tool calls in one turn"}' });
       }
     }
@@ -196,7 +209,16 @@ class LlmService {
           // Gangguan di tengah penyusunan balasan biasanya sesaat: satu kali
           // ulang pada model yang sama sebelum pindah ke model berikutnya.
           if (err.interrupted && attempt === 1) continue;
-          console.warn(`Model ${model} failed: ${err.message}${chain.length > 1 ? ', trying next...' : ''}`);
+          // Jaringan putus-nyambung meninggalkan koneksi lama yang sudah mati;
+          // percobaan kedua membuka koneksi baru. Hanya untuk kegagalan di
+          // tingkat jaringan (TypeError "fetch failed"), bukan jawaban error
+          // dari penyedia, yang tidak akan berubah kalau diulang.
+          const cause = err.cause?.code || err.cause?.message;
+          if (err instanceof TypeError && err.message === 'fetch failed' && attempt === 1) {
+            console.warn(`Model ${model} network error${cause ? ` (${cause})` : ''}, retrying once`);
+            continue;
+          }
+          console.warn(`Model ${model} failed: ${err.message}${cause ? ` (${cause})` : ''}${chain.length > 1 ? ', trying next...' : ''}`);
           break;
         }
       }
@@ -204,7 +226,9 @@ class LlmService {
 
     // A model or provider that cannot take tools should not leave the
     // customer unanswered: answer once more without them.
-    if (withTools) {
+    // Kecuali pemanggil yang hasilnya HANYA berarti kalau alatnya jalan (asisten
+    // Latih AI): jawaban tanpa alat di sana berarti usulan yang diklaim tapi tak ada.
+    if (withTools && !context.requireTools) {
       const { tools: _ignored, ...plain } = context;
       for (const model of chain) {
         try {

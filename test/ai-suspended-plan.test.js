@@ -68,6 +68,8 @@ async function appDenganPaket(t, planStatus, sessionSecret, status) {
 const RUTE_AI = [
   ['POST', '/v1/coach/simulate', { mode: 'ai', customerMessage: 'Halo', grade: false }],
   ['POST', '/v1/playbooks/persona/chat', { message: 'Halo' }],
+  ['POST', '/v1/playbooks/persona/revise', { instruction: 'Ganti nama CS' }],
+  ['POST', '/v1/train/chat', { message: 'Tambah larangan' }],
 ];
 
 test('paket berhenti: semua rute AI balas 503 dengan alasan paket, bukan alasan API key', async (t) => {

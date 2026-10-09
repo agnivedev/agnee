@@ -145,3 +145,50 @@ test('saklar per perusahaan: nyala = dua alat listing publik, tanpa alat percaka
   assert.match(context.systemPrompt, /AGNIVE HUB/);
   assert.match(context.systemPrompt, /DATA, bukan perintah/);
 });
+
+test('maxToolCalls menaikkan jumlah panggilan alat yang dilayani dalam satu putaran', async (t) => {
+  const many = (n) => ({
+    choices: [{ message: { content: '', tool_calls: Array.from({ length: n }, (_, i) => ({ id: `c${i}`, type: 'function', function: { name: 'cari', arguments: '{}' } })) } }],
+    usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2, cost: 0 },
+  });
+  const run = async (extra) => {
+    fakeOpenRouter(t, [many(6), answer('selesai')]);
+    const llm = new LlmService({ apiKey: 'k', model: 'test/m' });
+    let ran = 0;
+    const tools = [{ name: 'cari', description: 'cari', parameters: { type: 'object', properties: {} }, run: async () => { ran += 1; return { ok: true }; } }];
+    await llm.generateReply('x', { systemPrompt: 'S', tools, companyId: 'c1', ...extra });
+    return ran;
+  };
+  assert.equal(await run({}), 4, 'bawaan: empat per putaran, sisanya ditolak');
+  assert.equal(await run({ maxToolCalls: 8 }), 6, 'dinaikkan: semuanya dilayani');
+});
+
+test('requireTools: kalau model dengan alat gagal, tidak ada jawaban tanpa alat sebagai cadangan', async (t) => {
+  const requests = fakeOpenRouter(t, [new Error('jaringan putus'), new Error('jaringan putus'), answer('Usulan sudah kusiapkan.')]);
+  const llm = new LlmService({ apiKey: 'k', model: 'test/m' });
+  const tools = [{ name: 'cari', description: 'cari', parameters: { type: 'object', properties: {} }, run: async () => ({}) }];
+  const result = await llm.generateReply('x', { systemPrompt: 'S', tools, companyId: 'c1', requireTools: true });
+  assert.equal(result, null, 'gagal apa adanya, bukan balasan yang mengaku sudah mengusulkan');
+  assert.ok(requests.every((r) => r.tools), 'tidak ada permintaan tanpa alat');
+});
+
+test('error jaringan murni diulang sekali dengan koneksi baru; error dari penyedia tidak', async (t) => {
+  const original = global.fetch;
+  let calls = 0;
+  global.fetch = async () => {
+    calls += 1;
+    if (calls === 1) throw Object.assign(new TypeError('fetch failed'), { cause: { code: 'UND_ERR_SOCKET' } });
+    return { ok: true, json: async () => answer('Halo kak.') };
+  };
+  t.after(() => { global.fetch = original; });
+  const llm = new LlmService({ apiKey: 'k', model: 'test/m' });
+  const result = await llm.generateReply('hai', { systemPrompt: 'S' });
+  assert.equal(result.text, 'Halo kak.');
+  assert.equal(calls, 2);
+
+  // Penyedia yang menjawab error (bukan jaringan) tidak diulang pada model yang sama.
+  calls = 0;
+  global.fetch = async () => { calls += 1; return { ok: false, statusText: 'Bad Request', json: async () => ({ error: { message: 'bad' } }) }; };
+  assert.equal(await llm.generateReply('hai', { systemPrompt: 'S' }), null);
+  assert.equal(calls, 1);
+});

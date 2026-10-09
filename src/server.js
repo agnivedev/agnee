@@ -13,6 +13,7 @@ const { WhatsappManager, normalizePairingPhone } = require('./whatsapp-manager.j
 const { putaranSla } = require('./sla');
 const broadcast = require('./broadcast');
 const { compileKsPrompt, validateSpecific, specificHash } = require('./ks-package');
+const { registerTrainAssistant } = require('./train-assistant');
 const { runPackageSimulation, makeLlmGrader } = require('./ks-simulation');
 const { builtinSource } = require('./ks-source');
 const chatImport = require('./chat-import');
@@ -4610,6 +4611,7 @@ Aturan:
 - Keluarkan Markdown-nya saja, tanpa pembuka atau penutup.`,
         companyId,
         purpose: 'playbook_compile',
+        maxTokens: 4000,
         modelChain: companyAi.modelChain,
       },
     );
@@ -4663,6 +4665,8 @@ Aturan:
 - Keluarkan seluruh dokumen yang sudah diubah dalam Markdown saja, tanpa pembuka, penutup, atau pagar kode.`,
         companyId,
         purpose: 'playbook_revise',
+        // Menulis ulang seluruh dokumen: batas 512 platform memotongnya.
+        maxTokens: 4000,
         modelChain: companyAi.modelChain,
       },
     );
@@ -4705,6 +4709,13 @@ Aturan:
     const removed = await database.deletePlaybookDoc(request.params.kind, request.agneeSession.companyId, scope.productId);
     if (!removed) return reply.code(404).send({ error: 'Playbook tidak ditemukan.' });
     return { ok: true };
+  });
+
+  // Satu obrolan untuk mengubah semua tab Latih AI; hanya mengusulkan, tidak menyimpan.
+  registerTrainAssistant(app, {
+    database, llmService, getCompanyAi, aiUnavailable, coachRateLimited, isSupervisor, requireCoachDb,
+    kinds: Database.PLAYBOOK_KINDS, kindBrief: PLAYBOOK_KIND_BRIEF, categories: COACH_CATEGORIES,
+    ksSources, ksView, validateSpecific, maxSpecificBytes: KS_MAX_SPECIFIC_BYTES,
   });
 
   // ── Impor playbook dari file ──────────────────────────────────────────────

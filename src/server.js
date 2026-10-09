@@ -6971,6 +6971,7 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     const query = String(request.query.q || '').trim().toLocaleLowerCase('id-ID');
     const filter = request.query.filter || 'inbox';
     let chats;
+    let syncing = false;
     if (provider === 'cloud_api') {
       chats = await database.listCloudChats(companyId);
     } else if (config.demoMode) {
@@ -6979,8 +6980,16 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
       // Percakapan yang sama tidak boleh muncul dua kali kalau dua nomor
       // kebetulan sama-sama mengenal kontak itu; yang pertama menang, dan
       // pemetaan sticky yang menentukan siapa yang membalas.
+      // Satu nomor yang baru restart bisa menggantung lama saat WhatsApp Web
+      // menyinkronkan daftar chat-nya. Tanpa batas waktu, nomor itu menahan
+      // seluruh daftar dan inbox terlihat kosong; dengan batas, nomor lain
+      // tampil dan klien diberi tahu bahwa sisanya masih disinkronkan.
       const perConn = await Promise.all(liveConns.map(async (conn) => {
-        const rows = await getChatsForUi(manager.getClient(conn.id)).catch(() => []);
+        let timer;
+        const rows = await Promise.race([
+          getChatsForUi(manager.getClient(conn.id)).catch(() => []),
+          new Promise((resolve) => { timer = setTimeout(() => { syncing = true; resolve([]); }, 20_000); }),
+        ]).finally(() => clearTimeout(timer));
         return rows.map((chat) => ({ ...chat, connectionId: conn.id, connectionLabel: conn.label }));
       }));
       const seen = new Set();
@@ -7016,6 +7025,7 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     return {
       chats: page,
       hasMore: offset + limit < chats.length,
+      syncing,
     };
   });
 

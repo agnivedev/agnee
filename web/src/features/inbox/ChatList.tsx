@@ -37,6 +37,8 @@ export function ChatList({ inbox, demoMode }: { inbox: InboxApi; demoMode: boole
               onSelect={() => void inbox.openChat(chat)}
             />
           ))
+        ) : inbox.listLoading || inbox.listSyncing ? (
+          <ChatListSkeleton syncing={inbox.listSyncing && !inbox.listLoading} />
         ) : (
           <EmptyInbox inbox={inbox} />
         )}
@@ -51,6 +53,36 @@ export function ChatList({ inbox, demoMode }: { inbox: InboxApi; demoMode: boole
         </button>
       ) : null}
     </>
+  );
+}
+
+/**
+ * Kerangka daftar saat percakapan belum tiba. Sengaja bukan teks "kosong":
+ * WhatsApp yang baru tersambung bisa butuh puluhan detik, dan daftar kosong
+ * pada saat itu terbaca sebagai percakapan yang hilang.
+ */
+function ChatListSkeleton({ syncing }: { syncing: boolean }) {
+  const { t } = useI18n();
+  return (
+    <div role="status" className="grid gap-[3px]">
+      <p className="m-0 px-3 pt-2 pb-1 font-mono text-[11px] text-muted">
+        {syncing ? t('inbox.syncing') : t('inbox.loading')}
+      </p>
+      {[0, 1, 2, 3, 4, 5].map((row) => (
+        <div
+          key={row}
+          aria-hidden
+          className="grid min-h-[58px] animate-pulse grid-cols-[38px_minmax(0,1fr)_auto] items-center gap-[9px] px-[9px] py-2 motion-reduce:animate-none"
+        >
+          <span className="size-[38px] rounded-full bg-ink/8" />
+          <span className="grid gap-[7px]">
+            <span className={cn('h-[11px] rounded bg-ink/8', row % 2 ? 'w-[55%]' : 'w-[72%]')} />
+            <span className={cn('h-[9px] rounded bg-ink/6', row % 3 ? 'w-[84%]' : 'w-[62%]')} />
+          </span>
+          <span className="h-[9px] w-8 rounded bg-ink/6" />
+        </div>
+      ))}
+    </div>
   );
 }
 

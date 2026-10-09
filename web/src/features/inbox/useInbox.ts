@@ -9,7 +9,13 @@ const CHAT_PAGE_SIZE = 12;
 const MESSAGE_PAGE = 30;
 const MESSAGE_CEILING = 600;
 
-type ChatsResponse = { chats: Chat[]; hasMore: boolean; phase?: string | null };
+// Server sendiri menyerah pada nomor yang lambat setelah ±20 dtk; klien menunggu
+// lebih lama dari itu, tapi tidak selamanya — kunci `loadingChats` tidak boleh
+// tertahan oleh satu permintaan yang menggantung.
+const CHAT_REQUEST_TIMEOUT_MS = 45_000;
+const CHAT_SYNC_RETRY_MS = 8_000;
+
+type ChatsResponse = { chats: Chat[]; hasMore: boolean; phase?: string | null; syncing?: boolean };
 type MessagesResponse = { messages: Message[]; hasMore: boolean };
 /** `seen: false` = server sengaja tidak menandainya (agent mengintip chat yang belum diambil). */
 type MarkReadResponse = { success: boolean; seen?: boolean; reason?: string };
@@ -32,6 +38,13 @@ export function useInbox() {
   const [filter, setFilter] = useState<InboxFilter>('all');
   const [search, setSearch] = useState('');
   const [listError, setListError] = useState<string>();
+  // Sebelum balasan pertama tiba, daftar kosong BUKAN berarti tidak ada
+  // percakapan — tanpa penanda ini layar menulis "belum ada percakapan".
+  const [listLoading, setListLoading] = useState(true);
+  // Server sudah menjawab, tapi ada nomor yang belum selesai disinkronkan.
+  const [listSyncing, setListSyncing] = useState(false);
+  const loadChatsRef = useRef<(reset?: boolean) => Promise<void>>(async () => {});
+  const syncTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   const messageLimit = useRef(MESSAGE_PAGE);
   const loadingChats = useRef(false);
@@ -54,6 +67,7 @@ export function useInbox() {
         return;
       }
       loadingChats.current = true;
+      if (reset || !chats.length) setListLoading(true);
       try {
         const currentCount = reset ? 0 : chats.length;
         const params = new URLSearchParams({
@@ -62,7 +76,9 @@ export function useInbox() {
           q: search.trim(),
           filter: tab === 'archived' ? 'archived' : filter === 'all' ? 'inbox' : filter,
         });
-        const data = await api<ChatsResponse>(`/v1/chats?${params}`);
+        const data = await api<ChatsResponse>(`/v1/chats?${params}`, {
+          signal: AbortSignal.timeout(CHAT_REQUEST_TIMEOUT_MS),
+        });
         const received = (data.chats || []).map((chat) =>
           locallyRead.current.has(chat.id) ? { ...chat, unreadCount: 0 } : chat,
         );
@@ -73,10 +89,16 @@ export function useInbox() {
         // "genuinely no conversations". The empty state needs to tell them apart.
         setWaPhaseForList(data.phase || null);
         setListError(undefined);
+        setListSyncing(Boolean(data.syncing));
+        clearTimeout(syncTimer.current);
+        if (data.syncing) {
+          syncTimer.current = setTimeout(() => void loadChatsRef.current(true), CHAT_SYNC_RETRY_MS);
+        }
       } catch (error) {
         if (reset) setListError(error instanceof Error ? error.message : String(error));
       } finally {
         loadingChats.current = false;
+        setListLoading(false);
         if (pendingChatReset.current) {
           pendingChatReset.current = false;
           void loadChats(true);
@@ -85,6 +107,9 @@ export function useInbox() {
     },
     [chats.length, search, tab, filter],
   );
+
+  loadChatsRef.current = loadChats;
+  useEffect(() => () => clearTimeout(syncTimer.current), []);
 
   const loadMessages = useCallback(async (chatId: string) => {
     const data = await api<MessagesResponse>(
@@ -174,6 +199,8 @@ export function useInbox() {
     hasMoreChats,
     waPhaseForList,
     listError,
+    listLoading,
+    listSyncing,
     activeChat,
     setActiveChat,
     messages,

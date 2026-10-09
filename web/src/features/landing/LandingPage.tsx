@@ -514,7 +514,7 @@ function BandBroadcast() {
       <Eyebrow>Broadcast</Eyebrow>
       <SectionTitle>Kirim kabar ke customer lama, dengan rem yang dipasang dari awal.</SectionTitle>
       <Lead>
-        Pilih customer dari daftar chat kamu, saring berdasarkan hubungan, label WhatsApp, tahap lead, produk, atau kapan terakhir mereka bales,
+        Pilih customer dari daftar chat kamu, saring berdasarkan hubungan, label WhatsApp, tahap lead, topik, atau kapan terakhir mereka bales,
         lalu kirim sekarang atau jadwalkan. Sapaan {'{nama}'} terisi otomatis per penerima, dan kamu bisa lihat siapa
         yang udah terkirim, gagal, atau dilewati.
       </Lead>

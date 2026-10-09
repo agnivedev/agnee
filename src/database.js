@@ -1447,7 +1447,7 @@ class Database {
       const lead = allProducts
         ? ''
         : 'Percakapan ini membahas produk ini. Ikuti playbook di bawah untuk isi, alur, dan batasannya.\n\n';
-      parts.push(`## PLAYBOOK PRODUK: ${product.name}\n${lead}${rendered}`);
+      parts.push(`## PLAYBOOK TOPIK: ${product.name}\n${lead}${rendered}`);
     }
 
     // Katalog: saat produk belum diketahui, AI perlu tahu apa saja yang dijual

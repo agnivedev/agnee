@@ -308,3 +308,15 @@ test('broadcast boleh membawa penanda unreadOnly di audience', async (t) => {
   assert.equal(res.statusCode, 201);
   assert.equal(database.created[0].audience.unreadOnly, true);
 });
+
+test('broadcast menyimpan banyak topik terpilih di audience, dan menolak id yang bukan uuid', async (t) => {
+  const database = fakeDatabase({ audience: CAMPUR });
+  const app = await appWith(t, database);
+  const cookie = await signIn(app, SUPERVISOR);
+  const topik = ['11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222', 'none'];
+  const ok = await kirim(app, cookie, { chatIds: ['62901@c.us'], audience: { stage: 'any', lastInboundDays: 0, productIds: topik } });
+  assert.equal(ok.statusCode, 201);
+  assert.deepEqual(database.created[0].audience.productIds, topik);
+  const buruk = await kirim(app, cookie, { chatIds: ['62901@c.us'], audience: { productIds: ['bukan-uuid'] } });
+  assert.equal(buruk.statusCode, 400);
+});

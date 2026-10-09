@@ -127,7 +127,7 @@ function splitSections(text) {
 
 /**
  * Menurunkan heading di dalam isi satu bagian supaya berada di bawah judul
- * yang ditambahkan getPlaybookContext: "## PLAYBOOK PRODUK" › "### Persona" ›
+ * yang ditambahkan getPlaybookContext: "## PLAYBOOK TOPIK" › "### Persona" ›
  * "#### <judul bagian tambahan>" › heading isi.
  */
 function demoteHeadings(body) {

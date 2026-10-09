@@ -52,7 +52,8 @@ export function BroadcastComposer({ onCancel, onCreated }: { onCancel: () => voi
   const [aiVariation, setAiVariation] = useState(false);
   const [stage, setStage] = useState<Stage>('any');
   const [recency, setRecency] = useState(30);
-  const [product, setProduct] = useState('any');
+  // Topik yang dicentang; kosong = tanpa saringan topik. 'none' = belum jelas topiknya.
+  const [topics, setTopics] = useState<Set<string>>(new Set());
   const [relation, setRelation] = useState<Relation>('replied');
   const [label, setLabel] = useState('any');
   const [readFilter, setReadFilter] = useState<'all' | 'unread'>('all');
@@ -81,12 +82,12 @@ export function BroadcastComposer({ onCancel, onCreated }: { onCancel: () => voi
     return audience.recipients.filter((row) => {
       if (stage === 'none' ? row.leadStage : stage !== 'any' && row.leadStage !== stage) return false;
       if (recency && !(row.lastInboundAt && now - row.lastInboundAt * 1000 <= recency * DAY_MS)) return false;
-      if (product === 'none' ? row.productId : product !== 'any' && row.productId !== product) return false;
+      if (topics.size && !topics.has(row.productId ?? 'none')) return false;
       if (relation !== 'any' && row.relation !== relation) return false;
       if (label === 'none' ? row.waLabels.length : label !== 'any' && !row.waLabels.includes(label)) return false;
       return true;
     });
-  }, [audience, stage, recency, product, relation, label]);
+  }, [audience, stage, recency, topics, relation, label]);
 
   const unreadCount = useMemo(() => base.filter((row) => (row.unreadCount ?? 0) > 0).length, [base]);
   const unreadOnly = Boolean(audience?.unreadKnown) && readFilter === 'unread';
@@ -144,6 +145,28 @@ export function BroadcastComposer({ onCancel, onCreated }: { onCancel: () => voi
   const eta = estimate(selected.length, pace);
   const hour = (h: number) => `${String(h).padStart(2, '0')}.00`;
 
+  /**
+   * Tab Semua = seluruh daftar tanpa saringan apa pun. Kontak yang belum
+   * terlihat membalas ikut tampil tapi TIDAK tercentang: memilih mereka tetap
+   * keputusan sadar (peringatan + konfirmasi risiko), bukan efek samping satu klik.
+   */
+  function showEveryone() {
+    setReadFilter('all');
+    setStage('any');
+    setRelation('any');
+    setRecency(0);
+    setTopics(new Set());
+    setLabel('any');
+    setSearch('');
+    setUnchecked((current) => {
+      const next = new Set(current);
+      for (const row of audience?.recipients ?? []) {
+        if (row.relation === 'unproven') next.add(row.chatId);
+      }
+      return next;
+    });
+  }
+
   function insertName() {
     const area = bodyRef.current;
     const token = '{nama}';
@@ -162,6 +185,14 @@ export function BroadcastComposer({ onCancel, onCreated }: { onCancel: () => voi
     setUnchecked((current) => {
       const next = new Set(current);
       if (next.has(chatId)) next.delete(chatId); else next.add(chatId);
+      return next;
+    });
+  }
+
+  function toggleTopic(id: string) {
+    setTopics((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id); else next.add(id);
       return next;
     });
   }
@@ -203,7 +234,7 @@ export function BroadcastComposer({ onCancel, onCreated }: { onCancel: () => voi
           acceptUnproven: selectedUnproven > 0,
           chatIds: selected.map((row) => row.chatId),
           scheduledAt: when === 'later' ? new Date(scheduledAt).toISOString() : null,
-          audience: { stage, lastInboundDays: recency, productId: product === 'any' || product === 'none' ? null : product, unreadOnly },
+          audience: { stage, lastInboundDays: recency, productIds: [...topics], unreadOnly },
         },
       });
       onCreated(data.broadcast.id);
@@ -268,7 +299,7 @@ export function BroadcastComposer({ onCancel, onCreated }: { onCancel: () => voi
                     type="button"
                     role="tab"
                     aria-selected={readFilter === value}
-                    onClick={() => setReadFilter(value)}
+                    onClick={() => (value === 'all' ? showEveryone() : setReadFilter(value))}
                     className={cn(
                       'min-h-[38px] cursor-pointer rounded-full border px-4 py-1.5 text-[13px] font-semibold transition',
                       readFilter === value ? 'border-ink bg-ink text-white' : 'border-border bg-white text-ink/70 hover:border-ink/40',
@@ -312,16 +343,6 @@ export function BroadcastComposer({ onCancel, onCreated }: { onCancel: () => voi
                   </select>
                 </label>
               )}
-              {audience.products.length ? (
-                <label className="grid gap-1 text-xs text-muted">
-                  {t('broadcast.filterProduct')}
-                  <select value={product} onChange={(e) => setProduct(e.target.value)} className={select}>
-                    <option value="any">{t('broadcast.productAny')}</option>
-                    {audience.products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                    <option value="none">{t('broadcast.productNone')}</option>
-                  </select>
-                </label>
-              ) : null}
               {labels.length ? (
                 <label className="grid gap-1 text-xs text-muted">
                   {t('broadcast.filterLabel')}
@@ -333,6 +354,18 @@ export function BroadcastComposer({ onCancel, onCreated }: { onCancel: () => voi
                 </label>
               ) : null}
             </div>
+
+            {audience.products.length ? (
+              <div className="grid gap-1.5" role="group" aria-label={t('broadcast.filterProduct')}>
+                <span className="text-xs text-muted">{t('broadcast.filterProduct')}</span>
+                <div className="flex flex-wrap gap-2">
+                  <TopicChip active={!topics.size} onClick={() => setTopics(new Set())}>{t('broadcast.productAny')}</TopicChip>
+                  {[...audience.products.map((p) => ({ id: p.id, name: p.name })), { id: 'none', name: t('broadcast.productNone') }].map((topic) => (
+                    <TopicChip key={topic.id} active={topics.has(topic.id)} onClick={() => toggleTopic(topic.id)}>{topic.name}</TopicChip>
+                  ))}
+                </div>
+              </div>
+            ) : null}
 
             <div className="grid gap-1 text-xs text-muted">
               {audience.excluded.optedOut ? <span>{t('broadcast.excludedOptOut', { count: audience.excluded.optedOut })}</span> : null}
@@ -507,6 +540,22 @@ function Option({
       ) : null}
       {hint ? <p className="m-0 ml-[50px] text-xs text-muted">{hint}</p> : null}
     </div>
+  );
+}
+
+function TopicChip({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      aria-pressed={active}
+      onClick={onClick}
+      className={cn(
+        'min-h-[34px] cursor-pointer rounded-full border px-3.5 py-1 text-[13px] transition',
+        active ? 'border-ink bg-ink text-white' : 'border-border bg-white text-ink/70 hover:border-ink/40',
+      )}
+    >
+      {children}
+    </button>
   );
 }
 

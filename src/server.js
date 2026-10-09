@@ -1059,10 +1059,10 @@ async function buildApp(overrides = {}) {
     const result = await llmService.generateReply(
       `${summary ? `Ringkasan percakapan sejauh ini:\n${summary}\n\n` : ''}Pesan terbaru customer:\n${text}`,
       {
-        systemPrompt: `Tentukan produk mana yang sedang dibahas customer. Pilihan:
+        systemPrompt: `Tentukan topik mana yang sedang dibahas customer (bisa produk, jasa, atau campaign). Pilihan:
 ${products.map((product, index) => `${index + 1}. ${product.name}${product.description ? `: ${product.description}` : ''}`).join('\n')}
 
-Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan produk (misalnya hanya salam, "info dong", atau cocok untuk lebih dari satu produk). Lebih baik 0 daripada menebak.`,
+Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (misalnya hanya salam, "info dong", atau cocok untuk lebih dari satu topik). Lebih baik 0 daripada menebak.`,
         companyId,
         purpose: 'product_detect',
         modelChain: companyAi.modelChain,
@@ -4450,7 +4450,7 @@ Aturan:
 
   function playbookInterviewPrompt(kind, existingMd, product = null) {
     const scope = product
-      ? ` khusus produk "${product.name}"${product.description ? ` (${product.description})` : ''}`
+      ? ` khusus topik "${product.name}"${product.description ? ` (${product.description})` : ''}`
       : '';
     return `Kamu adalah asisten admin Agnee. Kamu membantu pemilik bisnis menyusun playbook "${kind}" (${PLAYBOOK_KIND_BRIEF[kind]})${scope} untuk tim customer service mereka.
 
@@ -4482,7 +4482,7 @@ Cara kerjamu:
     if (!productId) return { productId: null, product: null };
     const product = await database.getPlaybookProduct(productId, request.agneeSession.companyId);
     if (!product) {
-      reply.code(404).send({ error: 'Produk tidak ditemukan.' });
+      reply.code(404).send({ error: 'Topik tidak ditemukan.' });
       return null;
     }
     return { productId, product };
@@ -4599,7 +4599,7 @@ Cara kerjamu:
       .map((m) => `${m.role === 'user' ? 'Pemilik bisnis' : 'Asisten'}: ${m.content}`)
       .join('\n');
     const result = await llmService.generateReply(
-      `Susun playbook "${kind}"${scope.product ? ` untuk produk "${scope.product.name}"` : ''} dalam Markdown dari percakapan berikut.\n\n${transcript}`,
+      `Susun playbook "${kind}"${scope.product ? ` untuk topik "${scope.product.name}"` : ''} dalam Markdown dari percakapan berikut.\n\n${transcript}`,
       {
         systemPrompt: `Ubah percakapan menjadi playbook Markdown yang akan dibaca AI customer service.
 
@@ -4656,7 +4656,7 @@ Aturan:
     const result = await llmService.generateReply(
       `Dokumen sekarang:\n---\n${current || '(masih kosong)'}\n---\n\nPermintaan perubahan dari pemilik bisnis:\n${request.body.instruction}`,
       {
-        systemPrompt: `Kamu mengedit playbook "${kind}" (${PLAYBOOK_KIND_BRIEF[kind]})${scope.product ? ` untuk produk "${scope.product.name}"` : ''} yang dibaca AI customer service.
+        systemPrompt: `Kamu mengedit playbook "${kind}" (${PLAYBOOK_KIND_BRIEF[kind]})${scope.product ? ` untuk topik "${scope.product.name}"` : ''} yang dibaca AI customer service.
 
 Aturan:
 - Terapkan HANYA perubahan yang diminta. Bagian lain dibiarkan persis seperti aslinya, kata per kata.
@@ -4787,7 +4787,7 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     text = String(text || '').trim();
     if (!text) return reply.code(422).send({ error: 'File kosong atau teksnya tidak terbaca.' });
     if (text.length > MAX_IMPORT_CHARS) {
-      return reply.code(413).send({ error: `Dokumen terlalu panjang (${text.length.toLocaleString('id-ID')} karakter). Pecah per produk atau per bagian.` });
+      return reply.code(413).send({ error: `Dokumen terlalu panjang (${text.length.toLocaleString('id-ID')} karakter). Pecah per topik atau per bagian.` });
     }
 
     const { title, sections: raw } = splitSections(text);
@@ -4869,7 +4869,7 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     return { product: scope.product, saved };
   });
 
-  // ── Produk: playbook per layanan ──────────────────────────────────────────
+  // ── Topik (di kode: product): playbook per produk, jasa, atau campaign ──────────────────────────────────────────
 
   const PRODUCT_BODY_PROPS = {
     name: { type: 'string', minLength: 1, maxLength: 120 },
@@ -4889,12 +4889,12 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
   }, async (request, reply) => {
     if (!requireCoachSupervisor(request, reply)) return;
     if (!requireCoachDb(reply)) return;
-    if (!request.body.name.trim()) return reply.code(400).send({ error: 'Nama produk wajib diisi.' });
+    if (!request.body.name.trim()) return reply.code(400).send({ error: 'Nama topik wajib diisi.' });
     try {
       const product = await database.createPlaybookProduct(request.body, request.agneeSession.userId, request.agneeSession.companyId);
       return reply.code(201).send({ product });
     } catch (error) {
-      if (error.code === '23505') return reply.code(409).send({ error: 'Sudah ada produk dengan nama itu.' });
+      if (error.code === '23505') return reply.code(409).send({ error: 'Sudah ada topik dengan nama itu.' });
       throw error;
     }
   });
@@ -4911,14 +4911,14 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     if (!requireCoachSupervisor(request, reply)) return;
     if (!requireCoachDb(reply)) return;
     if (request.body.name !== undefined && !request.body.name.trim()) {
-      return reply.code(400).send({ error: 'Nama produk wajib diisi.' });
+      return reply.code(400).send({ error: 'Nama topik wajib diisi.' });
     }
     try {
       const product = await database.updatePlaybookProduct(request.params.id, request.body, request.agneeSession.companyId);
-      if (!product) return reply.code(404).send({ error: 'Produk tidak ditemukan.' });
+      if (!product) return reply.code(404).send({ error: 'Topik tidak ditemukan.' });
       return { product };
     } catch (error) {
-      if (error.code === '23505') return reply.code(409).send({ error: 'Sudah ada produk dengan nama itu.' });
+      if (error.code === '23505') return reply.code(409).send({ error: 'Sudah ada topik dengan nama itu.' });
       throw error;
     }
   });
@@ -4929,7 +4929,7 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     if (!requireCoachSupervisor(request, reply)) return;
     if (!requireCoachDb(reply)) return;
     const removed = await database.deletePlaybookProduct(request.params.id, request.agneeSession.companyId);
-    if (!removed) return reply.code(404).send({ error: 'Produk tidak ditemukan.' });
+    if (!removed) return reply.code(404).send({ error: 'Topik tidak ditemukan.' });
     return { ok: true };
   });
 
@@ -4965,7 +4965,7 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     const { productId } = request.body;
     if (productId) {
       const product = await database.getPlaybookProduct(productId, companyId);
-      if (!product || !product.active) return reply.code(404).send({ error: 'Produk tidak ditemukan.' });
+      if (!product || !product.active) return reply.code(404).send({ error: 'Topik tidak ditemukan.' });
     }
     // null = kembalikan ke tebakan otomatis.
     const saved = await database.setChatProduct(
@@ -8000,6 +8000,8 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
               stage: { type: 'string', enum: ['any', ...BROADCAST_STAGES] },
               lastInboundDays: { type: 'integer', minimum: 0, maximum: 3650 },
               productId: { anyOf: [{ type: 'string', format: 'uuid' }, { type: 'null' }] },
+              // Topik yang dipilih (boleh banyak); 'none' = chat tanpa topik jelas.
+              productIds: { type: 'array', maxItems: 100, items: { anyOf: [{ type: 'string', format: 'uuid' }, { type: 'string', enum: ['none'] }] } },
               unreadOnly: { type: 'boolean' },
             },
           },

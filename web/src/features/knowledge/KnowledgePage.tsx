@@ -8,6 +8,8 @@ import {
   BadgeCheck,
   Repeat,
   ArrowRightLeft,
+  FileText,
+  X,
   type LucideIcon,
 } from 'lucide-react';
 import { api, messageFromError } from '@/lib/api';
@@ -15,8 +17,8 @@ import { useI18n, usePageTitle } from '@/lib/i18n';
 import { AppSidebar } from '@/components/AppSidebar';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { CoachSection } from './CoachSection';
-import { BriefSection } from './BriefSection';
+import { CoachSection, FactsPanel } from './CoachSection';
+import { BriefPanel } from './BriefSection';
 import { KsSection } from './ks/KsSection';
 import { ProductBar, ImportPanel, productQuery, type Product } from './PlaybookProducts';
 import { Markdown, diffLines } from './DocMarkdown';
@@ -27,12 +29,16 @@ import { TrainAssistant } from './TrainAssistant';
  * layar — playbook di sini, fakta & simulasi (Coach) di Settings, brief & file
  * di Admin, plus playground di Admin yang membangun prompt-nya sendiri —
  * padahal keempatnya digabung ke prompt yang sama.
+ *
+ * Sekarang dua tab: Playbook (termasuk ringkasan & file, fakta terkonfirmasi,
+ * dan panel Uji AI) dan Template. Tautan lama #coach dan #brief tetap berlaku:
+ * keduanya membuka layar Playbook dengan bagian yang bersangkutan.
  */
-type Section = 'playbook' | 'template' | 'coach' | 'brief';
-const SECTIONS: Section[] = ['playbook', 'template', 'coach', 'brief'];
+type Section = 'playbook' | 'template';
+const SECTIONS: Section[] = ['playbook', 'template'];
 function sectionFromHash(): Section {
   const hash = window.location.hash.replace('#', '');
-  return (SECTIONS as string[]).includes(hash) ? (hash as Section) : 'playbook';
+  return hash === 'template' ? 'template' : 'playbook';
 }
 
 /** One icon per document kind, so the list reads at a glance, not just by label text. */
@@ -408,8 +414,6 @@ export function KnowledgePage() {
 
         {section === 'playbook' ? <PlaybookDocs refreshKey={refreshKey} /> : null}
         {section === 'template' ? <div className="max-w-4xl"><KsSection key={refreshKey} /></div> : null}
-        {section === 'coach' ? <div className="max-w-4xl"><CoachSection key={refreshKey} /></div> : null}
-        {section === 'brief' ? <div className="max-w-4xl"><BriefSection key={refreshKey} /></div> : null}
       </main>
       <TrainAssistant onChanged={() => setRefreshKey((value) => value + 1)} />
     </div>
@@ -426,6 +430,12 @@ function PlaybookDocs({ refreshKey }: { refreshKey: number }) {
   const [active, setActive] = useState<string | null>(null);
   const [doc, setDoc] = useState<Doc | null>(null);
   const [tab, setTab] = useState<'isi' | 'obrolan' | 'ubah'>('isi');
+  // Tautan lama (#coach, #brief) membuka bagian yang dulu jadi tab sendiri.
+  const [showBrief, setShowBrief] = useState(() => window.location.hash === '#brief');
+  const [testOpen, setTestOpen] = useState(() => window.location.hash === '#coach');
+  const [importMode, setImportMode] = useState<'playbook' | 'reference'>('playbook');
+  // Naik tiap kali simulasi menemukan celah, supaya fakta di bawah Tanya-jawab dimuat ulang.
+  const [factsKey, setFactsKey] = useState(0);
   const [editing, setEditing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState('');
@@ -493,10 +503,12 @@ function PlaybookDocs({ refreshKey }: { refreshKey: number }) {
         <ProductBar
           products={products}
           active={productId}
-          onSelect={(next) => { setProductId(next); setImporting(false); setNotice(''); }}
+          onSelect={(next) => { setProductId(next); setShowBrief(false); setImporting(false); setNotice(''); }}
           onChanged={(select) => void loadProducts(select)}
-          onImport={() => { setImporting(true); setNotice(''); }}
+          onImport={() => { setImportMode('playbook'); setImporting(true); setNotice(''); }}
+          onTest={() => setTestOpen(true)}
         />
+        <p className="mb-5 max-w-3xl text-[12px] leading-[1.55] text-muted">{t('knowledge.trainHint')}</p>
         {notice ? <p className="mb-4 rounded-xl bg-green/10 px-3 py-2 text-[13px] text-green-dark">{notice}</p> : null}
         {status ? <p className="mb-4 text-[13px] text-danger">{status}</p> : null}
 
@@ -504,9 +516,11 @@ function PlaybookDocs({ refreshKey }: { refreshKey: number }) {
           <ImportPanel
             productId={productId}
             targetLabel={currentProduct ? currentProduct.name : t('knowledge.product.general')}
+            initialMode={importMode}
             onCancel={() => setImporting(false)}
-            onDone={(message) => {
+            onDone={(message, mode) => {
               setImporting(false);
+              if (mode === 'reference') setShowBrief(true);
               setNotice(message);
               setRevision((value) => value + 1);
               void loadProducts();
@@ -525,21 +539,23 @@ function PlaybookDocs({ refreshKey }: { refreshKey: number }) {
               className="grid content-start gap-1.5 self-start lg:sticky lg:top-7 lg:max-h-[calc(100dvh-3.5rem)] lg:overflow-y-auto lg:pr-1"
               aria-label={t('knowledge.title')}
             >
+              <p className="m-0 px-1 font-mono text-[10px] tracking-wider text-muted uppercase">{t('knowledge.group.guide')}</p>
               {kinds.map((k) => {
                 const Icon = KIND_ICON[k.kind] ?? MessagesSquare;
+                const isOpen = active === k.kind && !showBrief;
                 return (
                   <button
                     key={k.kind}
                     type="button"
-                    onClick={() => void openDoc(k.kind)}
+                    onClick={() => { setShowBrief(false); void openDoc(k.kind); }}
                     className={cn(
                       'grid w-full cursor-pointer grid-cols-[auto_1fr] items-start gap-x-2.5 gap-y-0.5 rounded-xl border px-3 py-2.5 text-left transition',
-                      active === k.kind ? 'border-green bg-green/8' : 'border-border bg-white/60 hover:border-green/40',
+                      isOpen ? 'border-green bg-green/8' : 'border-border bg-white/60 hover:border-green/40',
                     )}
                   >
                     <Icon
                       aria-hidden
-                      className={cn('mt-0.5 size-4 shrink-0', active === k.kind ? 'text-green-dark' : 'text-muted')}
+                      className={cn('mt-0.5 size-4 shrink-0', isOpen ? 'text-green-dark' : 'text-muted')}
                     />
                     <span className="flex items-center justify-between gap-2">
                       <strong className="text-[13px]">{t(`playbook.kind.${k.kind}`)}</strong>
@@ -557,8 +573,35 @@ function PlaybookDocs({ refreshKey }: { refreshKey: number }) {
                   </button>
                 );
               })}
+              {/* Ringkasan & file berlaku untuk seluruh perusahaan, bukan per topik. */}
+              {productId === null ? (
+                <>
+                  <p className="m-0 mt-3 px-1 font-mono text-[10px] tracking-wider text-muted uppercase">{t('knowledge.group.material')}</p>
+                  <button
+                    type="button"
+                    onClick={() => setShowBrief(true)}
+                    className={cn(
+                      'grid w-full cursor-pointer grid-cols-[auto_1fr] items-start gap-x-2.5 gap-y-0.5 rounded-xl border px-3 py-2.5 text-left transition',
+                      showBrief ? 'border-green bg-green/8' : 'border-border bg-white/60 hover:border-green/40',
+                    )}
+                  >
+                    <FileText aria-hidden className={cn('mt-0.5 size-4 shrink-0', showBrief ? 'text-green-dark' : 'text-muted')} />
+                    <strong className="text-[13px]">{t('knowledge.brief.entry')}</strong>
+                    <span className="col-start-2 text-[11px] text-muted">{t('knowledge.brief.entryHint')}</span>
+                  </button>
+                </>
+              ) : null}
             </nav>
 
+            <div className="grid min-w-0 content-start gap-5">
+            {showBrief && productId === null ? (
+              <section className="min-w-0 rounded-[18px] border border-border bg-white/70 p-5">
+                <BriefPanel
+                  reloadKey={reload}
+                  onUpload={() => { setImportMode('reference'); setImporting(true); setNotice(''); }}
+                />
+              </section>
+            ) : (
             <section className="min-w-0 rounded-[18px] border border-border bg-white/70 p-5">
               {!doc ? (
                 <p className="font-mono text-sm text-muted">{t('common.loading')}</p>
@@ -637,7 +680,37 @@ function PlaybookDocs({ refreshKey }: { refreshKey: number }) {
                 </>
               )}
             </section>
+            )}
+            {!showBrief && active === 'qna' && productId === null ? <FactsPanel reloadKey={factsKey + reload} /> : null}
+            </div>
           </div>
+        ) : null}
+
+        {testOpen ? (
+          <aside
+            role="dialog"
+            aria-label={t('knowledge.test.title')}
+            className="fixed inset-y-0 right-0 z-50 flex w-[min(640px,100vw)] flex-col border-l border-border bg-background shadow-[-12px_0_40px_rgba(24,48,39,.12)]"
+          >
+            <header className="flex items-start justify-between gap-3 border-b border-border px-5 py-4">
+              <div className="grid gap-1">
+                <h2 className="m-0 text-[17px]">{t('knowledge.test.title')}</h2>
+                <p className="m-0 text-[12px] leading-[1.55] text-muted">{t('knowledge.test.copy')}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setTestOpen(false)}
+                aria-label={t('knowledge.test.close')}
+                title={t('knowledge.test.close')}
+                className="grid size-8 shrink-0 cursor-pointer place-items-center rounded-full border border-border bg-white/70 p-0 text-ink/70 hover:border-ink/40"
+              >
+                <X aria-hidden className="size-4" />
+              </button>
+            </header>
+            <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+              <CoachSection onGaps={() => setFactsKey((value) => value + 1)} />
+            </div>
+          </aside>
         ) : null}
       </>
   );

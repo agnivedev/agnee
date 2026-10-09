@@ -1,11 +1,12 @@
 import { useRef, useState, type FormEvent } from 'react';
-import { Plus, Upload, Pencil, Power, Trash2, FileText } from 'lucide-react';
+import { Plus, Upload, Pencil, Power, Trash2, FileText, FlaskConical } from 'lucide-react';
 import { api, messageFromError } from '@/lib/api';
 import { useI18n } from '@/lib/i18n';
 import { Button } from '@/components/ui/button';
 import { Input, Textarea } from '@/components/ui/input';
 import { useConfirm } from '@/components/ui/confirm';
 import { cn } from '@/lib/utils';
+import { uploadReference } from './BriefSection';
 
 export type Product = {
   id: string;
@@ -26,18 +27,20 @@ export function productQuery(productId: string | null): string {
  * Baris pemilih produk di atas daftar playbook. "Umum" selalu ada dan berlaku
  * untuk semua produk; tiap produk punya delapan playbook sendiri.
  */
-export function ProductBar({ products, active, onSelect, onChanged, onImport }: {
+export function ProductBar({ products, active, onSelect, onChanged, onImport, onTest }: {
   products: Product[];
   active: string | null;
   onSelect: (productId: string | null) => void;
   onChanged: (select?: string | null) => void;
   onImport: () => void;
+  onTest: () => void;
 }) {
   const { t } = useI18n();
   const confirm = useConfirm();
   const [editing, setEditing] = useState<'new' | 'edit' | null>(null);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
+  const [helpOpen, setHelpOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState('');
   const current = products.find((product) => product.id === active) || null;
@@ -116,6 +119,19 @@ export function ProductBar({ products, active, onSelect, onChanged, onImport }: 
     <div className="mb-5 grid gap-3">
       <div className="flex flex-wrap items-center gap-2">
         <span className="mr-1 font-mono text-[10px] tracking-wider text-muted uppercase">{t('knowledge.product.label')}</span>
+        {/* Diklik, bukan di-hover: tooltip hover tidak bisa dibuka di ponsel. */}
+        <button
+          type="button"
+          onClick={() => setHelpOpen((value) => !value)}
+          aria-expanded={helpOpen}
+          aria-label={t('knowledge.product.whatIs')}
+          className={cn(
+            'mr-1 grid size-5 cursor-pointer place-items-center rounded-full border p-0 font-mono text-[11px] font-semibold transition',
+            helpOpen ? 'border-ink bg-ink text-white' : 'border-ink/25 bg-transparent text-ink/60 hover:border-ink/50 hover:text-ink',
+          )}
+        >
+          ?
+        </button>
         <button type="button" className={chip(active === null)} onClick={() => onSelect(null)}>
           {t('knowledge.product.general')}
         </button>
@@ -139,7 +155,14 @@ export function ProductBar({ products, active, onSelect, onChanged, onImport }: 
         <Button size="sm" variant="outline" onClick={onImport}>
           <Upload aria-hidden className="size-4" /> {t('knowledge.import.open')}
         </Button>
+        <Button size="sm" onClick={onTest}>
+          <FlaskConical aria-hidden className="size-4" /> {t('knowledge.test.open')}
+        </Button>
       </div>
+
+      {helpOpen ? (
+        <p className="m-0 max-w-2xl rounded-[10px] bg-ink/5 px-3 py-2 text-xs leading-[1.55] text-ink/75">{t('knowledge.product.help')}</p>
+      ) : null}
 
       {editing ? (
         <form onSubmit={save} className="grid max-w-2xl gap-2 rounded-xl border border-border bg-white/70 p-4">
@@ -214,10 +237,12 @@ type Preview = {
  * tiap bagian; tidak ada yang tersimpan sampai tombol Simpan ditekan, karena
  * yang ditimpa adalah dokumen yang dibaca AI untuk semua customer.
  */
-export function ImportPanel({ productId, targetLabel, onDone, onCancel }: {
+export function ImportPanel({ productId, targetLabel, initialMode = 'playbook', onDone, onCancel }: {
   productId: string | null;
+  /** 'reference' = simpan sebagai file rujukan (hanya untuk Umum: file tidak per topik). */
+  initialMode?: 'playbook' | 'reference';
   targetLabel: string;
-  onDone: (message: string) => void;
+  onDone: (message: string, mode: 'playbook' | 'reference') => void;
   onCancel: () => void;
 }) {
   const { t } = useI18n();
@@ -226,6 +251,22 @@ export function ImportPanel({ productId, targetLabel, onDone, onCancel }: {
   const [kinds, setKinds] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState('');
+  const [mode, setMode] = useState<'playbook' | 'reference'>(productId === null ? initialMode : 'playbook');
+  const referenceRef = useRef<HTMLInputElement>(null);
+
+  async function saveReference(file: File) {
+    setBusy(true);
+    setStatus(t('admin.uploading', { name: file.name }));
+    try {
+      await uploadReference(file);
+      onDone(t('knowledge.import.referenceSaved', { name: file.name }), 'reference');
+    } catch (error) {
+      setStatus(t('admin.uploadFailed', { name: file.name, message: messageFromError(error, '') }));
+    } finally {
+      setBusy(false);
+      if (referenceRef.current) referenceRef.current.value = '';
+    }
+  }
 
   async function read(file: File) {
     setBusy(true);
@@ -266,7 +307,7 @@ export function ImportPanel({ productId, targetLabel, onDone, onCancel }: {
           })),
         },
       });
-      onDone(t('knowledge.import.applied', { count: result.saved.length }));
+      onDone(t('knowledge.import.applied', { count: result.saved.length }), 'playbook');
     } catch (error) {
       setStatus(messageFromError(error, t('knowledge.import.saveFailed')));
     } finally {
@@ -284,12 +325,57 @@ export function ImportPanel({ productId, targetLabel, onDone, onCancel }: {
     <section className="max-w-4xl rounded-[18px] border border-border bg-white/70 p-5">
       <header className="mb-3 grid gap-1">
         <h2 className="m-0 text-[17px]">{t('knowledge.import.title')}</h2>
-        <p className="m-0 text-[12px] text-muted">{t('knowledge.import.intro')}</p>
-        <p className="m-0 text-[12px]">
-          <span className="text-muted">{t('knowledge.import.target')}: </span>
-          <strong>{targetLabel}</strong>
-        </p>
+        {productId === null ? (
+          <div className="my-1 flex flex-wrap gap-1.5" role="group" aria-label={t('knowledge.import.title')}>
+            {(['playbook', 'reference'] as const).map((value) => (
+              <button
+                key={value}
+                type="button"
+                aria-pressed={mode === value}
+                disabled={busy}
+                onClick={() => { setMode(value); setPreview(null); setStatus(''); }}
+                className={cn(
+                  'cursor-pointer rounded-full border px-3 py-1 text-[12px] transition',
+                  mode === value ? 'border-green bg-green/10 font-semibold' : 'border-border bg-white/60 hover:border-green/40',
+                )}
+              >
+                {t(value === 'playbook' ? 'knowledge.import.modePlaybook' : 'knowledge.import.modeReference')}
+              </button>
+            ))}
+          </div>
+        ) : null}
+        <p className="m-0 text-[12px] text-muted">{t(mode === 'playbook' ? 'knowledge.import.intro' : 'knowledge.import.referenceIntro')}</p>
+        {mode === 'playbook' ? (
+          <p className="m-0 text-[12px]">
+            <span className="text-muted">{t('knowledge.import.target')}: </span>
+            <strong>{targetLabel}</strong>
+          </p>
+        ) : null}
       </header>
+
+      {mode === 'reference' ? (
+        <div className="grid gap-3">
+          <input
+            ref={referenceRef}
+            type="file"
+            accept=".pdf,.doc,.docx,.md,.markdown,.txt,image/*,video/*,audio/*"
+            className="hidden"
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              if (file) void saveReference(file);
+            }}
+          />
+          <div className="flex flex-wrap items-center gap-2">
+            <Button size="sm" disabled={busy} onClick={() => referenceRef.current?.click()}>
+              <FileText aria-hidden className="size-4" /> {t('knowledge.import.pick')}
+            </Button>
+            <Button size="sm" variant="ghost" disabled={busy} onClick={onCancel}>{t('knowledge.import.cancel')}</Button>
+            <span className="text-[12px] text-muted">{t('admin.dropzoneHint')}</span>
+          </div>
+          {status ? <p className="m-0 text-[12px] text-muted">{status}</p> : null}
+        </div>
+      ) : (
+      <>
 
       <input
         ref={fileRef}
@@ -378,6 +464,8 @@ export function ImportPanel({ productId, targetLabel, onDone, onCancel }: {
       ) : null}
 
       {status ? <p className="mt-3 mb-0 text-[12px] text-muted">{status}</p> : null}
+      </>
+      )}
     </section>
   );
 }

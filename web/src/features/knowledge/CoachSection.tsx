@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useConfirm } from '@/components/ui/confirm';
 import { cn } from '@/lib/utils';
-import { SettingCard, StatusLine } from '@/features/settings/parts';
+import { StatusLine } from '@/features/settings/parts';
 
 type Fact = { id: string; category: string; question: string; answer?: string | null; priority?: number };
 type Scenario = { id: string; name: string; persona?: string; openingMessage: string; goal?: string };
@@ -47,18 +47,55 @@ type ReviewSummary = {
 };
 
 const CATEGORIES = ['profile', 'product', 'pricing', 'faq', 'funnel', 'objection', 'closing'] as const;
-type CoachTab = 'truth' | 'scenarios' | 'simulate' | 'review';
+type CoachTab = 'scenarios' | 'simulate' | 'review';
 
-export function CoachSection() {
+/**
+ * Fakta terkonfirmasi, ditampilkan di bawah dokumen Tanya-jawab. Dulu tab
+ * "Sumber Kebenaran" di Coach; isinya sama-sama tanya-jawab, jadi tempatnya di
+ * sini. AI tetap membaca keduanya (dokumen + fakta); yang bergabung layarnya.
+ */
+export function FactsPanel({ reloadKey }: { reloadKey: number }) {
   const { t } = useI18n();
-  const [tab, setTab] = useState<CoachTab>('truth');
   const [facts, setFacts] = useState<Fact[]>([]);
-  const [scenarios, setScenarios] = useState<Scenario[]>([]);
 
   const loadFacts = useCallback(async () => {
     const data = await api<{ facts: Fact[] }>('/v1/coach/facts');
     setFacts(data.facts || []);
   }, []);
+
+  useEffect(() => {
+    void loadFacts().catch(() => {});
+  }, [loadFacts, reloadKey]);
+
+  const answered = facts.filter((fact) => fact.answer && fact.answer.trim());
+
+  return (
+    <section className="min-w-0 rounded-[18px] border border-border bg-white/70 p-5">
+      <header className="mb-4 flex flex-wrap items-start justify-between gap-2 border-b border-border pb-3">
+        <div className="grid gap-1">
+          <h2 className="m-0 text-[17px]">{t('knowledge.facts.title')}</h2>
+          <p className="m-0 max-w-xl text-[12px] leading-[1.55] text-muted">{t('knowledge.facts.copy')}</p>
+        </div>
+        {facts.length ? (
+          <span className="rounded-full bg-green/14 px-3 py-1 font-mono text-[10px] font-semibold tracking-[.06em] text-green-dark uppercase">
+            {t('coach.coverage', { answered: answered.length, total: facts.length })}
+          </span>
+        ) : null}
+      </header>
+      <TruthPane facts={facts} reload={loadFacts} />
+    </section>
+  );
+}
+
+/**
+ * Uji AI: skenario, simulasi, dan review chat asli. Tampil sebagai panel di
+ * samping layar Playbook. Fakta terkonfirmasi pindah ke dokumen Tanya-jawab,
+ * jadi simulasi yang menemukan celah memberi tahu halaman lewat `onGaps`.
+ */
+export function CoachSection({ onGaps }: { onGaps: () => void }) {
+  const { t } = useI18n();
+  const [tab, setTab] = useState<CoachTab>('simulate');
+  const [scenarios, setScenarios] = useState<Scenario[]>([]);
 
   const loadScenarios = useCallback(async () => {
     const data = await api<{ scenarios: Scenario[] }>('/v1/coach/scenarios');
@@ -66,27 +103,17 @@ export function CoachSection() {
   }, []);
 
   useEffect(() => {
-    void loadFacts().catch(() => {});
     void loadScenarios().catch(() => {});
-  }, [loadFacts, loadScenarios]);
-
-  const answered = facts.filter((fact) => fact.answer && fact.answer.trim());
+  }, [loadScenarios]);
 
   const TABS: { id: CoachTab; label: string }[] = [
-    { id: 'truth', label: t('coach.tabTruth') },
-    { id: 'scenarios', label: t('coach.tabScenarios') },
     { id: 'simulate', label: t('coach.tabSimulate') },
+    { id: 'scenarios', label: t('coach.tabScenarios') },
     { id: 'review', label: t('coach.tabReview') },
   ];
 
   return (
-    <SettingCard
-      id="coachSection"
-      eyebrow={t('coach.eyebrow')}
-      title={t('coach.title')}
-      badge={facts.length ? t('coach.coverage', { answered: answered.length, total: facts.length }) : t('coach.notReady')}
-      badgeTone={facts.length ? 'on' : 'off'}
-    >
+    <div id="coachSection">
       <div className="mb-4 flex flex-wrap gap-1 border-b border-border" role="tablist">
         {TABS.map((entry) => (
           <button
@@ -105,11 +132,10 @@ export function CoachSection() {
         ))}
       </div>
 
-      {tab === 'truth' ? <TruthPane facts={facts} reload={loadFacts} /> : null}
       {tab === 'scenarios' ? <ScenarioPane scenarios={scenarios} reload={loadScenarios} /> : null}
-      {tab === 'simulate' ? <SimulatePane scenarios={scenarios} onNewGaps={() => void loadFacts()} /> : null}
-      {tab === 'review' ? <ReviewPane onNewGaps={() => void loadFacts()} /> : null}
-    </SettingCard>
+      {tab === 'simulate' ? <SimulatePane scenarios={scenarios} onNewGaps={onGaps} /> : null}
+      {tab === 'review' ? <ReviewPane onNewGaps={onGaps} /> : null}
+    </div>
   );
 }
 

@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useRef, useState, type DragEvent } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { api, messageFromError } from '@/lib/api';
 import { useI18n } from '@/lib/i18n';
 import { Button } from '@/components/ui/button';
 import { useConfirm } from '@/components/ui/confirm';
 import { cn } from '@/lib/utils';
 import { formatFileSize } from '@/features/inbox/format';
-import { SavedBadge, SettingCard, StatusLine, useSavedFlag } from '@/features/settings/parts';
+import { SavedBadge, StatusLine, useSavedFlag } from '@/features/settings/parts';
 
 type Asset = { id: string; filename: string; kind: string; sizeBytes: number; extractionStatus: string };
 
@@ -17,16 +17,25 @@ const KIND_ICON: Record<string, string> = {
   other: '📎',
 };
 
-export function BriefSection() {
+/** Satu pintu unggah untuk file rujukan: dipakai ImportPanel (mode "file rujukan"). */
+export async function uploadReference(file: File) {
+  const body = new FormData();
+  body.append('file', file);
+  await api('/v1/admin/playbook/assets', { method: 'POST', body });
+}
+
+/**
+ * Ringkasan perusahaan + daftar file rujukan, bagian dari "Bahan umum" di layar
+ * Playbook. Tidak punya tombol unggah sendiri: mengunggah lewat satu pintu yang
+ * sama dengan unggah playbook, yang bertanya tujuannya.
+ */
+export function BriefPanel({ reloadKey, onUpload }: { reloadKey: number; onUpload: () => void }) {
   const { t } = useI18n();
   const confirm = useConfirm();
   const [brief, setBrief] = useState('');
   const [assets, setAssets] = useState<Asset[]>([]);
   const [status, setStatus] = useState('');
-  const [statusIsError, setStatusIsError] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [dragging, setDragging] = useState(false);
-  const fileInput = useRef<HTMLInputElement>(null);
   const { saved, flash } = useSavedFlag();
 
   const load = useCallback(async () => {
@@ -35,39 +44,20 @@ export function BriefSection() {
       setBrief(data.brief || '');
       setAssets(data.assets || []);
     } catch (error) {
-      setStatusIsError(true);
       setStatus(t('admin.playbookLoadFailed', { message: messageFromError(error, '') }));
     }
   }, [t]);
 
   useEffect(() => {
     void load();
-  }, [load]);
-
-  async function upload(file: File) {
-    setStatusIsError(false);
-    setStatus(t('admin.uploading', { name: file.name }));
-    const body = new FormData();
-    body.append('file', file);
-    try {
-      await api('/v1/admin/playbook/assets', { method: 'POST', body });
-      setStatus(t('admin.uploaded', { name: file.name }));
-      await load();
-    } catch (error) {
-      setStatusIsError(true);
-      setStatus(t('admin.uploadFailed', { name: file.name, message: messageFromError(error, '') }));
-    }
-  }
-
-  function onDrop(event: DragEvent<HTMLLabelElement>) {
-    event.preventDefault();
-    setDragging(false);
-    const file = event.dataTransfer?.files?.[0];
-    if (file) void upload(file);
-  }
+  }, [load, reloadKey]);
 
   return (
-    <SettingCard eyebrow={t('admin.playbookEyebrow')} title={t('admin.playbookTitle')} description={t('admin.playbookCopy')}>
+    <div>
+      <header className="mb-4 grid gap-1 border-b border-border pb-3">
+        <h2 className="m-0 text-[17px]">{t('knowledge.brief.title')}</h2>
+        <p className="m-0 text-[12px] leading-[1.55] text-muted">{t('knowledge.brief.copy')}</p>
+      </header>
       <textarea
         rows={6}
         value={brief}
@@ -96,38 +86,12 @@ export function BriefSection() {
         <SavedBadge shown={saved} />
       </div>
 
-      <label
-        onDragOver={(event) => {
-          event.preventDefault();
-          setDragging(true);
-        }}
-        onDragEnter={(event) => {
-          event.preventDefault();
-          setDragging(true);
-        }}
-        onDragLeave={() => setDragging(false)}
-        onDrop={onDrop}
-        className={cn(
-          'mt-5 grid cursor-pointer place-items-center rounded-panel border-2 border-dashed p-7 text-center transition-colors',
-          dragging ? 'border-green bg-green/6' : 'border-border bg-white/40 hover:border-green/50',
-        )}
-      >
-        <strong className="text-[13px]">{t('admin.dropzoneTitle')}</strong>
-        <small className="mt-1 text-[11px] text-muted">{t('admin.dropzoneHint')}</small>
-        <input
-          ref={fileInput}
-          type="file"
-          accept=".pdf,.doc,.docx,.md,.markdown,.txt,image/*,video/*,audio/*"
-          hidden
-          onChange={(event) => {
-            const file = event.target.files?.[0];
-            if (file) void upload(file);
-            event.target.value = '';
-          }}
-        />
-      </label>
+      <div className="mt-5 flex flex-wrap items-center gap-3">
+        <h3 className="m-0 text-[13px]">{t('knowledge.brief.files')}</h3>
+        <Button size="sm" variant="outline" onClick={onUpload}>{t('knowledge.brief.upload')}</Button>
+      </div>
 
-      <StatusLine tone={statusIsError ? 'error' : 'muted'}>{status}</StatusLine>
+      <StatusLine tone="error">{status}</StatusLine>
 
       <div className="mt-3 grid gap-2">
         {assets.length ? (
@@ -177,6 +141,6 @@ export function BriefSection() {
           <p className="m-0 text-[13px] text-muted">{t('admin.noAssets')}</p>
         )}
       </div>
-    </SettingCard>
+    </div>
   );
 }

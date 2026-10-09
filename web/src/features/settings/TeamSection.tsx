@@ -34,6 +34,8 @@ export function TeamSection() {
   async function addMember(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
+    // currentTarget sudah null setelah await, jadi elemen form dipegang sebelumnya.
+    const element = event.currentTarget;
     setAdding(true);
     setStatus(t('common.loading'));
     try {
@@ -46,7 +48,7 @@ export function TeamSection() {
           role: form.get('role'),
         },
       });
-      event.currentTarget.reset();
+      element.reset();
       setStatus(t('team.added'));
       await load();
     } catch (error) {

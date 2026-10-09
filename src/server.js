@@ -1380,6 +1380,58 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
 
   // quarantineWhatsappProfile and createWhatsappClient moved to WhatsappManager
 
+  // Pembacaan daftar chat dibagi per client. Tiap permintaan inbox dulu
+  // memulai pembacaan baru walau yang sebelumnya belum selesai; pada halaman
+  // WhatsApp yang macet itu menumpuk puluhan evaluasi yang tidak pernah
+  // kembali dan memperparah macetnya.
+  const chatListInflight = new WeakMap();
+  const lastChatRows = new WeakMap();
+  function getChatsShared(wa) {
+    let pending = chatListInflight.get(wa);
+    if (!pending) {
+      pending = getChatsForUi(wa)
+        .then((rows) => { lastChatRows.set(wa, rows); return rows; })
+        .finally(() => chatListInflight.delete(wa));
+      chatListInflight.set(wa, pending);
+    }
+    return pending;
+  }
+
+  // Halaman WhatsApp yang berstatus ready tapi tidak lagi menjawab perintah apa
+  // pun: tidak ada event crash, tidak ada watchdog yang menangkapnya (itu hanya
+  // untuk fase sebelum ready), dan inbox company itu kosong tanpa batas. Satu
+  // evaluasi sepele memisahkan "daftar chat lambat" dari "halaman mati"; hanya
+  // yang kedua dimulai ulang. `stopClient` hanya menutup browser, sesinya tetap
+  // utuh — tidak perlu scan QR lagi.
+  const healAttemptAt = new Map();
+  const healing = new Set();
+  async function healIfWedged(conn, wa) {
+    if (healing.has(conn.id) || Date.now() - (healAttemptAt.get(conn.id) || 0) < 10 * 60_000) return;
+    healing.add(conn.id);
+    try {
+      let pingTimer;
+      const alive = await Promise.race([
+        wa.pupPage.evaluate(() => true).then(() => true, () => false),
+        new Promise((resolve) => { pingTimer = setTimeout(() => resolve(false), 8_000); }),
+      ]).finally(() => clearTimeout(pingTimer));
+      if (alive || manager.getClient(conn.id) !== wa) return;
+      healAttemptAt.set(conn.id, Date.now());
+      app.log.warn({ connectionId: conn.id }, 'Halaman WhatsApp tidak merespons; memulai ulang nomor ini');
+      let stopTimer;
+      await Promise.race([
+        manager.stopClient(conn.id),
+        new Promise((resolve) => { stopTimer = setTimeout(resolve, 15_000); }),
+      ]).finally(() => clearTimeout(stopTimer));
+      manager.getState(conn.id).phase = 'starting';
+      manager.broadcast(conn.companyId, 'whatsapp_phase', { phase: 'starting', connectionId: conn.id });
+      await manager.startFor(conn.id, conn, makeWaCallbacks());
+    } catch (error) {
+      app.log.warn({ err: error, connectionId: conn.id }, 'Memulai ulang nomor yang macet gagal');
+    } finally {
+      healing.delete(conn.id);
+    }
+  }
+
   async function getChatsForUi(wa) {
     try {
       const chats = await wa.getChats();
@@ -6985,10 +7037,18 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
       // seluruh daftar dan inbox terlihat kosong; dengan batas, nomor lain
       // tampil dan klien diberi tahu bahwa sisanya masih disinkronkan.
       const perConn = await Promise.all(liveConns.map(async (conn) => {
+        const client = manager.getClient(conn.id);
         let timer;
         const rows = await Promise.race([
-          getChatsForUi(manager.getClient(conn.id)).catch(() => []),
-          new Promise((resolve) => { timer = setTimeout(() => { syncing = true; resolve([]); }, 20_000); }),
+          getChatsShared(client).catch(() => []),
+          new Promise((resolve) => {
+            timer = setTimeout(() => {
+              syncing = true;
+              // Daftar terakhir yang berhasil dibaca lebih baik daripada kosong.
+              resolve(lastChatRows.get(client) || []);
+              void healIfWedged(conn, client);
+            }, 20_000);
+          }),
         ]).finally(() => clearTimeout(timer));
         return rows.map((chat) => ({ ...chat, connectionId: conn.id, connectionLabel: conn.label }));
       }));

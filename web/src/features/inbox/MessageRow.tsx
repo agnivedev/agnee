@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Pencil, Trash2, Check, X } from 'lucide-react';
+import { Pencil, Trash2, Check, X, FileText, Download, Eye } from 'lucide-react';
 import { useI18n } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { InlineMarkdown } from './InlineMarkdown';
@@ -7,6 +7,7 @@ import {
   ackLabel,
   callDescription,
   formatDuration,
+  formatFileSize,
   formatTime,
   initials,
   messagePreview,
@@ -127,9 +128,12 @@ export function MessageRow({
   const hideAvatar = position === 'first' || position === 'middle';
   const showSenderName = isGroup && !mine && message.senderName && (position === 'first' || position === 'single');
   const body = messagePreview(message, t) || MEDIA_FALLBACK[message.type] || t('message.unsupported');
-  const hasImage = Boolean(message.inlineImage || (message.id && ['image', 'sticker'].includes(message.type)));
+  // Dokumen membawa thumbnail halaman pertama di `inlineImage`; itu bukan
+  // fotonya, jadi dokumen punya kartu sendiri dan tidak lewat BubbleImage.
+  const hasDocument = message.type === 'document' && Boolean(message.id);
+  const hasImage = !hasDocument && Boolean(message.inlineImage || (message.id && ['image', 'sticker'].includes(message.type)));
   const hasVideo = message.type === 'video' && message.id;
-  const hideBody = (hasImage || hasVideo) && !message.body;
+  const hideBody = (hasImage || hasVideo || hasDocument) && !message.body;
   // WhatsApp hanya mengizinkan edit pesan TEKS milik kita sendiri, dan hanya
   // dalam jendela waktu singkat — server yang menegakkan jendelanya (WhatsApp
   // sendiri yang tahu persis batasnya); tombolnya ditampilkan berdasarkan
@@ -249,6 +253,8 @@ export function MessageRow({
           </button>
         ) : hasImage ? (
           <BubbleImage message={message} chatId={chatId} onOpenMedia={onOpenMedia} />
+        ) : hasDocument ? (
+          <DocumentCard message={message} chatId={chatId} onOpenMedia={onOpenMedia} />
         ) : null}
 
         {editing ? (
@@ -428,6 +434,61 @@ function BubbleImage({
         message.type === 'sticker' ? '-m-2 size-[150px] bg-transparent object-contain' : 'w-[min(100%,360px)]',
       )}
     />
+  );
+}
+
+function documentName(message: Message, fallback: string) {
+  return (message.filename || '').trim() || fallback;
+}
+
+function isPdf(message: Message) {
+  return message.mimetype === 'application/pdf' || /\.pdf$/i.test(message.filename || '');
+}
+
+/**
+ * Dokumen yang masuk/keluar lewat WhatsApp: nama file, ukuran, lalu Unduh —
+ * dan Lihat untuk PDF, satu-satunya jenis yang aman dirender browser.
+ */
+function DocumentCard({
+  message,
+  chatId,
+  onOpenMedia,
+}: {
+  message: Message;
+  chatId: string;
+  onOpenMedia: (target: MediaTarget) => void;
+}) {
+  const { t } = useI18n();
+  const name = documentName(message, t('media.document'));
+  const src = mediaUrl(message.id, chatId);
+  const extension = (/\.([a-z0-9]{1,5})$/i.exec(name)?.[1] || '').toUpperCase();
+  const detail = [extension, message.filesize ? formatFileSize(message.filesize) : ''].filter(Boolean).join(' · ');
+  const action = 'grid size-8 shrink-0 place-items-center rounded-[10px] border-0 bg-ink/6 text-green-dark transition hover:bg-green/15';
+
+  return (
+    <div className="mx-[-4px] mt-[-3px] mb-2 flex min-w-[220px] max-w-[320px] items-center gap-2.5 rounded-[11px] bg-ink/5 px-2.5 py-2">
+      <span className="grid size-10 shrink-0 place-items-center rounded-[10px] bg-green/12 text-green-dark">
+        <FileText aria-hidden className="size-5" strokeWidth={1.8} />
+      </span>
+      <span className="grid min-w-0 flex-1 gap-0.5">
+        <strong className="truncate text-[13px]" title={name}>{name}</strong>
+        {detail ? <span className="font-mono text-[9px] text-muted">{detail}</span> : null}
+      </span>
+      {isPdf(message) ? (
+        <button
+          type="button"
+          title={t('media.documentPreview')}
+          aria-label={t('media.documentPreview')}
+          onClick={() => onOpenMedia({ kind: 'document', src, title: name, filename: name })}
+          className={cn(action, 'cursor-pointer')}
+        >
+          <Eye aria-hidden className="size-4" strokeWidth={2} />
+        </button>
+      ) : null}
+      <a href={src} download={name} title={t('media.download')} aria-label={t('media.download')} className={action}>
+        <Download aria-hidden className="size-4" strokeWidth={2} />
+      </a>
+    </div>
   );
 }
 

@@ -23,6 +23,7 @@ export function MediaViewer({ target, onClose }: { target: MediaTarget | null; o
   const pinch = useRef({ distance: 0, scale: 1 });
   const [zoomLabel, setZoomLabel] = useState('100%');
   const [downloading, setDownloading] = useState(false);
+  const [failed, setFailed] = useState(false);
 
   const isImage = target?.kind === 'image';
 
@@ -53,6 +54,7 @@ export function MediaViewer({ target, onClose }: { target: MediaTarget | null; o
   }, [applyTransform]);
 
   useEffect(() => {
+    setFailed(false);
     if (target) reset();
   }, [target, reset]);
 
@@ -173,14 +175,18 @@ export function MediaViewer({ target, onClose }: { target: MediaTarget | null; o
         }}
         className={cn('grid min-h-0 place-items-center overflow-hidden px-4', isImage && 'cursor-grab')}
       >
-        {target.kind === 'image' ? (
-          <img ref={image} src={target.src} alt={target.title} className="max-h-full max-w-full origin-center" />
+        {failed ? (
+          <p role="alert" className="m-0 max-w-[420px] text-center text-sm leading-[1.5] text-white/75">
+            {t('media.loadFailed')}
+          </p>
+        ) : target.kind === 'image' ? (
+          <img ref={image} src={target.src} alt={target.title} onError={() => setFailed(true)} className="max-h-full max-w-full origin-center" />
         ) : target.kind === 'video' ? (
           // eslint-disable-next-line jsx-a11y/media-has-caption
-          <video src={target.src} controls playsInline preload="metadata" autoPlay className="max-h-full max-w-full" />
+          <video src={target.src} controls playsInline preload="metadata" autoPlay onError={() => setFailed(true)} className="max-h-full max-w-full" />
         ) : target.kind === 'audio' ? (
           // eslint-disable-next-line jsx-a11y/media-has-caption
-          <audio src={target.src} controls preload="metadata" className="w-[min(100%,480px)]" />
+          <audio src={target.src} controls preload="metadata" onError={() => setFailed(true)} className="w-[min(100%,480px)]" />
         ) : (
           <iframe src={target.src} title={target.title} className="size-full border-0 bg-white" />
         )}

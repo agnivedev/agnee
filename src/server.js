@@ -1626,6 +1626,8 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
             body: typeof message.body === 'string' ? message.body : '',
             caption: typeof message.caption === 'string' ? message.caption : '',
             mimetype: message.mimetype || message.mediaData?.mimetype || null,
+            filename: typeof message.filename === 'string' ? message.filename : null,
+            filesize: Number(message.size || message.mediaData?.size || 0) || null,
             fromMe: Boolean(message.id?.fromMe),
             timestamp: Number(message.t || message.timestamp || 0),
             type: message.type || 'chat',
@@ -2105,7 +2107,10 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
   // Security headers on every response
   app.addHook('onSend', async (request, reply, payload) => {
     reply.header('x-content-type-options', 'nosniff');
-    reply.header('x-frame-options', 'DENY');
+    // Pratinjau PDF di penampil media memuat /media di dalam iframe halaman
+    // sendiri; hanya jalur itu yang boleh dibingkai, dan hanya oleh origin kita.
+    const framable = /^\/v1\/messages\/[^/]+\/media(\?|$)/.test(request.url);
+    reply.header('x-frame-options', framable ? 'SAMEORIGIN' : 'DENY');
     reply.header('referrer-policy', 'strict-origin-when-cross-origin');
     reply.header('permissions-policy', 'geolocation=(), camera=(), microphone=()');
     const csp = [
@@ -2116,7 +2121,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       "img-src 'self' data: blob:",
       "media-src 'self' blob:",
       "connect-src 'self'",
-      "frame-ancestors 'none'",
+      framable ? "frame-ancestors 'self'" : "frame-ancestors 'none'",
     ].join('; ');
     reply.header('content-security-policy', csp);
     // Id model asli hanya boleh sampai ke konsol platform admin.
@@ -7672,12 +7677,16 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
         const messages = window.require('WAWebCollections').Msg;
         const message = messages.get(messageId)
           || (await messages.getMessagesById([messageId]))?.messages?.[0];
-        if (!message || !['image', 'sticker', 'video', 'audio', 'ptt', 'document', 'interactive'].includes(message.type) || !message.mediaData) return null;
-        if (message.mediaData.mediaStage === 'REUPLOADING') return null;
+        if (!message) return { reason: 'message-not-found' };
+        if (!['image', 'sticker', 'video', 'audio', 'ptt', 'document', 'interactive'].includes(message.type)) return { reason: `type-${message.type}` };
+        if (!message.mediaData) return { reason: 'no-media-data' };
+        if (message.mediaData.mediaStage === 'REUPLOADING') return { reason: 'reuploading' };
         if (message.mediaData.mediaStage !== 'RESOLVED') {
           await message.downloadMedia({ downloadEvenIfExpensive: true, rmrReason: 1 });
         }
-        if (message.mediaData.mediaStage?.includes('ERROR') || message.mediaData.mediaStage === 'FETCHING') return null;
+        if (message.mediaData.mediaStage?.includes('ERROR') || message.mediaData.mediaStage === 'FETCHING') {
+          return { reason: `stage-${message.mediaData.mediaStage}` };
+        }
         const mockQpl = { addAnnotations() { return this; }, addPoint() { return this; } };
         const bytes = await window.require('WAWebDownloadManager').downloadManager.downloadAndMaybeDecrypt({
           directPath: message.directPath,
@@ -7695,16 +7704,25 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
           filename: message.filename || null,
         };
       }, request.params.messageId);
-      const supported = /^(image|video|audio)\//.test(String(media?.mimetype)) || media?.mimetype === 'application/pdf';
-      if (!media?.data || !supported) return reply.code(404).send();
+      if (!media?.data) {
+        app.log.warn({ messageId: request.params.messageId, reason: media?.reason || 'empty' }, 'Message media is unavailable');
+        return reply.code(404).send();
+      }
       const buffer = Buffer.from(media.data, 'base64');
       if (buffer.length > 40 * 1024 * 1024) return reply.code(413).send();
-      reply.header('content-type', media.mimetype);
+      // Hanya jenis yang aman dirender browser yang boleh tampil di dalam
+      // halaman; sisanya (docx, xlsx, zip, svg, html…) selalu diunduh.
+      const mimetype = String(media.mimetype || 'application/octet-stream').split(';')[0].trim().toLowerCase();
+      const inline = (/^(image|video|audio)\//.test(mimetype) && mimetype !== 'image/svg+xml') || mimetype === 'application/pdf';
+      const filename = String(media.filename || `whatsapp-${Date.now()}`).replace(/[\r\n"\\/]/g, '_').slice(0, 200);
+      reply.header('content-type', inline ? mimetype : 'application/octet-stream');
       reply.header('cache-control', 'private, max-age=3600');
-      reply.header('content-disposition', 'inline');
+      reply.header('content-disposition', inline
+        ? 'inline'
+        : `attachment; filename="${filename.replace(/[^\x20-\x7e]/g, '_')}"; filename*=UTF-8''${encodeURIComponent(filename)}`);
       return reply.send(buffer);
     } catch (error) {
-      app.log.debug({ err: error }, 'Message media is unavailable');
+      app.log.warn({ err: error, messageId: request.params.messageId }, 'Message media is unavailable');
       return reply.code(404).send();
     }
   });

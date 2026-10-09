@@ -24,6 +24,9 @@ export type Message = {
   body: string;
   caption?: string;
   mimetype?: string | null;
+  /** Hanya untuk dokumen: nama file dan ukuran aslinya dari WhatsApp. */
+  filename?: string | null;
+  filesize?: number | null;
   fromMe: boolean;
   timestamp: number;
   type: string;

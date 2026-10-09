@@ -42,6 +42,24 @@ function resolveBrowserExecutable() {
  * Callbacks passed to startFor / _createClient:
  *   { log, onMessage(companyId, message, { connectionId }), onStatusUpdate(companyId, status, phoneNumber, connectionId) }
  */
+const PAIRING_COOLDOWN_MS = 20_000;
+
+function pairingError(statusCode, message) {
+  return Object.assign(new Error(message), { statusCode });
+}
+
+/**
+ * Nomor HP untuk pairing: hanya digit, format internasional tanpa '+'.
+ * Awalan 0 dibaca sebagai Indonesia (0812… → 62812…). Null bila bentuknya
+ * tak masuk akal (E.164 maksimal 15 digit).
+ */
+function normalizePairingPhone(raw) {
+  let digits = String(raw ?? '').replace(/\D/g, '');
+  if (digits.startsWith('00')) digits = digits.slice(2);
+  else if (digits.startsWith('0')) digits = `62${digits.slice(1)}`;
+  return digits.length >= 8 && digits.length <= 15 ? digits : null;
+}
+
 class WhatsappManager {
   // Satu aliran per tab peramban (satu `EventSource` dipakai bersama di dalam
   // tab, lihat web/src/lib/live-events.ts), jadi 25 sudah longgar untuk tim
@@ -69,6 +87,11 @@ class WhatsappManager {
       qrDataUrl: null,
       qrPayload: null,
       qrGeneratedAt: null,
+      // Kode pairing 8 karakter (tautkan lewat nomor HP, tanpa QR). Sengaja
+      // tidak masuk `publicState` maupun siaran SSE: status terbuka untuk agent.
+      pairingCode: null,
+      pairingCodeAt: null,
+      pairingRequestedAt: 0,
       connectedAt: null,
       account: null,
       syncPercent: null,
@@ -163,6 +186,8 @@ class WhatsappManager {
     state.qrDataUrl = null;
     state.qrPayload = null;
     state.qrGeneratedAt = null;
+    state.pairingCode = null;
+    state.pairingCodeAt = null;
     state.syncPercent = 100;
     state.lastError = null;
     state.lastProgressAt = Date.now();
@@ -321,6 +346,46 @@ class WhatsappManager {
     entry.qrMirrorTimer.unref?.();
   }
 
+  // ── Pairing lewat nomor HP ─────────────────────────────────────────────────
+
+  /**
+   * Minta kode 8 karakter untuk menautkan nomor tanpa QR (di HP: WhatsApp →
+   * Perangkat Tertaut → Tautkan dengan nomor telepon). Hanya masuk akal selagi
+   * client menunggu pairing. Tiap permintaan menyalakan notifikasi di HP
+   * tujuan, jadi ada jeda minimum supaya tombolnya tidak bisa dipakai
+   * membombardir sebuah nomor.
+   */
+  async requestPairingCode(connectionId, phoneNumber, log) {
+    const entry = this._entries.get(connectionId);
+    const client = entry?.client;
+    const state = entry?.state;
+    if (!client?.pupPage || client.pupPage.isClosed() || state.phase !== 'waiting_for_qr') {
+      throw pairingError(409, 'Nomor belum siap dipasangkan. Tunggu sebentar sampai kode QR muncul, lalu coba lagi.');
+    }
+    const wait = PAIRING_COOLDOWN_MS - (Date.now() - state.pairingRequestedAt);
+    if (wait > 0) {
+      throw pairingError(429, `Tunggu ${Math.ceil(wait / 1000)} detik sebelum meminta kode lagi.`);
+    }
+    state.pairingRequestedAt = Date.now();
+    let code;
+    try {
+      code = await client.requestPairingCode(phoneNumber, true);
+    } catch (error) {
+      log?.warn({ err: error, connectionId }, 'Could not request WhatsApp pairing code');
+      throw pairingError(502, 'WhatsApp tidak memberi kode. Pastikan nomornya benar dan terdaftar di WhatsApp, lalu coba lagi.');
+    }
+    state.pairingCode = String(code);
+    state.pairingCodeAt = new Date().toISOString();
+    return { code: state.pairingCode, generatedAt: state.pairingCodeAt };
+  }
+
+  /** Kode pairing terbaru untuk satu nomor, atau null bila belum/tidak berlaku. */
+  currentPairingCode(connectionId) {
+    const state = this._entries.get(connectionId)?.state;
+    if (!state?.pairingCode || state.phase !== 'waiting_for_qr') return null;
+    return { code: state.pairingCode, generatedAt: state.pairingCodeAt };
+  }
+
   // ── Session quarantine ─────────────────────────────────────────────────────
 
   quarantineProfile(connectionId, sessionPath, clientId, log) {
@@ -362,11 +427,21 @@ class WhatsappManager {
     });
 
     entry.client = wa;
+    // Client baru = pairing baru; kode dari client sebelumnya sudah tidak berlaku.
+    state.pairingCode = null;
+    state.pairingCodeAt = null;
 
     wa.on('qr', async (qr) => {
       await this._setCurrentQr(connectionId, qr, 'event', log);
       this._startQrMirror(connectionId, log);
       onStatusUpdate?.(companyId, 'waiting_for_qr', null, connectionId).catch(() => {});
+    });
+
+    // whatsapp-web.js menembakkan ulang 'code' tiap ±3 menit selama nomor
+    // belum tertaut; simpan yang terbaru supaya dialog tidak menampilkan kode basi.
+    wa.on('code', (code) => {
+      state.pairingCode = String(code);
+      state.pairingCodeAt = new Date().toISOString();
     });
 
     wa.on('authenticated', () => {
@@ -376,6 +451,8 @@ class WhatsappManager {
       state.qrDataUrl = null;
       state.qrPayload = null;
       state.qrGeneratedAt = null;
+      state.pairingCode = null;
+      state.pairingCodeAt = null;
       state.lastError = null;
       state.lastProgressAt = Date.now();
       log?.info({ connectionId }, 'WhatsApp authenticated');
@@ -389,6 +466,8 @@ class WhatsappManager {
       state.qrDataUrl = null;
       state.qrPayload = null;
       state.qrGeneratedAt = null;
+      state.pairingCode = null;
+      state.pairingCodeAt = null;
       const next = Number(percent);
       // Hanya persen yang benar-benar berubah yang dihitung sebagai kemajuan.
       // WhatsApp Web menembakkan 100% berkali-kali; kalau itu ikut dihitung,
@@ -414,6 +493,8 @@ class WhatsappManager {
     wa.on('disconnected', (reason) => {
       this._clearQrMirror(connectionId);
       state.phase = 'disconnected';
+      state.pairingCode = null;
+      state.pairingCodeAt = null;
       state.connectedAt = null;
       state.account = null;
       state.syncPercent = null;
@@ -684,4 +765,4 @@ class WhatsappManager {
   }
 }
 
-module.exports = { WhatsappManager, resolveBrowserExecutable };
+module.exports = { WhatsappManager, resolveBrowserExecutable, normalizePairingPhone };

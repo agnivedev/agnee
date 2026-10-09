@@ -65,6 +65,10 @@ const RUTE_PAIRING = [
   ['GET', '/v1/whatsapp/qr'],
   ['POST', '/v1/whatsapp/qr-refresh'],
   ['POST', '/v1/whatsapp/logout'],
+  ['GET', '/v1/whatsapp/pairing-code'],
+  // Body-nya diisi: skema divalidasi sebelum pemeriksaan peran, dan yang diuji
+  // di sini adalah perannya.
+  ['POST', '/v1/whatsapp/pairing-code', { phoneNumber: '6281234567890' }],
 ];
 
 test('agent ditolak di semua rute pairing WhatsApp', async (t) => {
@@ -75,8 +79,8 @@ test('agent ditolak di semua rute pairing WhatsApp', async (t) => {
   t.after(() => app.close());
 
   const cookie = await masuk(app, AGENT);
-  for (const [method, url] of RUTE_PAIRING) {
-    const res = await app.inject({ method, url, headers: { cookie } });
+  for (const [method, url, payload] of RUTE_PAIRING) {
+    const res = await app.inject({ method, url, headers: { cookie }, payload });
     assert.equal(res.statusCode, 403, `${method} ${url} seharusnya 403 untuk agent`);
   }
 });
@@ -89,8 +93,8 @@ test('supervisor tidak ditolak di rute yang sama', async (t) => {
   t.after(() => app.close());
 
   const cookie = await masuk(app, SUPERVISOR);
-  for (const [method, url] of RUTE_PAIRING) {
-    const res = await app.inject({ method, url, headers: { cookie } });
+  for (const [method, url, payload] of RUTE_PAIRING) {
+    const res = await app.inject({ method, url, headers: { cookie }, payload });
     // Boleh gagal karena mode demo atau client belum siap — yang tidak boleh
     // adalah ditolak karena perannya.
     assert.notEqual(res.statusCode, 403, `${method} ${url} tidak boleh 403 untuk supervisor`);

@@ -220,6 +220,8 @@ POST /v1/auth/logout
 GET  /v1/auth/session
 GET  /v1/whatsapp/status
 GET  /v1/whatsapp/qr
+POST /v1/whatsapp/pairing-code   (tautkan lewat nomor HP, tanpa QR; supervisor)
+GET  /v1/whatsapp/pairing-code
 GET  /v1/events
 GET  /v1/chats?limit=12&offset=0&q=&filter=all
 GET  /v1/chats/:chatId/messages?limit=30

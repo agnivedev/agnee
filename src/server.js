@@ -9,7 +9,7 @@ const modelTiers = require('./model-tiers');
 const fastifyStatic = require('@fastify/static');
 const fastifyMultipart = require('@fastify/multipart');
 const QRCode = require('qrcode');
-const { WhatsappManager } = require('./whatsapp-manager.js');
+const { WhatsappManager, normalizePairingPhone } = require('./whatsapp-manager.js');
 const { putaranSla } = require('./sla');
 const broadcast = require('./broadcast');
 const { compileKsPrompt, validateSpecific, specificHash } = require('./ks-package');
@@ -5510,6 +5510,40 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     const waState = manager.getState(conn.id);
     if (!waState.qrDataUrl) return reply.code(404).send({ error: 'QR is not available', phase: waState.phase });
     return { connectionId: conn.id, qrDataUrl: waState.qrDataUrl, qrGeneratedAt: waState.qrGeneratedAt, demoMode: false };
+  });
+
+  // Tautkan lewat nomor HP — alternatif QR. Kodenya hanya dikembalikan ke
+  // supervisor yang memintanya; tidak masuk /status maupun siaran SSE.
+  app.post('/v1/whatsapp/pairing-code', {
+    schema: { body: { type: 'object', required: ['phoneNumber'], additionalProperties: false, properties: {
+      phoneNumber: { type: 'string', minLength: 6, maxLength: 32 },
+      connectionId: { type: 'string', maxLength: 64 },
+    } } },
+  }, async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengelola koneksi WhatsApp.' });
+    const phoneNumber = normalizePairingPhone(request.body.phoneNumber);
+    if (!phoneNumber) return reply.code(400).send({ error: 'Nomor tidak valid. Tulis dengan kode negara, mis. 6281234567890.' });
+    if (config.demoMode) return { code: 'DEMO1234', generatedAt: new Date().toISOString(), demoMode: true };
+    const conn = await resolveQrConn(request.agneeSession.companyId, request.body.connectionId);
+    if (!conn) return reply.code(404).send({ error: 'Nomor tidak ditemukan.' });
+    try {
+      const result = await manager.requestPairingCode(conn.id, phoneNumber, app.log);
+      return { connectionId: conn.id, ...result, demoMode: false };
+    } catch (error) {
+      if (error.statusCode) return reply.code(error.statusCode).send({ error: error.message });
+      throw error;
+    }
+  });
+
+  // Kode otomatis diperbarui WhatsApp tiap ±3 menit; dialog menanyakannya di sini.
+  app.get('/v1/whatsapp/pairing-code', async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengelola koneksi WhatsApp.' });
+    if (config.demoMode) return { code: 'DEMO1234', demoMode: true };
+    const conn = await resolveQrConn(request.agneeSession.companyId, request.query.connectionId);
+    if (!conn) return reply.code(404).send({ error: 'Nomor tidak ditemukan.' });
+    const current = manager.currentPairingCode(conn.id);
+    if (!current) return reply.code(404).send({ error: 'Belum ada kode.' });
+    return { connectionId: conn.id, ...current, demoMode: false };
   });
 
   app.post('/v1/whatsapp/qr-refresh', async (request, reply) => {

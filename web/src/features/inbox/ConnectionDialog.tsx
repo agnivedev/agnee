@@ -3,6 +3,8 @@ import { api, messageFromError } from '@/lib/api';
 import { isSupervisorRole, useSession } from '@/lib/session';
 import { useI18n } from '@/lib/i18n';
 import { Dialog, DialogClose } from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import type { WhatsappStatus } from './types';
 
@@ -45,7 +47,41 @@ export function ConnectionDialog({
   const [view, setView] = useState<View>({ kind: 'qr', note: '' });
   const [refreshing, setRefreshing] = useState(false);
   const [changingNumber, setChangingNumber] = useState(false);
+  // Tautkan lewat nomor HP: alternatif QR untuk yang memasang dari HP yang sama.
+  const [usePhone, setUsePhone] = useState(false);
+  const [phone, setPhone] = useState('');
+  const [pairingCode, setPairingCode] = useState<string | null>(null);
+  const [codeBusy, setCodeBusy] = useState(false);
+  const [codeError, setCodeError] = useState('');
   const phase = whatsapp?.phase;
+
+  async function requestCode() {
+    setCodeBusy(true);
+    setCodeError('');
+    try {
+      const data = await api<{ code?: string }>('/v1/whatsapp/pairing-code', {
+        method: 'POST',
+        body: connectionId ? { phoneNumber: phone, connectionId } : { phoneNumber: phone },
+      });
+      setPairingCode(data?.code || null);
+    } catch (error) {
+      setCodeError(messageFromError(error, t('wa.waiting')));
+    } finally {
+      setCodeBusy(false);
+    }
+  }
+
+  // WhatsApp menerbitkan kode baru tiap ±3 menit; ikuti supaya yang tampil
+  // selalu yang berlaku.
+  useEffect(() => {
+    if (!open || !usePhone || !pairingCode) return;
+    const timer = setInterval(() => {
+      api<{ code?: string }>(`/v1/whatsapp/pairing-code${connectionId ? `?connectionId=${encodeURIComponent(connectionId)}` : ''}`)
+        .then((data) => { if (data?.code) setPairingCode(data.code); })
+        .catch(() => {});
+    }, 10_000);
+    return () => clearInterval(timer);
+  }, [open, usePhone, pairingCode, connectionId]);
 
   const requestQr = useCallback(async () => {
     setView({ kind: 'qr', note: t('wa.preparing') });
@@ -70,6 +106,9 @@ export function ConnectionDialog({
   useEffect(() => {
     if (!open) {
       opened.current = false;
+      setUsePhone(false);
+      setPairingCode(null);
+      setCodeError('');
       return;
     }
     if (opened.current) return;
@@ -158,7 +197,9 @@ export function ConnectionDialog({
           ? view.detail?.trim() || t('wa.connectionSlowCopy')
           : view.kind === 'locked'
             ? t('wa.pairingLockedCopy')
-            : t('wa.scan');
+            : usePhone
+              ? pairingCode ? t('wa.codeCopy') : t('wa.phoneCopy')
+              : t('wa.scan');
 
   return (
     <Dialog open={open} onClose={onClose} labelledBy="connectionDialogTitle">
@@ -193,7 +234,42 @@ export function ConnectionDialog({
         </h2>
         <p className="mt-2 text-sm text-muted">{copy}</p>
 
-        {view.kind === 'qr' && view.dataUrl ? (
+        {view.kind === 'qr' && usePhone ? (
+          <div className="mt-5 grid gap-3">
+            {pairingCode ? (
+              <div className="rounded-2xl border border-border bg-white/70 p-5">
+                <div
+                  aria-label={pairingCode}
+                  className="font-mono text-[34px] font-bold tracking-[.18em] text-ink select-all"
+                >
+                  {pairingCode.length === 8 ? `${pairingCode.slice(0, 4)}-${pairingCode.slice(4)}` : pairingCode}
+                </div>
+                <p className="mt-2 mb-0 text-xs text-muted">{t('wa.codeNote')}</p>
+              </div>
+            ) : null}
+            <label className="grid gap-1.5 text-left text-[13px] font-semibold">
+              {t('wa.phoneLabel')}
+              <Input
+                type="tel"
+                inputMode="tel"
+                autoComplete="off"
+                maxLength={32}
+                value={phone}
+                placeholder={t('wa.phonePlaceholder')}
+                onChange={(event) => setPhone(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' && phone.trim() && !codeBusy) void requestCode();
+                }}
+              />
+            </label>
+            {codeError ? <p role="alert" className="m-0 text-left text-xs text-danger">{codeError}</p> : null}
+            <Button disabled={codeBusy || phone.replace(/\D/g, '').length < 8} onClick={() => void requestCode()}>
+              {codeBusy ? t('wa.requestingCode') : pairingCode ? t('wa.requestCodeAgain') : t('wa.requestCode')}
+            </Button>
+          </div>
+        ) : null}
+
+        {view.kind === 'qr' && view.dataUrl && !usePhone ? (
           <div className="mx-auto mt-5 w-[min(100%,260px)] rounded-2xl bg-white p-3 shadow-sm">
             <img src={view.dataUrl} alt={t('wa.qrAlt')} className="w-full" />
           </div>
@@ -230,8 +306,18 @@ export function ConnectionDialog({
           </div>
         ) : null}
 
+        {view.kind === 'qr' && canPair ? (
+          <button
+            type="button"
+            onClick={() => { setUsePhone((on) => !on); setCodeError(''); }}
+            className="mt-4 cursor-pointer border-0 bg-transparent p-0 text-[13px] font-bold text-green-dark underline underline-offset-2 hover:text-ink"
+          >
+            {usePhone ? t('wa.useQr') : t('wa.usePhone')}
+          </button>
+        ) : null}
+
         <p className="mt-4 mb-0 font-mono text-[11px] text-muted">
-          {view.kind === 'qr' ? view.note : view.kind === 'connected' ? view.account : view.kind === 'error' ? t('wa.refresh') : ''}
+          {view.kind === 'qr' && !usePhone ? view.note : view.kind === 'qr' ? '' : view.kind === 'connected' ? view.account : view.kind === 'error' ? t('wa.refresh') : ''}
         </p>
 
         {view.kind === 'connected' && canPair ? (

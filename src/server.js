@@ -1403,18 +1403,29 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
   // evaluasi sepele memisahkan "daftar chat lambat" dari "halaman mati"; hanya
   // yang kedua dimulai ulang. `stopClient` hanya menutup browser, sesinya tetap
   // utuh — tidak perlu scan QR lagi.
+  //
+  // Jeda antar-restart dulu 10 menit. AL Gold FX (10 Okt) macet lagi tiga
+  // menit setelah restart pertama, dan nomornya mati delapan menit sampai
+  // jeda habis; tiga menit cukup mencegah restart beruntun.
+  const HEAL_COOLDOWN_MS = 3 * 60_000;
   const healAttemptAt = new Map();
   const healing = new Set();
+  function pagePing(wa) {
+    let pingTimer;
+    return Promise.race([
+      wa.pupPage.evaluate(() => true).then(() => true, () => false),
+      new Promise((resolve) => { pingTimer = setTimeout(() => resolve(false), 8_000); }),
+    ]).finally(() => clearTimeout(pingTimer));
+  }
   async function healIfWedged(conn, wa) {
-    if (healing.has(conn.id) || Date.now() - (healAttemptAt.get(conn.id) || 0) < 10 * 60_000) return;
+    if (healing.has(conn.id) || Date.now() - (healAttemptAt.get(conn.id) || 0) < HEAL_COOLDOWN_MS) return;
     healing.add(conn.id);
     try {
-      let pingTimer;
-      const alive = await Promise.race([
-        wa.pupPage.evaluate(() => true).then(() => true, () => false),
-        new Promise((resolve) => { pingTimer = setTimeout(() => resolve(false), 8_000); }),
-      ]).finally(() => clearTimeout(pingTimer));
-      if (alive || manager.getClient(conn.id) !== wa) return;
+      // Satu ping gagal bisa berarti halaman sedang sibuk sesaat (sinkron
+      // ratusan chat). Hanya dua kegagalan berjarak 20 detik yang dianggap mati.
+      if (await pagePing(wa)) return;
+      await new Promise((resolve) => setTimeout(resolve, 20_000));
+      if (await pagePing(wa) || manager.getClient(conn.id) !== wa) return;
       healAttemptAt.set(conn.id, Date.now());
       app.log.warn({ connectionId: conn.id }, 'Halaman WhatsApp tidak merespons; memulai ulang nomor ini');
       let stopTimer;
@@ -8439,6 +8450,22 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     timer.unref?.();
   }
 
+  // Dulu halaman macet hanya ketahuan saat ada yang membuka inbox (batas 20
+  // detik di GET /v1/chats). Tanpa ada yang membuka Agnee, nomor yang macet
+  // tidak menerima pesan sama sekali dan AI diam tanpa batas.
+  function startWedgeWatch() {
+    const jalankan = async () => {
+      const conns = await database.listAllWhatsappConnections().catch(() => []);
+      for (const conn of conns) {
+        const client = manager.getClient(conn.id);
+        if (!client?.pupPage || manager.getState(conn.id).phase !== 'ready') continue;
+        void healIfWedged({ ...conn, sessionPath: conn.sessionPath || config.sessionPath }, client);
+      }
+    };
+    const timer = setInterval(() => { jalankan().catch(() => {}); }, 60_000);
+    timer.unref?.();
+  }
+
   function startAutoAssignSweeper() {
     const jalankan = async () => {
       const kembali = await database.returnIdleAutoAssignedToAi(AUTO_ASSIGN_IDLE_MINUTES)
@@ -8473,6 +8500,7 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     if (database.enabled && database.connected) startSlaSweeper();
     if (database.enabled && database.connected) startHubFollowUpSweeper();
     if (database.enabled && database.connected) startBroadcastSender();
+    if (database.enabled && database.connected) startWedgeWatch();
 
     // No default company to boot: resume exactly those companies whose last
     // known session was live. Everyone else starts on demand when a supervisor

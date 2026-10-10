@@ -369,6 +369,12 @@
   membalas, dan sisanya hanya ikut kalau dipilih sendiri dan risikonya disetujui.
 
 ### Fixed
+- **Penjaga halaman WhatsApp macet memeriksa sendiri tiap menit (10 Okt).**
+  Dulu halaman yang macet hanya ketahuan saat ada yang membuka inbox, dan jeda
+  antar-restart 10 menit. Di hari pertama Mansur (AL Gold FX) nomornya macet
+  dua kali dalam lima menit: daftar chat basi 20 detik per muat dan pesan masuk
+  tidak tercatat 18.42–18.50. Sekarang setiap nomor siap di-ping tiap 60 detik,
+  restart hanya kalau dua ping berjarak 20 detik gagal, jedanya 3 menit.
 
 - **Produksi down ~12 menit, 8 Okt 06:48–07:00 UTC (Postgres tidak terjangkau).**
   Build Agnee dan deploy Insight jalan bersamaan dan mengisi disk server 20 GB

@@ -3433,6 +3433,16 @@ class Database {
     return result.rowCount > 0;
   }
 
+  /** Kapan pesan masuk ini pertama kali dicatat, atau null kalau belum pernah. */
+  async inboundRecordedAt(companyId, waMessageId) {
+    if (!this.enabled || !waMessageId) return null;
+    const result = await this.pool.query(
+      'SELECT created_at AS "createdAt" FROM inbound_messages WHERE company_id = $1 AND wa_message_id = $2',
+      [companyId, waMessageId],
+    );
+    return result.rows[0]?.createdAt || null;
+  }
+
   /**
    * Menyimpan nama tampilan customer dari pesan masuk.
    *

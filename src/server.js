@@ -994,9 +994,13 @@ async function buildApp(overrides = {}) {
     if (!(await getCompanyAi(companyId)).enabled) return;
     let timer;
     const rows = await Promise.race([
-      getChatsShared(client).catch(() => []),
-      new Promise((resolve) => { timer = setTimeout(() => resolve([]), 30_000); }),
+      getChatsShared(client).catch(() => null),
+      new Promise((resolve) => { timer = setTimeout(() => resolve(null), 30_000); }),
     ]).finally(() => clearTimeout(timer));
+    if (!rows) {
+      app.log.warn({ companyId, connectionId }, 'Penyusul balasan: daftar chat tidak terbaca dalam 30 detik');
+      return;
+    }
     const since = readyAtSec - CATCH_UP_WINDOW_SEC;
     // Belum dibaca bukan syarat: membuka chat di Agnee menandainya terbaca
     // walau belum ada yang membalas. Penentunya pesan terakhir di bawah.
@@ -1012,6 +1016,13 @@ async function buildApp(overrides = {}) {
         const last = messages[messages.length - 1];
         if (!last || last.fromMe || !last.id || caughtUp.has(last.id)) continue;
         if (Number(last.timestamp) < since || Number(last.timestamp) >= readyAtSec) continue;
+        // Sebagian pesan tertunda tetap datang lewat event sesaat setelah
+        // siap, dan balasannya bisa masih menunggu jeda. Yang sudah dicatat
+        // jalur event sejak siap adalah miliknya; dua jalur = dobel balas.
+        if (canCall('inboundRecordedAt')) {
+          const recordedAt = await database.inboundRecordedAt(companyId, last.id).catch(() => null);
+          if (recordedAt && new Date(recordedAt).getTime() >= (readyAtSec - 5) * 1000) continue;
+        }
         caughtUp.add(last.id);
         await handleInboundMessage(companyId, {
           from: chat.id,
@@ -1028,10 +1039,8 @@ async function buildApp(overrides = {}) {
         app.log.warn({ err: error, companyId, chatId: chat.id }, 'Pesan terlewat tidak bisa dibalas');
       }
     }
-    if (candidates.length) {
-      app.log.info({ companyId, connectionId, candidates: candidates.length, answered },
-        'Pesan yang masuk saat nomor terputus diproses');
-    }
+    app.log.info({ companyId, connectionId, candidates: candidates.length, answered },
+      'Pesan yang masuk saat nomor terputus diproses');
   }
 
   /** Callbacks passed to manager.startFor — defined here so they close over buildApp scope. */

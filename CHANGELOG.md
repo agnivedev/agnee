@@ -369,6 +369,13 @@
   membalas, dan sisanya hanya ikut kalau dipilih sendiri dan risikonya disetujui.
 
 ### Fixed
+- **Pesan yang masuk saat nomor terputus kini tetap dibalas AI (10 Okt).**
+  whatsapp-web.js tidak menembakkan event untuk pesan yang tiba saat nomor
+  restart (deploy atau halaman macet), jadi customer itu tidak pernah dibalas.
+  30 detik setelah nomor siap, chat pribadi yang pesan terakhirnya dari customer
+  dalam 60 menit sebelum siap dilewatkan ke jalur pesan masuk biasa (paling
+  banyak 40 chat, jeda 1 detik, AI company harus menyala, mode manusia tetap
+  dilewati). Log: "Pesan yang masuk saat nomor terputus diproses".
 - **Penjaga halaman WhatsApp macet memeriksa sendiri tiap menit (10 Okt).**
   Dulu halaman yang macet hanya ketahuan saat ada yang membuka inbox, dan jeda
   antar-restart 10 menit. Di hari pertama Mansur (AL Gold FX) nomornya macet

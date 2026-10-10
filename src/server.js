@@ -974,6 +974,66 @@ async function buildApp(overrides = {}) {
       .catch((error) => app.log.warn({ err: error, chatId }, 'Could not arm follow-up'));
   }
 
+  /**
+   * Pesan yang masuk saat nomor terputus (deploy, restart karena halaman macet)
+   * tidak pernah memicu event `message` di whatsapp-web.js: setelah tersambung
+   * lagi pesan itu hanya tersinkron diam-diam. Hari pertama Mansur (10 Okt)
+   * customer yang menulis saat restart tidak pernah dibalas.
+   *
+   * Setelah nomor siap, chat pribadi yang pesan terakhirnya dari customer,
+   * ditulis dalam 60 menit terakhir dan SEBELUM nomor siap, dilewatkan lewat jalur pesan masuk yang sama. Pesan
+   * sesudah siap sudah ditangani event biasa; batas waktunya mencegah
+   * dobel balas.
+   */
+  const CATCH_UP_WINDOW_SEC = 60 * 60;
+  const caughtUp = new Set();
+  async function catchUpMissedReplies(companyId, connectionId, readyAtSec) {
+    const client = manager.getClient(connectionId);
+    if (!client || !config.llmEnabled) return;
+    if (await getWhatsappProvider(companyId) !== 'whatsapp_web') return;
+    if (!(await getCompanyAi(companyId)).enabled) return;
+    let timer;
+    const rows = await Promise.race([
+      getChatsShared(client).catch(() => []),
+      new Promise((resolve) => { timer = setTimeout(() => resolve([]), 30_000); }),
+    ]).finally(() => clearTimeout(timer));
+    const since = readyAtSec - CATCH_UP_WINDOW_SEC;
+    // Belum dibaca bukan syarat: membuka chat di Agnee menandainya terbaca
+    // walau belum ada yang membalas. Penentunya pesan terakhir di bawah.
+    // Dibatasi dan diberi jeda supaya halaman yang baru pulih tidak dibebani.
+    const candidates = rows.filter((chat) => !chat.isGroup && !chat.archived
+      && Number(chat.timestamp) >= since && Number(chat.timestamp) < readyAtSec).slice(0, 40);
+    let answered = 0;
+    for (const chat of candidates) {
+      if (manager.getClient(connectionId) !== client) return;
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+      try {
+        const { messages = [] } = await getMessagesForUi(client, chat.id, 5);
+        const last = messages[messages.length - 1];
+        if (!last || last.fromMe || !last.id || caughtUp.has(last.id)) continue;
+        if (Number(last.timestamp) < since || Number(last.timestamp) >= readyAtSec) continue;
+        caughtUp.add(last.id);
+        await handleInboundMessage(companyId, {
+          from: chat.id,
+          body: last.body || last.caption || '',
+          type: last.type || 'chat',
+          hasMedia: Boolean(last.mimetype),
+          id: { _serialized: last.id },
+          timestamp: Number(last.timestamp),
+          _data: { notifyName: last.senderName || null },
+          reply: (text) => sendOutbound(companyId, chat.id, text),
+        }, { connectionId, provider: 'whatsapp_web' });
+        answered += 1;
+      } catch (error) {
+        app.log.warn({ err: error, companyId, chatId: chat.id }, 'Pesan terlewat tidak bisa dibalas');
+      }
+    }
+    if (candidates.length) {
+      app.log.info({ companyId, connectionId, candidates: candidates.length, answered },
+        'Pesan yang masuk saat nomor terputus diproses');
+    }
+  }
+
   /** Callbacks passed to manager.startFor — defined here so they close over buildApp scope. */
   function makeWaCallbacks() {
     return {
@@ -982,6 +1042,14 @@ async function buildApp(overrides = {}) {
       onStatusUpdate: async (companyId, status, phoneNumber, connectionId) => {
         if (database.enabled && database.connected) {
           await database.updateWhatsappStatus(companyId, status, phoneNumber, connectionId).catch(() => {});
+        }
+        if (status === 'ready' && connectionId && !config.demoMode) {
+          // Beri waktu WhatsApp Web menarik pesan yang tertunda dulu.
+          const readyAtSec = Math.floor(Date.now() / 1000);
+          setTimeout(() => {
+            catchUpMissedReplies(companyId, connectionId, readyAtSec)
+              .catch((error) => app.log.warn({ err: error, companyId }, 'Penyusul balasan gagal'));
+          }, 30_000).unref?.();
         }
       },
     };

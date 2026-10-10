@@ -369,6 +369,12 @@
   membalas, dan sisanya hanya ikut kalau dipilih sendiri dan risikonya disetujui.
 
 ### Fixed
+- **Batas container app dinaikkan ke 1,75 CPU dan 2,5 GB (10 Okt).** Dengan
+  0,75 CPU dan 1,5 GB, empat nomor WhatsApp berebut sumber daya: memori menyentuh
+  plafon 12.641 kali dalam 16 menit (2 proses dimatikan kernel) dan CPU tertahan
+  di 70% periode, sehingga halaman WhatsApp AL Gold FX tidak menjawab dan nomornya
+  di-restart berulang ("AI mati-hidup"). Diterapkan live dengan `docker update`
+  tanpa restart; `compose.yml` disamakan supaya deploy berikutnya memakainya.
 - **Pesan yang masuk saat nomor terputus kini tetap dibalas AI (10 Okt).**
   whatsapp-web.js tidak menembakkan event untuk pesan yang tiba saat nomor
   restart (deploy atau halaman macet), jadi customer itu tidak pernah dibalas.

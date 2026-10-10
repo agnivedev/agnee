@@ -112,6 +112,18 @@ function createReplyPacer({
   onEvent = () => {},
 } = {}) {
   const tails = new Map();
+  // Pesan beruntun: customer yang mengetik "Halo" lalu "cara gabung?" dalam
+  // sedetik dulu menerima dua balasan, dua-duanya memperkenalkan diri, karena
+  // balasan kedua disusun tanpa melihat balasan pertama (yang masih menunggu
+  // jeda). Sekarang balasan yang sudah tersusun ditahan kalau di chat itu ada
+  // pesan customer yang lebih baru; balasan untuk pesan terbaru disusun
+  // sesudahnya, dengan riwayat yang memuat semua pesan beruntun tanpa jawaban
+  // di sela-selanya. Yang ditahan disimpan di `held`: kalau pesan terbaru
+  // tidak menghasilkan balasan (stiker, chat pindah ke manusia), yang ditahan
+  // itulah yang dikirim — chat tidak boleh berakhir diam.
+  const latest = new Map();
+  const held = new Map();
+  let sequence = 0;
 
   /**
    * @param key          satu kunci per chat (company + chat), menentukan urutan
@@ -122,18 +134,32 @@ function createReplyPacer({
    * @param opts.snapshot   async (muatan) => keadaan chat sesaat setelah balasan siap
    * @param opts.stillValid async (snapshot) => false kalau balasan harus dibuang
    * @param opts.typing     { start, stop } indikator mengetik; opsional dan kosmetik
+   * @param opts.supersedable (muatan) => boolean; false = selalu dikirim walau ada pesan lebih baru
+   * @param opts.canRelease async (muatan) => boolean; boleh tidaknya muatan yang ditahan dikirim
+   *   saat pesan terbaru tidak menghasilkan balasan (mis. tidak, kalau agent sudah mengambil alih)
    * @returns {Promise<{sent: boolean, reason?: string, delayMs?: number, waitedMs?: number}>}
    */
-  async function run(key, receivedAt, { settings, produce, send, snapshot, stillValid, typing }) {
+  async function run(key, receivedAt, {
+    settings, produce, send, snapshot, stillValid, typing, supersedable, canRelease,
+  }) {
     const previous = tails.get(key) || Promise.resolve();
     let release;
     const mine = new Promise((resolve) => { release = resolve; });
     tails.set(key, mine);
+    const turn = ++sequence;
+    latest.set(key, turn);
+    const superseded = () => latest.get(key) !== turn;
 
     try {
       await waitAtMost(previous, predecessorWaitMs);
 
-      const payload = await produce();
+      let payload = await produce();
+      const tahanan = held.get(key);
+      held.delete(key);
+      if (!payload && tahanan && !superseded() && (!canRelease || await canRelease(tahanan))) {
+        payload = tahanan;
+        onEvent({ type: 'tahanan-dikirim', key });
+      }
       if (!payload) return { sent: false, reason: 'tidak-ada-balasan' };
 
       const config = normalizeSettings(await Promise.resolve(settings?.()).catch(() => null));
@@ -174,6 +200,12 @@ function createReplyPacer({
 
       if (!(await valid())) return discard();
 
+      if (superseded() && (!supersedable || supersedable(payload))) {
+        held.set(key, payload);
+        onEvent({ type: 'ditahan', key, delayMs });
+        return { sent: false, reason: 'ada-pesan-baru', delayMs, waitedMs };
+      }
+
       await send(payload);
       onEvent({ type: 'terkirim', key, delayMs, waitedMs });
       return { sent: true, delayMs, waitedMs };
@@ -182,6 +214,12 @@ function createReplyPacer({
       // Hanya hapus kalau belum ada pengganti: ekor yang lebih baru milik
       // balasan yang datang sesudah ini dan tidak boleh ikut terhapus.
       if (tails.get(key) === mine) tails.delete(key);
+      // Giliran terakhir yang selesai (terkirim, kosong, atau gagal) menutup
+      // urusan chat ini: tahanan yang tersisa tidak boleh terkirim belakangan.
+      if (latest.get(key) === turn) {
+        latest.delete(key);
+        held.delete(key);
+      }
     }
   }
 

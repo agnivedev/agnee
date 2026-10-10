@@ -132,9 +132,10 @@ test('serah-terima oleh AI sendiri tidak dibuang: chat sudah manusia SEBELUM jed
   assert.equal(sent, true);
 });
 
-test('dua pesan beruntun di satu chat: balasan keluar berurutan, bukan menyalip', async () => {
+test('dua pesan beruntun di satu chat: hanya balasan untuk pesan terbaru yang keluar', async () => {
   // Balasan pertama dapat jeda terpanjang, kedua terpendek. Tanpa antrean per
-  // chat, kedua keluar lebih dulu.
+  // chat, kedua keluar lebih dulu; tanpa penahanan, keduanya keluar dan
+  // customer dua kali disapa.
   const randoms = [1, 0];
   const pacer = createReplyPacer({
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms / 100)),
@@ -147,8 +148,73 @@ test('dua pesan beruntun di satu chat: balasan keluar berurutan, bukan menyalip'
     produce: async () => label,
     send: async (p) => { order.push(p); },
   });
-  await Promise.all([make('pertama'), make('kedua')]);
-  assert.deepEqual(order, ['pertama', 'kedua']);
+  const [pertama, kedua] = await Promise.all([make('pertama'), make('kedua')]);
+  assert.deepEqual(order, ['kedua']);
+  assert.equal(pertama.reason, 'ada-pesan-baru');
+  assert.equal(kedua.sent, true);
+});
+
+function burstPacer() {
+  return createReplyPacer({ sleep: async () => {}, now: () => 0, random: () => 0 });
+}
+
+test('pesan terbaru tanpa balasan (stiker): balasan yang ditahan tetap dikirim', async () => {
+  const pacer = burstPacer();
+  const order = [];
+  const base = { settings: () => ({}), send: async (p) => { order.push(p); } };
+  await Promise.all([
+    pacer.run('c', 0, { ...base, produce: async () => 'jawaban teks' }),
+    pacer.run('c', 0, { ...base, produce: async () => null }),
+  ]);
+  assert.deepEqual(order, ['jawaban teks']);
+});
+
+test('balasan yang ditahan tidak dilepas kalau canRelease menolak (agent mengambil alih)', async () => {
+  const pacer = burstPacer();
+  const order = [];
+  const base = { settings: () => ({}), send: async (p) => { order.push(p); }, canRelease: async () => false };
+  await Promise.all([
+    pacer.run('c', 0, { ...base, produce: async () => 'jawaban AI' }),
+    pacer.run('c', 0, { ...base, produce: async () => null }),
+  ]);
+  assert.deepEqual(order, []);
+});
+
+test('muatan yang tidak supersedable (konfirmasi STOP) tetap terkirim walau ada pesan baru', async () => {
+  const pacer = burstPacer();
+  const order = [];
+  const base = {
+    settings: () => ({}),
+    send: async (p) => { order.push(p.text); },
+    supersedable: (p) => p.kind !== 'stop',
+  };
+  await Promise.all([
+    pacer.run('c', 0, { ...base, produce: async () => ({ kind: 'stop', text: 'berhenti' }) }),
+    pacer.run('c', 0, { ...base, produce: async () => ({ kind: 'ai', text: 'jawaban' }) }),
+  ]);
+  assert.deepEqual(order, ['berhenti', 'jawaban']);
+});
+
+test('pesan yang datang setelah balasan terkirim tetap dapat balasannya sendiri', async () => {
+  const pacer = burstPacer();
+  const order = [];
+  const base = { settings: () => ({}), send: async (p) => { order.push(p); } };
+  await pacer.run('c', 0, { ...base, produce: async () => 'satu' });
+  await pacer.run('c', 0, { ...base, produce: async () => 'dua' });
+  assert.deepEqual(order, ['satu', 'dua']);
+});
+
+test('tahanan dibuang kalau giliran terbaru gagal, tidak terkirim belakangan', async () => {
+  const pacer = burstPacer();
+  const order = [];
+  const base = { settings: () => ({}), send: async (p) => { order.push(p); } };
+  const results = await Promise.allSettled([
+    pacer.run('c', 0, { ...base, produce: async () => 'lama' }),
+    pacer.run('c', 0, { ...base, produce: async () => { throw new Error('model error'); } }),
+  ]);
+  assert.equal(results[1].status, 'rejected');
+  await pacer.run('c', 0, { ...base, produce: async () => null });
+  assert.deepEqual(order, []);
 });
 
 test('chat berbeda tidak saling menunggu', async () => {

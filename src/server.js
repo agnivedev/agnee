@@ -829,6 +829,12 @@ async function buildApp(overrides = {}) {
         app.log.info({ key: event.key, delayMs: event.delayMs },
           'Balasan otomatis dibuang: chat berpindah ke manusia selama jeda');
       }
+      if (event.type === 'ditahan') {
+        app.log.info({ key: event.key }, 'Balasan ditahan: customer mengirim pesan baru, dijawab sekaligus');
+      }
+      if (event.type === 'tahanan-dikirim') {
+        app.log.info({ key: event.key }, 'Balasan yang ditahan dikirim: pesan terbaru tidak menghasilkan balasan');
+      }
     },
   });
 
@@ -897,7 +903,14 @@ async function buildApp(overrides = {}) {
     await paceReply(companyId, message, receivedAt, meta, {
       produce: async () => {
         const autoReply = await generateAutoReply(message, companyId);
-        if (autoReply) return { kind: 'ai', text: autoReply };
+        if (autoReply) {
+          // Kalimat serah-terima ditulis setelah chat dipindah ke manusia;
+          // dibedakan supaya tetap terkirim walau pesan sesudahnya tidak
+          // dibalas AI lagi (lihat canRelease di paceReply).
+          const handoff = requestsHumanAgent(message.body)
+            && (await getRouting(message.from, companyId).catch(() => null))?.mode === 'human';
+          return { kind: handoff ? 'handoff' : 'ai', text: autoReply };
+        }
         if (config.ackEnabled && message.body) return { kind: 'ack', text: config.ackText };
         return null;
       },
@@ -945,9 +958,14 @@ async function buildApp(overrides = {}) {
       },
       snapshot: readMode,
       stillValid: async (modeBefore) => !(modeBefore !== 'human' && (await readMode()) === 'human'),
+      // Konfirmasi STOP selalu terkirim walau customer menulis lagi.
+      supersedable: (payload) => payload.kind !== 'stop',
+      // Balasan AI yang ditahan tidak boleh keluar ke chat yang sudah dipegang
+      // agent; kalimat serah-terima justru harus sampai.
+      canRelease: async (payload) => payload.kind === 'handoff' || (await readMode()) !== 'human',
       send: async ({ kind, text }) => {
         await message.reply(text);
-        if (kind === 'ai' && database.enabled && database.connected) {
+        if ((kind === 'ai' || kind === 'handoff') && database.enabled && database.connected) {
           await database.recordOutboundReply({
             chatId: message.from,
             author: 'ai',
@@ -1487,11 +1505,14 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
   const HEAL_COOLDOWN_MS = 3 * 60_000;
   const healAttemptAt = new Map();
   const healing = new Set();
+  // 15 detik, bukan 8: 10 Okt 19.32 halaman AL Gold FX yang hanya sangat
+  // sibuk (CPU 160% sesudah sinkron) ikut di-restart dan enam pesan yang
+  // sedang diproses terpotong. Halaman yang benar-benar macet diam menit-an.
   function pagePing(wa) {
     let pingTimer;
     return Promise.race([
       wa.pupPage.evaluate(() => true).then(() => true, () => false),
-      new Promise((resolve) => { pingTimer = setTimeout(() => resolve(false), 8_000); }),
+      new Promise((resolve) => { pingTimer = setTimeout(() => resolve(false), 15_000); }),
     ]).finally(() => clearTimeout(pingTimer));
   }
   async function healIfWedged(conn, wa) {

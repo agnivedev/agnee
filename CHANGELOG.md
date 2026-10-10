@@ -369,6 +369,17 @@
   membalas, dan sisanya hanya ikut kalau dipilih sendiri dan risikonya disetujui.
 
 ### Fixed
+- **Pesan beruntun dibalas sekali (11 Okt).** Customer yang menulis "Halo" lalu
+  "cara gabung?" dalam sedetik dulu menerima dua balasan yang sama-sama
+  memperkenalkan diri, karena balasan kedua disusun tanpa melihat yang pertama.
+  Balasan yang sudah tersusun kini ditahan kalau ada pesan customer yang lebih
+  baru di chat itu; balasan terbaru disusun dengan riwayat semua pesan beruntun.
+  Kalau pesan terbaru tidak menghasilkan balasan (stiker, chat pindah ke
+  manusia), yang ditahan tetap dikirim, kecuali agent sudah mengambil alih.
+  Konfirmasi STOP dan kalimat serah-terima tidak pernah hilang. Log: "Balasan
+  ditahan: customer mengirim pesan baru, dijawab sekaligus".
+- Penjaga halaman WhatsApp menunggu ping 15 detik (dulu 8) sebelum menganggap
+  halaman macet, supaya halaman yang hanya sibuk tidak di-restart.
 - **Batas container app dinaikkan ke 1,75 CPU dan 2,5 GB (10 Okt).** Dengan
   0,75 CPU dan 1,5 GB, empat nomor WhatsApp berebut sumber daya: memori menyentuh
   plafon 12.641 kali dalam 16 menit (2 proses dimatikan kernel) dan CPU tertahan

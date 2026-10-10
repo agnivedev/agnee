@@ -324,6 +324,13 @@
   chat WhatsApp nyata.
 
 ### Changed
+- **Playbook AL Gold FX ditulis ulang: asisten Mansur** (`playbooks/al-gold-fx/`).
+  Fokus tiga hal dari Hanny: live trade Zoom khusus member, copy trade yang akan
+  datang (manual dan auto expert), dan cara gabung lewat link broker Valetax.
+  Ditambah catatan sementara: Bang Al dirawat di rumah sakit, live lagi Senin
+  12 Oktober 2026. Pack `al-gold-fx` berganti nama asisten ke Mansur, dan
+  `ai_identity` company jadi `chatbot` karena Mansur memperkenalkan diri sebagai
+  asisten virtual. Kelas, grup VIP, dan indikator tidak lagi ditawarkan.
 - **Nama model, vendor, dan harga AI tidak lagi tampil ke pelanggan (8 Okt).**
   Settings AI menampilkan tingkatan: Low-end A/B/C, Medium-end A/B/C/D (bawaan),
   High-end, dan Top-end AI model, tanpa harga masuk/keluar. Klien dan server

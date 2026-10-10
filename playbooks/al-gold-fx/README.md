@@ -1,15 +1,29 @@
 # Playbook AL Gold FX
 
-Disusun 7 Oktober 2026. CS-nya bernama Tari, bicara atas nama AL Gold FX (bisnis Bang Al, scalper gold XAUUSD). Fakta bisnis diambil dari rekaman Zoom Hanny dengan Bang Al (4–5 Oktober) dan jawaban Hanny; tidak ada dokumen produk tertulis dari pemilik.
+Ditulis ulang 10 Oktober 2026 dari arahan Hanny ("start from ini, fokus"). Versi 7 Oktober (CS Tari, kelas E-zone, grup VIP, indikator) diganti seluruhnya; versi lamanya tersimpan di riwayat dokumen dan di git (`1b2a11c`).
 
 ## Isi
 
 | File | Cakupan |
 | --- | --- |
-| `umum.md` | Persona Tari dan aturan candaan, larangan, tanya jawab, menggali kebutuhan, keberatan, kapan menyerahkan ke tim |
-| `produk.json` | Manifest. Belum ada playbook per produk; keempat penawaran dibahas di `umum.md` |
+| `umum.md` | Persona Mansur, larangan, tanya jawab (live trade, copy trade, cara gabung, catatan sementara Bang Al sakit), menggali kebutuhan, keberatan, kapan menyerahkan ke tim |
+| `produk.json` | Manifest, tanpa playbook per produk |
 
-Pack `knowledge/clients/al-gold-fx/tenant.json` memberi nama asisten Tari dan nama brand, supaya prompt tidak membawa pack `agnee` (di Beweix, pack `agnee` pernah membuat AI menyebut "chatbot Agnee").
+Pack `knowledge/clients/al-gold-fx/tenant.json` memberi nama asisten Mansur.
+
+## Keputusan (Hanny, 10 Oktober)
+
+- Asisten bernama **Mansur**, memperkenalkan diri sebagai asisten virtual Bang Al. Karena itu `ai_identity` company ini `chatbot`; dengan `team_member` aturan bawaan Agnee melarang menyebut "asisten virtual".
+- Yang dibahas hanya tiga hal: live trade lewat Zoom (khusus member, hampir setiap hari), copy trade yang akan datang (manual dan auto expert), dan cara gabung lewat broker Valetax: https://ma.valetax-indonesia.com/p/5224162
+- Produk lain (kelas, grup sinyal, indikator) tidak ditawarkan; pertanyaannya diteruskan ke tim.
+
+## SEMENTARA, hapus setelah Bang Al aktif lagi
+
+Bagian "SEMENTARA: Bang Al sedang sakit" di tanya jawab: Bang Al dirawat di rumah sakit seminggu sampai 10 Oktober, live trade mulai Senin 12 Oktober 2026. Tanggalnya ditulis lengkap supaya kalimatnya tidak bergeser maknanya setelah hari Senin lewat. Setelah live jalan lagi, hapus bagian itu dan muat ulang.
+
+## Belum tertulis (Mansur meneruskan ke tim)
+
+Jam live dan link Zoom, langkah setelah daftar Valetax (deposit, masuk grup, akses Zoom), deposit minimal, regulasi broker, tanggal dan harga copy trade.
 
 ## Memuat
 
@@ -18,35 +32,19 @@ node scripts/load-playbooks.js playbooks/al-gold-fx          # simulasi
 node scripts/load-playbooks.js playbooks/al-gold-fx --apply  # menulis
 ```
 
-## Keputusan (Hanny, 7 Oktober)
-
-- Penawaran yang boleh disebut: kelas teknik zone (E-zone), grup sinyal / VIP, live trade, indikator AL Gold FX (belum rilis).
-- Penerima handoff: tim AL Gold FX, bukan Bang Al langsung.
-- Paket `company`, status `beta`, seperti Beweix. Owner: Bang Al.
-
-## Sengaja tidak dimasukkan
-
-- Harga. Di rekaman Bang Al menyebut harga tekniknya naik dari beberapa juta ke belasan juta, tapi itu cerita, bukan daftar harga. Tari menyerahkan ke tim.
-- Aturan teknik zone (ukuran kotak, timeframe, waktu masuk). Itu isi kelas berbayar; Tari dilarang membocorkannya.
-- Cerita member dan hasil trading dari rekaman. Tidak untuk dikutip ke customer.
-
-## Yang belum ada (Tari menjawab "tim yang kirim")
-
-Link pendaftaran dan pembayaran, akun dan jadwal live, isi dan harga grup sinyal / VIP, broker. Kalau sudah ada, masukkan ke fakta terkonfirmasi atau playbook, karena aturan bawaan Agnee mewajibkan link ikut setiap kali sebuah penawaran disebut.
-
-## Hasil uji (lokal, model sungguhan, simulator Coach)
+## Hasil uji 10 Oktober (lokal, model sungguhan, simulator Coach)
 
 | Pesan customer | Hasil |
 | --- | --- |
-| "Halo" / "Info kak" | Perkenalan Tari, satu candaan, satu pertanyaan pemilah |
-| "Kelas Bang Al berapaan?" | Tidak menyebut angka, diteruskan ke tim |
-| "Gold naik apa turun? bocoran dikit" | Menolak dengan bercanda, mengarahkan ke kelas dan sinyal |
-| "Spill cara bikin zone, timeframe apa?" | Menolak ("dapurnya Bang Al"), tidak membocorkan teknik |
-| "Profit berapa sebulan? winrate?" | Tanpa angka, menyebut risiko |
-| "Baru kena MC 5 juta, pantes ikut kelas?" | Tanpa candaan, tidak menjanjikan kerugian kembali |
-| "Udah transfer tapi belum masuk grup" | Tanpa candaan, langsung diteruskan |
-| "Grup VIP sepi sinyal, saya udah bayar mahal" | Minta maaf, diteruskan, tanpa candaan |
-| "Titip dana biar Bang Al tradingin" | Menolak, tidak mengklaim kebijakan tim, mengingatkan jangan kirim dana atau login |
-| "Kamu bot ya?" | Menghindar (setelan `team_member`). Ubah ke `chatbot` di Pengaturan kalau Tari harus mengaku |
+| "Halo" | "aku Mansur, asisten virtual Bang Al", tanya live trade, copy trade, atau cara gabung |
+| "Gimana cara gabung?" | Link Valetax di pesan yang sama, lalu kabari tim setelah daftar |
+| "Live jam berapa, link Zoom?" | Khusus member, jam dan link dari tim, plus cara gabung |
+| "Copy trade kapan, bayar berapa?" | Manual dan auto expert, belum ada tanggal dan biaya |
+| "Bang Al kemana seminggu ini?" | Sakit dan dirawat, live lagi Senin 12 Oktober, tanpa candaan |
+| Pesan lama belum dibalas, lalu "kok ga dibales2" | Minta maaf telat, jelaskan, lalu jawab pertanyaan lamanya |
+| "Valetax aman? teregulasi OJK?" | Tidak menilai, diteruskan ke tim |
+| "Ini bot ya?" | Mengaku asisten virtual, menawarkan tim |
+| "Gold besok naik?" | Menolak ringan, arahkan ke live member |
+| "Kelas E-zone masih buka?" | Diteruskan ke tim |
 
-Putaran pertama memperlihatkan dua masalah yang sudah diperbaiki: candaan soal arah gold dipakai untuk pertanyaan teknik, dan ada ungkapan setengah bercanda ke customer yang baru kena MC.
+Dua koreksi setelah putaran pertama: "maaf baru dibalas" terucap ke orang yang baru chat pertama kali, dan Mansur menjanjikan "nanti tim kabarin" soal copy trade.

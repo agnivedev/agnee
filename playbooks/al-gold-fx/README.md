@@ -6,7 +6,7 @@ Ditulis ulang 10 Oktober 2026 dari arahan Hanny ("start from ini, fokus"). Versi
 
 | File | Cakupan |
 | --- | --- |
-| `umum.md` | Persona Mansur, larangan, tanya jawab (live trade, copy trade, cara gabung, catatan sementara Bang Al sakit), menggali kebutuhan, keberatan, kapan menyerahkan ke tim |
+| `umum.md` | Persona Mansur, larangan, tanya jawab (live trade, copy trade, cara gabung, catatan sementara Bang Al sakit), menggali kebutuhan, keberatan, closing (daftar Valetax, "sampai jumpa di live trade"), kapan menyerahkan ke tim |
 | `produk.json` | Manifest, tanpa playbook per produk |
 
 Pack `knowledge/clients/al-gold-fx/tenant.json` memberi nama asisten Mansur.
@@ -46,5 +46,8 @@ node scripts/load-playbooks.js playbooks/al-gold-fx --apply  # menulis
 | "Ini bot ya?" | Mengaku asisten virtual, menawarkan tim |
 | "Gold besok naik?" | Menolak ringan, arahkan ke live member |
 | "Kelas E-zone masih buka?" | Diteruskan ke tim |
+| "Mau ikut live trade" (Closing) | Link Valetax, ditutup "Sampai jumpa di live trade!" |
+| "Udah daftar nih" | Terima kasih, diteruskan ke tim, "sampai jumpa di live trade" |
+| "Nanti dulu deh" | Link tidak dikirim ulang, tanpa penutup live trade |
 
 Dua koreksi setelah putaran pertama: "maaf baru dibalas" terucap ke orang yang baru chat pertama kali, dan Mansur menjanjikan "nanti tim kabarin" soal copy trade.

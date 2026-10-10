@@ -54,8 +54,15 @@ services:
     # Nilai ini pernah dinaikkan manual di VPS tetapi tidak ada di repo,
     # sehingga `git reset --hard` saat memperbaiki CI membuangnya dan deploy
     # berikutnya mengunci balik ke 768m. Ditulis di sini supaya tidak hilang lagi.
-    mem_limit: 1536m
-    cpus: 0.75
+    #
+    # 10 Okt: 1536m dan 0,75 CPU tidak cukup untuk empat nomor. AL Gold FX
+    # sendiri ±1,3 GB (ratusan chat, grup besar); memori menyentuh plafon
+    # 12.641 kali dalam 16 menit (2 OOM-kill) dan CPU tertahan di 70% periode,
+    # jadi halaman WhatsApp tidak menjawab dan nomornya restart berulang.
+    # Server punya 2 CPU / 3,9 GB. Diterapkan live dengan `docker update`.
+    mem_limit: 2560m
+    memswap_limit: 5120m
+    cpus: 1.75
     # Chromium memecah diri jadi banyak proses; 256 terlalu dekat dengan
     # pemakaian nyata (136 PID hanya untuk satu company).
     pids_limit: 1024

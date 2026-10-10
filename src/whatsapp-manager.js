@@ -613,13 +613,27 @@ class WhatsappManager {
     // ditindaklanjuti UI dan `/v1/whatsapp/qr-refresh` (yang memang mem-
     // quarantine profil lalu memulai ulang), sedangkan 'syncing' tidak.
     const PENDING_PHASES = ['starting', 'authenticated', 'syncing'];
-    const startedAt = Date.now();
+    let startedAt = Date.now();
+    // Halaman yang hang menjawab getState()/evaluate() tidak pernah. Tanpa
+    // batas, tick menunggu selamanya, tidak menjadwal ulang, dan batas 5 menit
+    // di bawah tidak pernah tercapai: Citilux (11 Okt) tertahan di
+    // 'authenticated' tanpa satu baris log pun.
+    const PAGE_CALL_TIMEOUT_MS = 15_000;
+    const within = (promise, fallback) => {
+      let timer;
+      return Promise.race([
+        promise,
+        new Promise((resolve) => { timer = setTimeout(() => resolve(fallback), PAGE_CALL_TIMEOUT_MS); }),
+      ]).finally(() => clearTimeout(timer));
+    };
     let restartAttempted = false;
     let crashHandlersAttached = false;
 
     const restartOnce = async (reason) => {
       restartAttempted = true;
-      log?.warn({ reason }, 'Restarting WhatsApp client');
+      // Client baru mendapat jatah 5 menit sendiri.
+      startedAt = Date.now();
+      log?.warn({ reason, connectionId }, 'Restarting WhatsApp client');
       entry.restoredSessionTimer = null;
       const stale = entry.client;
       entry.client = null;
@@ -678,6 +692,7 @@ class WhatsappManager {
       const state = entry.state;
       if (!PENDING_PHASES.includes(state.phase)) return; // ready / error / disconnected
       if (Date.now() - startedAt > RESUME_DEADLINE_MS) {
+        if (!restartAttempted) return restartOnce('tidak siap dalam 5 menit');
         return giveUp('WhatsApp tidak selesai tersambung dalam 5 menit. Coba hubungkan ulang.');
       }
       if (!entry.client?.pupPage) return schedule(); // client sedang dibuat ulang
@@ -685,10 +700,10 @@ class WhatsappManager {
       attachCrashHandlers();
 
       try {
-        const connectionState = await entry.client.getState().catch(() => null);
+        const connectionState = await within(entry.client.getState().catch(() => null), null);
         if (connectionState === 'CONNECTED') {
-          const injected = await entry.client.pupPage
-            .evaluate(() => Boolean(window.WWebJS)).catch(() => false);
+          const injected = await within(entry.client.pupPage
+            .evaluate(() => Boolean(window.WWebJS)).catch(() => false), false);
 
           if (!injected) {
             if (!restartAttempted) return restartOnce('socket tersambung tapi helper halaman tidak pernah dimuat');

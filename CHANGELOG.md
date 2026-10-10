@@ -369,6 +369,12 @@
   membalas, dan sisanya hanya ikut kalau dipilih sendiri dan risikonya disetujui.
 
 ### Fixed
+- **Nomor yang hang setelah "authenticated" tidak lagi tertahan selamanya (11 Okt).**
+  Penjaga tahap tersambung memanggil `getState()` tanpa batas waktu; halaman
+  Citilux yang hang membuat penjaga itu diam tanpa log dan batas 5 menit tidak
+  pernah tercapai. Setiap panggilan ke halaman kini dibatasi 15 detik, dan saat
+  batas 5 menit habis nomor dicoba restart sekali (dengan jatah 5 menit baru)
+  sebelum ditandai error.
 - **Pesan beruntun dibalas sekali (11 Okt).** Customer yang menulis "Halo" lalu
   "cara gabung?" dalam sedetik dulu menerima dua balasan yang sama-sama
   memperkenalkan diri, karena balasan kedua disusun tanpa melihat yang pertama.

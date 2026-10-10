@@ -7,7 +7,7 @@ const { WhatsappManager } = require('../src/whatsapp-manager.js');
 const silentLog = { info() {}, warn() {}, error() {}, debug() {} };
 
 /** Biarkan rantai promise di dalam satu tick watchdog selesai. */
-async function flush(times = 6) {
+async function flush(times = 30) {
   for (let i = 0; i < times; i += 1) await Promise.resolve();
 }
 
@@ -126,4 +126,24 @@ test('entry di-key connectionId, SSE tetap per company', async () => {
   manager._entries.get('conn-b').client = {};
   assert.equal(manager.activeCompanyCount(), 1, 'satu company dengan dua nomor tetap satu company');
   assert.deepEqual(manager.liveConnectionIds('c1').sort(), ['conn-a', 'conn-b']);
+});
+
+test('halaman yang tidak pernah menjawab getState tidak mematikan watchdog: restart sekali setelah 5 menit', async () => {
+  mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  try {
+    // Citilux, 11 Okt: tertahan di 'authenticated' tanpa satu baris log karena
+    // getState() tidak pernah kembali dan tick tidak menjadwal ulang.
+    const { entry, created } = await startWithFakeClient({ getState: () => new Promise(() => {}) });
+    entry.state.phase = 'authenticated';
+
+    for (let elapsed = 0; elapsed < 5 * 60_000 + 30_000; elapsed += 5_000) {
+      mock.timers.tick(5_000);
+      await flush();
+    }
+
+    assert.equal(created.length, 2, 'client harus dibuat ulang sekali setelah batas 5 menit');
+    assert.notEqual(entry.state.phase, 'error', 'restart dulu, belum menyerah');
+  } finally {
+    mock.timers.reset();
+  }
 });

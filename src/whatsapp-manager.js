@@ -626,13 +626,21 @@ class WhatsappManager {
         new Promise((resolve) => { timer = setTimeout(() => resolve(fallback), PAGE_CALL_TIMEOUT_MS); }),
       ]).finally(() => clearTimeout(timer));
     };
-    let restartAttempted = false;
+    // Dua kali, bukan sekali: Citilux (11 Okt) di-restart karena helper belum
+    // dimuat, lalu client barunya hang di 'authenticated' dan tidak ada yang
+    // mengawasinya lagi karena restart tidak menjadwal tick baru.
+    const MAX_RESTARTS = 2;
+    // Halaman yang baru tersambung memang belum memuat helper-nya; dulu
+    // keempat nomor di-restart di setiap deploy karena dicek terlalu cepat.
+    const HELPER_GRACE_MS = 60_000;
+    let restarts = 0;
     let crashHandlersAttached = false;
 
     const restartOnce = async (reason) => {
-      restartAttempted = true;
-      // Client baru mendapat jatah 5 menit sendiri.
+      restarts += 1;
+      // Client baru mendapat jatah 5 menit sendiri, dan pengawas crash-nya sendiri.
       startedAt = Date.now();
+      crashHandlersAttached = false;
       log?.warn({ reason, connectionId }, 'Restarting WhatsApp client');
       entry.restoredSessionTimer = null;
       const stale = entry.client;
@@ -649,6 +657,9 @@ class WhatsappManager {
         log?.error({ err: error }, 'WhatsApp re-initialization failed');
         this.broadcast(entry.companyId, 'whatsapp_phase', { phase: 'error', error: error.message, connectionId });
       });
+      // Tanpa ini pengawasan berakhir di sini: client baru yang hang tidak
+      // pernah dicek lagi.
+      schedule();
     };
 
     const giveUp = (reason) => {
@@ -679,7 +690,7 @@ class WhatsappManager {
         if (entry.client !== wa) return;
         if (!PENDING_PHASES.includes(entry.state.phase) && entry.state.phase !== 'ready') return;
         log?.error({ why }, 'WhatsApp browser died');
-        if (restartAttempted) return giveUp(`Browser WhatsApp berhenti: ${why}`);
+        if (restarts >= MAX_RESTARTS) return giveUp(`Browser WhatsApp berhenti: ${why}`);
         restartOnce(why).catch(() => {});
       };
       page.once('close', () => onDead('halaman tertutup'));
@@ -692,7 +703,7 @@ class WhatsappManager {
       const state = entry.state;
       if (!PENDING_PHASES.includes(state.phase)) return; // ready / error / disconnected
       if (Date.now() - startedAt > RESUME_DEADLINE_MS) {
-        if (!restartAttempted) return restartOnce('tidak siap dalam 5 menit');
+        if (restarts < MAX_RESTARTS) return restartOnce('tidak siap dalam 5 menit');
         return giveUp('WhatsApp tidak selesai tersambung dalam 5 menit. Coba hubungkan ulang.');
       }
       if (!entry.client?.pupPage) return schedule(); // client sedang dibuat ulang
@@ -706,7 +717,8 @@ class WhatsappManager {
             .evaluate(() => Boolean(window.WWebJS)).catch(() => false), false);
 
           if (!injected) {
-            if (!restartAttempted) return restartOnce('socket tersambung tapi helper halaman tidak pernah dimuat');
+            if (Date.now() - startedAt < HELPER_GRACE_MS) return schedule();
+            if (restarts < MAX_RESTARTS) return restartOnce('socket tersambung tapi helper halaman tidak pernah dimuat');
             log?.warn('WhatsApp page helpers still missing after restart; will keep waiting');
             return schedule();
           }

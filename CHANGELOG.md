@@ -380,6 +380,13 @@
   membalas, dan sisanya hanya ikut kalau dipilih sendiri dan risikonya disetujui.
 
 ### Fixed
+- **Penjaga tahap tersambung tetap mengawasi nomor setelah me-restart-nya (11 Okt).**
+  Restart oleh penjaga tidak menjadwalkan pemeriksaan untuk client baru, jadi
+  client baru yang hang di "authenticated" tidak pernah diawasi lagi (Citilux
+  tertahan dua kali). Sekarang client baru diawasi dengan jatah 5 menit sendiri,
+  restart paling banyak dua kali sebelum ditandai error, dan "helper halaman
+  belum dimuat" baru dianggap masalah setelah 60 detik; dulu keempat nomor
+  di-restart di setiap deploy karena dicek terlalu cepat.
 - **Nomor yang hang setelah "authenticated" tidak lagi tertahan selamanya (11 Okt).**
   Penjaga tahap tersambung memanggil `getState()` tanpa batas waktu; halaman
   Citilux yang hang membuat penjaga itu diam tanpa log dan batas 5 menit tidak

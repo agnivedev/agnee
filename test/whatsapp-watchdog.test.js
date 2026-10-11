@@ -91,16 +91,23 @@ test('watchdog memulihkan client yang macet di syncing 100%', async () => {
 });
 
 test('watchdog memulai ulang sekali saat helper halaman tidak pernah dimuat', async () => {
-  mock.timers.enable({ apis: ['setTimeout'] });
+  mock.timers.enable({ apis: ['setTimeout', 'Date'] });
   try {
     const { entry, created } = await startWithFakeClient({ evaluate: async () => false });
 
     entry.state.phase = 'syncing';
     entry.state.lastProgressAt = Date.now() - 120_000;
 
-    mock.timers.tick(5_000);
-    await flush();
+    // Halaman yang baru tersambung memang belum memuat helper-nya: belum
+    // ada restart selama masa tenggang 60 detik.
+    for (let elapsed = 0; elapsed < 55_000; elapsed += 5_000) {
+      mock.timers.tick(5_000);
+      await flush();
+    }
+    assert.equal(created.length, 1, 'tidak boleh restart selama masa tenggang');
 
+    mock.timers.tick(10_000);
+    await flush();
     assert.equal(created.length, 2, 'client harus dibuat ulang tepat sekali');
     assert.equal(entry.state.phase, 'starting');
   } finally {
@@ -143,6 +150,36 @@ test('halaman yang tidak pernah menjawab getState tidak mematikan watchdog: rest
 
     assert.equal(created.length, 2, 'client harus dibuat ulang sekali setelah batas 5 menit');
     assert.notEqual(entry.state.phase, 'error', 'restart dulu, belum menyerah');
+  } finally {
+    mock.timers.reset();
+  }
+});
+
+test('setelah restart, client baru tetap diawasi: hang lagi = restart kedua, lalu menyerah', async () => {
+  mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  try {
+    // Citilux, 11 Okt malam: restart karena helper belum dimuat, client baru
+    // hang di 'authenticated', dan tidak ada tick lagi untuknya.
+    const { entry, created } = await startWithFakeClient({ getState: () => new Promise(() => {}) });
+    entry.state.phase = 'authenticated';
+    const lewati = async (ms) => {
+      for (let elapsed = 0; elapsed < ms; elapsed += 5_000) {
+        mock.timers.tick(5_000);
+        await flush();
+      }
+    };
+
+    await lewati(5 * 60_000 + 30_000);
+    assert.equal(created.length, 2, 'restart pertama setelah 5 menit');
+    entry.state.phase = 'authenticated';
+
+    await lewati(5 * 60_000 + 30_000);
+    assert.equal(created.length, 3, 'client baru diawasi: restart kedua setelah 5 menit lagi');
+    entry.state.phase = 'authenticated';
+
+    await lewati(5 * 60_000 + 30_000);
+    assert.equal(created.length, 3, 'tidak ada restart ketiga');
+    assert.equal(entry.state.phase, 'error', 'setelah dua restart, nomor ditandai error supaya terlihat di layar');
   } finally {
     mock.timers.reset();
   }

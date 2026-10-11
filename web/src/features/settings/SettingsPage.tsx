@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { CreditCard, MessageCircle, Sparkles, Database, Users, ScrollText, type LucideIcon } from 'lucide-react';
 import { useI18n, usePageTitle } from '@/lib/i18n';
 import { useSession } from '@/lib/session';
+import { LanguageSwitch } from '@/components/LanguageSwitch';
 import { AppSidebar } from '@/components/AppSidebar';
 import { cn } from '@/lib/utils';
 import { PlanAndPayment } from './PlanAndPayment';
@@ -114,7 +115,7 @@ export function SettingsPage() {
       <AppSidebar />
 
       <main className="min-w-0 flex-1 px-5 py-8 sm:px-10">
-        <header className="flex flex-wrap items-start justify-between gap-4 pr-20 xl:pr-0">
+        <header className="flex flex-wrap items-start justify-between gap-4 md:pr-20 xl:pr-0">
           <div>
             <p className="eyebrow">{t('settings.eyebrow')}</p>
             <h1 className="m-0 text-[28px] tracking-[-.03em]">{t('settings.heading')}</h1>
@@ -123,6 +124,7 @@ export function SettingsPage() {
           <a href="/" className="text-sm font-semibold text-green-dark no-underline hover:underline">
             ← {t('conversation.back')}
           </a>
+          <LanguageSwitch inline />
         </header>
 
         <div className="max-w-4xl">
@@ -130,7 +132,7 @@ export function SettingsPage() {
           <div
             role="tablist"
             aria-label={t('settings.tabsLabel')}
-            className={cn('mt-7 flex-wrap gap-1 border-b border-border', tabs.length > 1 ? 'flex' : 'hidden')}
+            className={cn('-mx-5 mt-7 gap-1 overflow-x-auto border-b border-border px-5 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0', tabs.length > 1 ? 'flex' : 'hidden')}
           >
             {tabs.map((id) => {
               const Icon = TAB_ICON[id];
@@ -142,7 +144,7 @@ export function SettingsPage() {
                   aria-selected={activeTab === id}
                   onClick={() => selectTab(id)}
                   className={cn(
-                    'flex cursor-pointer items-center gap-1.5 border-0 border-b-2 bg-transparent px-4 py-3 text-[13px] font-medium transition-colors',
+                    'flex shrink-0 cursor-pointer items-center gap-1.5 border-0 border-b-2 bg-transparent px-4 py-3 text-[13px] font-medium whitespace-nowrap transition-colors',
                     activeTab === id ? 'border-b-green text-ink' : 'border-b-transparent text-muted hover:text-ink',
                   )}
                 >

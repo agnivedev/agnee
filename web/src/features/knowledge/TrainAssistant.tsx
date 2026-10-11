@@ -233,7 +233,7 @@ export function TrainAssistant({ onChanged }: { onChanged: () => void }) {
         <button
           type="button"
           onClick={() => setOpen(true)}
-          className="fixed right-5 bottom-5 z-40 flex cursor-pointer items-center gap-2 rounded-full border-0 bg-ink px-4 py-3 text-[13px] font-medium text-white shadow-lg transition hover:opacity-90"
+          className="fixed right-5 bottom-20 z-40 md:bottom-5 flex cursor-pointer items-center gap-2 rounded-full border-0 bg-ink px-4 py-3 text-[13px] font-medium text-white shadow-lg transition hover:opacity-90"
         >
           <MessageSquarePlus aria-hidden className="size-4" />
           {t('trainChat.open')}

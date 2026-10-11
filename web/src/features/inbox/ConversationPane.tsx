@@ -158,7 +158,7 @@ export function ConversationPane({
 
   return (
     <section className="relative grid h-full min-h-0 min-w-0 grid-rows-[80px_auto_minmax(0,1fr)_auto] overflow-hidden bg-[#f3f2ec] bg-[radial-gradient(circle_at_15%_20%,rgba(8,125,76,.055)_0_1px,transparent_1.5px),radial-gradient(circle_at_78%_68%,rgba(20,36,31,.04)_0_1.5px,transparent_2px),linear-gradient(135deg,rgba(255,255,255,.48),rgba(239,243,233,.72))] bg-[length:30px_30px,46px_46px,100%_100%]">
-      <header className="flex min-w-0 items-center border-b border-border py-0 pr-24 pl-4 sm:pl-6 xl:pr-6">
+      <header className="flex min-w-0 items-center border-b border-border py-0 pr-3 pl-4 sm:pl-6 md:pr-24 xl:pr-6">
         <button
           type="button"
           onClick={onBack}

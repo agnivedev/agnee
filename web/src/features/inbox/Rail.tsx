@@ -28,7 +28,7 @@ export function Rail({ active, onAction }: { active: RailAction; onAction: (acti
           />
         ))}
       </nav>
-      <NotificationBell className="shrink-0 md:mt-auto" />
+      <NotificationBell className="shrink-0 max-md:order-last md:mt-auto" />
       <RailButton
         icon={LogOut}
         label={t('nav.labelLogout')}

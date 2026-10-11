@@ -61,18 +61,18 @@ export function AppSidebar() {
 
   return (
     <>
-      {/* On a phone this is a horizontal bar across the top; a wide column
-          there would squeeze the page it belongs to down to a strip.
+      {/* Di ponsel menjadi bar ikon tetap di bawah, sama dengan Rail inbox:
+          blok menu di atas halaman menghabiskan sepertiga layar.
           Sticky di layar lebar: sidebar setinggi layar yang ikut menggulung
           membuat menunya menggantung di tengah halaman panjang seperti Admin.
           self-start supaya tinggi h-dvh tidak diregangkan flex parent. */}
       <aside
         className={cn(
-          'flex w-full shrink-0 flex-row flex-wrap items-center gap-x-4 gap-y-2 bg-ink py-3 pr-24 pl-4 text-white md:sticky md:top-0 md:h-dvh md:self-start md:overflow-y-auto md:flex-col md:flex-nowrap md:items-stretch md:gap-8 md:px-5 md:py-7 md:pr-5',
+          'fixed inset-x-0 bottom-0 z-20 flex h-16 flex-row items-center justify-between gap-2 overflow-hidden bg-ink px-2 py-2 text-white shadow-[0_-10px_28px_rgba(15,35,28,.13)] md:sticky md:inset-x-auto md:top-0 md:bottom-auto md:h-dvh md:shrink-0 md:flex-col md:items-stretch md:justify-start md:gap-8 md:self-start md:overflow-y-auto md:px-5 md:py-7 md:shadow-none',
           collapsed ? 'md:w-[76px] md:px-3' : 'md:w-[248px]',
         )}
       >
-        <div className="flex w-full shrink-0 items-center gap-3">
+        <div className="hidden w-full shrink-0 items-center gap-3 md:flex">
           <a href="/" className="flex min-w-0 items-center gap-3 no-underline" aria-label="Agnee">
             <img src="/brand/agnee-mark.svg" alt="" className="size-8 shrink-0" />
             {collapsed ? null : (
@@ -93,7 +93,7 @@ export function AppSidebar() {
           </button>
         </div>
 
-        <nav aria-label={t('nav.main')} className="flex flex-wrap gap-1 md:grid">
+        <nav aria-label={t('nav.main')} className="flex min-w-0 flex-1 justify-between gap-0.5 md:grid md:flex-none md:gap-1">
           {visible.map((entry) =>
             entry.kind === 'logout' ? (
               <SidebarItem
@@ -122,7 +122,7 @@ export function AppSidebar() {
 
         {/* Di ponsel sidebar adalah bar horizontal, jadi lonceng ikut di baris
             itu; di layar lebar ia duduk di atas identitas pengguna. */}
-        <div className="ml-auto shrink-0 md:mt-auto md:ml-0 md:border-t md:border-white/10 md:pt-3">
+        <div className="shrink-0 md:mt-auto md:border-t md:border-white/10 md:pt-3">
           <NotificationBell className="text-white" />
         </div>
 
@@ -138,6 +138,7 @@ export function AppSidebar() {
           )}
         </div>
       </aside>
+      <div aria-hidden className="order-last h-16 shrink-0 md:hidden" />
 
       {hover ? (
         <span
@@ -154,8 +155,8 @@ export function AppSidebar() {
 
 function itemClass(active: boolean) {
   return cn(
-    'flex items-center gap-2 rounded-xl px-3 py-2 text-[13px] whitespace-nowrap no-underline transition-colors md:gap-3 md:py-2.5 md:text-sm',
-    active ? 'bg-white/12 text-white' : 'text-white/60 hover:bg-white/6 hover:text-white',
+    'flex min-h-[44px] w-9 shrink-0 items-center justify-center rounded-[14px] text-[13px] whitespace-nowrap no-underline transition-colors md:min-h-0 md:w-auto md:justify-start md:gap-3 md:rounded-xl md:px-3 md:py-2.5 md:text-sm',
+    active ? 'bg-white/9 text-lime md:bg-white/12 md:text-white' : 'text-white/60 hover:bg-white/6 hover:text-white',
   );
 }
 
@@ -183,12 +184,13 @@ function SidebarLink({
     <NavLink
       to={to}
       end={end}
+      aria-label={label}
       className={({ isActive }) => itemClass(isActive)}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
     >
       <Icon aria-hidden className="size-[18px] shrink-0" strokeWidth={2} />
-      <b className={cn('font-semibold', collapsed && 'md:hidden')}>{label}</b>
+      <b className={cn('font-semibold', collapsed ? 'hidden' : 'hidden md:inline')}>{label}</b>
     </NavLink>
   );
 }
@@ -209,13 +211,14 @@ function SidebarItem({
   return (
     <button
       type="button"
+      aria-label={label}
       onClick={onClick}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
-      className={cn(itemClass(false), 'w-full text-left')}
+      className={cn(itemClass(false), 'cursor-pointer border-0 bg-transparent md:w-full md:text-left')}
     >
       <Icon aria-hidden className="size-[18px] shrink-0" strokeWidth={2} />
-      <b className={cn('font-semibold', collapsed && 'md:hidden')}>{label}</b>
+      <b className={cn('font-semibold', collapsed ? 'hidden' : 'hidden md:inline')}>{label}</b>
     </button>
   );
 }

@@ -308,12 +308,8 @@ export function InboxPage() {
           <div />
         )}
 
-        {/* The ID/EN switch is fixed 16px from the viewport edge and is 80px
-            wide, so on a phone it sits over this corner and swallows taps meant
-            for the new-conversation button. 96px of clearance moves the button
-            clear. From md up the rail becomes a sidebar and the header is no
-            longer flush with the viewport edge, so the padding comes off. */}
-        <header className="flex items-center justify-between pr-24 md:pr-0">
+        {/* The ID/EN pill is hidden on phones inside the app (LanguageSwitch), so no clearance is needed here. */}
+        <header className="flex items-center justify-between">
           <div>
             <p className="eyebrow">{t('inbox.eyebrow')}</p>
             <h1 className="m-0 text-3xl tracking-[-.04em]">

@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react';
+import { Eye, EyeOff } from 'lucide-react';
 import { api, messageFromError } from '@/lib/api';
 import { useI18n } from '@/lib/i18n';
 import { Button } from '@/components/ui/button';
@@ -97,9 +98,9 @@ function PasswordField({ label, ...props }: { label: string } & Omit<React.Input
           type="button"
           onClick={() => setVisible((current) => !current)}
           aria-label={visible ? t('settings.hideSecret') : t('settings.showSecret')}
-          className="absolute inset-y-0 right-0 w-11 cursor-pointer rounded-r-app border-0 bg-transparent text-sm"
+          className="absolute inset-y-0 right-0 grid w-11 cursor-pointer place-items-center rounded-r-app border-0 bg-transparent text-muted hover:text-ink"
         >
-          {visible ? '🙈' : '👁'}
+          {visible ? <EyeOff aria-hidden className="size-[18px]" /> : <Eye aria-hidden className="size-[18px]" />}
         </button>
       </span>
     </label>

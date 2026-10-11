@@ -783,6 +783,8 @@ async function buildApp(overrides = {}) {
    * a common client interface — this just picks which one to call, so the
    * whatsapp-web.js path (sendTextForUi, Puppeteer-driven) stays untouched.
    */
+  const STOP_CONFIRMATION_TEXT = 'Oke, kamu tidak akan menerima pesan broadcast dari kami lagi. Chat biasa tetap bisa kapan saja.';
+
   async function sendOutbound(companyId, chatId, text, options = {}) {
     const provider = await getWhatsappProvider(companyId);
     if (provider === 'cloud_api') {
@@ -894,7 +896,7 @@ async function buildApp(overrides = {}) {
         await paceReply(companyId, message, receivedAt, meta, {
           produce: async () => ({
             kind: 'stop',
-            text: 'Oke, kamu tidak akan menerima pesan broadcast dari kami lagi. Chat biasa tetap bisa kapan saja.',
+            text: STOP_CONFIRMATION_TEXT,
           }),
         });
       }
@@ -965,15 +967,17 @@ async function buildApp(overrides = {}) {
       canRelease: async (payload) => payload.kind === 'handoff' || (await readMode()) !== 'human',
       send: async ({ kind, text }) => {
         const sent = await message.reply(text);
-        if ((kind === 'ai' || kind === 'handoff') && database.enabled && database.connected) {
+        // Semua jalur otomatis tercatat (termasuk konfirmasi STOP dan ack):
+        // pesan keluar yang tak tercatat dianggap diketik manusia di ponsel.
+        if (database.enabled && database.connected) {
           await database.recordOutboundReply({
             chatId: message.from,
-            messageId: sent?.id?._serialized || null,
+            messageId: sent?.id?._serialized || sent?.messageId || null,
             author: 'ai',
             body: text,
             inReplyTo: message.body || null,
           }, companyId).catch((error) => app.log.warn({ err: error }, 'Could not record AI reply'));
-          await armFollowUp(companyId, message.from);
+          if (kind === 'ai' || kind === 'handoff') await armFollowUp(companyId, message.from);
         }
       },
     });
@@ -3293,7 +3297,11 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
         // ke WhatsApp Web, jadi untuk company Cloud API pesan penutupnya hilang.
         // sendOutbound juga yang memilih nomor yang memegang percakapan ini, dan
         // menolak dengan 409 yang menyebut nomornya bila nomor itu mati.
-        await sendOutbound(companyId, request.params.chatId, closingMessage);
+        const sent = await sendOutbound(companyId, request.params.chatId, closingMessage);
+        await database.recordOutboundReply({
+          chatId: request.params.chatId, messageId: sent?.messageId || null, author: 'human',
+          authorUserId: session.userId || null, body: closingMessage,
+        }, companyId).catch((error) => app.log.warn({ err: error }, 'Pesan penutup tidak tercatat'));
       }
     }
     const routing = await saveRouting({
@@ -7278,6 +7286,9 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     });
   }
 
+  const LEGACY_AUTOMATED = new Set([STOP_CONFIRMATION_TEXT, config.ackText]
+    .filter(Boolean).map((t) => String(t).replace(/\s+/g, ' ').trim()));
+
   async function withReplyAuthors(companyId, chatId, messages) {
     if (!Array.isArray(messages) || !messages.length) return messages || [];
     messages = await withRevokedBodies(companyId, chatId, messages).catch(() => messages);
@@ -7285,14 +7296,15 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     const ids = messages.filter((m) => m.fromMe && m.id).map((m) => m.id);
     if (!ids.length) return messages;
     const byId = await database.listOutboundAuthors(companyId, chatId, ids).catch(() => new Map());
-    // AI hanya mengirim teks. Pesan keluar bermedia/kontak/lokasi yang tak
-    // tercatat pasti dikirim manusia (lampiran dari Agnee tanpa teks, atau
-    // langsung dari aplikasi WhatsApp di ponsel).
-    const aiTextOnly = new Set(['chat', 'revoked']);
+    // Semua pengiriman Agnee tercatat di outbound_replies; yang lolos dari
+    // pencocokan id dicocokkan lewat isi (catatan lama tanpa id), sisanya
+    // diketik/dikirim manusia dari aplikasi WhatsApp.
     let automatedBodies = null;
     const isAutomatedBody = async (body) => {
       if (!canCall('listAutomatedBodies')) return false;
       automatedBodies ||= await database.listAutomatedBodies(companyId, chatId).catch(() => new Set());
+      // Kalimat tetap yang dulu terkirim tanpa catatan.
+      if (LEGACY_AUTOMATED.has(String(body || '').replace(/\s+/g, ' ').trim())) return true;
       return automatedBodies.has(String(body || '').replace(/\s+/g, ' ').trim());
     };
     const out = [];
@@ -7302,10 +7314,12 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
       if (row?.author === 'broadcast') out.push({ ...m, authorKind: 'broadcast', authorName: null });
       else if (row?.author === 'human') out.push({ ...m, authorKind: 'human', authorName: row.authorName || null });
       else if (row) out.push({ ...m, authorKind: 'ai', authorName: null });
-      else if (!aiTextOnly.has(m.type || 'chat') && !(await isAutomatedBody(m.body))) {
-        out.push({ ...m, authorKind: 'human', authorName: null });
-      } else {
+      else if (m.type === 'revoked' || await isAutomatedBody(m.body)) {
         out.push({ ...m, authorKind: 'ai', authorName: null });
+      } else {
+        // Tak tercatat sama sekali: semua jalur Agnee (AI, broadcast, agent)
+        // mencatat pengirimnya, jadi ini diketik di aplikasi WhatsApp.
+        out.push({ ...m, authorKind: 'human', authorName: null });
       }
     }
     return out;
@@ -8554,9 +8568,9 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
         return result?.text || null;
       },
       sendMessage: async (companyId, chatId, text) => {
-        await sendOutbound(companyId, chatId, text);
+        const sent = await sendOutbound(companyId, chatId, text);
         await database.recordOutboundReply({
-          chatId, author: 'ai', body: text, inReplyTo: null,
+          chatId, messageId: sent?.messageId || null, author: 'ai', body: text, inReplyTo: null,
         }, companyId).catch(() => {});
       },
     },
@@ -8571,7 +8585,13 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
         env: process.env,
         logger: app.log,
         resolveCompanyId: (company) => database.resolveCompanyId(company),
-        sendText: (companyId, chatId, text) => sendOutbound(companyId, chatId, text),
+        sendText: async (companyId, chatId, text) => {
+          const sent = await sendOutbound(companyId, chatId, text);
+          await database.recordOutboundReply({
+            chatId, messageId: sent?.messageId || null, author: 'ai', body: text,
+          }, companyId).catch(() => {});
+          return sent;
+        },
         toChatId: (raw) => normalizeChatId(raw, config.defaultCountryCode),
       }),
     ],

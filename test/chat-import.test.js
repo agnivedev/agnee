@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
   isChatPerorangan, nilaiChat, kelompokKeaktifan, teksUntukProduk, jalankanImpor,
-  BATCH_MAKS, PRODUK_AI_MAKS,
+  BATCH_MAKS, BATCH_UJI, PRODUK_AI_MAKS,
 } = require('../src/chat-import');
 
 const NOW = 1_800_000_000;
@@ -137,6 +137,17 @@ test('satu proses dibatasi, sisanya dilaporkan, dan yang terbaru didahulukan', a
   assert.equal(hasil.toDo, 2);
   assert.equal(hasil.remaining, 3);
   assert.ok(BATCH_MAKS >= 100 && BATCH_MAKS <= 1000, 'batas bawaan harus masuk akal untuk halaman WhatsApp yang hidup');
+});
+
+test('uji pertama kecil dan ditandai, supaya layar bisa mengatakannya', async () => {
+  assert.ok(BATCH_UJI > 0 && BATCH_UJI < BATCH_MAKS);
+  const chats = Array.from({ length: 5 }, (_, i) => chat(`${i}@c.us`, 1000 + i));
+  const s = fakeDeps({ chats });
+  const hasil = await jalan(s, { batchMaks: 2, trial: true });
+  assert.equal(hasil.trial, true);
+  assert.equal(hasil.done, 2);
+  assert.equal(hasil.remaining, 3);
+  assert.equal((await jalan(fakeDeps({ chats }), {})).trial, false);
 });
 
 test('hubungan dan label tersimpan per chat', async () => {

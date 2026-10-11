@@ -5995,6 +5995,9 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
       ? await database.listPlaybookProducts(companyId, { onlyActive: true }).catch(() => [])
       : [];
     const tebakProduk = request.body.classifyProducts !== false && produk.length >= 2;
+    // Belum ada satu pun hasil impor di company ini: jalankan uji kecil dulu.
+    const sudahPernah = await database.countImportedContacts(companyId).catch(() => ({ replied: 1, unproven: 0 }));
+    const uji = (sudahPernah.replied + sudahPernah.unproven) === 0;
 
     importBerjalan = companyId;
     importStop.delete(companyId);
@@ -6010,7 +6013,7 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
           if (!wa) continue;
           const hasil = await chatImport.jalankanImpor({
             wa, companyId, connectionId: conn.id,
-            options: { classifyProducts: tebakProduk },
+            options: { classifyProducts: tebakProduk, trial: uji, ...(uji ? { batchMaks: chatImport.BATCH_UJI } : {}) },
             onProgress: (keadaan) => {
               // 'done' dari satu nomor BUKAN selesai untuk company: nomor
               // berikutnya mungkin belum jalan, dan layar berhenti memantau

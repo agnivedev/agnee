@@ -32,6 +32,13 @@ const DINGIN_HARI = 90;
  */
 const BATCH_MAKS = 300;
 
+/**
+ * Impor pertama di sebuah company hanya membaca sekian chat. Ini uji: kalau
+ * pembacaan riwayat ternyata mengganggu halaman WhatsApp yang sedang melayani
+ * customer, yang terganggu cuma segelintir chat, bukan ratusan.
+ */
+const BATCH_UJI = 25;
+
 /** Jeda antar chat, supaya halaman WhatsApp tetap sempat melayani pesan masuk. */
 const JEDA_ANTAR_CHAT_MS = 250;
 
@@ -134,6 +141,7 @@ async function jalankanImpor({ wa, companyId, connectionId, deps, options = {}, 
     totalOnPhone: 0, eligible: 0, alreadyImported: 0, toDo: 0, done: 0,
     replied: 0, unproven: 0, failed: 0, remaining: 0,
     labelsAvailable: false, productsAssigned: 0, productsTried: 0, stoppedBecause: null,
+    trial: Boolean(options.trial),
   };
   const lapor = () => onProgress({ ...keadaan });
 
@@ -228,5 +236,5 @@ async function jalankanImpor({ wa, companyId, connectionId, deps, options = {}, 
 
 module.exports = {
   isChatPerorangan, nilaiChat, kelompokKeaktifan, teksUntukProduk, jalankanImpor,
-  AKTIF_HARI, DINGIN_HARI, BATCH_MAKS, JENDELA_PESAN, PRODUK_AI_MAKS,
+  AKTIF_HARI, DINGIN_HARI, BATCH_MAKS, BATCH_UJI, JENDELA_PESAN, PRODUK_AI_MAKS,
 };

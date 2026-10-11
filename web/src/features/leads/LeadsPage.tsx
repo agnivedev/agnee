@@ -25,6 +25,7 @@ type ImportRun = {
   remaining: number; productsAssigned: number; productsTried: number; failed: number;
   stoppedBecause: 'cancelled' | 'disconnected' | 'client_unstable' | null;
   error: string | null;
+  trial?: boolean;
 };
 const IMPORT_AKTIF = new Set(['starting', 'listing', 'reading', 'products']);
 
@@ -320,6 +321,7 @@ export function LeadsPage() {
                   {t('leads.importDone', { done: importRun.done, replied: importRun.replied, unproven: importRun.unproven })}
                   {importRun.productsAssigned ? ` ${t('leads.importDoneProducts', { count: importRun.productsAssigned })}` : ''}
                   {importRun.stoppedBecause ? ` ${t(`leads.importStopped.${importRun.stoppedBecause}`)}` : ''}
+                  {importRun.trial && !importRun.stoppedBecause ? ` ${t('leads.importTrial')}` : ''}
                   {importRun.remaining ? ` ${t('leads.importRemaining', { count: importRun.remaining })}` : ''}
                 </span>
               ) : null}

@@ -964,10 +964,11 @@ async function buildApp(overrides = {}) {
       // agent; kalimat serah-terima justru harus sampai.
       canRelease: async (payload) => payload.kind === 'handoff' || (await readMode()) !== 'human',
       send: async ({ kind, text }) => {
-        await message.reply(text);
+        const sent = await message.reply(text);
         if ((kind === 'ai' || kind === 'handoff') && database.enabled && database.connected) {
           await database.recordOutboundReply({
             chatId: message.from,
+            messageId: sent?.id?._serialized || null,
             author: 'ai',
             body: text,
             inReplyTo: message.body || null,
@@ -7281,14 +7282,30 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     const ids = messages.filter((m) => m.fromMe && m.id).map((m) => m.id);
     if (!ids.length) return messages;
     const byId = await database.listOutboundAuthors(companyId, chatId, ids).catch(() => new Map());
-    return messages.map((m) => {
-      if (!m.fromMe) return m;
+    // AI hanya mengirim teks. Pesan keluar bermedia/kontak/lokasi yang tak
+    // tercatat pasti dikirim manusia (lampiran dari Agnee tanpa teks, atau
+    // langsung dari aplikasi WhatsApp di ponsel).
+    const aiTextOnly = new Set(['chat', 'revoked']);
+    let automatedBodies = null;
+    const isAutomatedBody = async (body) => {
+      if (!canCall('listAutomatedBodies')) return false;
+      automatedBodies ||= await database.listAutomatedBodies(companyId, chatId).catch(() => new Set());
+      return automatedBodies.has(String(body || '').replace(/\s+/g, ' ').trim());
+    };
+    const out = [];
+    for (const m of messages) {
+      if (!m.fromMe) { out.push(m); continue; }
       const row = byId.get(m.id);
-      // Tidak ketemu berarti AI: jalur manusia selalu mencatat id-nya.
-      if (!row || row.author === 'ai') return { ...m, authorKind: 'ai', authorName: null };
-      if (row.author === 'broadcast') return { ...m, authorKind: 'broadcast', authorName: null };
-      return { ...m, authorKind: 'human', authorName: row.authorName || null };
-    });
+      if (row?.author === 'broadcast') out.push({ ...m, authorKind: 'broadcast', authorName: null });
+      else if (row?.author === 'human') out.push({ ...m, authorKind: 'human', authorName: row.authorName || null });
+      else if (row) out.push({ ...m, authorKind: 'ai', authorName: null });
+      else if (!aiTextOnly.has(m.type || 'chat') && !(await isAutomatedBody(m.body))) {
+        out.push({ ...m, authorKind: 'human', authorName: null });
+      } else {
+        out.push({ ...m, authorKind: 'ai', authorName: null });
+      }
+    }
+    return out;
   }
 
   app.get('/v1/chats/:chatId/messages', {
@@ -8015,13 +8032,13 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     const result = { ok: true, messageId: sent.messageId, timestamp: sent.timestamp, to: chatId };
     // Attribute the reply so it can be graded later in review mode. Text only:
     // an attachment on its own has no wording to assess.
-    if (text && database.enabled && database.connected) {
+    if ((text || attachment) && database.enabled && database.connected) {
       await database.recordOutboundReply({
         chatId,
         messageId: sent.messageId || null,
         author: 'human',
         authorUserId: request.agneeSession?.userId || null,
-        body: text,
+        body: text || '',
         inReplyTo: lastInboundText.get(`${companyId}:${chatId}`) || null,
       }, companyId).catch((error) => app.log.warn({ err: error }, 'Could not record human reply'));
       await armFollowUp(companyId, chatId);

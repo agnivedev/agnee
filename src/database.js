@@ -2290,6 +2290,9 @@ class Database {
     if (author) { where.push(`r.author = $${values.length + 1}`); values.push(author); }
     if (authorUserId) { where.push(`r.author_user_id = $${values.length + 1}`); values.push(authorUserId); }
     if (onlyUnreviewed) where.push('r.reviewed_at IS NULL');
+    // Kiriman lampiran tanpa teks tercatat dengan body kosong: tak ada kalimat
+    // yang bisa dinilai.
+    where.push("r.body <> ''");
     values.push(limit);
     const result = await this.pool.query(`
       SELECT r.id, r.chat_id AS "chatId", r.message_id AS "messageId", r.author,
@@ -3679,6 +3682,21 @@ class Database {
       WHERE o.company_id = $1 AND o.chat_id = $2 AND o.message_id = ANY($3::TEXT[])
     `, [companyId, chatId, messageIds]);
     return new Map(result.rows.map((row) => [row.messageId, row]));
+  }
+
+  /**
+   * Isi balasan AI/broadcast di satu chat (dinormalkan: spasi dirapatkan).
+   * Balasan AI jalur utama dulu dicatat TANPA message_id, jadi pencocokan lewat
+   * id saja membuat semua pesan itu terbaca "tak ketemu"; isi pesan jadi
+   * pembeda kedua.
+   */
+  async listAutomatedBodies(companyId, chatId) {
+    if (!this.enabled) return new Set();
+    const result = await this.pool.query(`
+      SELECT body FROM outbound_replies
+      WHERE company_id = $1 AND chat_id = $2 AND author IN ('ai', 'broadcast') AND body <> ''
+    `, [companyId, chatId]);
+    return new Set(result.rows.map((row) => String(row.body).replace(/\s+/g, ' ').trim()));
   }
 
   /**

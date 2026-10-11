@@ -154,6 +154,48 @@ Ringkasan jalur besar. Rinciannya ada di [`../CHANGELOG.md`](../CHANGELOG.md).
   siap", jadi dimatikan untuk asisten (`requireTools`). Belum dicoba: klik
   "Jalankan simulasi" dari kartu (memanggil AI puluhan kali), dan kecepatan serta
   isi playbook Al Gold yang panjang di produksi.
+- 10 Oktober, AL Gold FX: playbook ditulis ulang dari arahan Hanny ("start from
+  ini, fokus"). Asisten bernama Mansur, asisten virtual Bang Al (`ai_identity =
+  chatbot`), hanya membahas live trade Zoom khusus member, copy trade yang akan
+  datang (manual dan auto expert), dan cara gabung lewat link broker Valetax,
+  ditambah bagian SEMENTARA "Bang Al sakit, live lagi Senin 12 Oktober" yang
+  harus dihapus setelah live jalan (`bc12ac7`). Bagian Closing ("sampai jumpa di
+  live trade") ditempel Hanny lewat Latih AI, lalu repo disamakan.
+- 10 Oktober, hari pertama Mansur live: sekitar 100 balasan dalam 40 menit
+  setelah Bang Al mengumumkannya. Mansur mengarang jawaban di percakapan
+  sungguhan, yang terberat "kode mitra Valetax bisa dikosongkan" (merugikan IB
+  Bang Al), juga "modal didepositkan di awal" dan "sudah aku sampaikan ke tim".
+  Larangan umum di playbook tidak cukup; yang menghentikannya bagian tanya jawab
+  "Pertanyaan yang jawabannya belum tertulis" dengan contoh per situasi
+  (`a91c73c`). Sejak itu perubahan playbook dimuat langsung ke server tanpa
+  deploy (`scp` ke `/tmp` lalu `load-playbooks.js`), commit `[skip ci]`.
+- 10 Oktober malam, "AI mati-hidup": halaman WhatsApp AL Gold FX macet
+  berulang. Akarnya batas container app 0,75 CPU dan 1,5 GB untuk empat nomor
+  (memori menyentuh plafon 12.641 kali dalam 16 menit, 2 OOM-kill, CPU tertahan
+  di 70% periode). Dinaikkan live ke 1,75 CPU dan 2,5 GB dengan `docker update`
+  tanpa restart, lalu `compose.yml` disamakan (`1f9c116`). Ditambah penjaga yang
+  memeriksa tiap nomor sendiri tiap menit (`b703965`) dan penyusul yang membalas
+  pesan yang masuk saat nomor terputus, karena whatsapp-web.js tidak menembakkan
+  event untuknya (`19a7fff`, `e31771a`). Satu chat keluarga Bang Al di nomor itu
+  dipindah ke mode Human.
+- 11 Oktober: pesan beruntun dibalas sekali (balasan yang sudah tersusun
+  ditahan kalau ada pesan customer yang lebih baru; `1a3378f`). Dua bug di
+  penjaga tahap tersambung membuat Citilux tertahan di "authenticated" dua kali:
+  `getState()` tanpa batas waktu (`7962bd0`), dan restart yang tidak menjadwal
+  pengawasan untuk client pengganti (`4c5b357`). Sesudahnya deploy tidak lagi
+  me-restart nomor mana pun dan keempat nomor siap dalam 42 sampai 86 detik
+  (dulu sekitar 3 menit).
+- 11 Oktober, broadcast dengan pembuka per penerima (`7a539d3`, migrasi `051`):
+  AI menulis satu kalimat yang menyambung ke percakapan terakhir tiap orang,
+  pesan broadcast dikirim persis di bawahnya, dengan pratinjau tiga contoh
+  sebelum kirim. Diminta untuk menyapa ulang chat AL Gold FX yang belum dibalas
+  selama Bang Al sakit. Uji dengan model sungguhan menemukan model mengklaim
+  menjawab ("soal copy trade, ini infonya") di atas pesan yang membahas hal
+  lain; ditutup lewat prompt dan penjaga di kode.
+- Masih terbuka per 11 Oktober: "aku teruskan ke tim" dari Mansur belum memberi
+  tahu siapa pun (notifikasi WhatsApp ke owner dan leader menunggu nomor
+  mereka), isi kolom kode mitra Valetax belum dikonfirmasi, dan bagian SEMENTARA
+  di playbook AL Gold FX perlu dihapus setelah live Senin berjalan.
 
 ## Referensi
 

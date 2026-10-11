@@ -1111,7 +1111,19 @@ export const messages = {
       'broadcast.whatIsThis': 'Apa ini?',
       'broadcast.previewVariation': 'Ini versi asli. Tiap customer menerima kalimat yang sedikit berbeda; versi masing-masing bisa dibaca di halaman broadcast setelah terkirim.',
       'broadcast.showSent': 'Lihat pesan terkirim',
-      'broadcast.variationIncluded': 'Tiap customer menerima variasi kata dari AI.'
+      'broadcast.variationIncluded': 'Tiap customer menerima variasi kata dari AI.',
+      'broadcast.personalLabel': 'Sesuaikan pembuka dengan percakapan tiap orang',
+      'broadcast.personalOn': 'Memakai 1 kuota AI per penerima. Pesanmu dikirim persis; AI hanya menambah satu kalimat pembuka di depannya.',
+      'broadcast.personalHelp': 'AI membaca percakapan terakhir tiap customer lalu menulis satu kalimat pembuka yang menyambung ke obrolan itu, misalnya minta maaf karena telat membalas pertanyaannya. Pesanmu dikirim persis di bawahnya, jadi link dan angka tidak bisa berubah. Kalimat pembuka yang memuat angka, link, atau janji ditolak, dan kalau tidak ada yang bisa dirujuk, pesanmu saja yang terkirim.',
+      'broadcast.personalSamplesTitle': 'Contoh pembuka',
+      'broadcast.personalSamplesHint': 'Lihat hasil AI untuk penerima sungguhan sebelum mengirim.',
+      'broadcast.personalStale': 'Pesan atau penerima berubah. Buat contoh lagi.',
+      'broadcast.personalSamplesButton': 'Lihat {count} contoh',
+      'broadcast.personalSampling': 'Menyusun contoh…',
+      'broadcast.personalNeedRecipients': 'Pilih penerima dulu di langkah 2.',
+      'broadcast.personalNone': 'tanpa pembuka, tidak ada yang bisa dirujuk',
+      'broadcast.personalRejected': 'pembuka ditolak penjaga, pesan dasar saja',
+      'broadcast.personalIncluded': 'Tiap customer menerima kalimat pembuka dari AI.'
     },
     en: {
       'settings.subtitleAgent': 'Your account and the team serving customers.',
@@ -2211,7 +2223,19 @@ export const messages = {
       'broadcast.whatIsThis': 'What is this?',
       'broadcast.previewVariation': 'This is the original. Each customer receives slightly different wording; each version can be read on the broadcast page once sent.',
       'broadcast.showSent': 'Show sent message',
-      'broadcast.variationIncluded': 'Each customer gets AI word variation.'
+      'broadcast.variationIncluded': 'Each customer gets AI word variation.',
+      'broadcast.personalLabel': 'Tailor the opening to each conversation',
+      'broadcast.personalOn': 'Uses 1 AI quota per recipient. Your message is sent exactly; the AI only adds one opening sentence before it.',
+      'broadcast.personalHelp': 'The AI reads each customer\'s latest conversation and writes one opening sentence that picks it up, for example apologising for a late reply to their question. Your message is sent exactly below it, so links and numbers cannot change. Openings that contain numbers, links, or promises are rejected, and if there is nothing to refer to, only your message is sent.',
+      'broadcast.personalSamplesTitle': 'Sample openings',
+      'broadcast.personalSamplesHint': 'See what the AI writes for real recipients before sending.',
+      'broadcast.personalStale': 'The message or recipients changed. Generate samples again.',
+      'broadcast.personalSamplesButton': 'Show {count} samples',
+      'broadcast.personalSampling': 'Writing samples…',
+      'broadcast.personalNeedRecipients': 'Pick recipients in step 2 first.',
+      'broadcast.personalNone': 'no opening, nothing to refer to',
+      'broadcast.personalRejected': 'opening rejected by the guard, message only',
+      'broadcast.personalIncluded': 'Each customer gets an AI opening sentence.'
     }
   } as const;
 export type Locale = keyof typeof messages;

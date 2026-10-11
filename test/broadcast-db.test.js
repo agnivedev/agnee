@@ -156,3 +156,36 @@ test('calon penerima: hanya yang pernah chat, tanpa grup, STOP ditandai', { skip
     assert.equal(audience.find((r) => r.chatId === '62811@c.us').lastInboundAt, now);
   });
 });
+
+test('pembuka per penerima: saklarnya tersimpan dan terbaca oleh pengirim', { skip }, async (t) => {
+  await withCompanies(t, async (db, companyId) => {
+    const b = await db.createBroadcast({ name: 'Uji pembuka', body: 'Live lagi Senin', aiPersonal: true, recipients: recipients(1) }, companyId);
+    assert.equal(b.aiPersonal, true);
+    assert.equal(b.aiVariation, false);
+    const claimed = await db.claimNextBroadcastRecipient(companyId);
+    assert.equal(claimed.aiPersonal, true);
+
+    const biasa = await db.createBroadcast({ name: 'Uji biasa', body: 'Halo', recipients: recipients(1) }, companyId);
+    assert.equal(biasa.aiPersonal, false);
+  });
+});
+
+test('percakapan terakhir dari catatan Agnee: urut lama ke baru, hanya chat itu', { skip }, async (t) => {
+  await withCompanies(t, async (db, companyId, other) => {
+    const chatId = '62899@c.us';
+    await db.recordInboundMessage(companyId, { chatId, provider: 'whatsapp_web', waMessageId: 'in-1', body: 'cara gabung?', timestamp: 1 });
+    await db.pool.query("UPDATE inbound_messages SET created_at = NOW() - INTERVAL '2 minutes' WHERE wa_message_id = 'in-1'");
+    await db.recordOutboundReply({ chatId, author: 'ai', body: 'Lewat Valetax kak' }, companyId);
+    await db.pool.query("UPDATE outbound_replies SET created_at = NOW() - INTERVAL '1 minute' WHERE chat_id = $1", [chatId]);
+    await db.recordInboundMessage(companyId, { chatId, provider: 'whatsapp_web', waMessageId: 'in-2', body: 'oke makasih', timestamp: 2 });
+    await db.recordInboundMessage(other, { chatId, provider: 'whatsapp_web', waMessageId: 'in-x', body: 'company lain', timestamp: 3 });
+
+    const rows = await db.listRecentChatTexts(companyId, chatId, 10);
+    assert.deepEqual(rows.map((row) => [row.fromMe, row.body]), [
+      [false, 'cara gabung?'],
+      [true, 'Lewat Valetax kak'],
+      [false, 'oke makasih'],
+    ]);
+    assert.equal((await db.listRecentChatTexts(companyId, chatId, 2)).length, 2);
+  });
+});

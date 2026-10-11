@@ -11,7 +11,7 @@ const assert = require('node:assert/strict');
 const {
   TEMPO, KALIMAT_BERHENTI, GAGAL_BERUNTUN_MAKS,
   namaUntukSapaan, susunPesan, mintaBerhenti, dalamJamKirim, awalHariLokal, jedaSetelah, putaranBroadcast,
-  periksaVariasi,
+  periksaVariasi, periksaPembuka,
 } = require('../src/broadcast');
 
 const JKT = 'Asia/Jakarta';
@@ -240,4 +240,75 @@ test('tanpa saklar variasi, AI tidak dipanggil', async () => {
     variasikan: async () => { dipanggil += 1; return 'x'; },
   });
   assert.equal(dipanggil, 0, 'tiap panggilan memotong kuota AI company');
+});
+
+// ── pembuka per penerima ─────────────────────────────────────────────────
+
+test('pembuka yang hanya merujuk percakapan diterima, bungkusnya dibuang', () => {
+  assert.equal(
+    periksaPembuka('Pembuka: "Kak Budi, soal copy trade yang kakak tanya kemarin, maaf baru dibalas ya."'),
+    'Kak Budi, soal copy trade yang kakak tanya kemarin, maaf baru dibalas ya.',
+  );
+});
+
+test('pembuka yang membawa fakta, janji, atau tidak ada isinya ditolak', () => {
+  for (const teks of [
+    'KOSONG',
+    '',
+    'Kak, live mulai tanggal 12 ya.',
+    'Kak, cek https://contoh.id dulu ya.',
+    'Kak, dijamin profit kok.',
+    'Kak {nama}, maaf baru dibalas.',
+    'Satu. Dua. Tiga kalimat terlalu banyak.',
+    'Baris satu\nbaris dua',
+    'Kak Budi, soal copy trade, ini ada info dari Bang Al:',
+    'Kak '.repeat(80),
+  ]) {
+    assert.equal(periksaPembuka(teks), null, teks);
+  }
+});
+
+test('pembuka AI ditempel di depan pesan dasar yang tidak diubah; gagal = pesan dasar saja', async () => {
+  const company = { companyId: 'c1', timezone: JKT, provider: 'whatsapp_web', lastSentAt: null };
+  const dengan = () => ({ ...penerima(1), body: 'Live trade mulai lagi Senin 12 Oktober.', aiPersonal: true });
+  const terkirim = [];
+  const kirim = async (_c, _chat, teks) => { terkirim.push(teks); return { messageId: 'm' }; };
+
+  const lolos = fakeDatabase({ companies: [company], recipients: [dengan()] });
+  const dipanggilDengan = [];
+  await putaranBroadcast({
+    database: lolos, sekarangMs: jamJakarta(10), kirim,
+    personalisasi: async (...args) => { dipanggilDengan.push(args); return 'Kak Budi, maaf baru dibalas soal copy trade.'; },
+  });
+  assert.deepEqual(dipanggilDengan[0], ['c1', '628121@c.us', 'Budi', 'Live trade mulai lagi Senin 12 Oktober.']);
+  assert.equal(terkirim[0], `Kak Budi, maaf baru dibalas soal copy trade.\n\nLive trade mulai lagi Senin 12 Oktober.\n\n${KALIMAT_BERHENTI}`);
+  assert.equal(lolos.log.marked[0].sentBody, terkirim[0]);
+
+  const curang = fakeDatabase({ companies: [company], recipients: [dengan()] });
+  await putaranBroadcast({
+    database: curang, sekarangMs: jamJakarta(10), kirim,
+    personalisasi: async () => 'Kak, live mulai tanggal 13 ya.',
+  });
+  assert.equal(terkirim[1], `Live trade mulai lagi Senin 12 Oktober.\n\n${KALIMAT_BERHENTI}`);
+
+  const gagal = fakeDatabase({ companies: [company], recipients: [dengan()] });
+  await putaranBroadcast({
+    database: gagal, sekarangMs: jamJakarta(10), kirim,
+    personalisasi: async () => { throw new Error('model mati'); },
+  });
+  assert.equal(terkirim[2], `Live trade mulai lagi Senin 12 Oktober.\n\n${KALIMAT_BERHENTI}`);
+  assert.equal(gagal.log.marked[0].status, 'sent', 'AI gagal tidak boleh menggagalkan pengiriman');
+});
+
+test('tanpa saklar pembuka, AI pembuka tidak dipanggil', async () => {
+  const db = fakeDatabase({
+    companies: [{ companyId: 'c1', timezone: JKT, provider: 'whatsapp_web', lastSentAt: null }],
+    recipients: [penerima(1)],
+  });
+  let dipanggil = 0;
+  await putaranBroadcast({
+    database: db, sekarangMs: jamJakarta(10), kirim: async () => ({}),
+    personalisasi: async () => { dipanggil += 1; return 'x'; },
+  });
+  assert.equal(dipanggil, 0);
 });

@@ -18,6 +18,9 @@ type Audience = {
   pace: Pace;
 };
 
+/** Satu contoh pembuka dari server; status selain 'ok' berarti pesan dasar saja. */
+type PersonalSample = { chatId: string; name: string | null; opener: string | null; status: 'ok' | 'none' | 'rejected'; text: string };
+
 type Stage = 'any' | 'inbox' | 'qualified' | 'assigned' | 'none';
 const STAGES: Stage[] = ['any', 'inbox', 'qualified', 'assigned', 'none'];
 type Relation = 'replied' | 'unproven' | 'any';
@@ -50,6 +53,10 @@ export function BroadcastComposer({ onCancel, onCreated }: { onCancel: () => voi
   const [body, setBody] = useState('');
   const [footer, setFooter] = useState(true);
   const [aiVariation, setAiVariation] = useState(false);
+  const [aiPersonal, setAiPersonal] = useState(false);
+  const [samples, setSamples] = useState<PersonalSample[] | null>(null);
+  const [samplesFor, setSamplesFor] = useState('');
+  const [sampling, setSampling] = useState(false);
   const [stage, setStage] = useState<Stage>('any');
   const [recency, setRecency] = useState(30);
   // Topik yang dicentang; kosong = tanpa saringan topik. 'none' = belum jelas topiknya.
@@ -208,6 +215,27 @@ export function BroadcastComposer({ onCancel, onCreated }: { onCancel: () => voi
     });
   }
 
+  // Contoh pembuka berlaku untuk pesan dan tiga penerima pertama saat itu;
+  // kalau salah satunya berubah, contohnya dianggap basi.
+  const sampleKey = `${body.trim()}|${footer}|${selected.slice(0, 3).map((row) => row.chatId).join(',')}`;
+
+  async function loadSamples() {
+    if (!selected.length || !body.trim()) return;
+    setSampling(true);
+    try {
+      const data = await api<{ samples: PersonalSample[] }>('/v1/broadcasts/personal-preview', {
+        method: 'POST',
+        body: { body: body.trim(), optOutFooter: footer, chatIds: selected.slice(0, 3).map((row) => row.chatId) },
+      });
+      setSamples(data.samples);
+      setSamplesFor(sampleKey);
+    } catch (error) {
+      await showError(error);
+    } finally {
+      setSampling(false);
+    }
+  }
+
   async function submit() {
     if (!canSend) return;
     const whenText = when === 'later'
@@ -230,6 +258,7 @@ export function BroadcastComposer({ onCancel, onCreated }: { onCancel: () => voi
           body: body.trim(),
           optOutFooter: footer,
           aiVariation,
+          aiPersonal,
           // Hanya true setelah konfirmasi di atas yang menyebut risikonya.
           acceptUnproven: selectedUnproven > 0,
           chatIds: selected.map((row) => row.chatId),
@@ -280,6 +309,13 @@ export function BroadcastComposer({ onCancel, onCreated }: { onCancel: () => voi
                 label={t('broadcast.variationLabel')}
                 hint={aiVariation ? t('broadcast.variationOn') : null}
                 help={t('broadcast.variationHelp')}
+              />
+              <Option
+                checked={aiPersonal}
+                onChange={(next) => { setAiPersonal(next); setSamples(null); }}
+                label={t('broadcast.personalLabel')}
+                hint={aiPersonal ? t('broadcast.personalOn') : null}
+                help={t('broadcast.personalHelp')}
               />
               <Option
                 checked={footer}
@@ -451,6 +487,32 @@ export function BroadcastComposer({ onCancel, onCreated }: { onCancel: () => voi
               ? <p className="mt-3 mb-0 text-xs text-ink/60">{t('broadcast.previewVariation')}</p>
               : null}
           </div>
+
+          {aiPersonal && body.trim() ? (
+            <div className="grid gap-3 rounded-panel border border-border bg-[#ece5dd] p-4">
+              <p className="m-0 font-mono text-[11px] font-semibold tracking-[.04em] text-ink/60 uppercase">{t('broadcast.personalSamplesTitle')}</p>
+              {samples && samplesFor === sampleKey ? samples.map((sample) => (
+                <div key={sample.chatId} className="grid gap-1.5">
+                  <span className="text-xs font-semibold text-ink/70">
+                    {sample.name || t('broadcast.previewNoName')}
+                    {sample.status !== 'ok' ? ` · ${t(sample.status === 'rejected' ? 'broadcast.personalRejected' : 'broadcast.personalNone')}` : ''}
+                  </span>
+                  <MessageBubble text={sample.text} />
+                </div>
+              )) : (
+                <p className="m-0 text-xs leading-[1.55] text-ink/60">
+                  {samples ? t('broadcast.personalStale') : t('broadcast.personalSamplesHint')}
+                </p>
+              )}
+              {selected.length ? (
+                <Button variant="outline" size="sm" onClick={() => void loadSamples()} disabled={sampling}>
+                  {sampling ? t('broadcast.personalSampling') : t('broadcast.personalSamplesButton', { count: Math.min(3, selected.length) })}
+                </Button>
+              ) : (
+                <p className="m-0 text-xs text-ink/60">{t('broadcast.personalNeedRecipients')}</p>
+              )}
+            </div>
+          ) : null}
 
           <div className="grid gap-3 rounded-panel border border-border bg-card p-4">
             <div className="grid gap-0.5">

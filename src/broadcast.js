@@ -160,6 +160,49 @@ Wajib:
 - Jangan menambah informasi, janji, ajakan, emoji, atau salam.
 - Keluarkan HANYA teks pesannya.`;
 
+const PROMPT_PEMBUKA = `Kamu menulis kalimat PEMBUKA untuk pesan WhatsApp ke seorang customer. Sesudah kalimatmu, pesan broadcast yang diberikan dikirim apa adanya.
+
+Tujuannya: customer merasa pesan ini nyambung dengan obrolan terakhirnya, bukan pesan massal.
+
+Wajib:
+- Rujuk hal terakhir yang dibahas atau ditanyakan customer, dengan kata-kata sendiri dan singkat.
+- Kalau pesan terakhir customer belum dijawab, boleh minta maaf karena telat membalas.
+- Jangan menjawab pertanyaannya dengan fakta. Jangan menulis angka, harga, tanggal, jam, atau link. Jangan berjanji apa pun.
+- Baca isi pesan broadcast. Kalau isinya TIDAK membahas hal yang ditanyakan customer, jangan bilang pesan ini jawabannya atau "infonya ada di bawah". Cukup akui pertanyaannya, lalu sambungkan dengan wajar, misalnya "sekalian ada kabar dari Bang Al". Contoh salah: customer tanya copy trade, pesan membahas live trade, pembuka berkata "soal copy trade, ini infonya".
+- Jangan mengulang isi pesan broadcast dan jangan memperkenalkan diri.
+- Kalau pesan broadcast sudah dimulai dengan salam atau nama, kalimatmu tanpa salam.
+- Sapa "kak", atau nama yang diberikan. Gaya chat santai dan sopan, tanpa emoji.
+- Paling banyak dua kalimat pendek, total di bawah 30 kata.
+- Kalau tidak ada yang bisa dirujuk (hanya salam, stiker, atau kosong), tulis persis: KOSONG
+
+Keluarkan HANYA kalimat pembukanya.`;
+
+// Pembuka bukan tempat fakta: semua fakta ada di pesan dasar yang dikirim
+// apa adanya. Kata yang biasanya mengawali janji ditolak di sini, bukan di
+// prompt, dengan alasan yang sama seperti periksaVariasi.
+const POLA_JANJI = /\b(?:dijamin|jaminan|pasti untung|gratis|diskon|promo|bonus|profit|cuan|untung|garansi|refund)\b/i;
+
+/**
+ * Menerima kalimat pembuka AI hanya kalau ia tidak membawa fakta sendiri.
+ * Mengembalikan teks yang sudah dibersihkan, atau null (= pesan dasar saja).
+ */
+function periksaPembuka(teks) {
+  let isi = String(teks || '').trim();
+  isi = isi.replace(/^(?:pembuka|kalimat pembuka|hasil)\s*:\s*/i, '').replace(/^["'“”‘’]+|["'“”‘’]+$/g, '').trim();
+  if (!isi || /^kosong\.?$/i.test(isi)) return null;
+  if (/\n/.test(isi)) return null;
+  if (POLA_LINK.test(isi)) { POLA_LINK.lastIndex = 0; return null; }
+  POLA_LINK.lastIndex = 0;
+  if (/\d/.test(isi)) return null;
+  if (POLA_JANJI.test(isi)) return null;
+  if (/[{}]/.test(isi)) return null;
+  // "ini infonya:" menyiratkan pesan di bawahnya adalah jawaban.
+  if (/:$/.test(isi)) return null;
+  if (isi.length > 220) return null;
+  if ((isi.match(/[.!?](?:\s|$)/g) || []).length > 2) return null;
+  return isi;
+}
+
 /** Isi yang benar-benar diterima satu customer. */
 function susunPesan(body, nama, denganKalimatBerhenti = true) {
   const isi = String(body || '').replace(PLACEHOLDER_NAMA, namaUntukSapaan(nama)).trim();
@@ -255,7 +298,7 @@ function ringkasError(error) {
  * @param deps.onProgress (companyId, broadcastId) => void — memberi tahu layar
  */
 async function putaranBroadcast({
-  database, kirim, variasikan = null, onProgress = () => {}, logger = null, sekarangMs = Date.now(),
+  database, kirim, variasikan = null, personalisasi = null, onProgress = () => {}, logger = null, sekarangMs = Date.now(),
 }) {
   const hasil = { terkirim: 0, gagal: 0, dijeda: 0, selesai: 0 };
   const kabari = (companyId, broadcastId) => {
@@ -306,6 +349,17 @@ async function putaranBroadcast({
         });
         isi = periksaVariasi(penerima.body, usulan) || penerima.body;
       }
+      // Pembuka per orang, sama sifatnya dengan variasi: gagal atau ditolak
+      // penjaga berarti pesan dasar saja yang terkirim.
+      if (penerima.aiPersonal && personalisasi) {
+        const usulan = await Promise.resolve(personalisasi(companyId, penerima.chatId, penerima.name, penerima.body))
+          .catch((error) => {
+            logger?.warn?.({ err: error, companyId }, 'Broadcast: pembuka AI gagal, memakai pesan dasar');
+            return null;
+          });
+        const pembuka = periksaPembuka(usulan);
+        if (pembuka) isi = `${pembuka}\n\n${isi}`;
+      }
       const teks = susunPesan(isi, penerima.name, penerima.optOutFooter);
       try {
         const sent = await kirim(companyId, penerima.chatId, teks);
@@ -343,7 +397,7 @@ async function putaranBroadcast({
 
 module.exports = {
   TEMPO, JAM_KIRIM, MAKS_PENERIMA, KLAIM_KEDALUWARSA_MENIT, GAGAL_BERUNTUN_MAKS, KALIMAT_BERHENTI,
-  PROMPT_VARIASI,
+  PROMPT_VARIASI, PROMPT_PEMBUKA,
   tempoUntuk, namaUntukSapaan, susunPesan, mintaBerhenti, dalamJamKirim, awalHariLokal,
-  jedaSetelah, periksaVariasi, putaranBroadcast,
+  jedaSetelah, periksaVariasi, periksaPembuka, putaranBroadcast,
 };

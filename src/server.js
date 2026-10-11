@@ -8170,6 +8170,58 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     };
   });
 
+  // Contoh pembuka untuk paling banyak tiga penerima sungguhan, sebelum
+  // supervisor menekan kirim. Penjaganya sama dengan pengiriman, jadi yang
+  // terlihat di sini sama dengan yang akan keluar.
+  app.post('/v1/broadcasts/personal-preview', {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['body', 'chatIds'],
+        additionalProperties: false,
+        properties: {
+          body: { type: 'string', minLength: 1, maxLength: 4000 },
+          optOutFooter: { type: 'boolean', default: true },
+          chatIds: { type: 'array', minItems: 1, maxItems: 3, items: { type: 'string', minLength: 1, maxLength: 128 } },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    if (!broadcastGuard(request, reply)) return reply;
+    const companyId = request.agneeSession.companyId;
+    const companyAi = await getCompanyAi(companyId);
+    if (!companyAi.enabled) return aiUnavailable(reply, companyAi);
+    if (coachRateLimited(companyId)) {
+      return reply.code(429).send({ error: 'Terlalu banyak permintaan AI. Coba lagi nanti.' });
+    }
+    const provider = await getWhatsappProvider(companyId);
+    const { recipients: sah } = await broadcastAudience(companyId, provider);
+    const byChat = new Map(sah.map((row) => [row.chatId, row]));
+    const body = request.body.body.trim();
+    const footer = request.body.optOutFooter !== false;
+    const samples = [];
+    for (const chatId of [...new Set(request.body.chatIds)]) {
+      const row = byChat.get(chatId);
+      if (!row) continue;
+      const usulan = await tulisPembukaBroadcast(companyId, chatId, row.name, body, { meter: false })
+        .catch((error) => { app.log.warn({ err: error, companyId }, 'Pratinjau pembuka broadcast gagal'); return null; });
+      const opener = broadcast.periksaPembuka(usulan);
+      samples.push({
+        chatId,
+        name: row.name || null,
+        opener,
+        // 'none' = tidak ada yang bisa dirujuk, 'rejected' = ditolak penjaga.
+        // Keduanya berarti pesan dasar saja yang terkirim.
+        status: opener ? 'ok' : (!usulan || /^\W*kosong\W*$/i.test(String(usulan).trim()) ? 'none' : 'rejected'),
+        text: broadcast.susunPesan(opener ? `${opener}\n\n${body}` : body, row.name, footer),
+      });
+    }
+    if (!samples.length) {
+      return reply.code(422).send({ error: 'Penerima contoh tidak ditemukan. Muat ulang halaman.' });
+    }
+    return { samples };
+  });
+
   app.post('/v1/broadcasts', {
     schema: {
       body: {
@@ -8181,6 +8233,7 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
           body: { type: 'string', minLength: 1, maxLength: 4000 },
           optOutFooter: { type: 'boolean', default: true },
           aiVariation: { type: 'boolean', default: false },
+          aiPersonal: { type: 'boolean', default: false },
           // Pengakuan bahwa pemilik tahu risiko mengirim ke kontak yang belum
           // terlihat membalas. Tanpa ini server membuang mereka, apa pun yang
           // dikirim layar: konfirmasi di layar saja bisa dilewati lewat API.
@@ -8245,6 +8298,7 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
       body,
       optOutFooter: request.body.optOutFooter !== false,
       aiVariation: request.body.aiVariation === true,
+      aiPersonal: request.body.aiPersonal === true,
       audience: request.body.audience || {},
       scheduledAt,
       createdBy: request.agneeSession.userId || null,
@@ -8257,6 +8311,7 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
       entityType: 'broadcast', entityId: created.id,
       metadata: {
         name, recipients: recipients.length, scheduledAt, aiVariation: request.body.aiVariation === true,
+        aiPersonal: request.body.aiPersonal === true,
         unprovenRecipients: recipients.filter((row) => row.relation === 'unproven').length,
       },
     });
@@ -8330,6 +8385,76 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
    * mengirim paling banyak satu pesan per company; jarak antar pesan yang
    * sebenarnya diatur `broadcast.TEMPO`.
    */
+  /**
+   * Percakapan terakhir sebuah chat sebagai baris teks untuk pembuka
+   * broadcast. Dibaca dari WhatsApp dulu supaya balasan yang diketik langsung
+   * di HP ikut terlihat; catatan database hanya cadangan. Broadcast mengirim
+   * satu pesan tiap 20–45 detik, jadi satu pembacaan per pesan tidak
+   * membebani halaman.
+   */
+  async function recentConversationLines(companyId, chatId) {
+    let rows = null;
+    try {
+      const { client } = await waFor(companyId, chatId);
+      if (client) {
+        let timer;
+        const hasil = await Promise.race([
+          getMessagesForUi(client, chatId, 10).catch(() => null),
+          new Promise((resolve) => { timer = setTimeout(() => resolve(null), 10_000); }),
+        ]).finally(() => clearTimeout(timer));
+        rows = (hasil?.messages || []).map((m) => ({
+          fromMe: m.fromMe,
+          body: m.body || m.caption || (m.type === 'sticker' ? '(stiker)' : m.mimetype ? '(gambar atau berkas)' : ''),
+        }));
+      }
+    } catch { /* jatuh ke catatan database */ }
+    if (!rows?.length && canCall('listRecentChatTexts')) {
+      rows = await database.listRecentChatTexts(companyId, chatId, 10).catch(() => []);
+    }
+    return (rows || [])
+      .filter((row) => row.body && String(row.body).trim())
+      .slice(-10)
+      .map((row) => `${row.fromMe ? 'Kami' : 'Customer'}: ${String(row.body).replace(/\s+/g, ' ').slice(0, 300)}`);
+  }
+
+  /**
+   * Kalimat pembuka broadcast untuk satu penerima, mentah dari model (penjaga
+   * `broadcast.periksaPembuka` dijalankan pemanggil). Pratinjau tidak memotong
+   * kuota (seperti Coach); yang terkirim ke customer memotong.
+   */
+  async function tulisPembukaBroadcast(companyId, chatId, nama, body, { meter = true } = {}) {
+    if (!config.llmEnabled) return null;
+    const companyAi = await getCompanyAi(companyId);
+    if (!companyAi.enabled) return null;
+    const lines = await recentConversationLines(companyId, chatId);
+    // Tanpa satu pun pesan customer yang berisi (bukan sekadar "Halo",
+    // "P", "test"), tidak ada yang bisa dirujuk; model yang tetap dipanggil
+    // mengulang isi broadcast sebagai pembuka (uji 11 Okt).
+    const berisi = lines.some((line) => line.startsWith('Customer:')
+      && line.slice('Customer:'.length).replace(/[^\p{L}\s]/gu, ' ').trim().split(/\s+/).length >= 3);
+    if (!berisi) return null;
+    if (meter) {
+      const usage = await database.incrementAiMessageCount(companyId).catch(() => ({ exceeded: false }));
+      if (usage.exceeded) return null;
+    }
+    const sapaan = broadcast.namaUntukSapaan(nama);
+    const result = await llmService.generateReply([
+      `Nama customer: ${sapaan === 'Kak' ? '(tidak diketahui, sapa "kak")' : sapaan}`,
+      '',
+      'Percakapan terakhir (lama ke baru):',
+      ...lines,
+      '',
+      'Pesan broadcast yang dikirim sesudah kalimatmu:',
+      body,
+    ].join('\n'), {
+      systemPrompt: broadcast.PROMPT_PEMBUKA,
+      companyId,
+      purpose: 'broadcast_personal',
+      modelChain: companyAi.modelChain,
+    });
+    return result?.text || null;
+  }
+
   function startBroadcastSender() {
     let berjalan = false;
     const jalankan = async () => {
@@ -8356,6 +8481,7 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
             });
             return result?.text || null;
           },
+          personalisasi: (companyId, chatId, nama, body) => tulisPembukaBroadcast(companyId, chatId, nama, body),
           kirim: async (companyId, chatId, text) => {
             const sent = await sendOutbound(companyId, chatId, text);
             await database.recordOutboundReply({

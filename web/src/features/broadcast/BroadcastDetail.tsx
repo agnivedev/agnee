@@ -192,7 +192,7 @@ export function BroadcastDetail({ id, onBack }: { id: string; onBack: () => void
                         {/* Dengan variasi AI, tiap orang menerima kalimat yang
                             berbeda; supervisor harus bisa membaca persis apa yang
                             ditulis atas nama perusahaannya. */}
-                        {b.aiVariation && row.sentBody ? (
+                        {(b.aiVariation || b.aiPersonal) && row.sentBody ? (
                           <details className="mt-1">
                             <summary className="cursor-pointer font-semibold text-green-dark">{t('broadcast.showSent')}</summary>
                             <p className="mt-1.5 mb-0 rounded-[10px] bg-[#dcf3d6] px-2.5 py-2 whitespace-pre-wrap text-ink">{row.sentBody}</p>
@@ -215,6 +215,7 @@ export function BroadcastDetail({ id, onBack }: { id: string; onBack: () => void
           <p className="m-0 text-xs text-ink/60">
             {b.optOutFooter ? t('broadcast.footerIncluded') : t('broadcast.footerExcluded')}
             {b.aiVariation ? ` ${t('broadcast.variationIncluded')}` : ''}
+            {b.aiPersonal ? ` ${t('broadcast.personalIncluded')}` : ''}
             {/\{\s*nama\s*\}/i.test(b.body) ? ` ${t('broadcast.nameReplaced')}` : ''}
           </p>
         </aside>

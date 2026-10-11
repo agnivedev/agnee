@@ -90,6 +90,17 @@
 
 ### Added
 
+- **Broadcast: pembuka yang disesuaikan dengan percakapan tiap orang (11 Okt).**
+  Saklar baru di langkah Pesan. AI membaca percakapan terakhir tiap penerima
+  (dari WhatsApp, cadangannya catatan Agnee) dan menulis satu kalimat pembuka
+  yang menyambung ke obrolan itu, misalnya minta maaf karena telat membalas
+  pertanyaannya; pesan broadcast dikirim persis di bawahnya, jadi link dan angka
+  tidak bisa berubah. Penjaga di kode menolak pembuka yang memuat angka, link,
+  kata janji, `{}`, lebih dari dua kalimat, atau diakhiri titik dua; chat yang
+  isinya hanya sapaan tidak diberi pembuka. Tombol "Lihat 3 contoh" menyusun
+  pembuka untuk tiga penerima sungguhan sebelum kirim (tidak memotong kuota).
+  Migrasi `051`, route `POST /v1/broadcasts/personal-preview`, purpose AI
+  `broadcast_personal`. Diuji dengan model sungguhan di lokal.
 - **Impor chat dari WhatsApp ke Lead List, dikelompokkan.** Agnee hanya tahu
   percakapan yang lewat sejak nomor tersambung, sedangkan Inbox membaca daftar
   chat langsung dari ponsel. Akibatnya Lead List dan broadcast tampak hampir

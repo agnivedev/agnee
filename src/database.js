@@ -33,7 +33,7 @@ const MIGRATION_LOCK_KEY = 4_100_2026;
 
 /** Satu broadcast beserta hitungan status penerimanya. */
 const BROADCAST_COLUMNS = `
-  b.id, b.name, b.body, b.opt_out_footer AS "optOutFooter", b.ai_variation AS "aiVariation", b.audience, b.status,
+  b.id, b.name, b.body, b.opt_out_footer AS "optOutFooter", b.ai_variation AS "aiVariation", b.ai_personal AS "aiPersonal", b.audience, b.status,
   b.scheduled_at AS "scheduledAt", b.pause_reason AS "pauseReason",
   b.created_at AS "createdAt", b.started_at AS "startedAt", b.finished_at AS "finishedAt",
   u.display_name AS "createdByName",
@@ -3433,6 +3433,28 @@ class Database {
     return result.rowCount > 0;
   }
 
+  /**
+   * Pesan terakhir sebuah chat dari catatan Agnee sendiri (lama ke baru):
+   * pesan masuk dan balasan yang dikirim lewat Agnee. Balasan yang diketik
+   * langsung di HP tidak tercatat di sini, jadi ini cadangan saat halaman
+   * WhatsApp tidak menjawab, bukan sumber utama.
+   */
+  async listRecentChatTexts(companyId, chatId, limit = 10) {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(`
+      SELECT * FROM (
+        SELECT false AS "fromMe", body, created_at AS "at" FROM inbound_messages
+        WHERE company_id = $1 AND chat_id = $2 AND body IS NOT NULL AND body <> ''
+        UNION ALL
+        SELECT true AS "fromMe", body, created_at AS "at" FROM outbound_replies
+        WHERE company_id = $1 AND chat_id = $2
+        ORDER BY "at" DESC
+        LIMIT $3
+      ) recent ORDER BY "at" ASC
+    `, [companyId, chatId, limit]);
+    return result.rows;
+  }
+
   /** Kapan pesan masuk ini pertama kali dicatat, atau null kalau belum pernah. */
   async inboundRecordedAt(companyId, waMessageId) {
     if (!this.enabled || !waMessageId) return null;
@@ -4057,7 +4079,10 @@ class Database {
    * Membuat broadcast beserta daftar penerimanya dalam satu transaksi: tidak
    * boleh ada broadcast yang terlanjur berjalan dengan daftar setengah jadi.
    */
-  async createBroadcast({ name, body, optOutFooter = true, aiVariation = false, audience = {}, scheduledAt = null, createdBy = null, recipients }, companyId) {
+  async createBroadcast({
+    name, body, optOutFooter = true, aiVariation = false, aiPersonal = false,
+    audience = {}, scheduledAt = null, createdBy = null, recipients,
+  }, companyId) {
     if (!this.enabled) return null;
     const client = await this.pool.connect();
     try {
@@ -4065,11 +4090,12 @@ class Database {
       const terjadwal = scheduledAt && new Date(scheduledAt).getTime() > Date.now();
       const created = await client.query(`
         INSERT INTO broadcasts
-          (company_id, name, body, opt_out_footer, ai_variation, audience, status, scheduled_at, created_by, started_at)
-        VALUES ($1, $2, $3, $4, $9, $5::jsonb, $6, $7, $8, CASE WHEN $6 = 'sending' THEN NOW() END)
+          (company_id, name, body, opt_out_footer, ai_variation, ai_personal, audience, status, scheduled_at, created_by, started_at)
+        VALUES ($1, $2, $3, $4, $9, $10, $5::jsonb, $6, $7, $8, CASE WHEN $6 = 'sending' THEN NOW() END)
         RETURNING id
       `, [companyId, name, body, optOutFooter, JSON.stringify(audience || {}),
-        terjadwal ? 'scheduled' : 'sending', terjadwal ? scheduledAt : null, createdBy, Boolean(aiVariation)]);
+        terjadwal ? 'scheduled' : 'sending', terjadwal ? scheduledAt : null, createdBy, Boolean(aiVariation),
+        Boolean(aiPersonal)]);
       const broadcastId = created.rows[0].id;
       await client.query(`
         INSERT INTO broadcast_recipients (broadcast_id, company_id, chat_id, name, phone)
@@ -4262,7 +4288,8 @@ class Database {
       )
         AND b.id = r.broadcast_id
       RETURNING r.id, r.broadcast_id AS "broadcastId", r.chat_id AS "chatId", r.name,
-                b.body, b.opt_out_footer AS "optOutFooter", b.ai_variation AS "aiVariation"
+                b.body, b.opt_out_footer AS "optOutFooter", b.ai_variation AS "aiVariation",
+                b.ai_personal AS "aiPersonal"
     `, [companyId]);
     return result.rows[0] || null;
   }

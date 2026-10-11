@@ -7,6 +7,7 @@ export type Broadcast = {
   body: string;
   optOutFooter: boolean;
   aiVariation: boolean;
+  aiPersonal: boolean;
   status: BroadcastStatus;
   scheduledAt: string | null;
   pauseReason: string | null;

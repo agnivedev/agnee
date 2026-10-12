@@ -29,7 +29,9 @@ services:
         # oleh deploy/remote-deploy.sh. Lihat Dockerfile untuk alasannya.
         GIT_SHA: ${GIT_SHA:-unknown}
     restart: unless-stopped
-    stop_grace_period: 20s
+    # Menutup Chromium tiap nomor WhatsApp perlu waktu; kalau dipotong paksa,
+    # IndexedDB sesi bisa kosong dan nomornya harus scan QR lagi.
+    stop_grace_period: 60s
     # From inside this machine the public address bounces to the outer host
     # (certificate for radmond.com); host-gateway reaches the local nginx,
     # which serves app.insight.agnive.co itself. Used for the Hub feed (9c).

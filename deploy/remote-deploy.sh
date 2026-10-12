@@ -52,6 +52,45 @@ build_lain_berjalan() {
   pgrep -af '^([^ ]*/)?docker(-compose)? +(compose +)?(buildx +)?build( |$)' || true
 }
 
+# Sesi WhatsApp (login tertaut) hidup di volume Docker. 12 Okt 2026 dua nomor
+# kehilangan sesinya setelah container dimatikan paksa saat Chromium menulis,
+# dan tidak ada salinan untuk memulihkannya tanpa scan QR. Salinan diambil
+# SESUDAH app berhenti (keadaan tenang), sebelum versi baru naik. Gagal
+# menyalin tidak menggagalkan deploy: yang hilang hanya jaring pengaman.
+#
+# Pulihkan satu salinan (app harus berhenti dulu):
+#   docker compose stop app
+#   tar -xzf <file> -C "$(docker volume inspect -f '{{.Mountpoint}}' agnee_whatsapp-session)"
+#   docker compose up -d app
+SESSION_VOLUME="${DEPLOY_WA_SESSION_VOLUME:-agnee_whatsapp-session}"
+BACKUP_DIR="${DEPLOY_WA_BACKUP_DIR:-/var/backups/agnee-wa-session}"
+BACKUP_KEEP="${DEPLOY_WA_BACKUP_KEEP:-3}"
+
+cadangkan_sesi_wa() {
+  local sumber tujuan
+  sumber="$(docker volume inspect -f '{{.Mountpoint}}' "$SESSION_VOLUME" 2>/dev/null || true)"
+  if [ -z "$sumber" ] || [ ! -d "$sumber" ]; then
+    echo "PERINGATAN: volume ${SESSION_VOLUME} tidak ditemukan, sesi WhatsApp tidak dicadangkan." >&2
+    return 0
+  fi
+  sisa="$(sisa_disk_mb)"
+  if [ -z "$sisa" ] || [ "$sisa" -lt "$MIN_FREE_MB" ]; then
+    echo "PERINGATAN: sisa disk ${sisa:-?} MB, sesi WhatsApp tidak dicadangkan." >&2
+    return 0
+  fi
+  mkdir -p "$BACKUP_DIR"
+  tujuan="${BACKUP_DIR}/wa-session-$(date -u +%Y%m%dT%H%M%SZ).tar.gz"
+  if tar -C "$sumber" --exclude='Cache' --exclude='Code Cache' --exclude='GPUCache' --exclude='Singleton*' \
+       -czf "${tujuan}.tmp" . 2>/dev/null; then
+    mv "${tujuan}.tmp" "$tujuan"
+    echo "==> Sesi WhatsApp dicadangkan: ${tujuan} ($(du -h "$tujuan" | cut -f1))"
+  else
+    rm -f "${tujuan}.tmp"
+    echo "PERINGATAN: gagal mencadangkan sesi WhatsApp, deploy dilanjutkan." >&2
+  fi
+  ls -1t "$BACKUP_DIR"/wa-session-*.tar.gz 2>/dev/null | tail -n +"$((BACKUP_KEEP + 1))" | xargs -r rm -f
+}
+
 menunggu=0
 while [ -n "$(build_lain_berjalan)" ]; do
   if [ "$menunggu" -ge "$BUILD_WAIT_SECONDS" ]; then
@@ -87,6 +126,10 @@ fi
 echo "==> Sisa disk ${sisa} MB (minimal ${MIN_FREE_MB} MB), mulai build"
 
 docker compose build app mcp
+# Hentikan app dengan tenang dulu (stop_grace_period di compose.yml): Chromium
+# tiap nomor perlu menulis dan menutup sebelum folder sesi disalin.
+docker compose stop app || true
+cadangkan_sesi_wa
 docker compose up -d app mcp
 docker image prune -f >/dev/null || true
 

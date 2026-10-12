@@ -782,11 +782,15 @@ class WhatsappManager {
     }
   }
 
-  /** Destroy every client of every company. */
+  /**
+   * Destroy every client of every company, all at once. Closing browsers one
+   * by one can outlast the container's stop grace period; the leftover
+   * Chromium is then SIGKILLed mid-write and WhatsApp Web's IndexedDB comes
+   * back empty (QR login again). 12 Okt 2026: AL Gold FX and Beweix Digital.
+   */
   async destroyAll() {
-    for (const companyId of new Set([...this._entries.values()].map((e) => e.companyId))) {
-      await this.destroyCompany(companyId).catch(() => {});
-    }
+    const companyIds = new Set([...this._entries.values()].map((e) => e.companyId));
+    await Promise.all([...companyIds].map((companyId) => this.destroyCompany(companyId).catch(() => {})));
     this._entries.clear();
     this._sse.clear();
   }

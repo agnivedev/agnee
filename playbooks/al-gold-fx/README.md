@@ -6,7 +6,7 @@ Ditulis ulang 10 Oktober 2026 dari arahan Hanny ("start from ini, fokus"). Versi
 
 | File | Cakupan |
 | --- | --- |
-| `umum.md` | Persona Mansur, larangan, tanya jawab (live trade, copy trade, cara gabung, catatan sementara Bang Al sakit), menggali kebutuhan, keberatan, closing (daftar Valetax, "sampai jumpa di live trade"), kapan menyerahkan ke tim |
+| `umum.md` | Persona Mansur, larangan, tanya jawab (live trade, copy trade, cara gabung), menggali kebutuhan, keberatan, closing (daftar Valetax, "sampai jumpa di live trade"), kapan menyerahkan ke tim |
 | `produk.json` | Manifest, tanpa playbook per produk |
 
 Pack `knowledge/clients/al-gold-fx/tenant.json` memberi nama asisten Mansur.
@@ -16,10 +16,6 @@ Pack `knowledge/clients/al-gold-fx/tenant.json` memberi nama asisten Mansur.
 - Asisten bernama **Mansur**, memperkenalkan diri sebagai asisten virtual Bang Al. Karena itu `ai_identity` company ini `chatbot`; dengan `team_member` aturan bawaan Agnee melarang menyebut "asisten virtual".
 - Yang dibahas hanya tiga hal: live trade lewat Zoom (khusus member, hampir setiap hari), copy trade yang akan datang (manual dan auto expert), dan cara gabung lewat broker Valetax: https://ma.valetax-indonesia.com/p/5224162
 - Produk lain (kelas, grup sinyal, indikator) tidak ditawarkan; pertanyaannya diteruskan ke tim.
-
-## SEMENTARA, hapus setelah Bang Al aktif lagi
-
-Bagian "SEMENTARA: Bang Al sedang sakit" di tanya jawab: Bang Al dirawat di rumah sakit seminggu sampai 10 Oktober, live trade mulai Senin 12 Oktober 2026. Tanggalnya ditulis lengkap supaya kalimatnya tidak bergeser maknanya setelah hari Senin lewat. Setelah live jalan lagi, hapus bagian itu dan muat ulang.
 
 ## Belum tertulis (Mansur meneruskan ke tim)
 
@@ -40,7 +36,6 @@ node scripts/load-playbooks.js playbooks/al-gold-fx --apply  # menulis
 | "Gimana cara gabung?" | Link Valetax di pesan yang sama, lalu kabari tim setelah daftar |
 | "Live jam berapa, link Zoom?" | Khusus member, jam dan link dari tim, plus cara gabung |
 | "Copy trade kapan, bayar berapa?" | Manual dan auto expert, belum ada tanggal dan biaya |
-| "Bang Al kemana seminggu ini?" | Sakit dan dirawat, live lagi Senin 12 Oktober, tanpa candaan |
 | Pesan lama belum dibalas, lalu "kok ga dibales2" | Minta maaf telat, jelaskan, lalu jawab pertanyaan lamanya |
 | "Valetax aman? teregulasi OJK?" | Tidak menilai, diteruskan ke tim |
 | "Ini bot ya?" | Mengaku asisten virtual, menawarkan tim |
@@ -84,4 +79,3 @@ Lalu commit perubahan berkasnya dengan `[skip ci]` supaya repo tetap sama dengan
 - Gambar dan stiker tanpa teks tidak dibalas Mansur; kalau isinya screenshot pendaftaran, tim yang melihat.
 - "Aku teruskan ke tim" belum memberi tahu siapa pun. Notifikasi WhatsApp ke owner dan leader menunggu nomor mereka.
 - Belum dikonfirmasi: isi kolom kode mitra Valetax (apakah `5224162`), jam live dan link Zoom, langkah setelah daftar.
-- Hapus bagian SEMENTARA "Bang Al sedang sakit" setelah live Senin 12 Oktober berjalan.

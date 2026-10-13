@@ -113,6 +113,10 @@ function loadConfig(overrides = {}) {
     // 'agnive' berarti di server mana pun, siapa yang pertama mendaftar dengan
     // nama "Agnive" menerima data funder.
     insightWebhookCompany: (process.env.INSIGHT_WEBHOOK_COMPANY || '').trim(),
+    // Webhook lead dari website (Bull Babe landing). Kosong = pintu tertutup (404).
+    // Company penerima wajib disebut eksplisit, sama seperti webhook Insight.
+    leadWebhookSecret: process.env.LEAD_WEBHOOK_SECRET || '',
+    leadWebhookCompany: (process.env.LEAD_WEBHOOK_COMPANY || '').trim(),
     // Agnive Insight's public Hub feed — published listings only, no credentials.
     insightApiUrl: (process.env.INSIGHT_API_URL || 'https://app.insight.agnive.co').replace(/\/$/, ''),
     ackEnabled: process.env.WA_ACK_ENABLED === 'true',
@@ -2493,6 +2497,138 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     }
     broadcastEvent(companyId, 'hub', { threadId: synced.id });
     return reply.code(200).send({ ok: true, id: synced.id });
+  });
+
+  // ── Lead webhook (website → Agnee) ─────────────────────────────────────────
+  // Form di landing page mengirim lead baru ke sini; Agnee mencatat lead di
+  // pipeline dan mengirim SATU pesan sambutan WhatsApp ke nomor yang diisi
+  // orangnya sendiri. Tanda tangannya sama dengan webhook Insight: HMAC-SHA256
+  // atas `${timestamp}.${bodyMentah}` dengan LEAD_WEBHOOK_SECRET, di header
+  // x-agnive-signature (sha256=<hex>) dan x-agnive-timestamp (milidetik),
+  // ditolak bila selisihnya lebih dari 5 menit. Kunci layanan API_KEY tidak
+  // berlaku di sini dan tidak boleh dipakai website.
+  const LEAD_WELCOME_WINDOW_MS = 24 * 60 * 60_000;
+  const LEAD_HOURLY_CAP = 60;
+  const leadWelcomes = new Map(); // submissionId -> hasil, untuk kiriman ulang
+  const leadByChat = new Map(); // chatId -> kapan terakhir disambut
+  let leadSentTimes = [];
+
+  function parseLead(body) {
+    const l = body?.lead;
+    if (body?.version !== 1 || body?.source !== 'bullbabe-landing' || !l || typeof l !== 'object') return null;
+    const submissionId = str(String(l.submissionId ?? ''), 64);
+    const name = (str(l.name, 100) || '').trim();
+    const whatsapp = (str(l.whatsapp, 40) || '').trim();
+    if (!submissionId || !name || !whatsapp) return null;
+    return {
+      submissionId,
+      name,
+      whatsapp,
+      email: str(l.email, 200),
+      broker: (str(l.broker, 80) || '').trim(),
+      accountStatus: l.accountStatus === 'have' ? 'have' : 'new',
+      accountNumber: /^\d{5,12}$/.test(String(l.accountNumber || '')) ? String(l.accountNumber) : '',
+      language: l.language === 'en' ? 'en' : 'id',
+    };
+  }
+
+  /** Pesan sambutan. Tidak menjanjikan angka rebate: itu dikonfirmasi tim. */
+  function leadWelcomeText(lead) {
+    const first = lead.name.split(/\s+/)[0];
+    const hasBroker = lead.broker && !/^(belum tahu|not sure)$/i.test(lead.broker);
+    if (lead.language === 'en') {
+      const pick = hasBroker ? `You picked ${lead.broker}. ` : '';
+      const next = lead.accountStatus === 'have'
+        ? 'You already have an account, so it needs to be moved under our IB. Reply with your MT4/MT5 account number and we will walk you through it.'
+        : 'Once you finish signing up, reply here with your MT4/MT5 account number so we can link it to your rebate.';
+      return `Hi ${first}, thanks for registering with Bull Babe Capital | Rebate. ${pick}${next} Never send your password.`;
+    }
+    const pick = hasBroker ? `Kamu pilih ${lead.broker}. ` : '';
+    const next = lead.accountStatus === 'have'
+      ? 'Karena kamu sudah punya account, account itu perlu dipindah ke IB kami. Balas chat ini dengan nomor account MT4/MT5 kamu, nanti kami bantu langkahnya.'
+      : 'Setelah selesai daftar, balas chat ini dengan nomor account MT4/MT5 kamu supaya kami bisa hubungkan ke rebate.';
+    return `Halo ${first}, terima kasih sudah daftar di Bull Babe Capital | Rebate. ${pick}${next} Jangan pernah kirim password.`;
+  }
+
+  app.post('/webhook/lead', {
+    bodyLimit: 64 * 1024,
+    preParsing: captureRawBody(64 * 1024),
+  }, async (request, reply) => {
+    if (!config.leadWebhookSecret || !config.leadWebhookCompany) return reply.code(404).send({ error: 'Not found' });
+    const timestamp = String(request.headers['x-agnive-timestamp'] || '');
+    const signature = String(request.headers['x-agnive-signature'] || '');
+    const expected = 'sha256=' + crypto.createHmac('sha256', config.leadWebhookSecret)
+      .update(`${timestamp}.`).update(request.rawBody || Buffer.alloc(0)).digest('hex');
+    if (!signature || !safeEqual(signature, expected)) {
+      app.log.warn('Lead webhook: bad signature');
+      return reply.code(401).send({ error: 'Unauthorized' });
+    }
+    if (!/^\d{10,16}$/.test(timestamp) || Math.abs(Date.now() - Number(timestamp)) > INSIGHT_SKEW_MS) {
+      return reply.code(401).send({ error: 'Stale request' });
+    }
+    const lead = parseLead(request.body);
+    if (!lead) return reply.code(400).send({ error: 'Invalid lead payload' });
+    let chatId;
+    try { chatId = normalizeChatId(lead.whatsapp, config.defaultCountryCode); } catch { return reply.code(400).send({ error: 'Invalid WhatsApp number' }); }
+
+    // Kiriman ulang untuk submission yang sama mengembalikan hasil yang sama, tanpa kirim lagi.
+    const seen = leadWelcomes.get(lead.submissionId);
+    if (seen) return reply.code(200).send({ ...seen, duplicate: true });
+
+    if (!database.status().connected && !config.demoMode) return reply.code(503).send({ error: 'Database unavailable' });
+    const companyId = config.demoMode && !database.status().connected
+      ? 'demo' : await database.resolveCompanyId(config.leadWebhookCompany);
+    if (!companyId) {
+      app.log.error({ company: config.leadWebhookCompany }, 'Lead webhook: LEAD_WEBHOOK_COMPANY tidak ditemukan');
+      return reply.code(503).send({ error: 'Receiving company not configured' });
+    }
+
+    // Catat lead di pipeline lebih dulu: lead tidak boleh hilang karena WhatsApp belum siap.
+    if (database.enabled && database.connected && typeof database.saveLeadState === 'function') {
+      await database.saveLeadState({
+        chatId, stage: 'warm', score: 30,
+        title: `${lead.name}${lead.broker ? ` · ${lead.broker}` : ''}`,
+        detail: `Dari website. ${lead.accountStatus === 'have' ? 'Sudah punya account' : 'Belum punya account'}${lead.accountNumber ? ` (${lead.accountNumber})` : ''}.`,
+        assignee: null,
+      }, companyId).catch((error) => app.log.warn({ err: error }, 'Lead webhook: could not save lead state'));
+    }
+
+    const finish = (result) => {
+      leadWelcomes.set(lead.submissionId, result);
+      setTimeout(() => leadWelcomes.delete(lead.submissionId), LEAD_WELCOME_WINDOW_MS).unref?.();
+      return reply.code(200).send(result);
+    };
+
+    const now = Date.now();
+    const last = leadByChat.get(chatId);
+    if (last && now - last < LEAD_WELCOME_WINDOW_MS) return finish({ ok: true, welcomed: false, reason: 'already_welcomed_today' });
+    if (typeof database.listBroadcastOptOuts === 'function' && database.enabled && database.connected) {
+      const optOuts = await database.listBroadcastOptOuts(companyId).catch(() => []);
+      if ((optOuts || []).some((row) => row.chatId === chatId)) return finish({ ok: true, welcomed: false, reason: 'opted_out' });
+    }
+    leadSentTimes = leadSentTimes.filter((at) => now - at < 60 * 60_000);
+    if (leadSentTimes.length >= LEAD_HOURLY_CAP) {
+      app.log.warn('Lead webhook: hourly cap reached');
+      return reply.code(429).send({ error: 'Too many leads this hour' });
+    }
+
+    const text = leadWelcomeText(lead);
+    try {
+      if (config.demoMode) {
+        demo.messages[chatId] ||= [];
+        demo.messages[chatId].push({ id: crypto.randomUUID(), body: text, fromMe: true, timestamp: Math.floor(now / 1000), type: 'chat', quoted: null });
+      } else {
+        await sendOutbound(companyId, chatId, text);
+      }
+    } catch (error) {
+      // Lead sudah tercatat. Pesan gagal (nomor belum tersambung, di luar jendela 24 jam Cloud API) tidak boleh membuat Fluent Forms mencoba terus.
+      app.log.warn({ err: error, chatId }, 'Lead webhook: welcome message not sent');
+      return finish({ ok: true, welcomed: false, reason: 'send_failed' });
+    }
+    leadSentTimes.push(now);
+    leadByChat.set(chatId, now);
+    setTimeout(() => leadByChat.delete(chatId), LEAD_WELCOME_WINDOW_MS).unref?.();
+    return finish({ ok: true, welcomed: true });
   });
 
   // ── Meta Cloud API webhook — public, no session ────────────────────────────

@@ -224,6 +224,39 @@ POST /v1/contacts/import
 Setiap send harus membawa `clientRequestId` stabil ketika request di-retry.
 Backend menyimpan receipt untuk mencegah pesan ganda.
 
+### Webhook lead dari website (`POST /webhook/lead`)
+
+Dipakai landing page Bull Babe: setiap lead baru dari Fluent Forms dicatat di
+pipeline dan disambut satu pesan WhatsApp. Tertutup (404) sampai dua variabel
+ini diisi di `.env` server:
+
+| Variabel | Isi |
+| --- | --- |
+| `LEAD_WEBHOOK_SECRET` | Rahasia panjang dan acak (mis. `openssl rand -hex 32`), berbeda dari `API_KEY`. Nilai yang sama dipasang di WordPress. |
+| `LEAD_WEBHOOK_COMPANY` | Nama/slug company penerima. Nomor WhatsApp company ini yang mengirim sambutan. |
+
+Format permintaan: `Content-Type: application/json`, header
+`x-agnive-timestamp` (milidetik) dan `x-agnive-signature` =
+`sha256=` + HMAC-SHA256(secret, `${timestamp}.${bodyMentah}`).
+
+```json
+{ "version": 1, "source": "bullbabe-landing",
+  "lead": { "submissionId": "17", "name": "Rina Wijaya", "whatsapp": "08123456789",
+            "email": "rina@example.com", "broker": "Exness",
+            "accountStatus": "new", "accountNumber": "", "language": "id" } }
+```
+
+Balasan 200: `{ ok: true, welcomed: true }`, atau `welcomed: false` dengan
+`reason` (`already_welcomed_today`, `opted_out`, `send_failed`) — lead tetap
+tercatat. Pengirim tidak perlu mengulang. Kirim ulang `submissionId` yang sama
+dijawab `duplicate: true` tanpa mengirim lagi.
+
+Catatan Cloud API: pesan pertama ke kontak baru di luar jendela 24 jam butuh
+template yang disetujui Meta; rute ini mengirim teks bebas, jadi pada Cloud API
+sambutan bisa berstatus `send_failed` sampai template dipasang. WhatsApp Web
+(tidak resmi) tidak punya batas itu tetapi nomornya bisa diblokir; pakai nomor
+khusus dan jangan menaikkan batas 60 sambutan per jam.
+
 ## 9. MCP
 
 ### Tools

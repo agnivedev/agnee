@@ -1,5 +1,22 @@
 ## [Unreleased]
 
+- **Webhook lead dari website: `POST /webhook/lead`.** Form landing page (Fluent
+  Forms di WordPress) mengirim lead baru ke sini. Agnee mencatat lead di pipeline
+  (stage `warm`) dan mengirim satu pesan sambutan WhatsApp ke nomor yang diisi
+  orangnya, lewat nomor company penerima. Pintu tertutup (404) sampai
+  `LEAD_WEBHOOK_SECRET` dan `LEAD_WEBHOOK_COMPANY` diisi.
+  - Tanda tangan HMAC-SHA256 atas `${timestamp}.${body}` di `x-agnive-signature`,
+    `x-agnive-timestamp` ditolak bila selisih lebih dari 5 menit. `API_KEY`
+    layanan tidak berlaku di rute ini.
+  - Aman terhadap kiriman ulang: submission yang sama tidak mengirim dua kali,
+    nomor yang sama disapa paling banyak sekali per 24 jam, nomor yang berhenti
+    dari broadcast tidak disapa, dan maksimal 60 sambutan per jam.
+  - Lead tetap tercatat walau WhatsApp belum tersambung atau di luar jendela 24
+    jam Cloud API; hasilnya `welcomed:false, reason:'send_failed'` dengan status
+    200 supaya pengirim tidak mengulang terus.
+  - Pesan sambutan tidak menyebut angka rebate; isinya menyesuaikan sudah/belum
+    punya account dan bahasa (`id`/`en`). Tes: `test/lead-webhook.test.js`.
+
 - **Seluruh Latih AI bisa diubah lewat satu chat (9 Okt, `6b2fc68`).** Tombol
   "Train by chat" di pojok halaman Latih AI (semua tab) membuka asisten yang
   membaca dan mengusulkan perubahan untuk playbook (8 dokumen), fakta

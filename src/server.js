@@ -2628,13 +2628,12 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     }
 
     // Catat lead di pipeline lebih dulu: lead tidak boleh hilang karena WhatsApp belum siap.
-    if (database.enabled && database.connected && typeof database.saveLeadState === 'function') {
-      await database.saveLeadState({
-        chatId, stage: 'warm', score: 30,
+    if (database.enabled && database.connected && typeof database.recordWebsiteLead === 'function') {
+      await database.recordWebsiteLead({
+        chatId,
         title: `${lead.name}${lead.broker ? ` · ${lead.broker}` : ''}`,
         detail: `Dari website. ${lead.accountStatus === 'have' ? 'Sudah punya account' : 'Belum punya account'}${lead.accountNumber ? ` (${lead.accountNumber})` : ''}.`,
-        assignee: null,
-      }, companyId).catch((error) => app.log.warn({ err: error }, 'Lead webhook: could not save lead state'));
+      }, companyId).catch((error) => app.log.warn({ err: error }, 'Lead webhook: could not save lead'));
     }
 
     const finish = (result) => {

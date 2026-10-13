@@ -48,7 +48,7 @@ async function app(t, { secret = SECRET, company = 'bb', optOuts = [] } = {}) {
     async getActiveSessionUser(userId) { return userId === owner.id ? owner : null; },
     async setPresence() {},
     async getCompanyConfig() { return null; },
-    async saveLeadState(lead, companyId) { saved.push({ ...lead, companyId }); return lead; },
+    async recordWebsiteLead(lead, companyId) { saved.push({ ...lead, companyId }); return lead; },
     async listBroadcastOptOuts() { return optOuts; },
     async recordAuditLog() { return { id: 1 }; },
   };
@@ -73,7 +73,6 @@ test('lead bertanda tangan benar: tercatat di pipeline dan disambut satu kali', 
   assert.deepEqual(res.json(), { ok: true, welcomed: true });
   assert.equal(saved.length, 1);
   assert.equal(saved[0].chatId, '628123456789@c.us');
-  assert.equal(saved[0].stage, 'warm');
   assert.match(saved[0].title, /Rina Wijaya · Exness/);
   const sent = await sentTo('628123456789@c.us');
   assert.equal(sent.length, 1);

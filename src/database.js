@@ -182,6 +182,22 @@ class Database {
     `, [companyId, lid, phone]);
   }
 
+  /** Lead dari website: masuk pipeline sebagai warm. Lead yang sudah ada tidak diturunkan dan judul/detail AI-nya tidak ditimpa. */
+  async recordWebsiteLead({ chatId, title, detail }, companyId) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      INSERT INTO lead_states (company_id, chat_id, stage, title, detail, pipeline_stage, pipeline_stage_updated_at, pipeline_stage_updated_by)
+      VALUES ($1, $2, 'inbox', $3, $4, 'warm', NOW(), 'website-lead')
+      ON CONFLICT (company_id, chat_id) DO UPDATE SET
+        pipeline_stage = CASE WHEN lead_states.pipeline_stage = 'cold' THEN 'warm' ELSE lead_states.pipeline_stage END,
+        pipeline_stage_updated_at = CASE WHEN lead_states.pipeline_stage = 'cold' THEN NOW() ELSE lead_states.pipeline_stage_updated_at END,
+        pipeline_stage_updated_by = CASE WHEN lead_states.pipeline_stage = 'cold' THEN 'website-lead' ELSE lead_states.pipeline_stage_updated_by END,
+        updated_at = NOW()
+      RETURNING chat_id AS "chatId", pipeline_stage AS "pipelineStage"
+    `, [companyId, chatId, title, detail]);
+    return result.rows[0] || null;
+  }
+
   async setPipelineStage(chatId, stage, updatedBy, companyId) {
     if (!this.enabled) return null;
     const result = await this.pool.query(`

@@ -233,7 +233,7 @@ ini diisi di `.env` server:
 | Variabel | Isi |
 | --- | --- |
 | `LEAD_WEBHOOK_SECRET` | Rahasia panjang dan acak (mis. `openssl rand -hex 32`), berbeda dari `API_KEY`. Nilai yang sama dipasang di WordPress. |
-| `LEAD_WEBHOOK_COMPANY` | Nama/slug company penerima. Nomor WhatsApp company ini yang mengirim sambutan. |
+| `LEAD_WEBHOOK_COMPANY` | Slug (atau id) company penerima, bukan nama tampilan. Nomor WhatsApp company ini yang mengirim sambutan. |
 
 Format permintaan: `Content-Type: application/json`, header
 `x-agnive-timestamp` (milidetik) dan `x-agnive-signature` =

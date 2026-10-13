@@ -2,7 +2,7 @@
 
 - **Webhook lead dari website: `POST /webhook/lead`.** Form landing page (Fluent
   Forms di WordPress) mengirim lead baru ke sini. Agnee mencatat lead di pipeline
-  (stage `warm`) dan mengirim satu pesan sambutan WhatsApp ke nomor yang diisi
+  (pipeline `warm`; lead yang sudah ada tidak diturunkan) dan mengirim satu pesan sambutan WhatsApp ke nomor yang diisi
   orangnya, lewat nomor company penerima. Pintu tertutup (404) sampai
   `LEAD_WEBHOOK_SECRET` dan `LEAD_WEBHOOK_COMPANY` diisi.
   - Tanda tangan HMAC-SHA256 atas `${timestamp}.${body}` di `x-agnive-signature`,

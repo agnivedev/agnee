@@ -983,6 +983,15 @@ class Database {
     return result.rows[0] || null;
   }
 
+  /** Nomor yang diberi tahu saat AI menjanjikan meneruskan ke manusia (migrasi 052). */
+  async getHandoffNotifyNumbers(companyId) {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(
+      'SELECT handoff_notify_numbers AS numbers FROM companies WHERE id = $1', [companyId],
+    );
+    return result.rows[0]?.numbers || [];
+  }
+
   async updateCompanyConfig({ plan, planStatus, knowledgeClient, aiMessageLimit, maxUsers, maxPlaybooks, maxWhatsapp, paymentMethod, paymentLink, bankName, bankAccount, bankHolder, paymentNotes, whatsappProvider, rotationEnabled, replyDelayEnabled, replyDelayMinSeconds, replyDelayMaxSeconds }, companyId) {
     if (!this.enabled) return null;
     const fields = [];

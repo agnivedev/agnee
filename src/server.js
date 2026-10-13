@@ -36,6 +36,7 @@ const gsheets = require('./gsheets-sync.js');
 const { HUB_REPLY_WORKING_DAYS, addWorkingDays, workingDaysSince } = require('./hub-followup.js');
 const mayarSync = require('./mayar-sync.js');
 const { createReplyPacer } = require('./reply-delay.js');
+const handoffNotice = require('./handoff-notice.js');
 const { createTypingHooks } = require('./typing-indicator.js');
 const { buildXlsx } = require('./xlsx-writer.js');
 const Database = require('./database.js');
@@ -982,9 +983,46 @@ async function buildApp(overrides = {}) {
             inReplyTo: message.body || null,
           }, companyId).catch((error) => app.log.warn({ err: error }, 'Could not record AI reply'));
           if (kind === 'ai' || kind === 'handoff') await armFollowUp(companyId, message.from);
+          if ((kind === 'ai' || kind === 'handoff') && handoffNotice.claimsForward(text)) {
+            notifyHandoff(companyId, message, text).catch((error) => app.log.warn({ err: error }, 'Pemberitahuan serah-terima gagal'));
+          }
         }
       },
     });
+  }
+
+  /**
+   * AI menjanjikan "aku teruskan ke tim": beri tahu nomor yang ditunjuk company
+   * lewat WhatsApp company itu sendiri. Satu pemberitahuan per chat per 20 menit.
+   * Gagal ke semua penerima melepas pembatas, supaya balasan berikutnya mencoba lagi.
+   */
+  const handoffCooldown = handoffNotice.createCooldown();
+  async function notifyHandoff(companyId, message, aiText) {
+    if (!canCall('getHandoffNotifyNumbers') || message.from.endsWith('@g.us')) return;
+    const numbers = await database.getHandoffNotifyNumbers(companyId);
+    if (!numbers.length) return;
+    const key = `${companyId}:${message.from}`;
+    if (!handoffCooldown.take(key)) return;
+    const text = handoffNotice.buildNotice({
+      chatId: message.from,
+      name: message._data?.notifyName || message.notifyName || null,
+      customerText: message.body,
+      aiText,
+    });
+    let delivered = 0;
+    for (const raw of numbers) {
+      try {
+        const chatId = normalizeChatId(raw, config.defaultCountryCode);
+        const sent = await sendOutbound(companyId, chatId, text);
+        await database.recordOutboundReply({
+          chatId, messageId: sent?.messageId || null, author: 'ai', body: text,
+        }, companyId).catch(() => {});
+        delivered += 1;
+      } catch (error) {
+        app.log.warn({ err: error, recipient: `…${String(raw).slice(-4)}` }, 'Pemberitahuan serah-terima ke satu penerima gagal');
+      }
+    }
+    if (delivered === 0) handoffCooldown.release(key);
   }
 
   /**
@@ -1295,6 +1333,12 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     if (!companyAi.enabled) return null;
     const routing = await getRouting(message.from, companyId);
     if (routing.mode === 'human') return null;
+    // Penerima pemberitahuan serah-terima adalah orang dalam: kalau mereka
+    // membalas pesan pemberitahuan itu, AI tidak boleh menjawabnya sebagai customer.
+    if (canCall('getHandoffNotifyNumbers')) {
+      const insiders = await database.getHandoffNotifyNumbers(companyId).catch(() => []);
+      if (insiders.some((raw) => normalizeChatId(raw, config.defaultCountryCode) === message.from)) return null;
+    }
 
     const asksForHuman = requestsHumanAgent(message.body);
     if (asksForHuman) {

@@ -113,6 +113,9 @@ perubahan ada di [`CHANGELOG.md`](CHANGELOG.md).
   pembeli Mayar yang belum chat) tampil tapi tidak tercentang dan server
   membuangnya kecuali pemilik mengakui risikonya (`acceptUnproven`). Daftar
   penerima: `Database.listBroadcastAudience` (`origin` menjelaskan asalnya).
+  Jumlah penerima per broadcast tidak dibatasi (keputusan Hanny 15 Okt);
+  yang menahan laju hanya tempo, jam kirim, dan plafon 300/hari.
+  Memulai impor chat WhatsApp tercatat di jejak audit (`contacts.import_started`).
 - Impor chat dari WhatsApp ke Lead List (supervisor): membaca daftar chat nomor
   yang tersambung, tanpa isi pesan, lalu mengelompokkan menurut hubungan,
   keaktifan, label WhatsApp Business, dan produk. Live 8 Oktober, belum pernah

@@ -6190,6 +6190,11 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
 
     importBerjalan = companyId;
     importStop.delete(companyId);
+    // Impor membuka seluruh chat di ponsel ke Lead List dan broadcast, dan memotong kuota AI.
+    await catatAudit(request, 'contacts.import_started', {
+      entityType: 'contacts',
+      metadata: { connections: koneksi.length, trial: uji, guessTopics: tebakProduk },
+    });
     const mulai = new Date().toISOString();
     importState.set(companyId, { phase: 'starting', startedAt: mulai, finishedAt: null, connections: koneksi.length, error: null });
 
@@ -8267,7 +8272,6 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
       dailyCap: tempo.plafonHarian,
       sendFromHour: broadcast.JAM_KIRIM.mulai,
       sendToHour: broadcast.JAM_KIRIM.selesai,
-      maxRecipients: broadcast.MAKS_PENERIMA,
       optOutLine: broadcast.KALIMAT_BERHENTI,
     };
   }
@@ -8455,7 +8459,8 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
           // dikirim layar: konfirmasi di layar saja bisa dilewati lewat API.
           acceptUnproven: { type: 'boolean', default: false },
           chatIds: {
-            type: 'array', minItems: 1, maxItems: broadcast.MAKS_PENERIMA,
+            // Tanpa batas jumlah (keputusan Hanny 15 Okt): tempo dan plafon harian yang menahan lajunya.
+            type: 'array', minItems: 1,
             items: { type: 'string', minLength: 1, maxLength: 128 },
           },
           scheduledAt: { anyOf: [{ type: 'string', format: 'date-time' }, { type: 'null' }] },

@@ -179,9 +179,8 @@ export function BroadcastComposer({ onCancel, onCreated }: { onCancel: () => voi
   }
 
   const { pace } = audience;
-  const tooMany = selected.length > pace.maxRecipients;
   const scheduleInvalid = when === 'later' && !(scheduledAt && new Date(scheduledAt).getTime() > Date.now());
-  const canSend = Boolean(name.trim() && body.trim() && selected.length && !tooMany && !scheduleInvalid && !sending);
+  const canSend = Boolean(name.trim() && body.trim() && selected.length && !scheduleInvalid && !sending);
   const previewName = selected[0]?.name ?? null;
   const eta = estimate(selected.length, pace);
   const hour = (h: number) => `${String(h).padStart(2, '0')}.00`;
@@ -505,7 +504,6 @@ export function BroadcastComposer({ onCancel, onCreated }: { onCancel: () => voi
                 </p>
               ) : null}
             </div>
-            {tooMany ? <p className="m-0 text-[13px] text-danger">{t('broadcast.tooMany', { max: pace.maxRecipients })}</p> : null}
           </Step>
 
           <Step number={3} title={t('broadcast.stepWhen')}>

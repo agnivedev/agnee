@@ -343,3 +343,19 @@ test('kontak yang belum pernah chat ikut di audiens dengan asalnya, dan DIBUANG 
   assert.equal(dengan.statusCode, 201);
   assert.equal(database.created[1].recipients.length, 2);
 });
+
+test('jumlah penerima tidak dibatasi: 1.500 chatId diterima, hanya plafon harian yang menahan laju', async (t) => {
+  const audience = Array.from({ length: 1500 }, (_, i) => ({
+    chatId: `62${String(i).padStart(9, '0')}@c.us`, name: `Orang ${i}`, phone: `62${i}`, lastInboundAt: NOW - 60,
+    leadStage: null, optedOut: false, relation: 'replied', origin: 'chat', waLabels: [],
+  }));
+  const database = fakeDatabase({ audience });
+  const app = await appWith(t, database);
+  const cookie = await signIn(app, SUPERVISOR);
+  const res = await kirim(app, cookie, { chatIds: audience.map((row) => row.chatId) });
+  assert.equal(res.statusCode, 201);
+  assert.equal(database.created[0].recipients.length, 1500);
+  const pace = (await app.inject({ method: 'GET', url: '/v1/broadcasts/audience', headers: { cookie } })).json().pace;
+  assert.equal(pace.maxRecipients, undefined);
+  assert.equal(pace.dailyCap, 300);
+});

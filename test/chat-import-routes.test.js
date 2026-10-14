@@ -51,7 +51,7 @@ function klienPalsu(chats, { labels = [] } = {}) {
 }
 
 function fakeDatabase({ koneksi = [KONEKSI] } = {}) {
-  const catatan = { imported: new Map(), names: [], assigned: [], products: new Map(), setProduct: [] };
+  const catatan = { imported: new Map(), names: [], assigned: [], products: new Map(), setProduct: [], audits: [] };
   return {
     catatan, enabled: true, connected: true,
     async connect() {}, async close() {},
@@ -63,7 +63,7 @@ function fakeDatabase({ koneksi = [KONEKSI] } = {}) {
     async getCompanyConfig() { return { whatsappProvider: 'whatsapp_web' }; },
     async listWhatsappConnections() { return koneksi; },
     async listPlaybookProducts() { return PRODUK; },
-    async recordAuditLog(entry) { return entry; },
+    async recordAuditLog(entry) { catatan.audits.push(entry); return entry; },
     async upsertImportedContacts(companyId, rows) { for (const row of rows) catatan.imported.set(row.chatId, { ...row, companyId }); return rows.length; },
     async listImportedChatIds() { return [...catatan.imported.keys()]; },
     async listChatIdsKnownToHaveChatted() { return []; },
@@ -259,3 +259,16 @@ test('dua nomor: hasil dijumlahkan, dan "done" baru muncul setelah SEMUA nomor s
   assert.deepEqual(per, { '62861@c.us': 'conn-1', '62862@c.us': 'conn-1', '62863@c.us': 'conn-2' });
 });
 
+
+test('memulai impor tercatat di jejak audit: berapa nomor dan apakah uji kecil', async (t) => {
+  const chats = [chatPalsu('62811@c.us', 'Budi', [pesan('halo', false, NOW - 60)])];
+  const database = fakeDatabase();
+  pasangKlien(t, klienPalsu(chats));
+  const { app, cookie } = await mulai(t, database);
+  assert.equal((await post(app, cookie)).statusCode, 202);
+  await tungguSelesai(app, cookie);
+  const baris = database.catatan.audits.filter((entry) => entry.action === 'contacts.import_started');
+  assert.equal(baris.length, 1);
+  assert.equal(baris[0].metadata.connections, 1);
+  assert.equal(baris[0].metadata.trial, true);
+});

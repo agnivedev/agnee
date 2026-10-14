@@ -65,7 +65,6 @@ export type Pace = {
   dailyCap: number;
   sendFromHour: number;
   sendToHour: number;
-  maxRecipients: number;
   optOutLine: string;
 };
 

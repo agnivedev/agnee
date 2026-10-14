@@ -7,6 +7,8 @@
   Mayar-saja memakai chatId `<nomor>@c.us`. Penyusun broadcast punya panel
   "Impor dari Lead List" dengan saringan Lead List; Lead List juga punya tombol
   "Broadcast ke yang tampil". Daftar dibawa lewat sessionStorage, bukan URL.
+  Batas 1.000 penerima per broadcast dicabut (plafon 300/hari dan jam kirim
+  tetap). Memulai impor chat WhatsApp kini tercatat di jejak audit.
 
 - **Webhook lead dari website: `POST /webhook/lead`.** Form landing page (Fluent
   Forms di WordPress) mengirim lead baru ke sini. Agnee mencatat lead di pipeline

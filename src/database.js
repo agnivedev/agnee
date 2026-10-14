@@ -4063,7 +4063,7 @@ class Database {
    * 'replied' berstatus 'unproven': POST /v1/broadcasts membuangnya kecuali
    * pemilik mengakui risikonya. `origin` = chat | outbound | import | mayar.
    */
-  async listBroadcastAudience(companyId, limit = 5000) {
+  async listBroadcastAudience(companyId, limit = null) {
     if (!this.enabled) return [];
     const result = await this.pool.query(`
       WITH chats AS (

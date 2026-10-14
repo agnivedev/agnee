@@ -37,9 +37,6 @@ const TEMPO = {
 /** Jam kirim, waktu lokal company. Pesan promosi jam 23.00 dibaca sebagai gangguan. */
 const JAM_KIRIM = { mulai: 8, selesai: 20 };
 
-/** Plafon penerima per broadcast. Lebih dari ini, pecah jadi beberapa broadcast. */
-const MAKS_PENERIMA = 1000;
-
 /**
  * Penerima yang diklaim lebih lama dari ini tanpa hasil dianggap prosesnya
  * mati di tengah pengiriman. Statusnya jadi `unknown`, tidak dikirim ulang.
@@ -396,7 +393,7 @@ async function putaranBroadcast({
 }
 
 module.exports = {
-  TEMPO, JAM_KIRIM, MAKS_PENERIMA, KLAIM_KEDALUWARSA_MENIT, GAGAL_BERUNTUN_MAKS, KALIMAT_BERHENTI,
+  TEMPO, JAM_KIRIM, KLAIM_KEDALUWARSA_MENIT, GAGAL_BERUNTUN_MAKS, KALIMAT_BERHENTI,
   PROMPT_VARIASI, PROMPT_PEMBUKA,
   tempoUntuk, namaUntukSapaan, susunPesan, mintaBerhenti, dalamJamKirim, awalHariLokal,
   jedaSetelah, periksaVariasi, periksaPembuka, putaranBroadcast,

@@ -20,6 +20,8 @@ type AuditEntry = {
     name?: string | null;
     recipients?: number | null;
     sent?: number | null;
+    connections?: number | null;
+    trial?: boolean | null;
   } | null;
   createdAt: string;
   actorName: string | null;
@@ -40,6 +42,7 @@ const AUDIT_ACTIONS = [
   'team.member_removed',
   'integration.connected',
   'integration.disconnected',
+  'contacts.import_started',
   'broadcast.started',
   'broadcast.cancelled',
   'broadcast.opt_out_removed',
@@ -78,6 +81,9 @@ export function AuditSection() {
     const m = entry.metadata || {};
     if (entry.action === 'contacts.exported') {
       return [m.format?.toUpperCase(), m.rows != null ? `${m.rows} ${t('audit.rows')}` : null].filter(Boolean).join(' · ');
+    }
+    if (entry.action === 'contacts.import_started') {
+      return [m.connections != null ? t('audit.importNumbers', { count: m.connections }) : null, m.trial ? t('audit.importTrial') : null].filter(Boolean).join(' · ');
     }
     if (entry.action === 'payment.changed') return (m.fields || []).join(', ');
     if (entry.action.startsWith('integration.')) return m.integration || entry.entityId || '';

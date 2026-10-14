@@ -287,6 +287,11 @@ npm run test:mcp
 `check` ikut menjalankan `tsc --noEmit`. `test:mcp` memerlukan app dan MCP HTTP
 yang sedang berjalan.
 
+CI menyalakan Postgres asli, jadi test yang menyentuh SQL (isolasi tenant,
+gerbang follow-up, status WhatsApp multi-nomor, query biaya) ikut jalan di
+sana; lokal tanpa `DATABASE_URL` test itu dilewati. Cara menjalankannya lokal
+ada di [`README.md`](README.md), bagian Tests.
+
 ## Deployment server
 
 ```bash

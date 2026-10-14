@@ -75,6 +75,15 @@ Ringkasan jalur besar. Rinciannya ada di [`../CHANGELOG.md`](../CHANGELOG.md).
 - 16 sampai 17 September: insiden riwayat percakapan kosong (AI mengulang
   pertanyaan yang sama) dan nyaris mundurnya playbook produksi oleh seed;
   keduanya ditutup dengan penjaga di kode.
+- 17 sampai 18 September: landing page pindah ke subdomain khusus
+  `agnee.agnive.co` (nginx memproksi, bukan redirect), copy ditulis ulang dengan
+  kerangka TOFU/MOFU/BOFU dan bahasa kasual, serta teks halaman masuk app.
+- 20 sampai 21 September: audit menyeluruh (kode, konsep, komersialisasi)
+  lewat tiga agen riset paralel. Tiga temuan critical diperbaiki: signature
+  webhook Meta yang kosong lolos, setelan AI global lintas tenant (kini per
+  company, migrasi 033), dan password plaintext di komentar migrasi 008. CI
+  mendapat Postgres asli. Satu perbaikan CI (`eab0a51`) menjadi sebab insiden
+  produksi 16 jam tanpa database (baris 21 September di bawah).
 - 21 September: audit keamanan 12 temuan (enam Wajib dan Penting selesai),
   halaman `/privasi` dan `/ketentuan`, SLA tugas, dan insiden produksi berjalan
   16 jam tanpa database (kini produksi menolak start tanpa database).
@@ -91,6 +100,16 @@ Ringkasan jalur besar. Rinciannya ada di [`../CHANGELOG.md`](../CHANGELOG.md).
   simulasi sebagai gerbang aktivasi ([`knowledge-source.md`](knowledge-source.md)).
   Keputusan: tingkat penawaran ditentukan AI (bukan mesin status di kode),
   katalog paket kelak di Expertz dengan backend Node.
+- 7 Oktober (audit lanjutan, P1): status WhatsApp multi-nomor ke baris yang
+  benar, gerbang follow-up diperiksa ulang di bawah kunci baris, tautan "Masuk"
+  landing page diperbaiki, dan copy landing ditulis ulang setelah membandingkan
+  sales page Indonesia lain. Sebuah commit sempat membawa pekerjaan sesi lain
+  (`playbook products`, bergantung migrasi yang belum ada); run CI dibatalkan
+  sebelum deploy dan diperbaiki di `835cbef`.
+- 8 Oktober (alert biaya): alert biaya AI per perusahaan lewat email dan
+  WhatsApp, konsol dalam Rupiah (migrasi 050). Menjalankan ulang job deploy saat
+  deploy lain berjalan membuat app produksi hilang sekitar 2 menit; disk VPS
+  bolak-balik penuh. Pelajarannya di [`SETUP.md`](SETUP.md), Troubleshooting.
   Sorenya layar webnya jadi: tab Template di Latih AI (pasang, isi, simulasi,
   aktifkan).
 - 8 Oktober (sore): nama model, vendor, dan harga AI disembunyikan dari

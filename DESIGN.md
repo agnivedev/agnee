@@ -77,3 +77,33 @@ Nada boleh berlebihan. Klaim yang bisa dibuktikan salah tidak boleh.
 - Tidak ada testimoni karangan, nama karangan, atau angka hasil karangan.
 - Tidak ada hitung mundur palsu. Kalau ada batas, batas itu ditepati.
 - Plafon di kartu harga harus sama dengan yang diberlakukan `src/database.js`.
+
+## Suara copy landing
+
+Hasil membandingkan Jubelio, Mengantar, majoo, Kledo, dan Fonnte (7 Oktober
+2026). Sales page SaaS Indonesia yang mapan justru polos, dan itu yang
+membedakannya dari tulisan AI:
+
+- Headline menyebut apa yang produk lakukan untuk "-mu", bukan aforisme.
+  Contoh pola: "Sistem operasi untuk bisnis omnichannel-mu".
+- Pain point berupa benda nyata (paket di-return, laporan lambat, pencatatan
+  manual), bukan metafora.
+- Kata ganti "kamu" atau "-mu", santai seperlunya ("ga", "udah", "tenang aja"),
+  kalimat pendek.
+- CTA datar: "Coba Gratis", "Daftar Sekarang", "Jadwalkan Demo".
+- Jujur soal keterbatasan, tanpa menyatakan diri jujur.
+
+Ciri tulisan AI yang dibuang dari halaman ini dan jangan dikembalikan:
+kontras antitesis ("X. Y juga."), punchline satu kata ("Kata terakhir."),
+metafora ("tiga pintu", "tetangga ga bisa ngintip"), formula dua kotak yang
+berulang, kalimat yang menyatakan dirinya jujur ("Kami serius."), dan em-dash
+berlebihan (44 di satu halaman). Suaranya kemudian disamakan dengan halaman
+masuk app ("Kamu offline. AI tetap online."); lihat CHANGELOG.
+
+## Biaya di konsol
+
+Semua biaya yang dibaca manusia di `/superhuman` dalam Rupiah (kurs dari
+server, ikut di tiap respons). Angka di bawah Rp 100 diberi satu desimal supaya
+pemakaian nyata tidak tampak gratis. Tenant yang melewati ambang biaya diberi
+lencana "Biaya tinggi" (`costAlert`, dihitung server) dan di halaman detail
+peringatan yang menegaskan layanan tidak dihentikan.

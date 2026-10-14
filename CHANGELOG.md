@@ -104,6 +104,13 @@
     dihentikan", dan tautan `/superhuman`.
   - Pengirim harus company milik sendiri, bukan nomor pelanggan: balasan staf
     masuk ke inbox company pengirim dan AI-nya bisa menjawab.
+  - Penanda `companies.cost_alert_notified_at` (migrasi `050`): pengingat tiap 7
+    hari selama masih di atas ambang, dan reset otomatis begitu turun di bawah
+    ambang sehingga lonjakan berikutnya dikabari lagi. Tenant `status` selain
+    `active` dilewati. Tanpa kanal apa pun alert tidak ditandai terkirim (jadi
+    langsung terkirim begitu kanal dipasang) dan peringatan di log hanya keluar
+    sekali. Dependensi baru: `nodemailer`. Jalur `nodemailer` asli diuji ke
+    server SMTP palsu lokal.
 
 ### Added
 
@@ -352,6 +359,24 @@
   chat WhatsApp nyata.
 
 ### Changed
+- **Konsol `/superhuman` menampilkan semua biaya dalam Rupiah.** Biaya tetap
+  tersimpan USD (`ai_usage_logs.cost_usd`, itu yang ditagih OpenRouter);
+  tampilannya dikonversi dengan `USD_IDR_RATE` (bawaan 16.500, tebakan, bukan
+  kurs resmi). Kurs dan ambang ikut di tiap respons `/v1/superhuman/*` supaya
+  angka konsol selalu sama dengan isi alert, dan `costAlert` per tenant dihitung
+  server, bukan browser. Angka di bawah Rp 100 diberi satu desimal supaya
+  pemakaian nyata tidak tampak gratis. `scripts/test-auto-reply.js` sengaja
+  tetap USD: alat engineer yang dibandingkan dengan dashboard OpenRouter.
+- **Tautan di landing page.** "Masuk" dan "Coba Gratis" menuju
+  `app.agnee.agnive.co` (dan `/?signup=1`), bukan `/`. Layar daftar terbuka
+  langsung kalau URL membawa `?signup=1`. Copy landing sempat ditulis ulang 7
+  Okt setelah membandingkan Jubelio, Mengantar, majoo, Kledo, dan Fonnte
+  (headline polos, pain point berupa benda nyata, CTA datar; membuang antitesis,
+  punchline, metafora, dan 44 em-dash); suaranya kemudian disamakan dengan
+  halaman masuk app. Dua klaim yang tidak ada fiturnya ikut dibuang: tenant
+  belum punya tampilan rincian biaya AI, jadi "bisa kamu lihat sendiri kapan
+  saja" dan fitur berbayar "Rincian token dan biaya AI" diganti "Biaya AI
+  dicatat per perusahaan". Pedomannya ada di `DESIGN.md`, bagian Suara copy.
 - **Playbook AL Gold FX ditulis ulang: asisten Mansur** (`playbooks/al-gold-fx/`).
   Fokus tiga hal dari Hanny: live trade Zoom khusus member, copy trade yang akan
   datang (manual dan auto expert), dan cara gabung lewat link broker Valetax.
@@ -505,6 +530,12 @@
 
 ### Outstanding
 
+- **Kurs `USD_IDR_RATE` 16.500 adalah tebakan**, bukan kurs resmi. Atur di
+  `.env` server sesuai kurs sebenarnya; ambang Rupiah mengikutinya.
+- **Alert tidak menandai per kanal.** Kalau satu kanal berhasil dan yang lain
+  gagal, tenant ditandai terkabari dan kanal yang gagal tidak dicoba ulang
+  (hanya tercatat di log). Sengaja, supaya kanal sehat tidak dikirimi ulang
+  tiap jam.
 - **`PATCH /v1/admin/ai-settings` masih menerima id model mentah** (klien lama
   yang belum refresh). Id itu tersimpan apa adanya dan dibaca balik sebagai
   `custom`, jadi tidak bocor ke browser, tapi pelanggan yang membuat request
@@ -623,6 +654,31 @@
 
 ### Fixed
 
+- **Tombol "Masuk" di `agnee.agnive.co` tidak ke mana-mana.** Di hostname itu
+  path `/` selalu me-render landing page, jadi `href="/"` hanya memuat ulang
+  halaman yang sama; CTA "Coba Gratis" (`/?signup=1`) sama. Diarahkan ke
+  `app.agnee.agnive.co`.
+- **Status WhatsApp nomor kedua menimpa baris nomor utama.** Manager mengirim
+  `connectionId` sebagai argumen ke-4, tapi callback di `server.js` hanya
+  menerima tiga argumen dan `updateWhatsappStatus` menulis ke
+  `connection_key = 'whatsapp-main'`. Nomor kedua yang putus membuat DB
+  mencatat nomor utama putus, dengan nomor telepon yang salah. Sekarang
+  `connectionId` dipakai di `WHERE`, dengan `company_id` tetap ikut supaya id
+  koneksi company lain tidak bisa disentuh. Tanpa `connectionId` tetap jatuh ke
+  nomor utama (company bernomor tunggal). Tes Postgres asli, terverifikasi gagal
+  di kode lama.
+- **Gerbang follow-up diperiksa ulang di bawah kunci baris.** `draft()`
+  memutuskan dari snapshot baris lalu menunggu LLM beberapa detik; tick otomatis
+  dan tombol kirim manual bisa lolos dari snapshot yang sama.
+  `recordFollowUpSend` sekarang mengunci `follow_up_state` (`FOR UPDATE`) lalu
+  memeriksa ulang jarak minimum, plafon harian, dan status berhenti; jalur yang
+  kalah ditolak bersih (409 di jalur manual) tanpa mengirim dan tanpa
+  menghentikan rangkaian. `draft()` membawa gap dan plafon yang dipakainya
+  supaya jalur manual (jarak dipersingkat) tidak ditolak keliru. **Koreksi
+  severity:** audit awal menyebutnya bisa mengirim dobel, padahal
+  `follow_up_sends_slot_key` (migrasi 022/024) sudah menolak slot yang sama;
+  dampak nyatanya error unique-violation mentah yang terbaca "undeliverable"
+  atau 502, bukan pesan ganda.
 - **Semua tombol WhatsApp gagal kontras, 1,98:1.** Teks putih di atas `#25d366`,
   di enam tombol yang semuanya CTA konversi utama. Hijaunya dipertahankan karena
   dia penanda kanal, teksnya yang diganti jadi `#0c1912`: 9,10:1 normal dan
@@ -1250,6 +1306,9 @@
   tidak menyala** (lebih baik deploy merah daripada melayani tanpa data tanpa
   satu pun alarm), dan `test/database-enabled.test.js` mengunci keempat
   kombinasi termasuk kondisi produksi yang kemarin tidak terwakili tes mana pun.
+  Asalnya commit `eab0a51` (perbaikan CI 21 Sep 00:34 WIB, sesi audit):
+  perubahannya diverifikasi lewat test dan CI, tapi tidak sampai cara produksi
+  mengoper konfigurasi DB (`PG*` tanpa `DATABASE_URL`). Perbaikannya `c3372a8`.
 
 ### Security
 

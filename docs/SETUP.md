@@ -596,6 +596,16 @@ recreate lagi. Setelah mengubah `.env`:
   "belum sampai", cek `git log -1` di `/opt/agnee` dan isi container: commit
   lain sering sudah membawa kodenya, jadi run yang merah tidak selalu perlu
   diulang.
+- `mcp is missing dependency app` di akhir deploy: dua `docker compose up`
+  berjalan bersamaan dan app produksi bisa hilang beberapa menit (8 Oktober,
+  sekitar 2 menit). **Jangan `gh run rerun` saat ada run deploy lain berjalan**:
+  cek `gh run list` dulu. Run lama yang dijalankan ulang memakai workflow versi
+  commit-nya, yang bisa belum punya concurrency group.
+- Mengerjakan sesuatu di working tree utama yang juga disunting sesi lain:
+  `git add <file>` ikut membawa hunk mereka (7 Oktober, sebuah commit membawa
+  fitur yang bergantung migrasi yang belum ada). Bandingkan
+  `git diff --cached --stat` dengan ukuran perubahanmu sebelum commit, dan lebih
+  aman bekerja di `git worktree add --detach <path> origin/main`.
 
 ### Pesan terlihat gagal tetapi sebenarnya terkirim
 

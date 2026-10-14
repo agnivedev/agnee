@@ -139,6 +139,22 @@ Ini keep token usage rendah dan biaya murah.
 - **Development:** grok-2-1212 (termurah, test banyak)
 - **Production:** grok-3 atau qwen-2.5-72b (balance harga-kualitas)
 
+## Biaya AI per perusahaan dan alert
+
+Tiap panggilan model dicatat ke `ai_usage_logs` (token masuk dan keluar, model,
+dan biaya yang DILAPORKAN OpenRouter dalam USD, bukan hasil hitungan sendiri).
+Konsol `/superhuman` menampilkannya dalam Rupiah (`USD_IDR_RATE`, bawaan 16500,
+tebakan; atur sesuai kurs sebenarnya). Tenant sendiri belum punya tampilan
+rincian ini.
+
+Pemantau per jam mengabari staf (email dan/atau WhatsApp) ketika biaya 30 hari
+satu perusahaan melewati ambang paketnya: Rp 50.000 untuk Personal, Rp 1.650.000
+untuk Company dan Lifetime (setara sekitar US$3 dan US$100). Layanan tidak
+dihentikan. Kuota AI tenant tetap hanya dipotong jalur yang menghadap customer
+(balasan, mention, draf Hub, follow-up); Coach, playbook, dan ringkasan tidak.
+Cara mengatur kanal alert ada di [`docs/SETUP.md`](docs/SETUP.md),
+Troubleshooting, "Alert biaya AI tidak sampai".
+
 ## Testing Script
 
 ```bash

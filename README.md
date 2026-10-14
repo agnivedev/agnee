@@ -187,3 +187,21 @@ npm run check
 npm test
 npm run test:mcp
 ```
+
+CI menjalankan Postgres asli (service di workflow deploy) dan menerapkan
+migrasi sebelum `npm test`. Tanpa `DATABASE_URL` test yang menyentuh Postgres
+dilewati, jadi hijau lokal belum berarti semuanya jalan. Untuk menjalankan
+semuanya lokal, mis. dengan Homebrew `postgresql@16`:
+
+```bash
+LC_ALL=en_US.UTF-8 initdb -D /tmp/pg/data -U t --auth=trust --locale=C
+pg_ctl -D /tmp/pg/data -o "-p 55444 -k /tmp/pg -h 127.0.0.1" start
+createdb -h 127.0.0.1 -p 55444 -U t agnee_test
+export DATABASE_URL=postgres://t@127.0.0.1:55444/agnee_test CREDENTIALS_ENCRYPTION_KEY=x
+npm test
+```
+
+Pakai direktori pendek (soket Unix dibatasi sekitar 100 karakter). Test yang
+sengaja tanpa database harus mematikannya dengan `databaseUrl: null`, bukan
+`''`: string kosong berarti "pakai env ambient" (lihat CHANGELOG, insiden
+produksi tanpa database).

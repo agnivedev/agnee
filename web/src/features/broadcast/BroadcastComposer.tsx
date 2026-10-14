@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { api, messageFromError } from '@/lib/api';
 import { useI18n } from '@/lib/i18n';
 import { Button } from '@/components/ui/button';
@@ -7,6 +8,7 @@ import { Switch } from '@/components/ui/switch';
 import { useConfirm } from '@/components/ui/confirm';
 import { cn } from '@/lib/utils';
 import { MessageBubble } from './parts';
+import { clearLeadHandoff, readLeadHandoff } from './handoff';
 import { displayPhone, renderPreview, type Broadcast, type Candidate, type Pace } from './types';
 
 type Audience = {
@@ -46,6 +48,7 @@ export function BroadcastComposer({ onCancel, onCreated }: { onCancel: () => voi
   const { t, dateLocale } = useI18n();
   const { confirm, error: showError } = useConfirm();
   const bodyRef = useRef<HTMLTextAreaElement>(null);
+  const navigate = useNavigate();
 
   const [audience, setAudience] = useState<Audience | null>(null);
   const [loadError, setLoadError] = useState('');
@@ -63,6 +66,8 @@ export function BroadcastComposer({ onCancel, onCreated }: { onCancel: () => voi
   const [topics, setTopics] = useState<Set<string>>(new Set());
   const [relation, setRelation] = useState<Relation>('replied');
   const [label, setLabel] = useState('any');
+  // Chat yang dibawa dari Lead List; null = tidak dibatasi. Dibaca sekali lalu dihapus.
+  const [leadIds, setLeadIds] = useState<Set<string> | null>(null);
   const [readFilter, setReadFilter] = useState<'all' | 'unread'>('all');
   const [search, setSearch] = useState('');
   const [unchecked, setUnchecked] = useState<Set<string>>(new Set());
@@ -77,6 +82,20 @@ export function BroadcastComposer({ onCancel, onCreated }: { onCancel: () => voi
         // Cloud API hanya bisa ke yang chat dalam 24 jam; server sudah
         // menyaring, jadi saringan hari tidak perlu mempersempit lagi.
         if (data.pace.provider === 'cloud_api') setRecency(0);
+
+        // Daftar dari Lead List: yang dipilih di sana yang dikirimi, jadi
+        // saringan bawaan (hubungan, 30 hari) tidak boleh diam-diam membuang
+        // sebagian. Kontak yang belum terlihat membalas tampil tapi tidak
+        // tercentang, sama seperti tab Semua.
+        const fromLeads = readLeadHandoff();
+        clearLeadHandoff();
+        if (fromLeads?.length) {
+          const wanted = new Set(fromLeads);
+          setLeadIds(wanted);
+          setRelation('any');
+          setRecency(0);
+          setUnchecked(new Set(data.recipients.filter((row) => wanted.has(row.chatId) && row.relation === 'unproven').map((row) => row.chatId)));
+        }
       })
       .catch((error) => setLoadError(messageFromError(error, '')));
   }, []);
@@ -87,6 +106,7 @@ export function BroadcastComposer({ onCancel, onCreated }: { onCancel: () => voi
     if (!audience) return [];
     const now = Date.now();
     return audience.recipients.filter((row) => {
+      if (leadIds && !leadIds.has(row.chatId)) return false;
       if (stage === 'none' ? row.leadStage : stage !== 'any' && row.leadStage !== stage) return false;
       if (recency && !(row.lastInboundAt && now - row.lastInboundAt * 1000 <= recency * DAY_MS)) return false;
       if (topics.size && !topics.has(row.productId ?? 'none')) return false;
@@ -94,7 +114,7 @@ export function BroadcastComposer({ onCancel, onCreated }: { onCancel: () => voi
       if (label === 'none' ? row.waLabels.length : label !== 'any' && !row.waLabels.includes(label)) return false;
       return true;
     });
-  }, [audience, stage, recency, topics, relation, label]);
+  }, [audience, leadIds, stage, recency, topics, relation, label]);
 
   const unreadCount = useMemo(() => base.filter((row) => (row.unreadCount ?? 0) > 0).length, [base]);
   const unreadOnly = Boolean(audience?.unreadKnown) && readFilter === 'unread';
@@ -116,6 +136,16 @@ export function BroadcastComposer({ onCancel, onCreated }: { onCancel: () => voi
   // yang tersaring hilang tanpa jejak: Beweix punya 3 calon penerima, layar
   // menampilkan 2, dan tidak ada tanda bahwa yang ketiga cuma tersaring.
   const hiddenByFilter = audience ? audience.recipients.length - matching.length : 0;
+
+  // Dari Lead List: berapa yang diminta, dan berapa yang tidak punya jalan masuk
+  // ke daftar penerima (belum pernah chat, hanya dari Mayar, grup, atau sudah STOP).
+  const leadStats = useMemo(() => {
+    if (!leadIds || !audience) return null;
+    const known = new Set(audience.recipients.map((row) => row.chatId));
+    let eligible = 0;
+    for (const id of leadIds) if (known.has(id)) eligible += 1;
+    return { asked: leadIds.size, eligible, left: leadIds.size - eligible };
+  }, [leadIds, audience]);
 
   // Mereka hanya ikut terkirim kalau pemilik mengakui risikonya, dan server
   // memeriksanya lagi: konfirmasi di layar saja bisa dilewati lewat API.
@@ -159,6 +189,7 @@ export function BroadcastComposer({ onCancel, onCreated }: { onCancel: () => voi
    */
   function showEveryone() {
     setReadFilter('all');
+    setLeadIds(null);
     setStage('any');
     setRelation('any');
     setRecency(0);
@@ -327,6 +358,7 @@ export function BroadcastComposer({ onCancel, onCreated }: { onCancel: () => voi
           </Step>
 
           <Step number={2} title={t('broadcast.stepAudience')}>
+            <div className="flex flex-wrap items-center gap-2">
             {audience.unreadKnown ? (
               <div role="tablist" aria-label={t('broadcast.readFilter')} className="flex flex-wrap gap-2">
                 {(['all', 'unread'] as const).map((value) => (
@@ -346,6 +378,23 @@ export function BroadcastComposer({ onCancel, onCreated }: { onCancel: () => voi
                 ))}
               </div>
             ) : null}
+              <span className="flex-1" />
+              <Button variant="outline" size="sm" onClick={() => navigate('/leads?for=broadcast')}>{t('broadcast.fromLeads')}</Button>
+            </div>
+
+            {leadStats ? (
+              <div className="grid gap-1 rounded-[10px] border border-border bg-[#f6f9f5] px-3 py-2 text-xs leading-[1.55]">
+                <strong className="text-[13px]">{t('broadcast.leadsBannerTitle', { count: leadStats.asked })}</strong>
+                <span className="text-muted">
+                  {t('broadcast.leadsBannerBody', { eligible: leadStats.eligible })}
+                  {leadStats.left ? ` ${t('broadcast.leadsBannerLeft', { count: leadStats.left })}` : ''}
+                </span>
+                <div>
+                  <Button variant="ghost" size="sm" onClick={() => setLeadIds(null)}>{t('broadcast.leadsBannerClear')}</Button>
+                </div>
+              </div>
+            ) : null}
+
             <div className="flex flex-wrap gap-2">
               <label className="grid gap-1 text-xs text-muted">
                 {t('broadcast.filterStage')}

@@ -4058,58 +4058,87 @@ class Database {
   // ── Broadcast ─────────────────────────────────────────────────────────────
 
   /**
-   * Calon penerima broadcast: customer yang pernah menghubungi company ini.
-   *
-   * Sumbernya sengaja lebih sempit dari Lead List. Chat yang hanya pernah kita
-   * kirimi (outbound_replies saja) dan lead Mayar yang belum pernah chat tidak
-   * ikut: bagi mereka broadcast adalah pesan dingin dari nomor yang tidak
-   * mereka kenal, dan pesan dingin massal adalah jalan tercepat nomor
-   * diblokir. lead_states dan conversation_routing ikut karena keduanya hanya
-   * lahir dari chat yang masuk — termasuk chat lama sebelum inbound_messages
-   * mulai dicatat.
+   * Calon penerima broadcast: seluruh isi Lead List yang bernomor WhatsApp
+   * (keputusan Hanny 15 Okt 2026; dulu hanya yang pernah chat). Yang bukan
+   * 'replied' berstatus 'unproven': POST /v1/broadcasts membuangnya kecuali
+   * pemilik mengakui risikonya. `origin` = chat | outbound | import | mayar.
    */
   async listBroadcastAudience(companyId, limit = 5000) {
     if (!this.enabled) return [];
     const result = await this.pool.query(`
       WITH chats AS (
         SELECT chat_id FROM inbound_messages WHERE company_id = $1
+        UNION SELECT chat_id FROM outbound_replies WHERE company_id = $1
         UNION SELECT chat_id FROM lead_states WHERE company_id = $1
         UNION SELECT chat_id FROM conversation_routing WHERE company_id = $1
         UNION SELECT chat_id FROM imported_contacts WHERE company_id = $1
+      ),
+      chat_rows AS (
+        SELECT c.chat_id AS "chatId",
+               cname.name AS "name",
+               CASE WHEN c.chat_id LIKE '%@lid' THEN lpm.phone
+                    ELSE regexp_replace(c.chat_id, '@.*$', '') END AS "phone",
+               GREATEST(inbound.last_at, imp.last_inbound_at) AS "lastInboundAt",
+               -- 'replied' kalau Agnee pernah mencatat chat masuk atau hasil impor
+               -- melihat pesan masuk. 'unproven' TIDAK ikut terkirim kecuali
+               -- pemilik mengakui risikonya (lihat POST /v1/broadcasts).
+               CASE WHEN inbound.last_at IS NOT NULL OR lead.chat_id IS NOT NULL
+                         OR rt.chat_id IS NOT NULL OR imp.relation = 'replied' THEN 'replied'
+                    ELSE 'unproven' END AS "relation",
+               CASE WHEN inbound.last_at IS NOT NULL OR lead.chat_id IS NOT NULL
+                         OR rt.chat_id IS NOT NULL OR imp.relation = 'replied' THEN 'chat'
+                    WHEN EXISTS (SELECT 1 FROM outbound_replies o
+                                 WHERE o.company_id = $1 AND o.chat_id = c.chat_id) THEN 'outbound'
+                    ELSE 'import' END AS "origin",
+               COALESCE(imp.wa_labels, '[]'::jsonb) AS "waLabels",
+               lead.stage AS "leadStage",
+               cp.product_id AS "productId",
+               pp.name AS "productName",
+               oo.chat_id IS NOT NULL AS "optedOut",
+               GREATEST(inbound.last_at, imp.last_message_at) AS "sortAt"
+        FROM chats c
+        LEFT JOIN LATERAL (
+          SELECT MAX(timestamp)::bigint AS last_at FROM inbound_messages
+          WHERE company_id = $1 AND chat_id = c.chat_id
+        ) inbound ON TRUE
+        LEFT JOIN contact_names cname ON cname.company_id = $1 AND cname.chat_id = c.chat_id
+        LEFT JOIN lid_phone_map lpm ON lpm.company_id = $1 AND lpm.lid = c.chat_id
+        LEFT JOIN lead_states lead ON lead.company_id = $1 AND lead.chat_id = c.chat_id
+        LEFT JOIN conversation_routing rt ON rt.company_id = $1 AND rt.chat_id = c.chat_id
+        LEFT JOIN imported_contacts imp ON imp.company_id = $1 AND imp.chat_id = c.chat_id
+        LEFT JOIN chat_products cp ON cp.company_id = $1 AND cp.chat_id = c.chat_id
+        LEFT JOIN playbook_products pp ON pp.id = cp.product_id AND pp.active
+        LEFT JOIN broadcast_opt_outs oo ON oo.company_id = $1 AND oo.chat_id = c.chat_id
+        WHERE c.chat_id NOT LIKE '%@g.us'
+          AND c.chat_id NOT LIKE '%@broadcast'
+          AND c.chat_id NOT LIKE '%@newsletter'
+      ),
+      -- Lead Mayar yang nomornya belum jadi chat; yang sudah punya chat ada di chat_rows.
+      mayar_rows AS (
+        SELECT (ml.phone || '@c.us') AS "chatId",
+               ml.name AS "name",
+               ml.phone AS "phone",
+               NULL::bigint AS "lastInboundAt",
+               'unproven'::text AS "relation",
+               'mayar'::text AS "origin",
+               '[]'::jsonb AS "waLabels",
+               NULL::text AS "leadStage",
+               NULL::uuid AS "productId",
+               NULL::text AS "productName",
+               oo.chat_id IS NOT NULL AS "optedOut",
+               extract(epoch FROM ml.last_transaction_at)::bigint AS "sortAt"
+        FROM mayar_leads ml
+        LEFT JOIN broadcast_opt_outs oo ON oo.company_id = $1 AND oo.chat_id = ml.phone || '@c.us'
+        WHERE ml.company_id = $1
+          AND ml.phone ~ '^[0-9]{8,15}$'
+          AND NOT EXISTS (
+            SELECT 1 FROM chat_rows cr WHERE cr."phone" = ml.phone OR cr."chatId" = ml.phone || '@c.us'
+          )
       )
-      SELECT c.chat_id AS "chatId",
-             cname.name AS "name",
-             CASE WHEN c.chat_id LIKE '%@lid' THEN lpm.phone
-                  ELSE regexp_replace(c.chat_id, '@.*$', '') END AS "phone",
-             GREATEST(inbound.last_at, imp.last_inbound_at) AS "lastInboundAt",
-             -- 'replied' kalau Agnee pernah mencatat chat masuk atau hasil impor
-             -- melihat pesan masuk. 'unproven' TIDAK ikut terkirim kecuali
-             -- pemilik mengakui risikonya (lihat POST /v1/broadcasts).
-             CASE WHEN inbound.last_at IS NOT NULL OR lead.chat_id IS NOT NULL
-                       OR rt.chat_id IS NOT NULL OR imp.relation = 'replied' THEN 'replied'
-                  ELSE 'unproven' END AS "relation",
-             COALESCE(imp.wa_labels, '[]'::jsonb) AS "waLabels",
-             lead.stage AS "leadStage",
-             cp.product_id AS "productId",
-             pp.name AS "productName",
-             oo.chat_id IS NOT NULL AS "optedOut"
-      FROM chats c
-      LEFT JOIN LATERAL (
-        SELECT MAX(timestamp)::bigint AS last_at FROM inbound_messages
-        WHERE company_id = $1 AND chat_id = c.chat_id
-      ) inbound ON TRUE
-      LEFT JOIN contact_names cname ON cname.company_id = $1 AND cname.chat_id = c.chat_id
-      LEFT JOIN lid_phone_map lpm ON lpm.company_id = $1 AND lpm.lid = c.chat_id
-      LEFT JOIN lead_states lead ON lead.company_id = $1 AND lead.chat_id = c.chat_id
-      LEFT JOIN conversation_routing rt ON rt.company_id = $1 AND rt.chat_id = c.chat_id
-      LEFT JOIN imported_contacts imp ON imp.company_id = $1 AND imp.chat_id = c.chat_id
-      LEFT JOIN chat_products cp ON cp.company_id = $1 AND cp.chat_id = c.chat_id
-      LEFT JOIN playbook_products pp ON pp.id = cp.product_id AND pp.active
-      LEFT JOIN broadcast_opt_outs oo ON oo.company_id = $1 AND oo.chat_id = c.chat_id
-      WHERE c.chat_id NOT LIKE '%@g.us'
-        AND c.chat_id NOT LIKE '%@broadcast'
-        AND c.chat_id NOT LIKE '%@newsletter'
-      ORDER BY GREATEST(inbound.last_at, imp.last_message_at) DESC NULLS LAST
+      SELECT "chatId", "name", "phone", "lastInboundAt", "relation", "origin", "waLabels",
+             "leadStage", "productId", "productName", "optedOut"
+      FROM (SELECT * FROM chat_rows UNION ALL SELECT * FROM mayar_rows) all_rows
+      ORDER BY "sortAt" DESC NULLS LAST
       LIMIT $2
     `, [companyId, limit]);
     return result.rows.map((row) => ({

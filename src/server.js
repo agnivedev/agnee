@@ -6050,6 +6050,8 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
       ...(includeChatId ? {
         chatId: row.chatId,
         isGroup: Boolean(row.isGroup),
+        // Lead Mayar yang belum chat tidak punya chatId; broadcast membentuknya dari nomor.
+        broadcastChatId: row.isGroup ? null : (row.chatId || (/^\d{8,15}$/.test(String(row.phone || '')) ? `${row.phone}@c.us` : null)),
         mayarTotalAmount: row.mayarTotalAmount === null ? null : Number(row.mayarTotalAmount),
       } : {}),
       ...Object.fromEntries(EXPORT_COLUMNS.map(([key]) => [key, exportCell(key, row[key])])),
@@ -8300,6 +8302,7 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
         productId: row.productId || null,
         productName: row.productName || null,
         relation: row.relation === 'unproven' ? 'unproven' : 'replied',
+        origin: ['chat', 'outbound', 'import', 'mayar'].includes(row.origin) ? row.origin : 'chat',
         waLabels: Array.isArray(row.waLabels) ? row.waLabels : [],
         // null = tidak diketahui (nomor terputus / Cloud API), bukan "sudah dibaca".
         unreadCount: unread ? (unread.get(row.chatId) || 0) : null,

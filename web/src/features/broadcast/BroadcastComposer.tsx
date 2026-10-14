@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { api, messageFromError } from '@/lib/api';
 import { useI18n } from '@/lib/i18n';
 import { Button } from '@/components/ui/button';
@@ -9,6 +8,7 @@ import { useConfirm } from '@/components/ui/confirm';
 import { cn } from '@/lib/utils';
 import { MessageBubble } from './parts';
 import { clearLeadHandoff, readLeadHandoff } from './handoff';
+import { LeadListPicker } from './LeadListPicker';
 import { displayPhone, renderPreview, type Broadcast, type Candidate, type Pace } from './types';
 
 type Audience = {
@@ -48,7 +48,6 @@ export function BroadcastComposer({ onCancel, onCreated }: { onCancel: () => voi
   const { t, dateLocale } = useI18n();
   const { confirm, error: showError } = useConfirm();
   const bodyRef = useRef<HTMLTextAreaElement>(null);
-  const navigate = useNavigate();
 
   const [audience, setAudience] = useState<Audience | null>(null);
   const [loadError, setLoadError] = useState('');
@@ -68,6 +67,7 @@ export function BroadcastComposer({ onCancel, onCreated }: { onCancel: () => voi
   const [label, setLabel] = useState('any');
   // Chat yang dibawa dari Lead List; null = tidak dibatasi. Dibaca sekali lalu dihapus.
   const [leadIds, setLeadIds] = useState<Set<string> | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const [readFilter, setReadFilter] = useState<'all' | 'unread'>('all');
   const [search, setSearch] = useState('');
   const [unchecked, setUnchecked] = useState<Set<string>>(new Set());
@@ -83,19 +83,10 @@ export function BroadcastComposer({ onCancel, onCreated }: { onCancel: () => voi
         // menyaring, jadi saringan hari tidak perlu mempersempit lagi.
         if (data.pace.provider === 'cloud_api') setRecency(0);
 
-        // Daftar dari Lead List: yang dipilih di sana yang dikirimi, jadi
-        // saringan bawaan (hubungan, 30 hari) tidak boleh diam-diam membuang
-        // sebagian. Kontak yang belum terlihat membalas tampil tapi tidak
-        // tercentang, sama seperti tab Semua.
+        // Daftar dari Lead List menang atas saringan bawaan.
         const fromLeads = readLeadHandoff();
         clearLeadHandoff();
-        if (fromLeads?.length) {
-          const wanted = new Set(fromLeads);
-          setLeadIds(wanted);
-          setRelation('any');
-          setRecency(0);
-          setUnchecked(new Set(data.recipients.filter((row) => wanted.has(row.chatId) && row.relation === 'unproven').map((row) => row.chatId)));
-        }
+        if (fromLeads?.length) takeLeadIds(fromLeads, data.recipients);
       })
       .catch((error) => setLoadError(messageFromError(error, '')));
   }, []);
@@ -118,6 +109,20 @@ export function BroadcastComposer({ onCancel, onCreated }: { onCancel: () => voi
 
   const unreadCount = useMemo(() => base.filter((row) => (row.unreadCount ?? 0) > 0).length, [base]);
   const unreadOnly = Boolean(audience?.unreadKnown) && readFilter === 'unread';
+  /** Batasi penerima ke daftar Lead List: saringan dilonggarkan, yang belum membalas tidak tercentang. */
+  function takeLeadIds(ids: string[], recipients: Candidate[]) {
+    const wanted = new Set(ids);
+    setLeadIds(wanted);
+    setStage('any');
+    setRelation('any');
+    setRecency(0);
+    setTopics(new Set());
+    setLabel('any');
+    setReadFilter('all');
+    setSearch('');
+    setUnchecked(new Set(recipients.filter((row) => wanted.has(row.chatId) && row.relation === 'unproven').map((row) => row.chatId)));
+  }
+
   const matching = useMemo(
     () => (unreadOnly ? base.filter((row) => (row.unreadCount ?? 0) > 0) : base),
     [base, unreadOnly],
@@ -137,8 +142,7 @@ export function BroadcastComposer({ onCancel, onCreated }: { onCancel: () => voi
   // menampilkan 2, dan tidak ada tanda bahwa yang ketiga cuma tersaring.
   const hiddenByFilter = audience ? audience.recipients.length - matching.length : 0;
 
-  // Dari Lead List: berapa yang diminta, dan berapa yang tidak punya jalan masuk
-  // ke daftar penerima (belum pernah chat, hanya dari Mayar, grup, atau sudah STOP).
+  // Dari Lead List: berapa yang diminta, dan berapa yang tidak ada di daftar penerima.
   const leadStats = useMemo(() => {
     if (!leadIds || !audience) return null;
     const known = new Set(audience.recipients.map((row) => row.chatId));
@@ -304,7 +308,7 @@ export function BroadcastComposer({ onCancel, onCreated }: { onCancel: () => voi
     }
   }
 
-  const select = 'min-h-[38px] rounded-[10px] border border-border bg-white px-2.5 py-1.5 text-[13px]';
+  const select = 'min-h-11 rounded-[10px] border border-border bg-white px-2.5 py-1.5 text-[13px]';
 
   return (
     <Shell onCancel={onCancel}>
@@ -369,7 +373,7 @@ export function BroadcastComposer({ onCancel, onCreated }: { onCancel: () => voi
                     aria-selected={readFilter === value}
                     onClick={() => (value === 'all' ? showEveryone() : setReadFilter(value))}
                     className={cn(
-                      'min-h-[38px] cursor-pointer rounded-full border px-4 py-1.5 text-[13px] font-semibold transition',
+                      'min-h-11 cursor-pointer rounded-full border px-4 py-1.5 text-[13px] font-semibold transition',
                       readFilter === value ? 'border-ink bg-ink text-white' : 'border-border bg-white text-ink/70 hover:border-ink/40',
                     )}
                   >
@@ -379,7 +383,7 @@ export function BroadcastComposer({ onCancel, onCreated }: { onCancel: () => voi
               </div>
             ) : null}
               <span className="flex-1" />
-              <Button variant="outline" size="sm" onClick={() => navigate('/leads?for=broadcast')}>{t('broadcast.fromLeads')}</Button>
+              <Button variant="outline" size="sm" onClick={() => setPickerOpen(true)}>{t('broadcast.fromLeads')}</Button>
             </div>
 
             {leadStats ? (
@@ -482,7 +486,7 @@ export function BroadcastComposer({ onCancel, onCreated }: { onCancel: () => voi
                         <span className="hidden text-right text-[11px] text-muted sm:block">
                           {row.unreadCount ? <span className="block font-semibold text-green-dark">{t('broadcast.unreadBadge', { count: row.unreadCount })}</span> : null}
                           {row.productName ? <span className="block">{row.productName}</span> : null}
-                          {row.relation === 'unproven' ? <span className="block">{t('broadcast.relation.unproven')}</span> : null}
+                          {row.relation === 'unproven' ? <span className="block">{t(`broadcast.origin.${row.origin}`)}</span> : null}
                           {row.waLabels.length ? <span className="block">{row.waLabels.join(', ')}</span> : null}
                           {row.lastInboundAt
                             ? t('broadcast.lastChat', { when: new Date(row.lastInboundAt * 1000).toLocaleDateString(dateLocale, { day: 'numeric', month: 'short' }) })
@@ -592,6 +596,11 @@ export function BroadcastComposer({ onCancel, onCreated }: { onCancel: () => voi
           </div>
         </aside>
       </div>
+      <LeadListPicker
+        open={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        onImport={(ids) => { if (audience) takeLeadIds(ids, audience.recipients); setPickerOpen(false); }}
+      />
     </Shell>
   );
 }
@@ -661,7 +670,7 @@ function TopicChip({ active, onClick, children }: { active: boolean; onClick: ()
       aria-pressed={active}
       onClick={onClick}
       className={cn(
-        'min-h-[34px] cursor-pointer rounded-full border px-3.5 py-1 text-[13px] transition',
+        'min-h-11 cursor-pointer rounded-full border px-3.5 py-1 text-[13px] transition',
         active ? 'border-ink bg-ink text-white' : 'border-border bg-white text-ink/70 hover:border-ink/40',
       )}
     >

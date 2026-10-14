@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { api, messageFromError } from '@/lib/api';
 import { useI18n, usePageTitle } from '@/lib/i18n';
 import { useSession } from '@/lib/session';
@@ -16,7 +16,7 @@ type Column = { key: string; label: string };
 // Sel tabel selalu string (server sudah memformatnya lewat exportCell), tapi
 // rute JSON menyertakan dua bidang non-kolom: chatId untuk menindaklanjuti
 // baris, dan isGroup untuk menandai baris yang tidak punya nomor.
-type Row = Record<string, string> & { chatId?: string; isGroup?: boolean; mayarTotalAmount?: number | null };
+type Row = Record<string, string> & { chatId?: string; isGroup?: boolean; mayarTotalAmount?: number | null; broadcastChatId?: string | null };
 type SortDirection = 'asc' | 'desc';
 
 /** Keadaan satu proses impor chat, persis seperti yang dilaporkan server. */
@@ -46,9 +46,6 @@ export function LeadsPage() {
   const { t } = useI18n();
   const { isSupervisor } = useSession();
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-  // Datang dari tombol "Ambil dari Lead List" di penyusun broadcast.
-  const pickingForBroadcast = isSupervisor && searchParams.get('for') === 'broadcast';
   usePageTitle('leads.title');
 
   const [columns, setColumns] = useState<Column[]>([]);
@@ -214,11 +211,11 @@ export function LeadsPage() {
 
   /**
    * Membawa baris yang sedang tampil (setelah saringan dan pencarian) ke
-   * penyusun broadcast. Grup tidak ikut; baris tanpa chat (mis. lead Mayar
-   * yang belum pernah chat) dibuang di penyusun karena bukan penerima sah.
+   * penyusun broadcast. Grup dan baris tanpa nomor WhatsApp tidak ikut; lead
+   * Mayar yang belum pernah chat ikut lewat id yang dibentuk dari nomornya.
    */
   const broadcastIds = useMemo(
-    () => visibleRows.filter((row) => row.chatId && !row.isGroup).map((row) => row.chatId as string),
+    () => visibleRows.filter((row) => row.broadcastChatId && !row.isGroup).map((row) => row.broadcastChatId as string),
     [visibleRows],
   );
 
@@ -305,7 +302,7 @@ export function LeadsPage() {
                 server menolak agent di kedua rute itu. */}
             {isSupervisor ? (
               <>
-                <Button size="sm" variant={pickingForBroadcast ? 'primary' : 'outline'} onClick={broadcastVisible} disabled={!broadcastIds.length}>
+                <Button size="sm" variant="outline" onClick={broadcastVisible} disabled={!broadcastIds.length}>
                   {t('leads.broadcastVisible', { count: broadcastIds.length })}
                 </Button>
                 <Button size="sm" variant="outline" onClick={() => void startImport()} disabled={importing || importBusyElsewhere}>
@@ -323,12 +320,6 @@ export function LeadsPage() {
               {t('common.refresh')}
             </Button>
           </div>
-
-          {pickingForBroadcast ? (
-            <p role="status" className="mt-3 mb-0 rounded-[10px] border border-border bg-[#f6f9f5] px-3 py-2 text-[13px] leading-[1.55]">
-              {t('leads.pickForBroadcast')}
-            </p>
-          ) : null}
 
           {status ? <p className="mt-2 mb-0 text-[13px] text-muted">{status}</p> : null}
 

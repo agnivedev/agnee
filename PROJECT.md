@@ -105,10 +105,14 @@ perubahan ada di [`CHANGELOG.md`](CHANGELOG.md).
   bisa diedit sebagai Markdown dan diubah lewat chat per dokumen. Kode:
   `src/train-assistant.js`, `web/src/features/knowledge/TrainAssistant.tsx`.
   Unggah/hapus file di "Brief & files" tidak bisa lewat chat.
-- Broadcast ke customer yang pernah chat, dengan tempo, jam, dan batas harian,
-  bisa dipilih per kelompok (tahap lead, hari, produk, hubungan, label
-  WhatsApp). Daftar penerima memakai `inbound_messages`, `lead_states`,
-  `conversation_routing`, dan kontak hasil impor.
+- Broadcast ke seluruh isi Lead List yang bernomor WhatsApp (keputusan Hanny
+  15 Okt), dengan tempo, jam, dan batas harian, bisa dipilih per kelompok
+  (tahap lead, hari, topik, hubungan, label WhatsApp, belum dibaca) atau lewat
+  panel "Impor dari Lead List". Bawaannya tetap hanya yang pernah membalas;
+  kontak yang belum membalas (hanya pernah kita kirimi, terlihat di ponsel,
+  pembeli Mayar yang belum chat) tampil tapi tidak tercentang dan server
+  membuangnya kecuali pemilik mengakui risikonya (`acceptUnproven`). Daftar
+  penerima: `Database.listBroadcastAudience` (`origin` menjelaskan asalnya).
 - Impor chat dari WhatsApp ke Lead List (supervisor): membaca daftar chat nomor
   yang tersambung, tanpa isi pesan, lalu mengelompokkan menurut hubungan,
   keaktifan, label WhatsApp Business, dan produk. Live 8 Oktober, belum pernah

@@ -140,20 +140,32 @@ test('pesan broadcast tercatat dengan penulisnya sendiri', { skip }, async (t) =
   });
 });
 
-test('calon penerima: hanya yang pernah chat, tanpa grup, STOP ditandai', { skip }, async (t) => {
+test('calon penerima: seluruh Lead List bernomor, tanpa grup, STOP ditandai, yang belum chat berstatus unproven', { skip }, async (t) => {
   await withCompanies(t, async (db, companyId) => {
     const now = Math.floor(Date.now() / 1000);
     for (const chatId of ['62811@c.us', '62812@c.us', '1203@g.us']) {
       await db.recordInboundMessage(companyId, { chatId, provider: 'whatsapp_web', waMessageId: `${chatId}-1`, body: 'halo', timestamp: now });
     }
-    // Hanya pernah kita kirimi: bukan calon penerima.
+    // Hanya pernah kita kirimi: calon penerima, tapi 'unproven' (keputusan 15 Okt).
     await db.recordOutboundReply({ chatId: '62819@c.us', author: 'human', body: 'halo' }, companyId);
+    // Pembeli Mayar yang belum pernah chat: ikut, chatId dibentuk dari nomor.
+    // Yang nomornya sudah jadi chat (62811) tidak boleh muncul dua kali.
+    await db.pool.query(
+      `INSERT INTO mayar_leads (company_id, mayar_customer_id, name, phone) VALUES
+         ($1, 'm-1', 'Pembeli Mayar', '628771234567'), ($1, 'm-2', 'Sudah chat', '62811'), ($1, 'm-3', 'Tanpa nomor', NULL)`,
+      [companyId],
+    );
     await db.recordBroadcastOptOut(companyId, '62812@c.us', 'STOP');
 
     const audience = await db.listBroadcastAudience(companyId);
-    assert.deepEqual(audience.map((r) => r.chatId).sort(), ['62811@c.us', '62812@c.us']);
+    assert.deepEqual(audience.map((r) => r.chatId).sort(), ['62811@c.us', '62812@c.us', '62819@c.us', '628771234567@c.us']);
     assert.equal(audience.find((r) => r.chatId === '62812@c.us').optedOut, true);
     assert.equal(audience.find((r) => r.chatId === '62811@c.us').lastInboundAt, now);
+    const per = Object.fromEntries(audience.map((r) => [r.chatId, r]));
+    assert.deepEqual([per['62811@c.us'].relation, per['62811@c.us'].origin], ['replied', 'chat']);
+    assert.deepEqual([per['62819@c.us'].relation, per['62819@c.us'].origin], ['unproven', 'outbound']);
+    assert.deepEqual([per['628771234567@c.us'].relation, per['628771234567@c.us'].origin], ['unproven', 'mayar']);
+    assert.equal(per['628771234567@c.us'].name, 'Pembeli Mayar');
   });
 });
 

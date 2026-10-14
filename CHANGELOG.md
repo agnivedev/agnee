@@ -1,5 +1,13 @@
 ## [Unreleased]
 
+- **Broadcast bisa ke seluruh isi Lead List.** Penerima tidak lagi dibatasi pada
+  yang pernah chat: kontak yang hanya pernah kita kirimi, terlihat di ponsel,
+  atau pembeli Mayar yang belum chat ikut tampil (`origin`), tidak tercentang
+  bawaan, dan dibuang server kecuali pemilik mengakui risikonya. Penerima
+  Mayar-saja memakai chatId `<nomor>@c.us`. Penyusun broadcast punya panel
+  "Impor dari Lead List" dengan saringan Lead List; Lead List juga punya tombol
+  "Broadcast ke yang tampil". Daftar dibawa lewat sessionStorage, bukan URL.
+
 - **Webhook lead dari website: `POST /webhook/lead`.** Form landing page (Fluent
   Forms di WordPress) mengirim lead baru ke sini. Agnee mencatat lead di pipeline
   (pipeline `warm`; lead yang sudah ada tidak diturunkan) dan mengirim satu pesan sambutan WhatsApp ke nomor yang diisi

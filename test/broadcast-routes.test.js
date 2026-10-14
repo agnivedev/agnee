@@ -320,3 +320,26 @@ test('broadcast menyimpan banyak topik terpilih di audience, dan menolak id yang
   const buruk = await kirim(app, cookie, { chatIds: ['62901@c.us'], audience: { productIds: ['bukan-uuid'] } });
   assert.equal(buruk.statusCode, 400);
 });
+
+// ---- seluruh Lead List bisa jadi penerima (keputusan 15 Okt) ----
+
+test('kontak yang belum pernah chat ikut di audiens dengan asalnya, dan DIBUANG server tanpa pengakuan risiko', async (t) => {
+  const audience = [
+    { chatId: '62901@c.us', name: 'Pernah', phone: '62901', lastInboundAt: NOW - 60, leadStage: null, optedOut: false, relation: 'replied', origin: 'chat', waLabels: [] },
+    { chatId: '62902@c.us', name: 'Kita kirimi', phone: '62902', lastInboundAt: null, leadStage: null, optedOut: false, relation: 'unproven', origin: 'outbound', waLabels: [] },
+    { chatId: '628771234567@c.us', name: 'Pembeli Mayar', phone: '628771234567', lastInboundAt: null, leadStage: null, optedOut: false, relation: 'unproven', origin: 'mayar', waLabels: [] },
+  ];
+  const database = fakeDatabase({ audience });
+  const app = await appWith(t, database);
+  const cookie = await signIn(app, SUPERVISOR);
+  const res = await app.inject({ method: 'GET', url: '/v1/broadcasts/audience', headers: { cookie } });
+  const per = Object.fromEntries(res.json().recipients.map((r) => [r.chatId, r.origin]));
+  assert.deepEqual(per, { '62901@c.us': 'chat', '62902@c.us': 'outbound', '628771234567@c.us': 'mayar' });
+
+  const tanpa = await kirim(app, cookie, { chatIds: ['62901@c.us', '628771234567@c.us'] });
+  assert.equal(tanpa.statusCode, 201);
+  assert.equal(tanpa.json().droppedUnproven, 1);
+  const dengan = await kirim(app, cookie, { chatIds: ['62901@c.us', '628771234567@c.us'], acceptUnproven: true });
+  assert.equal(dengan.statusCode, 201);
+  assert.equal(database.created[1].recipients.length, 2);
+});

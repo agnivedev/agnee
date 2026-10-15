@@ -92,6 +92,15 @@ test('sudah punya account: pesannya soal pindah IB; bahasa Inggris mengikuti lan
   assert.doesNotMatch(en, /You picked/);
 });
 
+test('welcomeText dari WordPress dipakai apa adanya menggantikan teks umum', async (t) => {
+  const { server, sentTo } = await app(t);
+  const text = 'Halo Rina, balas dengan email yang kamu pakai mendaftar di Valetax ya.';
+  await server.inject({ method: 'POST', url: '/webhook/lead', ...signed(payload({ submissionId: '30', broker: 'Valetax', welcomeText: text })) });
+  const sent = await sentTo('628123456789@c.us');
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].body, text);
+});
+
 test('kiriman ulang submission yang sama tidak mengirim pesan kedua', async (t) => {
   const { server, sentTo } = await app(t);
   const first = await server.inject({ method: 'POST', url: '/webhook/lead', ...signed(payload()) });

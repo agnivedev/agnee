@@ -2578,11 +2578,14 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       accountStatus: l.accountStatus === 'have' ? 'have' : 'new',
       accountNumber: /^\d{5,12}$/.test(String(l.accountNumber || '')) ? String(l.accountNumber) : '',
       language: l.language === 'en' ? 'en' : 'id',
+      // Teks siap kirim dari WordPress (template per broker, payload sudah bertanda tangan HMAC); kosong = teks umum di bawah.
+      welcomeText: (str(l.welcomeText, 1000) || '').trim(),
     };
   }
 
   /** Pesan sambutan. Tidak menjanjikan angka rebate: itu dikonfirmasi tim. */
   function leadWelcomeText(lead) {
+    if (lead.welcomeText) return lead.welcomeText;
     const first = lead.name.split(/\s+/)[0];
     const hasBroker = lead.broker && !/^(belum tahu|not sure)$/i.test(lead.broker);
     if (lead.language === 'en') {

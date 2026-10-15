@@ -259,6 +259,54 @@ class Database {
     return result.rowCount > 0;
   }
 
+  /** Pengaturan webhook lead satu company (secret didekripsi; jangan pernah dikirim ke browser). */
+  async getLeadWebhook(companyId) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      SELECT w.company_id AS "companyId", c.name AS "companyName", c.slug,
+             pgp_sym_decrypt(w.lead_secret_enc, $2) AS "leadSecret",
+             pgp_sym_decrypt(w.verify_secret_enc, $2) AS "verifySecret",
+             w.enabled, w.welcome_text_id AS "welcomeId", w.welcome_text_en AS "welcomeEn",
+             w.confirm_text_id AS "confirmId", w.confirm_text_en AS "confirmEn"
+      FROM lead_webhooks w JOIN companies c ON c.id = w.company_id
+      WHERE w.company_id = $1
+    `, [companyId, this.credentialsEncryptionKey]);
+    return result.rows[0] || null;
+  }
+
+  /** Ganti secret satu jenis ('lead' | 'verify'); membuat baris bila belum ada. */
+  async setLeadWebhookSecret(companyId, kind, secret) {
+    if (!this.enabled) return null;
+    const column = kind === 'verify' ? 'verify_secret_enc' : 'lead_secret_enc';
+    await this.pool.query(`
+      INSERT INTO lead_webhooks (company_id, ${column}) VALUES ($1, pgp_sym_encrypt($2, $3))
+      ON CONFLICT (company_id) DO UPDATE SET ${column} = EXCLUDED.${column}, updated_at = NOW()
+    `, [companyId, secret, this.credentialsEncryptionKey]);
+    return true;
+  }
+
+  async saveLeadWebhookSettings(companyId, { enabled, welcomeId, welcomeEn, confirmId, confirmEn } = {}) {
+    if (!this.enabled) return null;
+    await this.pool.query(`
+      INSERT INTO lead_webhooks (company_id, enabled, welcome_text_id, welcome_text_en, confirm_text_id, confirm_text_en)
+      VALUES ($1, COALESCE($2, true), COALESCE($3, ''), COALESCE($4, ''), COALESCE($5, ''), COALESCE($6, ''))
+      ON CONFLICT (company_id) DO UPDATE SET
+        enabled = COALESCE($2, lead_webhooks.enabled),
+        welcome_text_id = COALESCE($3, lead_webhooks.welcome_text_id),
+        welcome_text_en = COALESCE($4, lead_webhooks.welcome_text_en),
+        confirm_text_id = COALESCE($5, lead_webhooks.confirm_text_id),
+        confirm_text_en = COALESCE($6, lead_webhooks.confirm_text_en),
+        updated_at = NOW()
+    `, [companyId, enabled ?? null, welcomeId ?? null, welcomeEn ?? null, confirmId ?? null, confirmEn ?? null]);
+    return true;
+  }
+
+  async deleteLeadWebhook(companyId) {
+    if (!this.enabled) return false;
+    const result = await this.pool.query('DELETE FROM lead_webhooks WHERE company_id = $1', [companyId]);
+    return result.rowCount > 0;
+  }
+
   async setPipelineStage(chatId, stage, updatedBy, companyId) {
     if (!this.enabled) return null;
     const result = await this.pool.query(`

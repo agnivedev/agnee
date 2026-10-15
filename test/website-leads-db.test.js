@@ -90,3 +90,25 @@ test('cocok lewat email broker yang berbeda dari email member, atau lewat submis
   assert.equal((await db.findWebsiteLeadsForVerification(a, { submissionIds: ['member-12'] })).length, 1);
   assert.equal((await db.findWebsiteLeadsForVerification(b, { submissionIds: ['member-12'], emails: ['dewi.trade@valetax.test'] })).length, 0);
 }));
+
+test('lead_webhooks: secret terenkripsi bolak-balik, pengaturan dan hapus per company', { skip }, (t) => withCompanies(t, async (db, a, b) => {
+  db.credentialsEncryptionKey = 'kunci-uji';
+  assert.equal(await db.getLeadWebhook(a), null);
+  await db.setLeadWebhookSecret(a, 'lead', 'rahasia-lead');
+  let row = await db.getLeadWebhook(a);
+  assert.equal(row.leadSecret, 'rahasia-lead');
+  assert.equal(row.verifySecret, null);
+  assert.equal(row.enabled, true);
+  await db.setLeadWebhookSecret(a, 'verify', 'rahasia-verify');
+  await db.saveLeadWebhookSettings(a, { confirmId: 'Hai {first_name}' });
+  row = await db.getLeadWebhook(a);
+  assert.equal(row.leadSecret, 'rahasia-lead');
+  assert.equal(row.verifySecret, 'rahasia-verify');
+  assert.equal(row.confirmId, 'Hai {first_name}');
+  await db.saveLeadWebhookSettings(a, { enabled: false });
+  assert.equal((await db.getLeadWebhook(a)).enabled, false);
+  assert.equal((await db.getLeadWebhook(a)).confirmId, 'Hai {first_name}');
+  assert.equal(await db.getLeadWebhook(b), null);
+  assert.equal(await db.deleteLeadWebhook(a), true);
+  assert.equal(await db.getLeadWebhook(a), null);
+}));

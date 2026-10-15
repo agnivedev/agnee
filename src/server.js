@@ -2548,31 +2548,40 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     return reply.code(200).send({ ok: true, id: synced.id });
   });
 
-  // ── Lead webhook (website → Agnee) ─────────────────────────────────────────
-  // Form di landing page mengirim lead baru ke sini; Agnee mencatat lead di
-  // pipeline dan mengirim SATU pesan sambutan WhatsApp ke nomor yang diisi
-  // orangnya sendiri. Tanda tangannya sama dengan webhook Insight: HMAC-SHA256
-  // atas `${timestamp}.${bodyMentah}` dengan LEAD_WEBHOOK_SECRET, di header
+  // ── Webhook lead universal (pihak ketiga → Agnee) ──────────────────────────
+  // Dua pintu, satu logika:
+  //  • POST /webhook/company/:company/lead dan /lead-verify — per company. Secret
+  //    HMAC dan template pesan disimpan di tabel lead_webhooks (diatur
+  //    supervisor lewat /v1/integrations/lead-webhook). Siapa pun boleh jadi
+  //    pengirim: website, WordPress, robot, CRM.
+  //  • POST /webhook/lead dan /lead-verify — rute lama berbasis env
+  //    (LEAD_WEBHOOK_SECRET, LEAD_VERIFY_SECRET, LEAD_WEBHOOK_COMPANY) untuk
+  //    Bull Babe, perilakunya tidak berubah.
+  // Tanda tangan: HMAC-SHA256 atas `${timestamp}.${bodyMentah}`, header
   // x-agnive-signature (sha256=<hex>) dan x-agnive-timestamp (milidetik),
   // ditolak bila selisihnya lebih dari 5 menit. Kunci layanan API_KEY tidak
-  // berlaku di sini dan tidak boleh dipakai website.
+  // berlaku di sini dan tidak boleh dipakai pengirim.
   const LEAD_WELCOME_WINDOW_MS = 24 * 60 * 60_000;
   const LEAD_HOURLY_CAP = 60;
-  const leadWelcomes = new Map(); // submissionId -> hasil, untuk kiriman ulang
-  const leadByChat = new Map(); // chatId -> kapan terakhir disambut
-  let leadSentTimes = [];
-
-  // 'bullbabe-member' = member yang mendaftar lewat plugin WordPress (submissionId 'member-<user id>').
-  const LEAD_SOURCES = ['bullbabe-landing', 'bullbabe-member'];
+  const LEAD_VERIFY_MAX_ROWS = 500;
+  const LEAD_CONFIRM_HOURLY_CAP = 200;
+  const leadWelcomes = new Map(); // `${scope}|${submissionId}` -> hasil, untuk kiriman ulang
+  const leadByChat = new Map(); // `${scope}|${chatId}` -> kapan terakhir disambut
+  const leadSentTimes = new Map(); // scope -> waktu kirim sambutan (per jam)
+  const leadConfirmTimes = new Map(); // scope -> waktu kirim konfirmasi (per jam)
+  // Rute lama hanya menerima source Bull Babe; rute per company menerima nama source apa pun yang rapi.
+  const LEGACY_LEAD_SOURCES = ['bullbabe-landing', 'bullbabe-member'];
+  const LEGACY_VERIFY_SOURCES = ['anduman', 'bullbabe-wp'];
+  const genericSource = (value) => typeof value === 'string' && /^[a-z0-9][a-z0-9._-]{0,39}$/i.test(value);
 
   function normalizeEmail(value) {
     const v = typeof value === 'string' ? value.trim().toLowerCase().slice(0, 200) : '';
     return /^[^\s@]+@[^\s@]+$/.test(v) ? v : '';
   }
 
-  function parseLead(body) {
+  function parseLead(body, sourceOk) {
     const l = body?.lead;
-    if (body?.version !== 1 || !LEAD_SOURCES.includes(body?.source) || !l || typeof l !== 'object') return null;
+    if (body?.version !== 1 || !sourceOk(body?.source) || !l || typeof l !== 'object') return null;
     const submissionId = str(String(l.submissionId ?? ''), 64);
     const name = (str(l.name, 100) || '').trim();
     const whatsapp = (str(l.whatsapp, 40) || '').trim();
@@ -2585,17 +2594,23 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       broker: (str(l.broker, 80) || '').trim(),
       accountStatus: l.accountStatus === 'have' ? 'have' : 'new',
       accountNumber: /^\d{5,12}$/.test(String(l.accountNumber || '')) ? String(l.accountNumber) : '',
-      // Email yang dipakai mendaftar di broker (Valetax): bisa berbeda dari lead.email milik member.
+      // Email yang dipakai mendaftar di broker/layanan: bisa berbeda dari lead.email milik member.
       brokerEmail: normalizeEmail(l.brokerEmail),
       language: l.language === 'en' ? 'en' : 'id',
-      // Teks siap kirim dari WordPress (template per broker, payload sudah bertanda tangan HMAC); kosong = teks umum di bawah.
+      // Teks siap kirim dari pengirim (payload sudah bertanda tangan HMAC); kosong = template company / teks bawaan.
       welcomeText: (str(l.welcomeText, 1000) || '').trim(),
     };
   }
 
-  /** Pesan sambutan. Tidak menjanjikan angka rebate: itu dikonfirmasi tim. */
-  function leadWelcomeText(lead) {
-    if (lead.welcomeText) return lead.welcomeText;
+  /** Penanda {name} {first_name} {broker} {company}; yang tidak dikenal dibiarkan. */
+  function renderLeadTemplate(template, lead, companyName) {
+    const first = String(lead.name || '').split(/\s+/)[0] || '';
+    const values = { name: lead.name || '', first_name: first, broker: lead.broker || '', company: companyName || '' };
+    return String(template).replace(/\{(name|first_name|broker|company)\}/g, (_, key) => values[key]).replace(/ {2,}/g, ' ').trim();
+  }
+
+  /** Teks bawaan rute lama (Bull Babe). Tidak menjanjikan angka rebate: itu dikonfirmasi tim. */
+  function legacyWelcomeText(lead) {
     const first = lead.name.split(/\s+/)[0];
     const hasBroker = lead.broker && !/^(belum tahu|not sure)$/i.test(lead.broker);
     if (lead.language === 'en') {
@@ -2612,6 +2627,47 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     return `Halo ${first}, terima kasih sudah daftar di Bull Babe Capital | Rebate. ${pick}${next} Jangan pernah kirim password.`;
   }
 
+  function legacyConfirmText(lead) {
+    const first = String(lead.name || '').split(/\s+/)[0] || '';
+    const broker = lead.broker || (lead.language === 'en' ? 'your broker' : 'broker kamu');
+    return lead.language === 'en'
+      ? `Hi ${first}, good news: your ${broker} account is now linked under Bull Babe Capital | Rebate. Your trading is counted for rebate from here. We will update you in this chat with details and the schedule.`
+      : `Halo ${first}, kabar baik: account ${broker} kamu sudah terhubung ke Bull Babe Capital | Rebate. Trading kamu tercatat untuk rebate mulai sekarang. Rincian dan jadwalnya kami kabari lewat chat ini.`;
+  }
+
+  const GENERIC_WELCOME = {
+    id: 'Halo {first_name}, terima kasih sudah mendaftar di {company}. Tim kami akan menghubungi kamu lewat chat ini.',
+    en: 'Hi {first_name}, thanks for signing up with {company}. Our team will get in touch with you in this chat.',
+  };
+  const GENERIC_CONFIRM = {
+    id: 'Halo {first_name}, kabar baik: akun {broker} kamu sudah terhubung. Langkah selanjutnya kami kabari lewat chat ini.',
+    en: 'Hi {first_name}, good news: your {broker} account is now linked. We will update you in this chat with the next steps.',
+  };
+
+  function leadWelcomeText(lead, ctx) {
+    if (lead.welcomeText) return lead.welcomeText;
+    if (ctx.legacy) return legacyWelcomeText(lead);
+    const lang = lead.language === 'en' ? 'en' : 'id';
+    const template = (lang === 'en' ? ctx.settings?.welcomeEn : ctx.settings?.welcomeId) || GENERIC_WELCOME[lang];
+    return renderLeadTemplate(template, lead, ctx.companyName);
+  }
+
+  /** `override` = confirmText dari pengirim; lalu template company; lalu teks bawaan. */
+  function leadConfirmText(lead, ctx, override) {
+    if (ctx.legacy && !override) return legacyConfirmText(lead);
+    const lang = lead.language === 'en' ? 'en' : 'id';
+    const template = override || (lang === 'en' ? ctx.settings?.confirmEn : ctx.settings?.confirmId) || GENERIC_CONFIRM[lang];
+    const withBroker = { ...lead, broker: lead.broker || (lang === 'en' ? 'your broker' : 'broker kamu') };
+    return renderLeadTemplate(template, withBroker, ctx.companyName);
+  }
+
+  /** 'Blueberry Markets' dan 'blueberry' dianggap broker yang sama. */
+  function brokersMatch(a, b) {
+    const x = String(a || '').toLowerCase().trim().replace(/\s+/g, ' ');
+    const y = String(b || '').toLowerCase().trim().replace(/\s+/g, ' ');
+    return Boolean(x && y) && (x === y || x.startsWith(`${y} `) || y.startsWith(`${x} `));
+  }
+
   /** Satu pintu kirim untuk pesan otomatis lead (sambutan dan konfirmasi). */
   async function sendLeadMessage(companyId, chatId, text) {
     if (config.demoMode) {
@@ -2622,34 +2678,75 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     await sendOutbound(companyId, chatId, text);
   }
 
-  app.post('/webhook/lead', {
-    bodyLimit: 64 * 1024,
-    preParsing: captureRawBody(64 * 1024),
-  }, async (request, reply) => {
-    if (!config.leadWebhookSecret || !config.leadWebhookCompany) return reply.code(404).send({ error: 'Not found' });
+  /**
+   * Siapa pemilik request ini dan secret mana yang berlaku. Rute per company:
+   * company/secret tidak ada, dimatikan, atau belum punya secret -> 404 yang sama
+   * dengan "company tidak ada", supaya slug tidak bisa ditebak. Mengembalikan
+   * { error: kode } atau konteks { scope, legacy, secret, getCompanyId, ... }.
+   */
+  async function resolveLeadHook(request, kind) {
+    const ref = request.params?.company;
+    if (!ref) {
+      const secret = kind === 'lead' ? config.leadWebhookSecret : config.leadVerifySecret;
+      if (!secret || !config.leadWebhookCompany) return { error: 404 };
+      return {
+        legacy: true, scope: 'legacy', secret,
+        sourceOk: (v) => (kind === 'lead' ? LEGACY_LEAD_SOURCES : LEGACY_VERIFY_SOURCES).includes(v),
+        getCompanyId: async () => (kind === 'lead' && config.demoMode && !database.status().connected
+          ? 'demo' : database.resolveCompanyId(config.leadWebhookCompany)),
+      };
+    }
+    if (!database.status().connected || typeof database.getLeadWebhook !== 'function') return { error: 503 };
+    const companyId = await database.resolveCompanyId(ref);
+    const row = companyId ? await database.getLeadWebhook(companyId) : null;
+    const secret = kind === 'lead' ? row?.leadSecret : row?.verifySecret;
+    if (!row || !row.enabled || !secret) return { error: 404 };
+    return {
+      legacy: false, scope: companyId, secret, settings: row, companyName: row.companyName,
+      sourceOk: genericSource, getCompanyId: async () => companyId,
+    };
+  }
+
+  /** Mengembalikan true bila tanda tangan sah; selain itu sudah membalas 401. */
+  function checkLeadSignature(request, reply, secret, label) {
     const timestamp = String(request.headers['x-agnive-timestamp'] || '');
     const signature = String(request.headers['x-agnive-signature'] || '');
-    const expected = 'sha256=' + crypto.createHmac('sha256', config.leadWebhookSecret)
+    const expected = 'sha256=' + crypto.createHmac('sha256', secret)
       .update(`${timestamp}.`).update(request.rawBody || Buffer.alloc(0)).digest('hex');
     if (!signature || !safeEqual(signature, expected)) {
-      app.log.warn('Lead webhook: bad signature');
-      return reply.code(401).send({ error: 'Unauthorized' });
+      app.log.warn(`${label}: bad signature`);
+      reply.code(401).send({ error: 'Unauthorized' });
+      return false;
     }
     if (!/^\d{10,16}$/.test(timestamp) || Math.abs(Date.now() - Number(timestamp)) > INSIGHT_SKEW_MS) {
-      return reply.code(401).send({ error: 'Stale request' });
+      reply.code(401).send({ error: 'Stale request' });
+      return false;
     }
-    const lead = parseLead(request.body);
+    return true;
+  }
+
+  const hourlyCount = (map, scope, now) => {
+    const recent = (map.get(scope) || []).filter((at) => now - at < 60 * 60_000);
+    map.set(scope, recent);
+    return recent;
+  };
+
+  async function handleLead(request, reply) {
+    const ctx = await resolveLeadHook(request, 'lead');
+    if (ctx.error) return reply.code(ctx.error).send({ error: ctx.error === 404 ? 'Not found' : 'Database unavailable' });
+    if (!checkLeadSignature(request, reply, ctx.secret, 'Lead webhook')) return reply;
+    const lead = parseLead(request.body, ctx.sourceOk);
     if (!lead) return reply.code(400).send({ error: 'Invalid lead payload' });
     let chatId;
     try { chatId = normalizeChatId(lead.whatsapp, config.defaultCountryCode); } catch { return reply.code(400).send({ error: 'Invalid WhatsApp number' }); }
 
     // Kiriman ulang untuk submission yang sama mengembalikan hasil yang sama, tanpa kirim lagi.
-    const seen = leadWelcomes.get(lead.submissionId);
+    const seenKey = `${ctx.scope}|${lead.submissionId}`;
+    const seen = leadWelcomes.get(seenKey);
     if (seen) return reply.code(200).send({ ...seen, duplicate: true });
 
     if (!database.status().connected && !config.demoMode) return reply.code(503).send({ error: 'Database unavailable' });
-    const companyId = config.demoMode && !database.status().connected
-      ? 'demo' : await database.resolveCompanyId(config.leadWebhookCompany);
+    const companyId = await ctx.getCompanyId();
     if (!companyId) {
       app.log.error({ company: config.leadWebhookCompany }, 'Lead webhook: LEAD_WEBHOOK_COMPANY tidak ditemukan');
       return reply.code(503).send({ error: 'Receiving company not configured' });
@@ -2669,89 +2766,55 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     }
 
     const finish = (result) => {
-      leadWelcomes.set(lead.submissionId, result);
-      setTimeout(() => leadWelcomes.delete(lead.submissionId), LEAD_WELCOME_WINDOW_MS).unref?.();
+      leadWelcomes.set(seenKey, result);
+      setTimeout(() => leadWelcomes.delete(seenKey), LEAD_WELCOME_WINDOW_MS).unref?.();
       return reply.code(200).send(result);
     };
 
     const now = Date.now();
-    const last = leadByChat.get(chatId);
+    const chatKey = `${ctx.scope}|${chatId}`;
+    const last = leadByChat.get(chatKey);
     if (last && now - last < LEAD_WELCOME_WINDOW_MS) return finish({ ok: true, welcomed: false, reason: 'already_welcomed_today' });
     if (typeof database.listBroadcastOptOuts === 'function' && database.enabled && database.connected) {
       const optOuts = await database.listBroadcastOptOuts(companyId).catch(() => []);
       if ((optOuts || []).some((row) => row.chatId === chatId)) return finish({ ok: true, welcomed: false, reason: 'opted_out' });
     }
-    leadSentTimes = leadSentTimes.filter((at) => now - at < 60 * 60_000);
-    if (leadSentTimes.length >= LEAD_HOURLY_CAP) {
+    const recent = hourlyCount(leadSentTimes, ctx.scope, now);
+    if (recent.length >= LEAD_HOURLY_CAP) {
       app.log.warn('Lead webhook: hourly cap reached');
       return reply.code(429).send({ error: 'Too many leads this hour' });
     }
 
-    const text = leadWelcomeText(lead);
     try {
-      await sendLeadMessage(companyId, chatId, text);
+      await sendLeadMessage(companyId, chatId, leadWelcomeText(lead, ctx));
     } catch (error) {
-      // Lead sudah tercatat. Pesan gagal (nomor belum tersambung, di luar jendela 24 jam Cloud API) tidak boleh membuat Fluent Forms mencoba terus.
+      // Lead sudah tercatat. Pesan gagal (nomor belum tersambung, di luar jendela 24 jam Cloud API) tidak boleh membuat pengirim mencoba terus.
       app.log.warn({ err: error, chatId }, 'Lead webhook: welcome message not sent');
       return finish({ ok: true, welcomed: false, reason: 'send_failed' });
     }
-    leadSentTimes.push(now);
-    leadByChat.set(chatId, now);
-    setTimeout(() => leadByChat.delete(chatId), LEAD_WELCOME_WINDOW_MS).unref?.();
+    recent.push(now);
+    leadByChat.set(chatKey, now);
+    setTimeout(() => leadByChat.delete(chatKey), LEAD_WELCOME_WINDOW_MS).unref?.();
     return finish({ ok: true, welcomed: true });
-  });
-
-  // ── Verifikasi lead (robot Anduman -> Agnee) ───────────────────────────────
-  // Robot membaca daftar klien di portal IB sebuah broker, lalu mengirim email
-  // dan/atau nomor account yang ditemukan (WordPress boleh menambah submissionId
-  // lead yang pasti, mis. 'member-12'; broker tetap harus cocok). Email dicocokkan
-  // dengan email lead DAN email broker (brokerEmail). Agnee mencocokkannya dengan lead dari
-  // website, menandainya terverifikasi, dan mengirim SATU WhatsApp konfirmasi per
-  // lead. Tanda tangan sama dengan webhook lain (HMAC atas `${timestamp}.${body}`)
-  // tetapi dengan LEAD_VERIFY_SECRET. Respons hanya berisi angka, tanpa data lead.
-  // 'anduman' = robot portal IB; 'bullbabe-wp' = plugin WordPress saat account member ditandai terhubung.
-  const LEAD_VERIFY_SOURCES = ['anduman', 'bullbabe-wp'];
-  const LEAD_VERIFY_MAX_ROWS = 500;
-  const LEAD_CONFIRM_HOURLY_CAP = 200;
-  let leadConfirmTimes = [];
-  const BULLBABE_BROKERS = ['tmgm', 'valetax', 'hfm', 'exness', 'blueberry', 'dupoin'];
-
-  /** 'Blueberry Markets' dan 'blueberry' sama; yang tidak dikenal dikembalikan apa adanya. */
-  function canonicalBroker(value) {
-    const v = String(value || '').toLowerCase().trim().replace(/\s+/g, ' ');
-    return BULLBABE_BROKERS.find((id) => v === id || v.startsWith(`${id} `)) || v;
   }
 
-  function leadConfirmText(lead) {
-    const first = String(lead.name || '').split(/\s+/)[0] || '';
-    const broker = lead.broker || (lead.language === 'en' ? 'your broker' : 'broker kamu');
-    return lead.language === 'en'
-      ? `Hi ${first}, good news: your ${broker} account is now linked under Bull Babe Capital | Rebate. Your trading is counted for rebate from here. We will update you in this chat with details and the schedule.`
-      : `Halo ${first}, kabar baik: account ${broker} kamu sudah terhubung ke Bull Babe Capital | Rebate. Trading kamu tercatat untuk rebate mulai sekarang. Rincian dan jadwalnya kami kabari lewat chat ini.`;
-  }
-
-  app.post('/webhook/lead-verify', {
-    bodyLimit: 256 * 1024,
-    preParsing: captureRawBody(256 * 1024),
-  }, async (request, reply) => {
-    if (!config.leadVerifySecret || !config.leadWebhookCompany) return reply.code(404).send({ error: 'Not found' });
-    const timestamp = String(request.headers['x-agnive-timestamp'] || '');
-    const signature = String(request.headers['x-agnive-signature'] || '');
-    const expected = 'sha256=' + crypto.createHmac('sha256', config.leadVerifySecret)
-      .update(`${timestamp}.`).update(request.rawBody || Buffer.alloc(0)).digest('hex');
-    if (!signature || !safeEqual(signature, expected)) {
-      app.log.warn('Lead verify: bad signature');
-      return reply.code(401).send({ error: 'Unauthorized' });
-    }
-    if (!/^\d{10,16}$/.test(timestamp) || Math.abs(Date.now() - Number(timestamp)) > INSIGHT_SKEW_MS) {
-      return reply.code(401).send({ error: 'Stale request' });
-    }
+  // Verifikasi: pengirim (robot portal, plugin, CRM) melaporkan email dan/atau
+  // nomor account (dan/atau submissionId lead yang pasti) yang sudah terhubung di
+  // broker/layanan. Agnee mencocokkan dengan lead di broker yang sama, menandai
+  // terverifikasi, memindahkan pipeline ke 'closing', dan mengirim SATU WhatsApp
+  // konfirmasi per lead. Email dicocokkan dengan email lead DAN brokerEmail.
+  // Respons hanya berisi angka, tanpa data lead.
+  async function handleLeadVerify(request, reply) {
+    const ctx = await resolveLeadHook(request, 'verify');
+    if (ctx.error) return reply.code(ctx.error).send({ error: ctx.error === 404 ? 'Not found' : 'Database unavailable' });
+    if (!checkLeadSignature(request, reply, ctx.secret, 'Lead verify')) return reply;
     const body = request.body;
-    const broker = canonicalBroker(body?.broker);
+    const broker = String(body?.broker || '').trim();
     const rows = body?.registrations;
-    if (body?.version !== 1 || !LEAD_VERIFY_SOURCES.includes(body?.source) || !broker || !Array.isArray(rows) || rows.length === 0 || rows.length > LEAD_VERIFY_MAX_ROWS) {
+    if (body?.version !== 1 || !ctx.sourceOk(body?.source) || !broker || !Array.isArray(rows) || rows.length === 0 || rows.length > LEAD_VERIFY_MAX_ROWS) {
       return reply.code(400).send({ error: 'Invalid verification payload' });
     }
+    const confirmOverride = (str(body.confirmText, 1000) || '').trim();
     const emails = [];
     const accounts = [];
     const submissionIds = [];
@@ -2765,37 +2828,117 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     }
     if (!emails.length && !accounts.length && !submissionIds.length) return reply.code(400).send({ error: 'Invalid verification payload' });
     if (!database.status().connected) return reply.code(503).send({ error: 'Database unavailable' });
-    const companyId = await database.resolveCompanyId(config.leadWebhookCompany);
+    const companyId = await ctx.getCompanyId();
     if (!companyId) return reply.code(503).send({ error: 'Receiving company not configured' });
 
     const candidates = (await database.findWebsiteLeadsForVerification(companyId, { emails, accounts, submissionIds }))
-      .filter((lead) => canonicalBroker(lead.broker) === broker);
+      .filter((lead) => brokersMatch(lead.broker, broker));
     const result = { ok: true, received: rows.length, matched: candidates.length, confirmed: 0, alreadyConfirmed: 0, failed: 0 };
 
     for (const lead of candidates) {
-      const claimed = lead.status === 'new' ? await database.claimWebsiteLeadVerification(lead.id, 'anduman', companyId) : null;
+      const claimed = lead.status === 'new' ? await database.claimWebsiteLeadVerification(lead.id, request.body.source, companyId) : null;
       if (lead.status === 'new' && !claimed) { result.alreadyConfirmed += 1; continue; }
       if (typeof database.setPipelineStage === 'function') {
         await database.setPipelineStage(lead.chatId, 'closing', 'lead-verify', companyId)
           .catch((error) => app.log.warn({ err: error }, 'Lead verify: could not move pipeline stage'));
       }
       const now = Date.now();
-      leadConfirmTimes = leadConfirmTimes.filter((at) => now - at < 60 * 60_000);
-      if (leadConfirmTimes.length >= LEAD_CONFIRM_HOURLY_CAP) { result.failed += 1; continue; }
+      const recent = hourlyCount(leadConfirmTimes, ctx.scope, now);
+      if (recent.length >= LEAD_CONFIRM_HOURLY_CAP) { result.failed += 1; continue; }
       try {
-        await sendLeadMessage(companyId, lead.chatId, leadConfirmText(lead));
+        await sendLeadMessage(companyId, lead.chatId, leadConfirmText(lead, ctx, confirmOverride));
       } catch (error) {
-        // Sudah terverifikasi; konfirmasi akan dicoba lagi pada kiriman robot berikutnya.
+        // Sudah terverifikasi; konfirmasi akan dicoba lagi pada kiriman berikutnya.
         app.log.warn({ err: error, chatId: lead.chatId }, 'Lead verify: confirmation not sent');
         result.failed += 1;
         continue;
       }
-      leadConfirmTimes.push(now);
+      recent.push(now);
       await database.markWebsiteLeadConfirmed(lead.id, companyId)
         .catch((error) => app.log.warn({ err: error }, 'Lead verify: could not mark confirmation'));
       result.confirmed += 1;
     }
     return reply.code(200).send(result);
+  }
+
+  for (const [suffix, handler, limit] of [['lead', handleLead, 64 * 1024], ['lead-verify', handleLeadVerify, 256 * 1024]]) {
+    const options = { bodyLimit: limit, preParsing: captureRawBody(limit) };
+    app.post(`/webhook/${suffix}`, options, handler);
+    app.post(`/webhook/company/:company/${suffix}`, options, handler);
+  }
+
+  // ── Pengaturan webhook lead per company (supervisor) ───────────────────────
+  const leadHookGate = (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) { reply.code(403).send({ error: 'Hanya supervisor yang dapat mengatur integrasi.' }); return false; }
+    if (typeof database.getLeadWebhook !== 'function' || !database.status().connected) { reply.code(503).send({ error: 'Database tidak tersedia.' }); return false; }
+    return true;
+  };
+
+  app.get('/v1/integrations/lead-webhook', async (request, reply) => {
+    if (!leadHookGate(request, reply)) return reply;
+    const row = await database.getLeadWebhook(request.agneeSession.companyId);
+    if (!row) return { configured: false };
+    // Secret tidak pernah dikembalikan: hanya ada saat dibuat.
+    return {
+      configured: true, enabled: row.enabled,
+      hasLeadSecret: Boolean(row.leadSecret), hasVerifySecret: Boolean(row.verifySecret),
+      leadPath: `/webhook/company/${row.slug}/lead`, verifyPath: `/webhook/company/${row.slug}/lead-verify`,
+      templates: { welcomeId: row.welcomeId, welcomeEn: row.welcomeEn, confirmId: row.confirmId, confirmEn: row.confirmEn },
+    };
+  });
+
+  app.post('/v1/integrations/lead-webhook/secret', {
+    schema: { body: { type: 'object', required: ['kind'], additionalProperties: false, properties: { kind: { enum: ['lead', 'verify'] } } } },
+  }, async (request, reply) => {
+    if (!leadHookGate(request, reply)) return reply;
+    const secret = crypto.randomBytes(32).toString('hex');
+    await database.setLeadWebhookSecret(request.agneeSession.companyId, request.body.kind, secret);
+    await catatAudit(request, 'integration.connected', {
+      entityType: 'integration', entityId: 'lead-webhook', metadata: { integration: 'lead-webhook', kind: request.body.kind },
+    });
+    // Satu-satunya kesempatan melihat secret: yang lama langsung tidak berlaku.
+    return reply.code(201).send({ kind: request.body.kind, secret });
+  });
+
+  app.put('/v1/integrations/lead-webhook', {
+    schema: {
+      body: {
+        type: 'object', additionalProperties: false,
+        properties: {
+          enabled: { type: 'boolean' },
+          templates: {
+            type: 'object', additionalProperties: false,
+            properties: {
+              welcomeId: { type: 'string', maxLength: 1000 }, welcomeEn: { type: 'string', maxLength: 1000 },
+              confirmId: { type: 'string', maxLength: 1000 }, confirmEn: { type: 'string', maxLength: 1000 },
+            },
+          },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    if (!leadHookGate(request, reply)) return reply;
+    const { enabled, templates = {} } = request.body;
+    const trim = (v) => (typeof v === 'string' ? v.trim() : undefined);
+    await database.saveLeadWebhookSettings(request.agneeSession.companyId, {
+      enabled, welcomeId: trim(templates.welcomeId), welcomeEn: trim(templates.welcomeEn),
+      confirmId: trim(templates.confirmId), confirmEn: trim(templates.confirmEn),
+    });
+    await catatAudit(request, enabled === false ? 'integration.disconnected' : 'integration.connected', {
+      entityType: 'integration', entityId: 'lead-webhook', metadata: { integration: 'lead-webhook' },
+    });
+    return { ok: true };
+  });
+
+  app.delete('/v1/integrations/lead-webhook', async (request, reply) => {
+    if (!leadHookGate(request, reply)) return reply;
+    const removed = await database.deleteLeadWebhook(request.agneeSession.companyId);
+    if (removed) {
+      await catatAudit(request, 'integration.disconnected', {
+        entityType: 'integration', entityId: 'lead-webhook', metadata: { integration: 'lead-webhook' },
+      });
+    }
+    return { ok: true, removed };
   });
 
   // ── Meta Cloud API webhook — public, no session ────────────────────────────

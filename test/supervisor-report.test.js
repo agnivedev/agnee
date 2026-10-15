@@ -95,7 +95,44 @@ test('buildReport: contoh diberi label CONTOH dan penjelasan periode; laporan as
     stats: { inboundMessages: 3, activeChats: 2, newChats: 1, aiReplies: 2, humanReplies: 0, handoffs: 0, hotLeads: 0 },
   };
   const sample = r.buildReport({ ...base, sample: true });
-  assert.match(sample, /^\*CONTOH — Laporan Harian — X\*/);
+  assert.match(sample, /^\*CONTOH\* — memakai 7 hari terakhir/);
+  assert.match(sample, /\*Laporan Harian — X\*/);
   assert.match(sample, /7 hari terakhir/);
   assert.doesNotMatch(r.buildReport(base), /CONTOH|7 hari terakhir/);
+});
+
+test('template: penanda diganti, format di nilai dinetralkan, dan nilai tidak diganti dua kali', () => {
+  const base = {
+    companyName: '*{name}*', frequency: 'weekly', from: new Date('2026-10-05T01:00:00Z'), to: new Date('2026-10-12T01:00:00Z'), tz: TZ,
+    stats: { inboundMessages: 1234, activeChats: 56, newChats: 7, aiReplies: 900, humanReplies: 30, handoffs: 4, hotLeads: 3 },
+    highlights: ['Harga paket'],
+  };
+  const text = r.buildReport({ ...base, recipientName: '_Hanny_', template: 'Halo {name}! {inbound} pesan, {hot_leads} lead panas di {company}.\n\n{topics}' });
+  assert.equal(text.split('\n')[0], 'Halo Hanny! 1.234 pesan, 3 lead panas di {name}.');
+  assert.match(text, /– Harga paket/);
+});
+
+test('template: {topics} kosong tidak meninggalkan baris kosong berlipat, dan periode sepi memakai pesan kosong', () => {
+  const quiet = { inboundMessages: 0, activeChats: 0, newChats: 0, aiReplies: 0, humanReplies: 0, handoffs: 0, hotLeads: 0 };
+  const text = r.buildReport({
+    companyName: 'X', frequency: 'daily', from: new Date('2026-10-14T01:00:00Z'), to: new Date('2026-10-15T01:00:00Z'), tz: TZ,
+    stats: quiet, template: 'A\n\n{topics}\n\nB {stats}',
+  });
+  assert.equal(text, 'A\n\nB Tidak ada percakapan pada periode ini.');
+});
+
+test('template bawaan menghasilkan laporan yang sama seperti sebelum template ada', () => {
+  const text = r.buildReport({
+    companyName: 'X', frequency: 'daily', from: new Date('2026-10-14T01:00:00Z'), to: new Date('2026-10-15T01:00:00Z'), tz: TZ,
+    stats: { inboundMessages: 1, activeChats: 1, newChats: 0, aiReplies: 1, humanReplies: 0, handoffs: 0, hotLeads: 0 }, highlights: ['Harga'],
+  });
+  assert.equal(text, '*Laporan Harian — X*\n14 Okt 2026 – 15 Okt 2026\n\n• Pesan masuk dari customer: 1\n• Customer yang chat: 1 (0 baru)\n• Dibalas AI: 1\n• Dibalas tim: 0\n• Diambil alih tim: 0\n• Lead panas/closing: 0\n\n*Yang paling banyak dibahas*\n– Harga');
+});
+
+test('validateTemplate: menolak kosong, kepanjangan, dan penanda yang tidak dikenal', () => {
+  assert.equal(r.validateTemplate('Halo {name}, {inbound} pesan'), null);
+  assert.match(r.validateTemplate('   '), /kosong/);
+  assert.match(r.validateTemplate('x'.repeat(r.MAX_TEMPLATE_LENGTH + 1)), /terlalu panjang/);
+  assert.match(r.validateTemplate('Halo {nama} {Name}'), /\{nama\}, \{Name\}/);
+  assert.match(r.validateTemplate('kurung kosong {} ikut ditolak'), /\{\}/);
 });

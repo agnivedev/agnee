@@ -80,3 +80,28 @@ test('laporan supervisor: setelan per supervisor, penerima aktif, dan angka perc
     assert.ok(sample.includes('berapa harga paket pro?'));
     assert.ok(!sample.includes('pesan grup tidak dihitung'));
   });
+
+test('template laporan: disimpan per company, kosong kembali ke bawaan, ikut ke daftar penerima',
+  { skip: !DB_URL && 'DATABASE_URL tidak diset' }, async (t) => {
+    const db = new Database({ connectionString: DB_URL, logger: { info() {}, warn() {} } });
+    await db.connect();
+    const stamp = Date.now();
+    const { rows: [company] } = await db.pool.query("INSERT INTO companies (slug, name) VALUES ($1, 'Toko Tpl') RETURNING id", [`tpl-${stamp}`]);
+    const { rows: [user] } = await db.pool.query("INSERT INTO users (email, display_name) VALUES ($1, 'Bu Sup') RETURNING id", [`tpl-${stamp}@t.test`]);
+    await db.pool.query("INSERT INTO company_members (company_id, user_id, role) VALUES ($1, $2, 'admin')", [company.id, user.id]);
+    t.after(async () => {
+      await db.pool.query('DELETE FROM companies WHERE id = $1', [company.id]);
+      await db.pool.query('DELETE FROM users WHERE id = $1', [user.id]);
+      await db.pool.end();
+    });
+
+    assert.equal(await db.getReportTemplate(company.id), null);
+    await db.saveReportTemplate(company.id, 'Halo {name}');
+    assert.equal(await db.getReportTemplate(company.id), 'Halo {name}');
+    await db.saveSupervisorReportSetting({ userId: user.id, frequency: 'daily', whatsappNumber: '08123456789' }, company.id);
+    const row = (await db.listActiveSupervisorReports()).find((r) => r.companyId === company.id);
+    assert.equal(row.template, 'Halo {name}');
+    assert.equal(row.displayName, 'Bu Sup');
+    await db.saveReportTemplate(company.id, '');
+    assert.equal(await db.getReportTemplate(company.id), null);
+  });

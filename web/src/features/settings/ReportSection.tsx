@@ -3,6 +3,7 @@ import { api, messageFromError } from '@/lib/api';
 import { useI18n } from '@/lib/i18n';
 import { Button } from '@/components/ui/button';
 import { SelectField, SettingCard, StatusLine, TextField } from './parts';
+import { ReportTemplateEditor } from './ReportTemplateEditor';
 
 type Frequency = 'off' | 'daily' | 'weekly' | 'monthly';
 
@@ -136,6 +137,7 @@ export function ReportSection({ reloadKey = 0 }: { reloadKey?: number }) {
           );
         })}
       </div>
+      <ReportTemplateEditor />
       <p className="mt-3 mb-0 text-[11px] leading-[1.6] text-muted">{t('report.schedule')}</p>
       <p className="mt-1 mb-0 text-[11px] leading-[1.6] text-muted">
         {t('report.addHint')}{' '}

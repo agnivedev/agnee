@@ -1,5 +1,18 @@
 ## [Unreleased]
 
+- **Isi pesan laporan supervisor bisa diganti (template dengan penanda).** Satu template
+  per perusahaan di Pengaturan > Tim > Laporan hasil chat > "Isi pesan laporan":
+  penanda `{name}`, `{company}`, `{frequency}`, `{period}`, `{inbound}`, `{chats}`,
+  `{new_chats}`, `{ai_replies}`, `{human_replies}`, `{handoffs}`, `{hot_leads}`,
+  `{stats}` (semua angka sebagai daftar), `{topics}` (judul + topik, kosong bila tak
+  ada). Klik penanda untuk menyelipkan, Pratinjau dengan angka contoh, Kembalikan
+  bawaan. Bawaan menghasilkan laporan yang sama seperti sebelumnya.
+  - Migrasi 056 `companies.report_template` (NULL = bawaan). Server menolak penanda
+    tak dikenal dan template > 1.500 karakter; menyimpan teks yang sama dengan
+    bawaan berarti kembali ke bawaan. Nilai penanda dinetralkan dari tanda format
+    WhatsApp dan tidak diganti dua kali.
+  - API: `GET/PUT /v1/reports/template`, `POST /v1/reports/template/preview`;
+    audit `report.template_changed`. Laporan contoh kini berlabel di baris pertama.
 - **Laporan contoh supervisor memakai 7 hari terakhir dan berlabel CONTOH.** Sebelumnya
   contoh memakai periode jadwal (mis. kemarin), sehingga di hari sepi isinya hanya
   "Tidak ada percakapan". Laporan terjadwal tidak berubah.

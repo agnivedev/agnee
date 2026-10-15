@@ -1460,14 +1460,29 @@ class Database {
     const result = await this.pool.query(`
       SELECT s.company_id AS "companyId", s.user_id AS "userId", s.frequency,
              s.whatsapp_number AS "whatsappNumber", s.enabled_at AS "enabledAt",
-             s.last_sent_at AS "lastSentAt", c.name AS "companyName", c.timezone
+             s.last_sent_at AS "lastSentAt", c.name AS "companyName", c.timezone,
+             c.report_template AS "template", COALESCE(u.display_name, u.email) AS "displayName"
       FROM supervisor_report_settings s
       JOIN companies c ON c.id = s.company_id AND c.status = 'active'
+      JOIN users u ON u.id = s.user_id
       JOIN company_members cm ON cm.company_id = s.company_id AND cm.user_id = s.user_id
         AND cm.status = 'active' AND cm.role IN ('owner', 'admin', 'supervisor')
       WHERE s.frequency <> 'off' AND s.whatsapp_number IS NOT NULL
     `);
     return result.rows;
+  }
+
+  /** Template pesan laporan company ini; null = bawaan. */
+  async getReportTemplate(companyId) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query('SELECT report_template AS "template" FROM companies WHERE id = $1', [companyId]);
+    return result.rows[0]?.template || null;
+  }
+
+  /** `template` kosong/null mengembalikan ke bawaan. */
+  async saveReportTemplate(companyId, template) {
+    if (!this.enabled) return;
+    await this.pool.query('UPDATE companies SET report_template = $2, updated_at = NOW() WHERE id = $1', [companyId, template || null]);
   }
 
   async markSupervisorReportSent(companyId, userId, sentAt = new Date()) {

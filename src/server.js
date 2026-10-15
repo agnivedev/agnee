@@ -5624,9 +5624,11 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
   async function sendSupervisorReport(row, window, { sample = false } = {}) {
     const stats = await database.getChatReportStats(row.companyId, window.from, window.to);
     const highlights = stats?.inboundMessages ? await summarizeInboundForReport(row.companyId, window.from, window.to) : [];
+    const template = row.template !== undefined ? row.template
+      : (canCall('getReportTemplate') ? await database.getReportTemplate(row.companyId).catch(() => null) : null);
     const text = supervisorReport.buildReport({
       companyName: row.companyName, frequency: row.frequency, from: window.from, to: window.to,
-      tz: row.timezone, stats, highlights, sample,
+      tz: row.timezone, stats, highlights, sample, template, recipientName: row.displayName,
     });
     // sendLeadMessage = sendOutbound, dan mode demo menulis ke riwayat demo.
     await sendLeadMessage(row.companyId, normalizeChatId(row.whatsappNumber, config.defaultCountryCode), text);
@@ -5669,6 +5671,55 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
       entityType: 'user', entityId: userId, metadata: { frequency },
     });
     return saved;
+  });
+
+  // Template pesan laporan: satu per company, penandanya dari supervisor-report.js.
+  app.get('/v1/reports/template', async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat melihat template laporan.' });
+    const template = canCall('getReportTemplate') ? await database.getReportTemplate(request.agneeSession.companyId) : null;
+    return {
+      template: template || supervisorReport.DEFAULT_TEMPLATE,
+      isDefault: !template,
+      defaultTemplate: supervisorReport.DEFAULT_TEMPLATE,
+      maxLength: supervisorReport.MAX_TEMPLATE_LENGTH,
+      placeholders: supervisorReport.PLACEHOLDERS.map(({ key, label }) => ({ key, label })),
+    };
+  });
+
+  const TEMPLATE_BODY = {
+    type: 'object', additionalProperties: false, required: ['template'],
+    properties: { template: { type: 'string', maxLength: 5000 } },
+  };
+
+  app.put('/v1/reports/template', { schema: { body: TEMPLATE_BODY } }, async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengubah template laporan.' });
+    if (!canCall('saveReportTemplate')) return reply.code(503).send({ error: 'Database belum tersedia.' });
+    const template = request.body.template.replace(/\r\n/g, '\n').trim();
+    // Sama dengan bawaan = tidak menyimpan apa pun, supaya perubahan bawaan kelak ikut terbawa.
+    const useDefault = template === supervisorReport.DEFAULT_TEMPLATE;
+    const invalid = useDefault ? null : supervisorReport.validateTemplate(template);
+    if (invalid) return reply.code(400).send({ error: invalid });
+    await database.saveReportTemplate(request.agneeSession.companyId, useDefault ? null : template);
+    await catatAudit(request, 'report.template_changed', { entityType: 'company', entityId: request.agneeSession.companyId, metadata: { isDefault: useDefault } });
+    return { ok: true, isDefault: useDefault };
+  });
+
+  /** Pratinjau dengan angka contoh; tidak menyimpan dan tidak mengirim apa pun. */
+  app.post('/v1/reports/template/preview', { schema: { body: TEMPLATE_BODY } }, async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat melihat pratinjau.' });
+    const invalid = supervisorReport.validateTemplate(request.body.template);
+    if (invalid) return reply.code(400).send({ error: invalid });
+    const companyConfig = canCall('getCompanyConfig') ? await database.getCompanyConfig(request.agneeSession.companyId).catch(() => null) : null;
+    const tz = companyConfig?.timezone || 'Asia/Jakarta';
+    const to = supervisorReport.latestSlot('daily', new Date(), tz);
+    const text = supervisorReport.buildReport({
+      companyName: companyConfig?.name || 'Perusahaan Anda', frequency: 'daily',
+      from: supervisorReport.previousSlot('daily', to, tz), to, tz,
+      stats: { inboundMessages: 128, activeChats: 23, newChats: 6, aiReplies: 97, humanReplies: 14, handoffs: 3, hotLeads: 4 },
+      highlights: ['Harga dan paket', 'Cara pembayaran', 'Jadwal pengiriman'],
+      template: request.body.template, recipientName: request.agneeSession.displayName,
+    });
+    return { text };
   });
 
   /** Kirim laporan contoh sekarang (periode sesuai frekuensi) supaya supervisor bisa melihat bentuknya. */

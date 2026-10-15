@@ -10,6 +10,7 @@ const agent = { id: 'agent-1', companyId: 'co-1', email: 'ag@t.test', displayNam
 async function app(t) {
   const saved = new Map([['owner-1', { userId: 'owner-1', displayName: 'Owner', email: owner.email, role: 'owner', frequency: 'off', whatsappNumber: null, lastSentAt: null }]]);
   const audits = [];
+  const tpl = { value: null };
   const users = { [owner.email]: owner, [agent.email]: agent };
   const database = {
     enabled: true, connected: true,
@@ -20,6 +21,8 @@ async function app(t) {
     async setPresence() {},
     async getCompanyConfig() { return { name: 'Toko Uji', timezone: 'Asia/Jakarta', status: 'active' }; },
     async recordAuditLog(entry) { audits.push(entry); return { id: 1 }; },
+    async getReportTemplate() { return tpl.value; },
+    async saveReportTemplate(_company, template) { tpl.value = template; },
     async listSupervisorReportSettings() { return [...saved.values()]; },
     async saveSupervisorReportSetting({ userId, frequency, whatsappNumber }) {
       Object.assign(saved.get(userId), { frequency, whatsappNumber });
@@ -31,7 +34,7 @@ async function app(t) {
   const server = await buildApp({ logger: false, startupEnabled: false, demoMode: true, database, sessionSecret: 'rep-session' });
   t.after(() => server.close());
   const login = async (email) => (await server.inject({ method: 'POST', url: '/v1/auth/login', payload: { email, password: 'pass-12345' } })).headers['set-cookie'].split(';')[0];
-  return { server, saved, audits, ownerCookie: await login(owner.email), agentCookie: await login(agent.email) };
+  return { server, saved, audits, tpl, ownerCookie: await login(owner.email), agentCookie: await login(agent.email) };
 }
 
 test('agent biasa tidak boleh melihat atau mengubah laporan supervisor', async (t) => {
@@ -72,4 +75,52 @@ test('kirim contoh: laporan terkirim ke nomor supervisor lewat WhatsApp company'
   assert.equal(outbound.length, 1);
   assert.match(outbound[0].body, /Laporan Mingguan — Toko Uji/);
   assert.match(outbound[0].body, /Pesan masuk dari customer: 10/);
+});
+
+test('template laporan: agent ditolak; penanda tak dikenal ditolak; tersimpan dan dicatat', async (t) => {
+  const { server, tpl, audits, ownerCookie, agentCookie } = await app(t);
+  const call = (method, url, cookie, payload) => server.inject({ method, url, headers: { cookie }, payload });
+  assert.equal((await call('GET', '/v1/reports/template', agentCookie)).statusCode, 403);
+  assert.equal((await call('PUT', '/v1/reports/template', agentCookie, { template: 'x' })).statusCode, 403);
+
+  const initial = (await call('GET', '/v1/reports/template', ownerCookie)).json();
+  assert.equal(initial.isDefault, true);
+  assert.ok(initial.placeholders.some((p) => p.key === 'name'));
+
+  const bad = await call('PUT', '/v1/reports/template', ownerCookie, { template: 'Halo {nama}' });
+  assert.equal(bad.statusCode, 400);
+  assert.match(bad.json().error, /\{nama\}/);
+  assert.equal(tpl.value, null);
+
+  const ok = await call('PUT', '/v1/reports/template', ownerCookie, { template: 'Halo {name}, {inbound} pesan di {company}' });
+  assert.equal(ok.statusCode, 200);
+  assert.equal(tpl.value, 'Halo {name}, {inbound} pesan di {company}');
+  assert.equal(audits.at(-1).action, 'report.template_changed');
+  assert.equal((await call('GET', '/v1/reports/template', ownerCookie)).json().isDefault, false);
+
+  // Menyimpan teks yang sama dengan bawaan = kembali ke bawaan (tidak disimpan).
+  await call('PUT', '/v1/reports/template', ownerCookie, { template: initial.defaultTemplate });
+  assert.equal(tpl.value, null);
+});
+
+test('template laporan: pratinjau memakai angka contoh dan tidak menyimpan', async (t) => {
+  const { server, tpl, ownerCookie } = await app(t);
+  const res = await server.inject({ method: 'POST', url: '/v1/reports/template/preview', headers: { cookie: ownerCookie }, payload: { template: 'Hai {name}: {inbound} pesan' } });
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.json().text, 'Hai Owner: 128 pesan');
+  assert.equal(tpl.value, null);
+  const bad = await server.inject({ method: 'POST', url: '/v1/reports/template/preview', headers: { cookie: ownerCookie }, payload: { template: '{salah}' } });
+  assert.equal(bad.statusCode, 400);
+});
+
+test('kirim contoh memakai template company dan nama penerima', async (t) => {
+  const { server, tpl, ownerCookie } = await app(t);
+  tpl.value = 'Untuk {name}: {inbound} pesan';
+  await server.inject({ method: 'PUT', url: '/v1/reports/supervisors/owner-1', headers: { cookie: ownerCookie }, payload: { frequency: 'daily', whatsappNumber: '081234567890' } });
+  const res = await server.inject({ method: 'POST', url: '/v1/reports/supervisors/owner-1/test', headers: { cookie: ownerCookie } });
+  assert.equal(res.statusCode, 200);
+  const sent = await server.inject({ method: 'GET', url: `/v1/chats/${encodeURIComponent('6281234567890@c.us')}/messages`, headers: { cookie: ownerCookie } });
+  const body = (sent.json().messages || []).filter((m) => m.fromMe).at(-1).body;
+  assert.match(body, /^\*CONTOH\*/);
+  assert.match(body, /Untuk Owner: 10 pesan$/);
 });

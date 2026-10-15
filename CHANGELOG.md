@@ -10,6 +10,20 @@
   Batas 1.000 penerima per broadcast dicabut (plafon 300/hari dan jam kirim
   tetap). Memulai impor chat WhatsApp kini tercatat di jejak audit.
 
+- **Verifikasi lead oleh robot Anduman: `POST /webhook/lead-verify`.** Menutup
+  alur lead website: setelah lead mendaftar di broker, hasil bacaan portal IB
+  (email/nomor account) dicocokkan dengan lead, ditandai terverifikasi, pipeline
+  pindah ke `closing`, dan satu WhatsApp konfirmasi dikirim. Pintu tertutup (404)
+  sampai `LEAD_VERIFY_SECRET` diisi.
+  - Tabel baru `website_leads` (migrasi 053): profil lead per submission, diisi
+    `/webhook/lead`. Status `new` -> `verified`, `confirmation_sent_at` mencegah
+    konfirmasi ganda; klaim verifikasi atomik (hanya satu pemanggil yang menang).
+  - Pencocokan per broker (alias `Blueberry Markets` = `blueberry`), maksimal 500
+    baris per permintaan, 200 konfirmasi per jam. Respons hanya angka.
+  - `scripts/lead-verify-push.mjs` mengirim hasil `playbook_runner` Anduman.
+  - Tes: `test/lead-verify.test.js` (10) dan `test/website-leads-db.test.js` (5,
+    Postgres sungguhan). Seluruh suite dengan database: 563 tes lolos.
+
 - **Webhook lead dari website: `POST /webhook/lead`.** Form landing page (Fluent
   Forms di WordPress) mengirim lead baru ke sini. Agnee mencatat lead di pipeline
   (pipeline `warm`; lead yang sudah ada tidak diturunkan) dan mengirim satu pesan sambutan WhatsApp ke nomor yang diisi

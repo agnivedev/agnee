@@ -198,6 +198,64 @@ class Database {
     return result.rows[0] || null;
   }
 
+  /**
+   * Profil lead dari website, untuk dicocokkan dengan daftar klien broker.
+   * Idempoten per submission: kiriman ulang tidak menimpa status verifikasi.
+   */
+  async saveWebsiteLeadProfile(lead, companyId) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      INSERT INTO website_leads
+        (company_id, submission_id, chat_id, name, email, broker, account_status, account_number, language)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      ON CONFLICT (company_id, submission_id) DO NOTHING
+      RETURNING id
+    `, [companyId, lead.submissionId, lead.chatId, lead.name, lead.email || '', lead.broker || '',
+      lead.accountStatus === 'have' ? 'have' : 'new', lead.accountNumber || '', lead.language === 'en' ? 'en' : 'id']);
+    return result.rows[0] || null;
+  }
+
+  /**
+   * Lead yang belum selesai diverifikasi dan cocok dengan salah satu email atau
+   * nomor account. Termasuk yang sudah 'verified' tetapi konfirmasinya belum
+   * terkirim, supaya kiriman ulang robot bisa menyelesaikannya.
+   */
+  async findWebsiteLeadsForVerification(companyId, { emails = [], accounts = [] }) {
+    if (!this.enabled || (!emails.length && !accounts.length)) return [];
+    const result = await this.pool.query(`
+      SELECT id, chat_id AS "chatId", name, email, broker, account_number AS "accountNumber",
+             language, status, confirmation_sent_at AS "confirmationSentAt"
+      FROM website_leads
+      WHERE company_id = $1
+        AND (status = 'new' OR confirmation_sent_at IS NULL)
+        AND ((email <> '' AND lower(email) = ANY($2::text[]))
+          OR (account_number <> '' AND account_number = ANY($3::text[])))
+      ORDER BY created_at
+    `, [companyId, emails, accounts]);
+    return result.rows;
+  }
+
+  /** Tandai terverifikasi. Mengembalikan baris hanya untuk pemanggil pertama. */
+  async claimWebsiteLeadVerification(leadId, verifiedBy, companyId) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      UPDATE website_leads
+      SET status = 'verified', verified_at = COALESCE(verified_at, NOW()), verified_by = COALESCE(verified_by, $3)
+      WHERE id = $1 AND company_id = $2 AND status = 'new'
+      RETURNING id
+    `, [leadId, companyId, verifiedBy]);
+    return result.rows[0] || null;
+  }
+
+  async markWebsiteLeadConfirmed(leadId, companyId) {
+    if (!this.enabled) return false;
+    const result = await this.pool.query(`
+      UPDATE website_leads SET confirmation_sent_at = NOW()
+      WHERE id = $1 AND company_id = $2 AND confirmation_sent_at IS NULL
+    `, [leadId, companyId]);
+    return result.rowCount > 0;
+  }
+
   async setPipelineStage(chatId, stage, updatedBy, companyId) {
     if (!this.enabled) return null;
     const result = await this.pool.query(`

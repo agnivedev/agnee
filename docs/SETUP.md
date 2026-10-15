@@ -257,6 +257,34 @@ sambutan bisa berstatus `send_failed` sampai template dipasang. WhatsApp Web
 (tidak resmi) tidak punya batas itu tetapi nomornya bisa diblokir; pakai nomor
 khusus dan jangan menaikkan batas 60 sambutan per jam.
 
+### Verifikasi lead oleh robot Anduman (`POST /webhook/lead-verify`)
+
+Setelah lead mendaftar lewat link IB, robot Anduman membaca daftar klien di
+portal IB broker (playbook `read_rows`, pengguna login sendiri) dan mengirim
+email atau nomor account yang ditemukan. Agnee mencocokkannya dengan lead dari
+website (tabel `website_leads`, diisi `/webhook/lead`), menandai terverifikasi,
+memindahkan pipeline ke `closing`, dan mengirim satu WhatsApp konfirmasi.
+
+| Variabel | Isi |
+| --- | --- |
+| `LEAD_VERIFY_SECRET` | Rahasia panjang dan acak, berbeda dari `LEAD_WEBHOOK_SECRET` dan `API_KEY`. Kosong = 404. |
+| `LEAD_WEBHOOK_COMPANY` | Dipakai bersama webhook lead: company penerima. |
+
+Permintaan: sama seperti webhook lead (header `x-agnive-timestamp`,
+`x-agnive-signature` = `sha256=` + HMAC-SHA256(`LEAD_VERIFY_SECRET`,
+`${timestamp}.${bodyMentah}`)).
+
+```json
+{ "version": 1, "source": "anduman", "broker": "Exness",
+  "registrations": [ { "email": "rina@example.com", "accountNumber": "55512345", "registeredAt": "2026-10-14" } ] }
+```
+
+- `broker`: `tmgm`, `valetax`, `hfm`, `exness`, `blueberry` (atau "Blueberry Markets"), `dupoin`. Lead hanya dicocokkan dalam broker yang sama.
+- Cocok lewat email (huruf besar/kecil bebas) **atau** nomor account yang diisi lead. Maksimal 500 baris per permintaan.
+- Respons hanya angka: `{ ok, received, matched, confirmed, alreadyConfirmed, failed }`. Tanpa data lead.
+- Idempoten: lead yang sudah dikonfirmasi tidak dikirimi lagi. Bila WhatsApp gagal, lead tetap terverifikasi dan konfirmasinya dicoba lagi pada kiriman robot berikutnya.
+- Dikirim dari baris perintah: `scripts/lead-verify-push.mjs --broker exness --file result.json` (env `LEAD_VERIFY_URL`, `LEAD_VERIFY_SECRET`; `--dry-run` hanya menghitung baris).
+
 ## 9. MCP
 
 ### Tools

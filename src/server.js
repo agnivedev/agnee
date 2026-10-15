@@ -118,6 +118,9 @@ function loadConfig(overrides = {}) {
     // Company penerima wajib disebut eksplisit, sama seperti webhook Insight.
     leadWebhookSecret: process.env.LEAD_WEBHOOK_SECRET || '',
     leadWebhookCompany: (process.env.LEAD_WEBHOOK_COMPANY || '').trim(),
+    // Hasil pembacaan portal IB broker (robot Anduman) -> Agnee. Rahasia sendiri,
+    // terpisah dari LEAD_WEBHOOK_SECRET milik WordPress. Kosong = pintu tertutup.
+    leadVerifySecret: process.env.LEAD_VERIFY_SECRET || '',
     // Agnive Insight's public Hub feed — published listings only, no credentials.
     insightApiUrl: (process.env.INSIGHT_API_URL || 'https://app.insight.agnive.co').replace(/\/$/, ''),
     ackEnabled: process.env.WA_ACK_ENABLED === 'true',
@@ -2594,6 +2597,16 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     return `Halo ${first}, terima kasih sudah daftar di Bull Babe Capital | Rebate. ${pick}${next} Jangan pernah kirim password.`;
   }
 
+  /** Satu pintu kirim untuk pesan otomatis lead (sambutan dan konfirmasi). */
+  async function sendLeadMessage(companyId, chatId, text) {
+    if (config.demoMode) {
+      demo.messages[chatId] ||= [];
+      demo.messages[chatId].push({ id: crypto.randomUUID(), body: text, fromMe: true, timestamp: Math.floor(Date.now() / 1000), type: 'chat', quoted: null });
+      return;
+    }
+    await sendOutbound(companyId, chatId, text);
+  }
+
   app.post('/webhook/lead', {
     bodyLimit: 64 * 1024,
     preParsing: captureRawBody(64 * 1024),
@@ -2635,6 +2648,10 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
         detail: `Dari website. ${lead.accountStatus === 'have' ? 'Sudah punya account' : 'Belum punya account'}${lead.accountNumber ? ` (${lead.accountNumber})` : ''}.`,
       }, companyId).catch((error) => app.log.warn({ err: error }, 'Lead webhook: could not save lead'));
     }
+    if (database.enabled && database.connected && typeof database.saveWebsiteLeadProfile === 'function') {
+      await database.saveWebsiteLeadProfile({ ...lead, chatId }, companyId)
+        .catch((error) => app.log.warn({ err: error }, 'Lead webhook: could not save lead profile'));
+    }
 
     const finish = (result) => {
       leadWelcomes.set(lead.submissionId, result);
@@ -2657,12 +2674,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
 
     const text = leadWelcomeText(lead);
     try {
-      if (config.demoMode) {
-        demo.messages[chatId] ||= [];
-        demo.messages[chatId].push({ id: crypto.randomUUID(), body: text, fromMe: true, timestamp: Math.floor(now / 1000), type: 'chat', quoted: null });
-      } else {
-        await sendOutbound(companyId, chatId, text);
-      }
+      await sendLeadMessage(companyId, chatId, text);
     } catch (error) {
       // Lead sudah tercatat. Pesan gagal (nomor belum tersambung, di luar jendela 24 jam Cloud API) tidak boleh membuat Fluent Forms mencoba terus.
       app.log.warn({ err: error, chatId }, 'Lead webhook: welcome message not sent');
@@ -2672,6 +2684,96 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     leadByChat.set(chatId, now);
     setTimeout(() => leadByChat.delete(chatId), LEAD_WELCOME_WINDOW_MS).unref?.();
     return finish({ ok: true, welcomed: true });
+  });
+
+  // ── Verifikasi lead (robot Anduman -> Agnee) ───────────────────────────────
+  // Robot membaca daftar klien di portal IB sebuah broker, lalu mengirim email
+  // dan/atau nomor account yang ditemukan. Agnee mencocokkannya dengan lead dari
+  // website, menandainya terverifikasi, dan mengirim SATU WhatsApp konfirmasi per
+  // lead. Tanda tangan sama dengan webhook lain (HMAC atas `${timestamp}.${body}`)
+  // tetapi dengan LEAD_VERIFY_SECRET. Respons hanya berisi angka, tanpa data lead.
+  const LEAD_VERIFY_MAX_ROWS = 500;
+  const LEAD_CONFIRM_HOURLY_CAP = 200;
+  let leadConfirmTimes = [];
+  const BULLBABE_BROKERS = ['tmgm', 'valetax', 'hfm', 'exness', 'blueberry', 'dupoin'];
+
+  /** 'Blueberry Markets' dan 'blueberry' sama; yang tidak dikenal dikembalikan apa adanya. */
+  function canonicalBroker(value) {
+    const v = String(value || '').toLowerCase().trim().replace(/\s+/g, ' ');
+    return BULLBABE_BROKERS.find((id) => v === id || v.startsWith(`${id} `)) || v;
+  }
+
+  function leadConfirmText(lead) {
+    const first = String(lead.name || '').split(/\s+/)[0] || '';
+    const broker = lead.broker || (lead.language === 'en' ? 'your broker' : 'broker kamu');
+    return lead.language === 'en'
+      ? `Hi ${first}, good news: your ${broker} account is now linked under Bull Babe Capital | Rebate. Your trading is counted for rebate from here. We will update you in this chat with details and the schedule.`
+      : `Halo ${first}, kabar baik: account ${broker} kamu sudah terhubung ke Bull Babe Capital | Rebate. Trading kamu tercatat untuk rebate mulai sekarang. Rincian dan jadwalnya kami kabari lewat chat ini.`;
+  }
+
+  app.post('/webhook/lead-verify', {
+    bodyLimit: 256 * 1024,
+    preParsing: captureRawBody(256 * 1024),
+  }, async (request, reply) => {
+    if (!config.leadVerifySecret || !config.leadWebhookCompany) return reply.code(404).send({ error: 'Not found' });
+    const timestamp = String(request.headers['x-agnive-timestamp'] || '');
+    const signature = String(request.headers['x-agnive-signature'] || '');
+    const expected = 'sha256=' + crypto.createHmac('sha256', config.leadVerifySecret)
+      .update(`${timestamp}.`).update(request.rawBody || Buffer.alloc(0)).digest('hex');
+    if (!signature || !safeEqual(signature, expected)) {
+      app.log.warn('Lead verify: bad signature');
+      return reply.code(401).send({ error: 'Unauthorized' });
+    }
+    if (!/^\d{10,16}$/.test(timestamp) || Math.abs(Date.now() - Number(timestamp)) > INSIGHT_SKEW_MS) {
+      return reply.code(401).send({ error: 'Stale request' });
+    }
+    const body = request.body;
+    const broker = canonicalBroker(body?.broker);
+    const rows = body?.registrations;
+    if (body?.version !== 1 || body?.source !== 'anduman' || !broker || !Array.isArray(rows) || rows.length === 0 || rows.length > LEAD_VERIFY_MAX_ROWS) {
+      return reply.code(400).send({ error: 'Invalid verification payload' });
+    }
+    const emails = [];
+    const accounts = [];
+    for (const row of rows) {
+      const email = typeof row?.email === 'string' ? row.email.trim().toLowerCase() : '';
+      const account = /^\d{5,12}$/.test(String(row?.accountNumber ?? '')) ? String(row.accountNumber) : '';
+      if (email && /^[^\s@]+@[^\s@]+$/.test(email)) emails.push(email);
+      if (account) accounts.push(account);
+    }
+    if (!emails.length && !accounts.length) return reply.code(400).send({ error: 'Invalid verification payload' });
+    if (!database.status().connected) return reply.code(503).send({ error: 'Database unavailable' });
+    const companyId = await database.resolveCompanyId(config.leadWebhookCompany);
+    if (!companyId) return reply.code(503).send({ error: 'Receiving company not configured' });
+
+    const candidates = (await database.findWebsiteLeadsForVerification(companyId, { emails, accounts }))
+      .filter((lead) => canonicalBroker(lead.broker) === broker);
+    const result = { ok: true, received: rows.length, matched: candidates.length, confirmed: 0, alreadyConfirmed: 0, failed: 0 };
+
+    for (const lead of candidates) {
+      const claimed = lead.status === 'new' ? await database.claimWebsiteLeadVerification(lead.id, 'anduman', companyId) : null;
+      if (lead.status === 'new' && !claimed) { result.alreadyConfirmed += 1; continue; }
+      if (typeof database.setPipelineStage === 'function') {
+        await database.setPipelineStage(lead.chatId, 'closing', 'lead-verify', companyId)
+          .catch((error) => app.log.warn({ err: error }, 'Lead verify: could not move pipeline stage'));
+      }
+      const now = Date.now();
+      leadConfirmTimes = leadConfirmTimes.filter((at) => now - at < 60 * 60_000);
+      if (leadConfirmTimes.length >= LEAD_CONFIRM_HOURLY_CAP) { result.failed += 1; continue; }
+      try {
+        await sendLeadMessage(companyId, lead.chatId, leadConfirmText(lead));
+      } catch (error) {
+        // Sudah terverifikasi; konfirmasi akan dicoba lagi pada kiriman robot berikutnya.
+        app.log.warn({ err: error, chatId: lead.chatId }, 'Lead verify: confirmation not sent');
+        result.failed += 1;
+        continue;
+      }
+      leadConfirmTimes.push(now);
+      await database.markWebsiteLeadConfirmed(lead.id, companyId)
+        .catch((error) => app.log.warn({ err: error }, 'Lead verify: could not mark confirmation'));
+      result.confirmed += 1;
+    }
+    return reply.code(200).send(result);
   });
 
   // ── Meta Cloud API webhook — public, no session ────────────────────────────

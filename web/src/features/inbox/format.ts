@@ -19,6 +19,15 @@ export function formatTime(timestamp?: number) {
     : date.toLocaleDateString('id-ID', { day: '2-digit', month: 'short' });
 }
 
+/** Jam:menit selalu tampil; tanggal ditambahkan bila bukan hari ini. */
+export function formatMessageTime(timestamp?: number) {
+  if (!timestamp) return '';
+  const date = new Date(timestamp * 1000);
+  const clock = date.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+  if (date.toDateString() === new Date().toDateString()) return clock;
+  return `${date.toLocaleDateString('id-ID', { day: '2-digit', month: 'short' })} ${clock}`;
+}
+
 export function dayKey(timestamp?: number) {
   return new Date(Number(timestamp || 0) * 1000).toDateString();
 }

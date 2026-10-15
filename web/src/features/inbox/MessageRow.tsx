@@ -8,7 +8,7 @@ import {
   callDescription,
   formatDuration,
   formatFileSize,
-  formatTime,
+  formatMessageTime,
   initials,
   messagePreview,
   participantPhone,
@@ -84,7 +84,7 @@ export function MessageRow({
           <span className="grid gap-0.5">
             <strong className="text-xs">{callDescription(message, t)}</strong>
             <span className="font-mono text-[9px] text-muted">
-              {`${message.call?.isVideo ? t('call.video') : t('call.voice')} · ${formatTime(message.timestamp)}${duration ? ` · ${duration}` : ''}`}
+              {`${message.call?.isVideo ? t('call.video') : t('call.voice')} · ${formatMessageTime(message.timestamp)}${duration ? ` · ${duration}` : ''}`}
             </span>
           </span>
         </div>
@@ -116,7 +116,7 @@ export function MessageRow({
             </p>
           ) : null}
           <time className="mt-[5px] block text-right font-mono text-[9px] text-muted">
-            {formatTime(message.timestamp)}
+            {formatMessageTime(message.timestamp)}
           </time>
         </div>
       </div>
@@ -266,7 +266,7 @@ export function MessageRow({
         )}
 
         <time className="mt-[5px] block text-right font-mono text-[9px] text-muted">
-          {formatTime(message.timestamp)}
+          {formatMessageTime(message.timestamp)}
           {mine ? <AckMark ack={Number(message.ack)} /> : null}
         </time>
       </div>

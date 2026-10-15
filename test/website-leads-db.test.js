@@ -39,10 +39,14 @@ const lead = (overrides = {}) => ({
 
 test('simpan profil: kiriman ulang submission yang sama tidak menimpa apa pun', { skip }, (t) => withCompanies(t, async (db, a) => {
   assert.ok(await db.saveWebsiteLeadProfile(lead(), a));
-  assert.equal(await db.saveWebsiteLeadProfile(lead({ name: 'Nama Lain' }), a), null);
+  assert.equal(await db.saveWebsiteLeadProfile(lead(), a), null);
+  // Kiriman ulang yang berbeda memperbarui profil (sinkron dengan pihak ketiga)...
+  assert.ok(await db.saveWebsiteLeadProfile(lead({ name: 'Nama Lain', email: '' }), a));
   const found = await db.findWebsiteLeadsForVerification(a, { emails: ['rina@example.com'], accounts: [] });
   assert.equal(found.length, 1);
-  assert.equal(found[0].name, 'Rina Wijaya');
+  assert.equal(found[0].name, 'Nama Lain');
+  // ...tanpa menghapus email lama yang kali ini dikirim kosong.
+  assert.equal(found[0].email, 'Rina@Example.com');
 }));
 
 test('cocok lewat email tanpa beda huruf, atau lewat nomor account', { skip }, (t) => withCompanies(t, async (db, a) => {
@@ -111,4 +115,30 @@ test('lead_webhooks: secret terenkripsi bolak-balik, pengaturan dan hapus per co
   assert.equal(await db.getLeadWebhook(b), null);
   assert.equal(await db.deleteLeadWebhook(a), true);
   assert.equal(await db.getLeadWebhook(a), null);
+}));
+
+test('sinkron: daftar berkursor menangkap perubahan profil, verifikasi, dan tahap pipeline', { skip }, (t) => withCompanies(t, async (db, a, b) => {
+  await db.saveWebsiteLeadProfile(lead({ submissionId: 's1' }), a);
+  await db.saveWebsiteLeadProfile(lead({ submissionId: 's2', chatId: '6282222222222@c.us', email: 'dua@example.com' }), a);
+  await db.saveWebsiteLeadProfile(lead({ submissionId: 'b1', chatId: '6283333333333@c.us' }), b);
+  const decode = (row) => ({ ts: row.cursorTs, id: row.id });
+  let page = await db.listWebsiteLeadsForSync(a, { limit: 1 });
+  assert.equal(page.total, 2);
+  assert.equal(page.rows[0].submissionId, 's1');
+  assert.equal(page.rows[0].whatsapp, '6281111111111');
+  page = await db.listWebsiteLeadsForSync(a, { cursor: decode(page.rows[0]), limit: 10 });
+  assert.deepEqual(page.rows.map((r) => r.submissionId), ['s2']);
+  const tail = decode(page.rows[0]);
+  assert.equal((await db.listWebsiteLeadsForSync(a, { cursor: tail, limit: 10 })).rows.length, 0);
+  // Verifikasi mengangkat lead ke ujung antrean perubahan.
+  const [row] = await db.findWebsiteLeadsForVerification(a, { submissionIds: ['s1'] });
+  await db.claimWebsiteLeadVerification(row.id, 'uji', a);
+  const changed = await db.listWebsiteLeadsForSync(a, { cursor: tail, limit: 10 });
+  assert.deepEqual(changed.rows.map((r) => [r.submissionId, r.status]), [['s1', 'verified']]);
+  assert.equal((await db.listWebsiteLeadsForSync(a, { status: 'new', limit: 10 })).rows.length, 1);
+  // Perubahan tahap pipeline di Agnee juga ikut.
+  const tail2 = decode(changed.rows[0]);
+  await db.setPipelineStage('6282222222222@c.us', 'closing', 'uji', a);
+  const staged = await db.listWebsiteLeadsForSync(a, { cursor: tail2, limit: 10 });
+  assert.deepEqual(staged.rows.map((r) => [r.submissionId, r.pipelineStage]), [['s2', 'closing']]);
 }));

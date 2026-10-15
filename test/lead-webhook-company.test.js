@@ -24,7 +24,7 @@ const leadBody = (over = {}, source = 'acme-crm') => ({
 
 async function app(t) {
   const hooks = {
-    'c-acme': { companyId: 'c-acme', companyName: 'Acme Trading', slug: 'acme', leadSecret: 'secret-lead-acme', verifySecret: 'secret-verify-acme', enabled: true, welcomeId: '', welcomeEn: '', confirmId: 'Hai {first_name}! Akun {broker} aktif di {company}.', confirmEn: '' },
+    'c-acme': { companyId: 'c-acme', companyName: 'Acme Trading', slug: 'acme', leadSecret: 'secret-lead-acme', verifySecret: 'secret-verify-acme', pullSecret: 'secret-pull-acme', enabled: true, welcomeId: '', welcomeEn: '', confirmId: 'Hai {first_name}! Akun {broker} aktif di {company}.', confirmEn: '' },
     'c-beta': { companyId: 'c-beta', companyName: 'Beta', slug: 'beta', leadSecret: 'secret-lead-beta', verifySecret: null, enabled: true, welcomeId: '', welcomeEn: '', confirmId: '', confirmEn: '' },
   };
   const leads = [];
@@ -35,7 +35,7 @@ async function app(t) {
     status() { return { driver: 'postgresql', connected: true }; },
     async resolveCompanyId(ref) { return { acme: 'c-acme', 'c-acme': 'c-acme', beta: 'c-beta' }[ref] || null; },
     async getLeadWebhook(id) { return hooks[id] || null; },
-    async setLeadWebhookSecret(id, kind, secret) { hooks[id][kind === 'verify' ? 'verifySecret' : 'leadSecret'] = secret; return true; },
+    async setLeadWebhookSecret(id, kind, secret) { hooks[id][{ verify: 'verifySecret', pull: 'pullSecret' }[kind] || 'leadSecret'] = secret; return true; },
     async saveLeadWebhookSettings(id, s) { if (s.enabled !== undefined) hooks[id].enabled = s.enabled; if (s.confirmId !== undefined) hooks[id].confirmId = s.confirmId; return true; },
     async deleteLeadWebhook(id) { const had = Boolean(hooks[id]); delete hooks[id]; return had; },
     async authenticateUser(email, password) { return password === 'pass-12345' && email === owner.email ? owner : null; },
@@ -46,6 +46,12 @@ async function app(t) {
     async recordWebsiteLead() { return {}; },
     async saveWebsiteLeadProfile(lead, companyId) { profiles.push({ ...lead, companyId }); leads.push({ id: `l${leads.length}`, companyId, chatId: lead.chatId, name: lead.name, email: lead.email, brokerEmail: lead.brokerEmail, broker: lead.broker, language: lead.language, submissionId: lead.submissionId, status: 'new', confirmationSentAt: null }); return { id: 'x' }; },
     async listBroadcastOptOuts() { return []; },
+    async listWebsiteLeadsForSync(companyId, { cursor, limit, status }) {
+      const all = leads.filter((l) => l.companyId === companyId && (!status || l.status === status))
+        .map((l, i) => ({ id: `00000000-0000-0000-0000-${String(i + 1).padStart(12, '0')}`, cursorTs: `2026-10-15T10:00:0${i}.000000Z`, submissionId: l.submissionId, name: l.name, whatsapp: l.chatId.replace(/@.*/, ''), status: l.status }));
+      const after = cursor ? all.filter((r) => `${r.cursorTs}|${r.id}` > `${cursor.ts}|${cursor.id}`) : all;
+      return { rows: after.slice(0, limit), total: all.length };
+    },
     async findWebsiteLeadsForVerification(companyId, { emails, submissionIds = [] }) {
       return leads.filter((l) => l.companyId === companyId && (l.status === 'new' || !l.confirmationSentAt)
         && (emails.includes(l.email) || emails.includes(l.brokerEmail) || submissionIds.includes(l.submissionId)));
@@ -125,8 +131,64 @@ test('pengaturan: hanya supervisor, secret tampil sekali dan tidak pernah di GET
   assert.equal(view.leadPath, '/webhook/company/acme/lead');
   assert.equal(view.hasVerifySecret, true);
   assert.doesNotMatch(got.payload, new RegExp(made.json().secret));
+  const pullMade = await server.inject({ method: 'POST', url: '/v1/integrations/lead-webhook/secret', headers: { cookie }, payload: { kind: 'pull' } });
+  assert.equal(pullMade.statusCode, 201);
+  assert.equal(hooks['c-acme'].pullSecret, pullMade.json().secret);
+  assert.equal(view.pullPath, '/webhook/company/acme/leads');
   const put = await server.inject({ method: 'PUT', url: '/v1/integrations/lead-webhook', headers: { cookie }, payload: { templates: { confirmId: 'Baru {first_name}' } } });
   assert.equal(put.statusCode, 200);
   assert.equal(hooks['c-acme'].confirmId, 'Baru {first_name}');
   assert.equal((await server.inject({ method: 'DELETE', url: '/v1/integrations/lead-webhook', headers: { cookie } })).json().removed, true);
+});
+
+const pull = (server, slug, query, secret, { sign: doSign = true } = {}) => {
+  const timestamp = Date.now();
+  const signature = 'sha256=' + crypto.createHmac('sha256', secret).update(`${timestamp}.${query}`).digest('hex');
+  return server.inject({ method: 'GET', url: `/webhook/company/${slug}/leads${query ? `?${query}` : ''}`, headers: doSign ? { 'x-agnive-timestamp': String(timestamp), 'x-agnive-signature': signature } : {} });
+};
+
+test('tarik lead: halaman berkursor sampai habis, tanpa id internal, hanya company sendiri', async (t) => {
+  const { server } = await app(t);
+  for (const id of ['a1', 'a2', 'a3']) await lead(server, 'acme', leadBody({ submissionId: id, whatsapp: `0812000000${id.slice(1)}` }), 'secret-lead-acme');
+  const first = (await pull(server, 'acme', 'limit=2', 'secret-pull-acme')).json();
+  assert.equal(first.leads.length, 2);
+  assert.equal(first.hasMore, true);
+  assert.equal(first.total, 3);
+  assert.equal(first.leads[0].submissionId, 'a1');
+  assert.equal(first.leads[0].id, undefined);
+  assert.equal(first.leads[0].cursorTs, undefined);
+  const second = (await pull(server, 'acme', `limit=2&cursor=${first.nextCursor}`, 'secret-pull-acme')).json();
+  assert.deepEqual(second.leads.map((l) => l.submissionId), ['a3']);
+  assert.equal(second.hasMore, false);
+  const empty = (await pull(server, 'acme', `cursor=${second.nextCursor}`, 'secret-pull-acme')).json();
+  assert.deepEqual(empty.leads, []);
+  assert.equal(empty.nextCursor, second.nextCursor);
+});
+
+test('tarik lead: secret lain, query yang diubah, atau tanpa tanda tangan ditolak', async (t) => {
+  const { server } = await app(t);
+  assert.equal((await pull(server, 'acme', '', 'secret-lead-acme')).statusCode, 401);
+  assert.equal((await pull(server, 'acme', '', 'x', { sign: false })).statusCode, 401);
+  const timestamp = Date.now();
+  const signature = 'sha256=' + crypto.createHmac('sha256', 'secret-pull-acme').update(`${timestamp}.limit=1`).digest('hex');
+  const tampered = await server.inject({ method: 'GET', url: '/webhook/company/acme/leads?limit=500', headers: { 'x-agnive-timestamp': String(timestamp), 'x-agnive-signature': signature } });
+  assert.equal(tampered.statusCode, 401);
+  assert.equal((await pull(server, 'beta', '', 'secret-pull-acme')).statusCode, 404);
+});
+
+test('tarik lead: parameter tidak sah 400', async (t) => {
+  const { server } = await app(t);
+  for (const q of ['limit=0', 'limit=501', 'status=lain', 'cursor=ngawur']) {
+    assert.equal((await pull(server, 'acme', q, 'secret-pull-acme')).statusCode, 400, q);
+  }
+});
+
+test('kiriman ulang lead yang berubah tetap menyimpan perubahan walau sambutan tidak dikirim lagi', async (t) => {
+  const { server, profiles, sentTo } = await app(t);
+  await lead(server, 'acme', leadBody(), 'secret-lead-acme');
+  const again = await lead(server, 'acme', leadBody({ brokerEmail: 'baru@broker.test' }), 'secret-lead-acme');
+  assert.equal(again.json().duplicate, true);
+  assert.equal(profiles.length, 2);
+  assert.equal(profiles[1].brokerEmail, 'baru@broker.test');
+  assert.equal((await sentTo('628123456789@c.us')).length, 1);
 });

@@ -204,12 +204,31 @@ class Database {
    */
   async saveWebsiteLeadProfile(lead, companyId) {
     if (!this.enabled) return null;
+    // Kiriman ulang yang berbeda MEMPERBARUI profil (sinkron dengan pihak ketiga);
+    // field yang dikirim kosong tidak menghapus nilai lama, dan status verifikasi
+    // tidak pernah disentuh. Kiriman identik tidak mengubah apa pun (null).
     const result = await this.pool.query(`
       INSERT INTO website_leads
         (company_id, submission_id, chat_id, name, email, broker, account_status, account_number, language, broker_email)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-      ON CONFLICT (company_id, submission_id) DO NOTHING
-      RETURNING id
+      ON CONFLICT (company_id, submission_id) DO UPDATE SET
+        name = EXCLUDED.name,
+        email = COALESCE(NULLIF(EXCLUDED.email, ''), website_leads.email),
+        broker = COALESCE(NULLIF(EXCLUDED.broker, ''), website_leads.broker),
+        account_status = EXCLUDED.account_status,
+        account_number = COALESCE(NULLIF(EXCLUDED.account_number, ''), website_leads.account_number),
+        language = EXCLUDED.language,
+        broker_email = COALESCE(NULLIF(EXCLUDED.broker_email, ''), website_leads.broker_email),
+        updated_at = NOW()
+      WHERE (website_leads.name, website_leads.account_status, website_leads.language,
+             website_leads.email, website_leads.broker, website_leads.account_number, website_leads.broker_email)
+        IS DISTINCT FROM
+            (EXCLUDED.name, EXCLUDED.account_status, EXCLUDED.language,
+             COALESCE(NULLIF(EXCLUDED.email, ''), website_leads.email),
+             COALESCE(NULLIF(EXCLUDED.broker, ''), website_leads.broker),
+             COALESCE(NULLIF(EXCLUDED.account_number, ''), website_leads.account_number),
+             COALESCE(NULLIF(EXCLUDED.broker_email, ''), website_leads.broker_email))
+      RETURNING id, (xmax = 0) AS inserted
     `, [companyId, lead.submissionId, lead.chatId, lead.name, lead.email || '', lead.broker || '',
       lead.accountStatus === 'have' ? 'have' : 'new', lead.accountNumber || '', lead.language === 'en' ? 'en' : 'id',
       String(lead.brokerEmail || '').toLowerCase()]);
@@ -243,7 +262,7 @@ class Database {
     if (!this.enabled) return null;
     const result = await this.pool.query(`
       UPDATE website_leads
-      SET status = 'verified', verified_at = COALESCE(verified_at, NOW()), verified_by = COALESCE(verified_by, $3)
+      SET status = 'verified', verified_at = COALESCE(verified_at, NOW()), verified_by = COALESCE(verified_by, $3), updated_at = NOW()
       WHERE id = $1 AND company_id = $2 AND status = 'new'
       RETURNING id
     `, [leadId, companyId, verifiedBy]);
@@ -253,7 +272,7 @@ class Database {
   async markWebsiteLeadConfirmed(leadId, companyId) {
     if (!this.enabled) return false;
     const result = await this.pool.query(`
-      UPDATE website_leads SET confirmation_sent_at = NOW()
+      UPDATE website_leads SET confirmation_sent_at = NOW(), updated_at = NOW()
       WHERE id = $1 AND company_id = $2 AND confirmation_sent_at IS NULL
     `, [leadId, companyId]);
     return result.rowCount > 0;
@@ -266,6 +285,7 @@ class Database {
       SELECT w.company_id AS "companyId", c.name AS "companyName", c.slug,
              pgp_sym_decrypt(w.lead_secret_enc, $2) AS "leadSecret",
              pgp_sym_decrypt(w.verify_secret_enc, $2) AS "verifySecret",
+             pgp_sym_decrypt(w.pull_secret_enc, $2) AS "pullSecret",
              w.enabled, w.welcome_text_id AS "welcomeId", w.welcome_text_en AS "welcomeEn",
              w.confirm_text_id AS "confirmId", w.confirm_text_en AS "confirmEn"
       FROM lead_webhooks w JOIN companies c ON c.id = w.company_id
@@ -274,10 +294,10 @@ class Database {
     return result.rows[0] || null;
   }
 
-  /** Ganti secret satu jenis ('lead' | 'verify'); membuat baris bila belum ada. */
+  /** Ganti secret satu jenis ('lead' | 'verify' | 'pull'); membuat baris bila belum ada. */
   async setLeadWebhookSecret(companyId, kind, secret) {
     if (!this.enabled) return null;
-    const column = kind === 'verify' ? 'verify_secret_enc' : 'lead_secret_enc';
+    const column = { verify: 'verify_secret_enc', pull: 'pull_secret_enc' }[kind] || 'lead_secret_enc';
     await this.pool.query(`
       INSERT INTO lead_webhooks (company_id, ${column}) VALUES ($1, pgp_sym_encrypt($2, $3))
       ON CONFLICT (company_id) DO UPDATE SET ${column} = EXCLUDED.${column}, updated_at = NOW()
@@ -305,6 +325,42 @@ class Database {
     if (!this.enabled) return false;
     const result = await this.pool.query('DELETE FROM lead_webhooks WHERE company_id = $1', [companyId]);
     return result.rowCount > 0;
+  }
+
+  /**
+   * Lead untuk ditarik pihak ketiga, urut menurut "terakhir berubah" (profil ATAU
+   * tahap pipeline di lead_states) lalu id, dengan kursor keyset. Kursor memakai
+   * teks mikrodetik dari Postgres supaya tidak ada baris yang terlewat karena
+   * pembulatan milidetik JavaScript.
+   */
+  async listWebsiteLeadsForSync(companyId, { cursor = null, limit = 200, status = null } = {}) {
+    if (!this.enabled) return { rows: [], total: 0 };
+    const rows = await this.pool.query(`
+      SELECT w.id, w.submission_id AS "submissionId", w.name,
+             regexp_replace(w.chat_id, '@.*$', '') AS whatsapp,
+             w.email, w.broker_email AS "brokerEmail", w.broker,
+             w.account_status AS "accountStatus", w.account_number AS "accountNumber",
+             w.language, w.status, w.verified_at AS "verifiedAt",
+             w.confirmation_sent_at AS "confirmationSentAt",
+             ls.pipeline_stage AS "pipelineStage",
+             w.created_at AS "createdAt", k.ts AS "updatedAt",
+             to_char(k.ts AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS "cursorTs"
+      FROM website_leads w
+      LEFT JOIN lead_states ls ON ls.company_id = w.company_id AND ls.chat_id = w.chat_id
+      CROSS JOIN LATERAL (
+        SELECT GREATEST(w.updated_at, COALESCE(ls.pipeline_stage_updated_at, w.updated_at)) AS ts
+      ) k
+      WHERE w.company_id = $1
+        AND ($2::timestamptz IS NULL OR (k.ts, w.id) > ($2::timestamptz, $3::uuid))
+        AND ($4::text IS NULL OR w.status = $4)
+      ORDER BY k.ts, w.id
+      LIMIT $5
+    `, [companyId, cursor?.ts ?? null, cursor?.id ?? null, status, limit]);
+    const total = await this.pool.query(
+      'SELECT COUNT(*)::int AS n FROM website_leads WHERE company_id = $1 AND ($2::text IS NULL OR status = $2)',
+      [companyId, status],
+    );
+    return { rows: rows.rows, total: total.rows[0].n };
   }
 
   async setPipelineStage(chatId, stage, updatedBy, companyId) {

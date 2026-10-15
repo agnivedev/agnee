@@ -2699,7 +2699,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     if (!database.status().connected || typeof database.getLeadWebhook !== 'function') return { error: 503 };
     const companyId = await database.resolveCompanyId(ref);
     const row = companyId ? await database.getLeadWebhook(companyId) : null;
-    const secret = kind === 'lead' ? row?.leadSecret : row?.verifySecret;
+    const secret = { lead: row?.leadSecret, verify: row?.verifySecret, pull: row?.pullSecret }[kind];
     if (!row || !row.enabled || !secret) return { error: 404 };
     return {
       legacy: false, scope: companyId, secret, settings: row, companyName: row.companyName,
@@ -2708,11 +2708,11 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
   }
 
   /** Mengembalikan true bila tanda tangan sah; selain itu sudah membalas 401. */
-  function checkLeadSignature(request, reply, secret, label) {
+  function checkLeadSignature(request, reply, secret, label, payload = request.rawBody || Buffer.alloc(0)) {
     const timestamp = String(request.headers['x-agnive-timestamp'] || '');
     const signature = String(request.headers['x-agnive-signature'] || '');
     const expected = 'sha256=' + crypto.createHmac('sha256', secret)
-      .update(`${timestamp}.`).update(request.rawBody || Buffer.alloc(0)).digest('hex');
+      .update(`${timestamp}.`).update(payload).digest('hex');
     if (!signature || !safeEqual(signature, expected)) {
       app.log.warn(`${label}: bad signature`);
       reply.code(401).send({ error: 'Unauthorized' });
@@ -2743,7 +2743,17 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     // Kiriman ulang untuk submission yang sama mengembalikan hasil yang sama, tanpa kirim lagi.
     const seenKey = `${ctx.scope}|${lead.submissionId}`;
     const seen = leadWelcomes.get(seenKey);
-    if (seen) return reply.code(200).send({ ...seen, duplicate: true });
+    if (seen) {
+      // Tanpa kirim ulang sambutan, tetapi perubahan data lead tetap disinkronkan.
+      if (database.enabled && database.connected && typeof database.saveWebsiteLeadProfile === 'function') {
+        const known = await ctx.getCompanyId().catch(() => null);
+        if (known) {
+          await database.saveWebsiteLeadProfile({ ...lead, chatId }, known)
+            .catch((error) => app.log.warn({ err: error }, 'Lead webhook: could not update lead profile'));
+        }
+      }
+      return reply.code(200).send({ ...seen, duplicate: true });
+    }
 
     if (!database.status().connected && !config.demoMode) return reply.code(503).send({ error: 'Database unavailable' });
     const companyId = await ctx.getCompanyId();
@@ -2861,6 +2871,45 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     return reply.code(200).send(result);
   }
 
+  // Tarik lead (pihak ketiga <- Agnee). Yang ditandatangani adalah query string
+  // mentah (kosong bila tak ada) pada tempat body: `${timestamp}.${query}`.
+  // Halaman diurutkan menurut "terakhir berubah"; pihak ketiga menyimpan
+  // nextCursor dan memanggil lagi sampai hasMore false, dengan begitu perubahan
+  // status verifikasi dan tahap pipeline di Agnee ikut sampai ke sistemnya.
+  const encodeSyncCursor = (row) => Buffer.from(`${row.cursorTs}|${row.id}`).toString('base64url');
+  function decodeSyncCursor(value) {
+    if (!value) return null;
+    const [ts, id] = Buffer.from(String(value), 'base64url').toString().split('|');
+    const ok = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{1,6}Z$/.test(ts || '') && /^[0-9a-f-]{36}$/i.test(id || '');
+    return ok ? { ts, id } : undefined;
+  }
+
+  app.get('/webhook/company/:company/leads', async (request, reply) => {
+    const ctx = await resolveLeadHook(request, 'pull');
+    if (ctx.error) return reply.code(ctx.error).send({ error: ctx.error === 404 ? 'Not found' : 'Database unavailable' });
+    const rawQuery = (request.raw.url || '').split('?')[1] || '';
+    if (!checkLeadSignature(request, reply, ctx.secret, 'Lead pull', Buffer.from(rawQuery))) return reply;
+    const { cursor: cursorParam, status, limit: limitParam } = request.query || {};
+    const cursor = decodeSyncCursor(cursorParam);
+    const limit = limitParam === undefined ? 200 : Number(limitParam);
+    if (cursor === undefined || (status !== undefined && !['new', 'verified'].includes(status))
+      || !Number.isInteger(limit) || limit < 1 || limit > 500) {
+      return reply.code(400).send({ error: 'Invalid query' });
+    }
+    const companyId = await ctx.getCompanyId();
+    const { rows, total } = await database.listWebsiteLeadsForSync(companyId, { cursor, limit: limit + 1, status: status || null });
+    const hasMore = rows.length > limit;
+    const page = hasMore ? rows.slice(0, limit) : rows;
+    return reply.code(200).send({
+      ok: true,
+      total,
+      hasMore,
+      // Halaman kosong mengembalikan kursor yang sama supaya pemanggil tidak mundur.
+      nextCursor: page.length ? encodeSyncCursor(page[page.length - 1]) : (cursorParam || null),
+      leads: page.map(({ id, cursorTs, ...lead }) => lead),
+    });
+  });
+
   for (const [suffix, handler, limit] of [['lead', handleLead, 64 * 1024], ['lead-verify', handleLeadVerify, 256 * 1024]]) {
     const options = { bodyLimit: limit, preParsing: captureRawBody(limit) };
     app.post(`/webhook/${suffix}`, options, handler);
@@ -2881,14 +2930,15 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     // Secret tidak pernah dikembalikan: hanya ada saat dibuat.
     return {
       configured: true, enabled: row.enabled,
-      hasLeadSecret: Boolean(row.leadSecret), hasVerifySecret: Boolean(row.verifySecret),
+      hasLeadSecret: Boolean(row.leadSecret), hasVerifySecret: Boolean(row.verifySecret), hasPullSecret: Boolean(row.pullSecret),
       leadPath: `/webhook/company/${row.slug}/lead`, verifyPath: `/webhook/company/${row.slug}/lead-verify`,
+      pullPath: `/webhook/company/${row.slug}/leads`,
       templates: { welcomeId: row.welcomeId, welcomeEn: row.welcomeEn, confirmId: row.confirmId, confirmEn: row.confirmEn },
     };
   });
 
   app.post('/v1/integrations/lead-webhook/secret', {
-    schema: { body: { type: 'object', required: ['kind'], additionalProperties: false, properties: { kind: { enum: ['lead', 'verify'] } } } },
+    schema: { body: { type: 'object', required: ['kind'], additionalProperties: false, properties: { kind: { enum: ['lead', 'verify', 'pull'] } } } },
   }, async (request, reply) => {
     if (!leadHookGate(request, reply)) return reply;
     const secret = crypto.randomBytes(32).toString('hex');

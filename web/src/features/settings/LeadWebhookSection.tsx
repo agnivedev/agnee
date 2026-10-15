@@ -12,11 +12,13 @@ type LeadWebhook = {
   enabled?: boolean;
   hasLeadSecret?: boolean;
   hasVerifySecret?: boolean;
+  hasPullSecret?: boolean;
   leadPath?: string;
   verifyPath?: string;
+  pullPath?: string;
   templates?: Templates;
 };
-type Kind = 'lead' | 'verify';
+type Kind = 'lead' | 'verify' | 'pull';
 
 const TEMPLATE_FIELDS: { key: keyof Templates; label: string }[] = [
   { key: 'welcomeId', label: 'leadHook.welcomeId' },
@@ -72,7 +74,7 @@ export function LeadWebhookSection() {
   useEffect(() => { void load(); }, [load]);
 
   async function makeSecret(kind: Kind) {
-    if (state[kind === 'lead' ? 'hasLeadSecret' : 'hasVerifySecret']) {
+    if (state[{ lead: 'hasLeadSecret', verify: 'hasVerifySecret', pull: 'hasPullSecret' }[kind] as 'hasLeadSecret']) {
       const ok = await confirm.confirm({
         title: t('leadHook.rotateTitle'),
         message: t('leadHook.rotateCopy'),
@@ -111,6 +113,7 @@ export function LeadWebhookSection() {
   const endpoints: { kind: Kind; label: string; path?: string; has?: boolean }[] = [
     { kind: 'lead', label: t('leadHook.leadUrl'), path: state.leadPath, has: state.hasLeadSecret },
     { kind: 'verify', label: t('leadHook.verifyUrl'), path: state.verifyPath, has: state.hasVerifySecret },
+    { kind: 'pull', label: t('leadHook.pullUrl'), path: state.pullPath, has: state.hasPullSecret },
   ];
 
   return (
@@ -128,7 +131,7 @@ export function LeadWebhookSection() {
         <div className="grid gap-4">
           {fresh ? (
             <div className="rounded-xl border border-border bg-white/60 p-4">
-              <strong className="text-[13px]">{t('leadHook.freshTitle', { kind: fresh.kind === 'lead' ? t('leadHook.leadShort') : t('leadHook.verifyShort') })}</strong>
+              <strong className="text-[13px]">{t('leadHook.freshTitle', { kind: t(`leadHook.${fresh.kind}Short`) })}</strong>
               <p className="my-1 text-[12px] text-muted">{t('leadHook.freshCopy')}</p>
               <Row>
                 <code className="min-w-0 flex-1 break-all font-mono text-[12px]">{fresh.secret}</code>

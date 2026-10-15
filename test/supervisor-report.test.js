@@ -88,3 +88,14 @@ test('parseHighlights membersihkan butir dan membatasi 5 baris', () => {
   const out = r.parseHighlights('1. Harga paket\n- Cara bayar\n• Jadwal live\nx\n4) Refund\n5. Promo\n6. Lainnya');
   assert.deepEqual(out, ['Harga paket', 'Cara bayar', 'Jadwal live', 'Refund', 'Promo']);
 });
+
+test('buildReport: contoh diberi label CONTOH dan penjelasan periode; laporan asli tidak', () => {
+  const base = {
+    companyName: 'X', frequency: 'daily', from: new Date('2026-10-08T01:00:00Z'), to: new Date('2026-10-15T01:00:00Z'), tz: TZ,
+    stats: { inboundMessages: 3, activeChats: 2, newChats: 1, aiReplies: 2, humanReplies: 0, handoffs: 0, hotLeads: 0 },
+  };
+  const sample = r.buildReport({ ...base, sample: true });
+  assert.match(sample, /^\*CONTOH — Laporan Harian — X\*/);
+  assert.match(sample, /7 hari terakhir/);
+  assert.doesNotMatch(r.buildReport(base), /CONTOH|7 hari terakhir/);
+});

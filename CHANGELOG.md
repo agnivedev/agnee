@@ -1,5 +1,8 @@
 ## [Unreleased]
 
+- **Laporan contoh supervisor memakai 7 hari terakhir dan berlabel CONTOH.** Sebelumnya
+  contoh memakai periode jadwal (mis. kemarin), sehingga di hari sepi isinya hanya
+  "Tidak ada percakapan". Laporan terjadwal tidak berubah.
 - **Satu email bisa ada di beberapa company (undangan + pilih company).** Menambah
   anggota dengan email yang sudah punya akun di company lain tidak lagi ditolak
   dan tidak pernah menyentuh password-nya (celah ambil alih akun 3 Okt tetap

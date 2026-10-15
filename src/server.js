@@ -5621,12 +5621,12 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     return supervisorReport.parseHighlights(result?.text);
   }
 
-  async function sendSupervisorReport(row, window) {
+  async function sendSupervisorReport(row, window, { sample = false } = {}) {
     const stats = await database.getChatReportStats(row.companyId, window.from, window.to);
     const highlights = stats?.inboundMessages ? await summarizeInboundForReport(row.companyId, window.from, window.to) : [];
     const text = supervisorReport.buildReport({
       companyName: row.companyName, frequency: row.frequency, from: window.from, to: window.to,
-      tz: row.timezone, stats, highlights,
+      tz: row.timezone, stats, highlights, sample,
     });
     // sendLeadMessage = sendOutbound, dan mode demo menulis ke riwayat demo.
     await sendLeadMessage(row.companyId, normalizeChatId(row.whatsappNumber, config.defaultCountryCode), text);
@@ -5682,12 +5682,13 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     const config_ = await database.getCompanyConfig(companyId).catch(() => null);
     const tz = config_?.timezone || 'Asia/Jakarta';
     const frequency = target.frequency === 'off' ? 'daily' : target.frequency;
-    const to = supervisorReport.latestSlot(frequency, new Date(), tz);
-    const from = supervisorReport.previousSlot(frequency, to, tz);
+    // Periode jadwal sering kosong (mis. kemarin sepi), jadi contoh memakai 7 hari terakhir.
+    const to = new Date();
+    const from = new Date(to.getTime() - 7 * 24 * 60 * 60 * 1000);
     try {
       await sendSupervisorReport({
         ...target, companyId, frequency, timezone: tz, companyName: config_?.name || '',
-      }, { from, to });
+      }, { from, to }, { sample: true });
     } catch (error) {
       app.log.warn({ err: error, companyId }, 'Laporan contoh supervisor gagal');
       return reply.code(502).send({ error: 'Laporan tidak terkirim. Pastikan nomor WhatsApp perusahaan sedang tersambung.' });

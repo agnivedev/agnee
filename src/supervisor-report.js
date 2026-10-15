@@ -111,11 +111,13 @@ const stripFormatting = (value) => String(value || '').replace(/[*_~`]/g, '');
 /**
  * @param stats {{inboundMessages, activeChats, newChats, aiReplies, humanReplies, handoffs, hotLeads}}
  * @param highlights string[] poin ringkas dari AI (boleh kosong)
+ * @param sample true = laporan contoh dari tombol "Kirim contoh" (diberi label dan periodenya 7 hari terakhir)
  */
-function buildReport({ companyName, frequency, from, to, tz, stats, highlights = [] }) {
+function buildReport({ companyName, frequency, from, to, tz, stats, highlights = [], sample = false }) {
   const lines = [
-    `*Laporan ${FREQUENCY_LABEL[frequency] || 'Chat'} — ${stripFormatting(companyName)}*`,
+    `*${sample ? 'CONTOH — ' : ''}Laporan ${FREQUENCY_LABEL[frequency] || 'Chat'} — ${stripFormatting(companyName)}*`,
     periodLabel(frequency, from, to, tz),
+    ...(sample ? ['_Contoh memakai 7 hari terakhir supaya isinya terlihat; laporan asli memakai periode jadwalnya._'] : []),
     '',
   ];
   if (!stats.inboundMessages && !stats.aiReplies && !stats.humanReplies) {

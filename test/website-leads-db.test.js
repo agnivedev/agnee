@@ -83,3 +83,10 @@ test('nilai di luar daftar ditolak oleh constraint', { skip }, (t) => withCompan
   await assert.rejects(db.pool.query(
     "INSERT INTO website_leads (company_id, submission_id, chat_id, name, status) VALUES ($1, 'x', 'c', 'n', 'hacked')", [a]));
 }));
+
+test('cocok lewat email broker yang berbeda dari email member, atau lewat submissionId', { skip }, (t) => withCompanies(t, async (db, a, b) => {
+  await db.saveWebsiteLeadProfile(lead({ submissionId: 'member-12', email: 'dewi@member.test', brokerEmail: 'Dewi.Trade@Valetax.test', broker: 'Valetax' }), a);
+  assert.equal((await db.findWebsiteLeadsForVerification(a, { emails: ['dewi.trade@valetax.test'] })).length, 1);
+  assert.equal((await db.findWebsiteLeadsForVerification(a, { submissionIds: ['member-12'] })).length, 1);
+  assert.equal((await db.findWebsiteLeadsForVerification(b, { submissionIds: ['member-12'], emails: ['dewi.trade@valetax.test'] })).length, 0);
+}));

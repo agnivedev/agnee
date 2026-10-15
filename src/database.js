@@ -206,12 +206,13 @@ class Database {
     if (!this.enabled) return null;
     const result = await this.pool.query(`
       INSERT INTO website_leads
-        (company_id, submission_id, chat_id, name, email, broker, account_status, account_number, language)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        (company_id, submission_id, chat_id, name, email, broker, account_status, account_number, language, broker_email)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       ON CONFLICT (company_id, submission_id) DO NOTHING
       RETURNING id
     `, [companyId, lead.submissionId, lead.chatId, lead.name, lead.email || '', lead.broker || '',
-      lead.accountStatus === 'have' ? 'have' : 'new', lead.accountNumber || '', lead.language === 'en' ? 'en' : 'id']);
+      lead.accountStatus === 'have' ? 'have' : 'new', lead.accountNumber || '', lead.language === 'en' ? 'en' : 'id',
+      String(lead.brokerEmail || '').toLowerCase()]);
     return result.rows[0] || null;
   }
 
@@ -220,8 +221,8 @@ class Database {
    * nomor account. Termasuk yang sudah 'verified' tetapi konfirmasinya belum
    * terkirim, supaya kiriman ulang robot bisa menyelesaikannya.
    */
-  async findWebsiteLeadsForVerification(companyId, { emails = [], accounts = [] }) {
-    if (!this.enabled || (!emails.length && !accounts.length)) return [];
+  async findWebsiteLeadsForVerification(companyId, { emails = [], accounts = [], submissionIds = [] }) {
+    if (!this.enabled || (!emails.length && !accounts.length && !submissionIds.length)) return [];
     const result = await this.pool.query(`
       SELECT id, chat_id AS "chatId", name, email, broker, account_number AS "accountNumber",
              language, status, confirmation_sent_at AS "confirmationSentAt"
@@ -229,9 +230,11 @@ class Database {
       WHERE company_id = $1
         AND (status = 'new' OR confirmation_sent_at IS NULL)
         AND ((email <> '' AND lower(email) = ANY($2::text[]))
-          OR (account_number <> '' AND account_number = ANY($3::text[])))
+          OR (broker_email <> '' AND lower(broker_email) = ANY($2::text[]))
+          OR (account_number <> '' AND account_number = ANY($3::text[]))
+          OR submission_id = ANY($4::text[]))
       ORDER BY created_at
-    `, [companyId, emails, accounts]);
+    `, [companyId, emails, accounts, submissionIds]);
     return result.rows;
   }
 

@@ -2562,9 +2562,17 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
   const leadByChat = new Map(); // chatId -> kapan terakhir disambut
   let leadSentTimes = [];
 
+  // 'bullbabe-member' = member yang mendaftar lewat plugin WordPress (submissionId 'member-<user id>').
+  const LEAD_SOURCES = ['bullbabe-landing', 'bullbabe-member'];
+
+  function normalizeEmail(value) {
+    const v = typeof value === 'string' ? value.trim().toLowerCase().slice(0, 200) : '';
+    return /^[^\s@]+@[^\s@]+$/.test(v) ? v : '';
+  }
+
   function parseLead(body) {
     const l = body?.lead;
-    if (body?.version !== 1 || body?.source !== 'bullbabe-landing' || !l || typeof l !== 'object') return null;
+    if (body?.version !== 1 || !LEAD_SOURCES.includes(body?.source) || !l || typeof l !== 'object') return null;
     const submissionId = str(String(l.submissionId ?? ''), 64);
     const name = (str(l.name, 100) || '').trim();
     const whatsapp = (str(l.whatsapp, 40) || '').trim();
@@ -2577,6 +2585,8 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       broker: (str(l.broker, 80) || '').trim(),
       accountStatus: l.accountStatus === 'have' ? 'have' : 'new',
       accountNumber: /^\d{5,12}$/.test(String(l.accountNumber || '')) ? String(l.accountNumber) : '',
+      // Email yang dipakai mendaftar di broker (Valetax): bisa berbeda dari lead.email milik member.
+      brokerEmail: normalizeEmail(l.brokerEmail),
       language: l.language === 'en' ? 'en' : 'id',
       // Teks siap kirim dari WordPress (template per broker, payload sudah bertanda tangan HMAC); kosong = teks umum di bawah.
       welcomeText: (str(l.welcomeText, 1000) || '').trim(),
@@ -2693,10 +2703,14 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
 
   // ── Verifikasi lead (robot Anduman -> Agnee) ───────────────────────────────
   // Robot membaca daftar klien di portal IB sebuah broker, lalu mengirim email
-  // dan/atau nomor account yang ditemukan. Agnee mencocokkannya dengan lead dari
+  // dan/atau nomor account yang ditemukan (WordPress boleh menambah submissionId
+  // lead yang pasti, mis. 'member-12'; broker tetap harus cocok). Email dicocokkan
+  // dengan email lead DAN email broker (brokerEmail). Agnee mencocokkannya dengan lead dari
   // website, menandainya terverifikasi, dan mengirim SATU WhatsApp konfirmasi per
   // lead. Tanda tangan sama dengan webhook lain (HMAC atas `${timestamp}.${body}`)
   // tetapi dengan LEAD_VERIFY_SECRET. Respons hanya berisi angka, tanpa data lead.
+  // 'anduman' = robot portal IB; 'bullbabe-wp' = plugin WordPress saat account member ditandai terhubung.
+  const LEAD_VERIFY_SOURCES = ['anduman', 'bullbabe-wp'];
   const LEAD_VERIFY_MAX_ROWS = 500;
   const LEAD_CONFIRM_HOURLY_CAP = 200;
   let leadConfirmTimes = [];
@@ -2735,23 +2749,26 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     const body = request.body;
     const broker = canonicalBroker(body?.broker);
     const rows = body?.registrations;
-    if (body?.version !== 1 || body?.source !== 'anduman' || !broker || !Array.isArray(rows) || rows.length === 0 || rows.length > LEAD_VERIFY_MAX_ROWS) {
+    if (body?.version !== 1 || !LEAD_VERIFY_SOURCES.includes(body?.source) || !broker || !Array.isArray(rows) || rows.length === 0 || rows.length > LEAD_VERIFY_MAX_ROWS) {
       return reply.code(400).send({ error: 'Invalid verification payload' });
     }
     const emails = [];
     const accounts = [];
+    const submissionIds = [];
     for (const row of rows) {
-      const email = typeof row?.email === 'string' ? row.email.trim().toLowerCase() : '';
+      const email = normalizeEmail(row?.email);
+      const submissionId = typeof row?.submissionId === 'string' ? row.submissionId.trim().slice(0, 64) : '';
+      if (submissionId) submissionIds.push(submissionId);
       const account = /^\d{5,12}$/.test(String(row?.accountNumber ?? '')) ? String(row.accountNumber) : '';
-      if (email && /^[^\s@]+@[^\s@]+$/.test(email)) emails.push(email);
+      if (email) emails.push(email);
       if (account) accounts.push(account);
     }
-    if (!emails.length && !accounts.length) return reply.code(400).send({ error: 'Invalid verification payload' });
+    if (!emails.length && !accounts.length && !submissionIds.length) return reply.code(400).send({ error: 'Invalid verification payload' });
     if (!database.status().connected) return reply.code(503).send({ error: 'Database unavailable' });
     const companyId = await database.resolveCompanyId(config.leadWebhookCompany);
     if (!companyId) return reply.code(503).send({ error: 'Receiving company not configured' });
 
-    const candidates = (await database.findWebsiteLeadsForVerification(companyId, { emails, accounts }))
+    const candidates = (await database.findWebsiteLeadsForVerification(companyId, { emails, accounts, submissionIds }))
       .filter((lead) => canonicalBroker(lead.broker) === broker);
     const result = { ok: true, received: rows.length, matched: candidates.length, confirmed: 0, alreadyConfirmed: 0, failed: 0 };
 

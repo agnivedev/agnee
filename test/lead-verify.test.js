@@ -19,6 +19,7 @@ function seedLeads() {
     { id: 'l1', chatId: '6281111111111@c.us', name: 'Rina Wijaya', email: 'Rina@Example.com', broker: 'Exness', accountNumber: '', language: 'id', status: 'new', confirmationSentAt: null },
     { id: 'l2', chatId: '6282222222222@c.us', name: 'Budi Santoso', email: 'budi@example.com', broker: 'Blueberry Markets', accountNumber: '55512345', language: 'id', status: 'new', confirmationSentAt: null },
     { id: 'l3', chatId: '6283333333333@c.us', name: 'Citra Lestari', email: 'citra@example.com', broker: 'TMGM', accountNumber: '', language: 'en', status: 'new', confirmationSentAt: null },
+    { id: 'l4', submissionId: 'member-12', chatId: '6284444444444@c.us', name: 'Dewi Anggraini', email: 'dewi@member.test', brokerEmail: 'dewi.trade@valetax.test', broker: 'Valetax', accountNumber: '', language: 'id', status: 'new', confirmationSentAt: null },
   ];
 }
 
@@ -42,9 +43,12 @@ async function app(t, { secret = SECRET, leads = seedLeads() } = {}) {
     async setPresence() {},
     async getCompanyConfig() { return null; },
     async recordAuditLog() { return { id: 1 }; },
-    async findWebsiteLeadsForVerification(_c, { emails, accounts }) {
+    async findWebsiteLeadsForVerification(_c, { emails, accounts, submissionIds = [] }) {
       return leads.filter((l) => (l.status === 'new' || !l.confirmationSentAt)
-        && ((l.email && emails.includes(l.email.toLowerCase())) || (l.accountNumber && accounts.includes(l.accountNumber))));
+        && ((l.email && emails.includes(l.email.toLowerCase()))
+          || (l.brokerEmail && emails.includes(l.brokerEmail.toLowerCase()))
+          || (l.accountNumber && accounts.includes(l.accountNumber))
+          || (l.submissionId && submissionIds.includes(l.submissionId))));
     },
     async claimWebsiteLeadVerification(id) {
       const lead = leads.find((l) => l.id === id);
@@ -171,4 +175,37 @@ test('skrip pengirim (lead-verify-push) menghasilkan tanda tangan yang diterima 
   assert.equal(res.statusCode, 200);
   assert.equal(res.json().confirmed, 1);
   assert.equal(leads[0].status, 'verified');
+});
+
+const wpBody = (rows, extra = {}) => ({ version: 1, source: 'bullbabe-wp', broker: 'Valetax', registrations: rows, ...extra });
+
+test('WordPress: email broker (beda dari email member) mengonfirmasi lead Valetax', async (t) => {
+  const { server, leads, stages, sentTo } = await app(t);
+  const res = await server.inject({ method: 'POST', url: '/webhook/lead-verify', ...signed(wpBody([{ email: 'Dewi.Trade@valetax.test' }])) });
+  assert.deepEqual(res.json(), { ok: true, received: 1, matched: 1, confirmed: 1, alreadyConfirmed: 0, failed: 0 });
+  assert.equal(leads[3].status, 'verified');
+  assert.deepEqual(stages, [{ chatId: '6284444444444@c.us', stage: 'closing', by: 'lead-verify', companyId: 'company-bb' }]);
+  assert.equal((await sentTo('6284444444444@c.us')).length, 1);
+});
+
+test('WordPress: submissionId member-12 cocok pasti, dan kiriman ulang tidak mengirim dua kali', async (t) => {
+  const { server, sentTo } = await app(t);
+  const req = () => signed(wpBody([{ submissionId: 'member-12', email: 'apa-saja@valetax.test' }]));
+  assert.equal((await server.inject({ method: 'POST', url: '/webhook/lead-verify', ...req() })).json().confirmed, 1);
+  const again = await server.inject({ method: 'POST', url: '/webhook/lead-verify', ...req() });
+  assert.equal(again.json().confirmed, 0);
+  assert.equal((await sentTo('6284444444444@c.us')).length, 1);
+});
+
+test('WordPress: submissionId untuk broker lain tidak mengonfirmasi', async (t) => {
+  const { server, leads } = await app(t);
+  const res = await server.inject({ method: 'POST', url: '/webhook/lead-verify', ...signed(wpBody([{ submissionId: 'member-12' }], { broker: 'Exness' })) });
+  assert.equal(res.json().matched, 0);
+  assert.equal(leads[3].status, 'new');
+});
+
+test('source yang tidak dikenal ditolak', async (t) => {
+  const { server } = await app(t);
+  const res = await server.inject({ method: 'POST', url: '/webhook/lead-verify', ...signed(wpBody([{ submissionId: 'member-12' }], { source: 'lainnya' })) });
+  assert.equal(res.statusCode, 400);
 });

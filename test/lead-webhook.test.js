@@ -39,6 +39,7 @@ function signed(body, { secret = SECRET, timestamp = Date.now() } = {}) {
 
 async function app(t, { secret = SECRET, company = 'bb', optOuts = [] } = {}) {
   const saved = [];
+  const profiles = [];
   const database = {
     enabled: true, connected: true,
     async connect() {}, async close() {},
@@ -49,6 +50,7 @@ async function app(t, { secret = SECRET, company = 'bb', optOuts = [] } = {}) {
     async setPresence() {},
     async getCompanyConfig() { return null; },
     async recordWebsiteLead(lead, companyId) { saved.push({ ...lead, companyId }); return lead; },
+    async saveWebsiteLeadProfile(lead) { profiles.push(lead); return { id: 'x' }; },
     async listBroadcastOptOuts() { return optOuts; },
     async recordAuditLog() { return { id: 1 }; },
   };
@@ -63,7 +65,7 @@ async function app(t, { secret = SECRET, company = 'bb', optOuts = [] } = {}) {
     const res = await instance.inject({ method: 'GET', url: `/v1/chats/${encodeURIComponent(chatId)}/messages`, headers: { cookie } });
     return (res.json().messages || []).filter((m) => m.fromMe);
   };
-  return { server: instance, saved, sentTo };
+  return { server: instance, saved, profiles, sentTo };
 }
 
 test('lead bertanda tangan benar: tercatat di pipeline dan disambut satu kali', async (t) => {
@@ -164,4 +166,23 @@ test('payload tidak sah ditolak 400', async (t) => {
     const res = await server.inject({ method: 'POST', url: '/webhook/lead', ...signed(bad) });
     assert.equal(res.statusCode, 400, JSON.stringify(bad.lead));
   }
+});
+
+test('member WordPress (source bullbabe-member): brokerEmail Valetax disimpan, bukan dibuang', async (t) => {
+  const { server, profiles } = await app(t);
+  const body = payload({ submissionId: 'member-12', broker: 'Valetax', email: 'dewi@member.test', brokerEmail: ' Dewi.Trade@Valetax.test ', accountNumber: 'dewi.trade@valetax.test' });
+  body.source = 'bullbabe-member';
+  const res = await server.inject({ method: 'POST', url: '/webhook/lead', ...signed(body) });
+  assert.equal(res.statusCode, 200);
+  assert.equal(profiles.length, 1);
+  assert.equal(profiles[0].submissionId, 'member-12');
+  assert.equal(profiles[0].brokerEmail, 'dewi.trade@valetax.test');
+  assert.equal(profiles[0].email, 'dewi@member.test');
+  assert.equal(profiles[0].accountNumber, '');
+});
+
+test('brokerEmail yang bukan email dikosongkan', async (t) => {
+  const { server, profiles } = await app(t);
+  await server.inject({ method: 'POST', url: '/webhook/lead', ...signed(payload({ submissionId: '90', brokerEmail: 'bukan-email' })) });
+  assert.equal(profiles[0].brokerEmail, '');
 });

@@ -6,6 +6,7 @@ import { useSession } from '@/lib/session';
 import { cn } from '@/lib/utils';
 import { NAV_ENTRIES, canSeeEntry } from './nav-entries';
 import { NotificationBell } from '@/components/mentions/NotificationBell';
+import { CompanySwitcher } from '@/components/CompanyAccess';
 
 const COLLAPSE_KEY = 'agnee.sidebarCollapsed';
 
@@ -91,6 +92,10 @@ export function AppSidebar() {
           >
             {collapsed ? <ChevronsRight aria-hidden className="size-4" /> : <ChevronsLeft aria-hidden className="size-4" />}
           </button>
+        </div>
+
+        <div className="hidden shrink-0 md:block">
+          <CompanySwitcher compact={collapsed} />
         </div>
 
         <nav aria-label={t('nav.main')} className="flex min-w-0 flex-1 justify-between gap-0.5 md:grid md:flex-none md:gap-1">

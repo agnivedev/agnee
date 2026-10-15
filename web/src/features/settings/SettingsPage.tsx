@@ -34,6 +34,7 @@ const SECTION_TAB: Record<string, TabId> = {
   replyDelaySection: 'ai',
   exportSection: 'data',
   teamSection: 'tim',
+  reportSection: 'tim',
   myAccount: 'tim',
   auditSection: 'audit',
 };
@@ -65,6 +66,8 @@ function tabFromHash(): TabId | null {
 
 export function SettingsPage() {
   const { t } = useI18n();
+  const [teamVersion, setTeamVersion] = useState(0);
+  const bumpTeam = useCallback(() => setTeamVersion((n) => n + 1), []);
   const { isSupervisor } = useSession();
   usePageTitle('settings.title');
 
@@ -182,8 +185,8 @@ export function SettingsPage() {
           ) : null}
           {activeTab === 'tim' ? (
             <>
-              <TeamSection />
-              {isSupervisor ? <ReportSection /> : null}
+              <TeamSection onChanged={bumpTeam} />
+              {isSupervisor ? <ReportSection reloadKey={teamVersion} /> : null}
               <AccountSection />
             </>
           ) : null}

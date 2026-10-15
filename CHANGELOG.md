@@ -1,5 +1,30 @@
 ## [Unreleased]
 
+- **Satu email bisa ada di beberapa company (undangan + pilih company).** Menambah
+  anggota dengan email yang sudah punya akun di company lain tidak lagi ditolak
+  dan tidak pernah menyentuh password-nya (celah ambil alih akun 3 Okt tetap
+  tertutup): jadi **undangan**. Password dikosongkan atau diabaikan; pemilik
+  email melihat undangannya setelah login dan menerimanya sendiri (tanpa email,
+  SMTP belum diisi). Menerima memindahkan sesi ke company itu.
+  - Migrasi 055: peran `supervisor` di CHECK undangan, `declined_at`, indeks
+    undangan menurut email, `users.last_company_id` (login membuka company yang
+    terakhir dipakai, bukan selalu yang tertua).
+  - Pagar: undangan hanya untuk akun yang sudah ada (`NO_ACCOUNT` bila belum),
+    staf platform tidak bisa diundang, plafon anggota dicek saat mengundang dan
+    saat menerima (baris company dikunci), maks 20 undangan menunggu per company
+    dan 5 per email lintas company, berlaku 14 hari, hanya pemilik email yang bisa
+    menerima/menolak, keanggotaan aktif tidak dinaikkan/diturunkan undangan.
+  - API: `GET/DELETE /v1/team/invitations`, `GET /v1/auth/invitations`,
+    `POST /v1/auth/invitations/:id/accept|decline`, `GET /v1/auth/companies`,
+    `POST /v1/auth/switch-company` (keanggotaan dicek ulang di DB; cookie baru
+    mempertahankan masa berlaku lama).
+  - UI: daftar "Undangan menunggu jawaban" + Batalkan di Pengaturan > Tim,
+    kartu undangan Terima/Tolak setelah login, pemilih company di sidebar/rail
+    dan di kartu Akun (muncul bila lebih dari satu company; ganti = muat ulang).
+  - Jejak audit: `team.invitation_sent|accepted|declined|revoked` (diterima/ditolak
+    dicatat di company pengundang). Tes: `company-invitations-*.test.js`.
+  - Catatan: sesi MCP/OAuth mengikuti company terakhir dipakai saat login.
+
 - **Broadcast bisa ke seluruh isi Lead List.** Penerima tidak lagi dibatasi pada
   yang pernah chat: kontak yang hanya pernah kita kirimi, terlihat di ponsel,
   atau pembeli Mayar yang belum chat ikut tampil (`origin`), tidak tercentang

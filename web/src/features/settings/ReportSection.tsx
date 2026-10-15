@@ -19,7 +19,7 @@ type ReportRow = {
  * Laporan hasil chat berkala ke supervisor. Frekuensi dan nomor WhatsApp
  * diatur per orang; laporannya dikirim dari nomor WhatsApp perusahaan.
  */
-export function ReportSection() {
+export function ReportSection({ reloadKey = 0 }: { reloadKey?: number }) {
   const { t, dateLocale } = useI18n();
   const [rows, setRows] = useState<ReportRow[]>([]);
   const [drafts, setDrafts] = useState<Record<string, { frequency: Frequency; number: string }>>({});
@@ -38,7 +38,7 @@ export function ReportSection() {
     }
   }, []);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { void load(); }, [load, reloadKey]);
 
   function patch(userId: string, change: Partial<{ frequency: Frequency; number: string }>) {
     setDrafts((current) => ({ ...current, [userId]: { ...current[userId], ...change } }));
@@ -137,6 +137,10 @@ export function ReportSection() {
         })}
       </div>
       <p className="mt-3 mb-0 text-[11px] leading-[1.6] text-muted">{t('report.schedule')}</p>
+      <p className="mt-1 mb-0 text-[11px] leading-[1.6] text-muted">
+        {t('report.addHint')}{' '}
+        <a href="#teamSection" className="font-semibold text-green-dark">{t('report.addLink')}</a>
+      </p>
       <div className="mt-2 grid gap-1">
         <StatusLine>{status}</StatusLine>
         <StatusLine tone="error">{error}</StatusLine>

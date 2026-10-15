@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { api, messageFromError } from '@/lib/api';
 import { useI18n } from '@/lib/i18n';
 import { useSession, isSupervisorRole } from '@/lib/session';
@@ -7,29 +7,51 @@ import { Input } from '@/components/ui/input';
 import { useConfirm } from '@/components/ui/confirm';
 import { MemberAvatar, Row, SettingCard, StatusLine } from './parts';
 import type { TeamMember } from '@/features/inbox/types';
+import { CompanySwitcher } from '@/components/CompanyAccess';
 
-export function TeamSection() {
-  const { t } = useI18n();
+type PendingInvite = { id: string; email: string; role: string; expiresAt: string };
+
+export function TeamSection({ onChanged }: { onChanged?: () => void }) {
+  const { t, dateLocale } = useI18n();
   const { user, isSupervisor } = useSession();
   const confirm = useConfirm();
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [status, setStatus] = useState('');
   const [editing, setEditing] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  const [invitations, setInvitations] = useState<PendingInvite[]>([]);
+  const loadedOnce = useRef(false);
 
   const load = useCallback(async () => {
     try {
       const data = await api<{ members: TeamMember[] }>('/v1/team/members');
       setMembers(data.members || []);
       setEditing(null);
+      // Kartu laporan di bawah memuat daftar supervisor sendiri; beri tahu setelah ada perubahan tim.
+      if (loadedOnce.current) onChanged?.();
+      loadedOnce.current = true;
     } catch (error) {
       setStatus(messageFromError(error, ''));
     }
-  }, []);
+  }, [onChanged]);
+
+  const loadInvitations = useCallback(async () => {
+    if (!isSupervisor) return;
+    try {
+      const data = await api<{ invitations: PendingInvite[] }>('/v1/team/invitations');
+      setInvitations(data.invitations || []);
+    } catch {
+      setInvitations([]);
+    }
+  }, [isSupervisor]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    void loadInvitations();
+  }, [loadInvitations]);
 
   async function addMember(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -39,18 +61,20 @@ export function TeamSection() {
     setAdding(true);
     setStatus(t('common.loading'));
     try {
-      await api('/v1/team/members', {
+      const password = String(form.get('password') || '');
+      const result = await api<{ invited?: boolean }>('/v1/team/members', {
         method: 'POST',
         body: {
           displayName: form.get('displayName'),
           email: form.get('email'),
-          password: form.get('password'),
+          // Kosong = hanya undangan untuk akun yang sudah ada.
+          ...(password ? { password } : {}),
           role: form.get('role'),
         },
       });
       element.reset();
-      setStatus(t('team.added'));
-      await load();
+      setStatus(t(result.invited ? 'team.invited' : 'team.added'));
+      await Promise.all([load(), loadInvitations()]);
     } catch (error) {
       setStatus(messageFromError(error, ''));
     } finally {
@@ -136,11 +160,44 @@ export function TeamSection() {
         })}
       </div>
 
+      {isSupervisor && invitations.length ? (
+        <div className="mt-4 grid gap-2">
+          <p className="m-0 font-mono text-[10px] tracking-[.1em] text-muted uppercase">{t('team.pendingTitle')}</p>
+          {invitations.map((invite) => (
+            <Row key={invite.id}>
+              <span className="grid min-w-0 flex-1 gap-0.5">
+                <strong className="truncate text-[13px]">{invite.email}</strong>
+                <small className="text-[11px] text-muted">
+                  {t('team.pendingUntil', { date: new Date(invite.expiresAt).toLocaleDateString(dateLocale) })}
+                </small>
+              </span>
+              <b className="rounded-full bg-ink/8 px-2.5 py-1 font-mono text-[10px] font-semibold">
+                {invite.role === 'agent' ? t('team.agent') : t('team.supervisor')}
+              </b>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={async () => {
+                  try {
+                    await api(`/v1/team/invitations/${invite.id}`, { method: 'DELETE' });
+                  } catch (error) {
+                    await confirm.error(error);
+                  }
+                  await loadInvitations();
+                }}
+              >
+                {t('team.cancelInvite')}
+              </Button>
+            </Row>
+          ))}
+        </div>
+      ) : null}
+
       {isSupervisor ? (
         <form onSubmit={addMember} className="mt-4 grid gap-3 rounded-xl border border-border bg-white/40 p-4 md:grid-cols-4">
           <Input name="displayName" required minLength={2} placeholder={t('team.namePlaceholder')} />
           <Input name="email" type="email" required placeholder="email@perusahaan.com" />
-          <Input name="password" type="password" required minLength={8} autoComplete="new-password" placeholder={t('team.passwordPlaceholder')} />
+          <Input name="password" type="password" minLength={8} autoComplete="new-password" placeholder={t('team.passwordPlaceholder')} />
           <div className="flex gap-2">
             <select
               name="role"
@@ -156,6 +213,11 @@ export function TeamSection() {
           </div>
           <div className="md:col-span-4">
             <StatusLine>{status}</StatusLine>
+            <p className="m-0 mb-1 text-[11px] leading-[1.6] text-muted">{t('team.passwordHint')}</p>
+            <p className="m-0 text-[11px] leading-[1.6] text-muted">
+              {t('team.reportHint')}{' '}
+              <a href="#reportSection" className="font-semibold text-green-dark">{t('team.reportLink')}</a>
+            </p>
           </div>
         </form>
       ) : (
@@ -244,6 +306,7 @@ export function AccountSection() {
           {isSupervisor ? t('team.supervisor') : t('team.agent')}
         </b>
       </Row>
+      <CompanySwitcher variant="list" />
     </SettingCard>
   );
 }

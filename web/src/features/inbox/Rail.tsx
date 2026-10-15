@@ -4,6 +4,7 @@ import { useSession } from '@/lib/session';
 import { cn } from '@/lib/utils';
 import { NAV_ENTRIES, canSeeEntry, type NavEntryId } from '@/components/nav-entries';
 import { NotificationBell } from '@/components/mentions/NotificationBell';
+import { CompanySwitcher } from '@/components/CompanyAccess';
 
 export type RailAction = NavEntryId;
 
@@ -16,6 +17,9 @@ export function Rail({ active, onAction }: { active: RailAction; onAction: (acti
     // of the grid flow, so the panels get the full width instead of a row below it.
     <aside className="fixed inset-x-0 bottom-0 z-20 flex h-16 min-h-0 flex-row items-center justify-between gap-2 overflow-hidden bg-ink px-2 py-2 text-white shadow-[0_-10px_28px_rgba(15,35,28,.13)] md:static md:h-full md:flex-col md:gap-6 md:px-2 md:py-[22px] md:shadow-none">
       <img src="/brand/agnee-mark.svg" alt="Agnee" className="hidden size-[38px] md:block" />
+      <div className="hidden w-full md:block">
+        <CompanySwitcher compact />
+      </div>
       <nav aria-label={t('nav.main')} className="flex min-w-0 gap-0.5 md:grid md:gap-1">
         {NAV_ENTRIES.filter((entry) => entry.id !== 'logout' && canSeeEntry(entry, session)).map((entry) => (
           <RailButton

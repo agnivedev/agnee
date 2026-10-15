@@ -13,6 +13,8 @@
  * memuntahkan laporan lama.
  */
 
+const chatDetails = require('./report-chats');
+
 const FREQUENCIES = ['off', 'daily', 'weekly', 'monthly'];
 const SEND_HOUR = 8;
 
@@ -46,6 +48,26 @@ function localParts(date, tz) {
     y: shifted.getUTCFullYear(), m: shifted.getUTCMonth() + 1, d: shifted.getUTCDate(),
     h: shifted.getUTCHours(), dow: shifted.getUTCDay(),
   };
+}
+
+/** Pilihan periode untuk laporan yang dikirim manual. */
+const PERIODS = ['today', 'yesterday', '7d', '30d'];
+const PERIOD_NAME = { today: 'Hari Ini', yesterday: 'Kemarin', '7d': '7 Hari Terakhir', '30d': '30 Hari Terakhir' };
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Jendela waktu satu periode. Hari ini = dari 00.00 zona company sampai
+ * sekarang; kemarin = satu hari kalender penuh; 7 dan 30 hari = mundur dari
+ * sekarang.
+ */
+function periodWindow(period, now, tz) {
+  const zone = safeZone(tz);
+  const p = localParts(now, zone);
+  const midnight = (dayOffset) => zonedToUtc(p.y, p.m, p.d + dayOffset, 0, zone);
+  if (period === 'today') return { from: midnight(0), to: now };
+  if (period === 'yesterday') return { from: midnight(-1), to: midnight(0) };
+  if (period === '30d') return { from: new Date(now.getTime() - 30 * DAY_MS), to: now };
+  return { from: new Date(now.getTime() - 7 * DAY_MS), to: now };
 }
 
 /** Jadwal kirim terbaru yang sudah lewat (<= now) untuk frekuensi ini. */
@@ -122,6 +144,8 @@ const DEFAULT_TEMPLATE = [
   '{stats}',
   '',
   '{topics}',
+  '',
+  '{chat_details}',
 ].join('\n');
 
 const MAX_TEMPLATE_LENGTH = 1500;
@@ -130,7 +154,7 @@ const MAX_TEMPLATE_LENGTH = 1500;
 const PLACEHOLDERS = [
   { key: 'name', label: 'Nama penerima', example: 'Hanny' },
   { key: 'company', label: 'Nama perusahaan', example: 'Beweix Digital' },
-  { key: 'frequency', label: 'Harian / Mingguan / Bulanan', example: 'Harian' },
+  { key: 'frequency', label: 'Harian / Mingguan / Bulanan, atau nama periode (Kemarin, 7 Hari Terakhir)', example: 'Harian' },
   { key: 'period', label: 'Periode laporan', example: '14 Okt 2026' },
   { key: 'inbound', label: 'Pesan masuk dari customer', example: '128' },
   { key: 'chats', label: 'Customer yang chat', example: '23' },
@@ -141,6 +165,8 @@ const PLACEHOLDERS = [
   { key: 'hot_leads', label: 'Lead panas/closing', example: '4' },
   { key: 'stats', label: 'Semua angka di atas sebagai daftar (atau "tidak ada percakapan")', example: null },
   { key: 'topics', label: 'Topik terbanyak (judul + daftar, kosong kalau tidak ada)', example: null },
+  { key: 'waiting', label: 'Chat yang menunggu balasan kita', example: '5' },
+  { key: 'chat_details', label: 'Chat penting: isi, status, dan tindakan oleh siapa (kosong kalau tidak ada)', example: null },
 ];
 const PLACEHOLDER_KEYS = new Set(PLACEHOLDERS.map((p) => p.key));
 
@@ -159,7 +185,7 @@ function validateTemplate(template) {
 }
 
 /** Nilai tiap penanda untuk satu laporan. */
-function placeholderValues({ recipientName, companyName, frequency, from, to, tz, stats, highlights }) {
+function placeholderValues({ recipientName, companyName, frequency, periodName, from, to, tz, stats, highlights, chatText }) {
   const quiet = !stats.inboundMessages && !stats.aiReplies && !stats.humanReplies;
   const statLines = quiet ? [EMPTY_PERIOD] : [
     `• Pesan masuk dari customer: ${num(stats.inboundMessages)}`,
@@ -168,12 +194,13 @@ function placeholderValues({ recipientName, companyName, frequency, from, to, tz
     `• Dibalas tim: ${num(stats.humanReplies)}`,
     `• Diambil alih tim: ${num(stats.handoffs)}`,
     `• Lead panas/closing: ${num(stats.hotLeads)}`,
+    ...(stats.waiting ? [`• Menunggu balasan kita: ${num(stats.waiting)}`] : []),
   ];
   const points = quiet ? [] : highlights.map((h) => stripFormatting(h).trim()).filter(Boolean).slice(0, 5);
   return {
     name: stripFormatting(recipientName),
     company: stripFormatting(companyName),
-    frequency: FREQUENCY_LABEL[frequency] || 'Chat',
+    frequency: periodName || FREQUENCY_LABEL[frequency] || 'Chat',
     period: periodLabel(frequency, from, to, tz),
     inbound: num(stats.inboundMessages),
     chats: num(stats.activeChats),
@@ -184,6 +211,8 @@ function placeholderValues({ recipientName, companyName, frequency, from, to, tz
     hot_leads: num(stats.hotLeads),
     stats: statLines.join('\n'),
     topics: points.length ? [TOPICS_HEADING, ...points.map((p) => `– ${p}`)].join('\n') : '',
+    waiting: num(stats.waiting),
+    chat_details: chatText,
   };
 }
 
@@ -192,18 +221,32 @@ function placeholderValues({ recipientName, companyName, frequency, from, to, tz
  * @param highlights string[] poin ringkas dari AI (boleh kosong)
  * @param template teks dengan penanda {name} dst.; kosong = DEFAULT_TEMPLATE
  * @param recipientName nama penerima untuk {name}
- * @param sample true = laporan contoh dari tombol "Kirim contoh" (diberi label; periodenya 7 hari terakhir)
+ * @param sample true = laporan dari tombol "Kirim sekarang" (diberi label CONTOH)
+ * @param periodName nama periode untuk {frequency} (mis. "Kemarin"); kosong = Harian/Mingguan/Bulanan
+ * @param chats chat penting berurutan dari yang paling penting (lihat report-chats.js)
  */
-function buildReport({ companyName, frequency, from, to, tz, stats, highlights = [], template = null, recipientName = '', sample = false }) {
-  const values = placeholderValues({ recipientName, companyName, frequency, from, to, tz, stats, highlights });
-  // Satu lintasan, jadi isi nilai (nama company yang memuat "{name}") tidak ikut diganti lagi.
-  let text = String(template || DEFAULT_TEMPLATE).replace(/\{([a-z_]+)\}/g, (match, key) => (
-    Object.hasOwn(values, key) ? values[key] : match
-  ));
-  // Penanda kosong (mis. {topics}) meninggalkan baris kosong berlipat.
-  text = text.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
-  if (sample) {
-    text = `*CONTOH* — memakai 7 hari terakhir supaya isinya terlihat; laporan asli memakai periode jadwalnya.\n\n${text}`;
+function buildReport({
+  companyName, frequency, periodName = '', from, to, tz, stats, highlights = [], template = null, recipientName = '',
+  sample = false, chats = [], now = new Date(),
+}) {
+  const source = String(template || DEFAULT_TEMPLATE);
+  const render = (chatText) => {
+    const values = placeholderValues({ recipientName, companyName, frequency, periodName, from, to, tz, stats, highlights, chatText });
+    // Satu lintasan, jadi isi nilai (nama company yang memuat "{name}") tidak ikut diganti lagi.
+    let text = source.replace(/\{([a-z_]+)\}/g, (match, key) => (Object.hasOwn(values, key) ? values[key] : match));
+    // Penanda kosong (mis. {topics}) meninggalkan baris kosong berlipat.
+    text = text.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+    if (sample) {
+      text = `*CONTOH* — dikirim manual lewat tombol; laporan terjadwal memakai jadwalnya sendiri.\n\n${text}`;
+    }
+    return text;
+  };
+  // Chat ditambahkan selama pesan masih muat di batas WhatsApp; sisanya dipotong dari bawah (yang paling tidak penting).
+  let count = source.includes('{chat_details}') ? chats.length : 0;
+  let text = render(chatDetails.formatChatDetails(chats, now, count));
+  while (count > 0 && text.length > chatDetails.MAX_MESSAGE_LENGTH) {
+    count -= 1;
+    text = render(chatDetails.formatChatDetails(chats, now, count));
   }
   return text;
 }
@@ -220,4 +263,5 @@ function parseHighlights(text) {
 module.exports = {
   FREQUENCIES, SEND_HOUR, latestSlot, previousSlot, dueWindow, buildReport, parseHighlights, periodLabel, zonedToUtc,
   DEFAULT_TEMPLATE, PLACEHOLDERS, MAX_TEMPLATE_LENGTH, validateTemplate,
+  PERIODS, PERIOD_NAME, periodWindow,
 };

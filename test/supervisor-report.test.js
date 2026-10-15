@@ -95,10 +95,9 @@ test('buildReport: contoh diberi label CONTOH dan penjelasan periode; laporan as
     stats: { inboundMessages: 3, activeChats: 2, newChats: 1, aiReplies: 2, humanReplies: 0, handoffs: 0, hotLeads: 0 },
   };
   const sample = r.buildReport({ ...base, sample: true });
-  assert.match(sample, /^\*CONTOH\* — memakai 7 hari terakhir/);
+  assert.match(sample, /^\*CONTOH\* — dikirim manual/);
   assert.match(sample, /\*Laporan Harian — X\*/);
-  assert.match(sample, /7 hari terakhir/);
-  assert.doesNotMatch(r.buildReport(base), /CONTOH|7 hari terakhir/);
+  assert.doesNotMatch(r.buildReport(base), /CONTOH|dikirim manual/);
 });
 
 test('template: penanda diganti, format di nilai dinetralkan, dan nilai tidak diganti dua kali', () => {
@@ -135,4 +134,56 @@ test('validateTemplate: menolak kosong, kepanjangan, dan penanda yang tidak dike
   assert.match(r.validateTemplate('x'.repeat(r.MAX_TEMPLATE_LENGTH + 1)), /terlalu panjang/);
   assert.match(r.validateTemplate('Halo {nama} {Name}'), /\{nama\}, \{Name\}/);
   assert.match(r.validateTemplate('kurung kosong {} ikut ditolak'), /\{\}/);
+});
+
+const quietStats = { inboundMessages: 0, activeChats: 0, newChats: 0, aiReplies: 0, humanReplies: 0, handoffs: 0, hotLeads: 0 };
+const busyStats = { inboundMessages: 40, activeChats: 9, newChats: 3, aiReplies: 30, humanReplies: 5, handoffs: 1, hotLeads: 2, waiting: 4 };
+const NOW = new Date('2026-10-15T10:00:00Z');
+const mkChat = (over = {}) => ({
+  name: 'Budi', summary: 'Tanya paket 3 bulan.', stage: 'hot', handlingMode: 'human', assigneeName: 'Sari', routingStatus: 'open',
+  lastInboundAt: '2026-10-15T06:00:00Z', lastOutboundAt: '2026-10-15T05:00:00Z', nextStep: 'Kirim penawaran', ...over,
+});
+
+test('periodWindow: hari ini, kemarin (hari kalender penuh), 7 dan 30 hari di zona company', () => {
+  const now = new Date('2026-10-15T10:00:00Z'); // 17.00 WIB
+  const day = (w) => [w.from.toISOString(), w.to.toISOString()];
+  assert.deepEqual(day(r.periodWindow('today', now, TZ)), ['2026-10-14T17:00:00.000Z', '2026-10-15T10:00:00.000Z']);
+  assert.deepEqual(day(r.periodWindow('yesterday', now, TZ)), ['2026-10-13T17:00:00.000Z', '2026-10-14T17:00:00.000Z']);
+  assert.deepEqual(day(r.periodWindow('7d', now, TZ)), ['2026-10-08T10:00:00.000Z', '2026-10-15T10:00:00.000Z']);
+  assert.deepEqual(day(r.periodWindow('30d', now, TZ)), ['2026-09-15T10:00:00.000Z', '2026-10-15T10:00:00.000Z']);
+  assert.deepEqual(r.PERIODS, ['today', 'yesterday', '7d', '30d']);
+});
+
+test('periodWindow: lewat tengah malam WIB "hari ini" sudah hari baru', () => {
+  const w = r.periodWindow('today', new Date('2026-10-14T18:30:00Z'), TZ); // 01.30 WIB tanggal 15
+  assert.equal(w.from.toISOString(), '2026-10-14T17:00:00.000Z');
+});
+
+test('laporan bawaan memuat detail chat: isi, status, dan tindakan oleh siapa', () => {
+  const text = r.buildReport({
+    companyName: 'X', frequency: 'daily', periodName: 'Kemarin', from: new Date('2026-10-13T17:00:00Z'), to: new Date('2026-10-14T17:00:00Z'),
+    tz: TZ, stats: busyStats, chats: [mkChat()], now: NOW,
+  });
+  assert.match(text, /^\*Laporan Kemarin — X\*/);
+  assert.match(text, /• Menunggu balasan kita: 4/);
+  assert.match(text, /\*Chat yang perlu diperhatikan\*/);
+  assert.match(text, /\*1\. Budi\*\nIsi: Tanya paket 3 bulan\.\nStatus: Panas · Customer menunggu balasan 4 jam · Dipegang Sari\nTindakan: Kirim penawaran — \*Sari\*/);
+});
+
+test('detail chat: periode sepi tidak menampilkan judul kosong, dan template tanpa {chat_details} tidak memuatnya', () => {
+  const quiet = r.buildReport({ companyName: 'X', frequency: 'daily', from: new Date('2026-10-13T17:00:00Z'), to: new Date('2026-10-14T17:00:00Z'), tz: TZ, stats: quietStats, now: NOW });
+  assert.doesNotMatch(quiet, /perlu diperhatikan/);
+  const own = r.buildReport({ companyName: 'X', frequency: 'daily', from: new Date('2026-10-13T17:00:00Z'), to: new Date('2026-10-14T17:00:00Z'), tz: TZ, stats: busyStats, chats: [mkChat()], now: NOW, template: 'Ringkas {inbound}' });
+  assert.equal(own, 'Ringkas 40');
+});
+
+test('detail chat: dipotong dari yang paling tidak penting sampai muat di batas pesan WhatsApp', () => {
+  const chats = Array.from({ length: 20 }, (_, i) => mkChat({ name: `Customer ${i + 1}`, summary: 'x'.repeat(300) }));
+  const text = r.buildReport({
+    companyName: 'X', frequency: 'daily', from: new Date('2026-10-13T17:00:00Z'), to: new Date('2026-10-14T17:00:00Z'),
+    tz: TZ, stats: busyStats, chats, now: NOW,
+  });
+  assert.ok(text.length <= 3800, `panjang ${text.length}`);
+  assert.match(text, /\*1\. Customer 1\*/);
+  assert.doesNotMatch(text, /Customer 20\*/);
 });

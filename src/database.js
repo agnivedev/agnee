@@ -1416,6 +1416,83 @@ class Database {
     };
   }
 
+  /**
+   * Chat yang paling perlu dilihat supervisor untuk [from, to): lead panas, customer
+   * yang menunggu balasan, prioritas tinggi. Yang sudah selesai/batal tidak ikut.
+   * `waiting` menghitung SEMUA chat yang menunggu balasan, bukan hanya `limit` teratas.
+   */
+  async getChatReportChats(companyId, from, to, limit = 8) {
+    if (!this.enabled) return { chats: [], waiting: 0 };
+    const ranked = await this.pool.query(`
+      WITH active AS (
+        SELECT chat_id, COUNT(*)::int AS n FROM inbound_messages
+        WHERE company_id = $1 AND created_at >= $2 AND created_at < $3 AND chat_id NOT LIKE '%@g.us'
+        GROUP BY chat_id
+      ), base AS (
+        SELECT a.chat_id, a.n,
+               (SELECT MAX(i.created_at) FROM inbound_messages i
+                 WHERE i.company_id = $1 AND i.chat_id = a.chat_id AND i.created_at < $3) AS last_in,
+               (SELECT o.created_at FROM outbound_replies o
+                 WHERE o.company_id = $1 AND o.chat_id = a.chat_id AND o.created_at < $3
+                 ORDER BY o.created_at DESC LIMIT 1) AS last_out,
+               COALESCE(ls.pipeline_stage, 'cold') AS stage,
+               COALESCE(r.handling_mode, 'ai') AS mode, COALESCE(r.status, 'open') AS routing_status,
+               COALESCE(r.priority, 'normal') AS priority,
+               COALESCE(u.display_name, u.email) AS assignee_name,
+               cn.name AS contact_name, lp.phone, cs.summary AS stored_summary
+        FROM active a
+        LEFT JOIN lead_states ls ON ls.company_id = $1 AND ls.chat_id = a.chat_id
+        LEFT JOIN conversation_routing r ON r.company_id = $1 AND r.chat_id = a.chat_id
+        LEFT JOIN users u ON u.id = r.assignee_user_id
+        LEFT JOIN contact_names cn ON cn.company_id = $1 AND cn.chat_id = a.chat_id
+        LEFT JOIN lid_phone_map lp ON lp.company_id = $1 AND a.chat_id LIKE '%@lid' AND lp.lid = split_part(a.chat_id, '@', 1)
+        LEFT JOIN conversation_summaries cs ON cs.company_id = $1 AND cs.chat_id = a.chat_id AND cs.locale = 'id'
+      ), scored AS (
+        SELECT *, (last_in IS NOT NULL AND (last_out IS NULL OR last_in > last_out)) AS waiting
+        FROM base WHERE stage <> 'lost' AND routing_status <> 'closed'
+      )
+      SELECT *, COUNT(*) FILTER (WHERE waiting) OVER ()::int AS waiting_total,
+        (CASE stage WHEN 'closing' THEN 40 WHEN 'hot' THEN 30 WHEN 'warm' THEN 10 ELSE 0 END
+         + CASE WHEN waiting THEN 25 ELSE 0 END
+         + CASE priority WHEN 'urgent' THEN 20 WHEN 'high' THEN 10 ELSE 0 END
+         + CASE WHEN mode = 'human' THEN 5 ELSE 0 END) AS score
+      FROM scored
+      ORDER BY score DESC, n DESC, last_in DESC
+      LIMIT $4
+    `, [companyId, from, to, limit]);
+    if (!ranked.rowCount) return { chats: [], waiting: 0 };
+
+    const chatIds = ranked.rows.map((row) => row.chat_id);
+    const messages = await this.pool.query(`
+      SELECT chat_id, from_me, body FROM (
+        SELECT chat_id, from_me, body, at, ROW_NUMBER() OVER (PARTITION BY chat_id ORDER BY at DESC) AS rn FROM (
+          SELECT chat_id, FALSE AS from_me, body, created_at AS at FROM inbound_messages
+          WHERE company_id = $1 AND chat_id = ANY($4::text[]) AND created_at >= $2 AND created_at < $3
+            AND message_type = 'text' AND LENGTH(TRIM(COALESCE(body, ''))) > 0
+          UNION ALL
+          SELECT chat_id, TRUE, body, created_at FROM outbound_replies
+          WHERE company_id = $1 AND chat_id = ANY($4::text[]) AND created_at >= $2 AND created_at < $3
+        ) merged
+      ) numbered WHERE rn <= 10 ORDER BY chat_id, at ASC
+    `, [companyId, from, to, chatIds]);
+    const byChat = new Map();
+    for (const row of messages.rows) {
+      if (!byChat.has(row.chat_id)) byChat.set(row.chat_id, []);
+      byChat.get(row.chat_id).push({ fromMe: row.from_me, body: row.body });
+    }
+    return {
+      waiting: ranked.rows[0].waiting_total,
+      chats: ranked.rows.map((row) => ({
+        chatId: row.chat_id, inboundCount: row.n,
+        contactName: row.contact_name, phone: row.phone,
+        stage: row.stage, handlingMode: row.mode, assigneeName: row.assignee_name,
+        routingStatus: row.routing_status, priority: row.priority,
+        lastInboundAt: row.last_in, lastOutboundAt: row.last_out,
+        storedSummary: row.stored_summary, messages: byChat.get(row.chat_id) || [],
+      })),
+    };
+  }
+
   /** Cuplikan pesan customer untuk diringkas jadi "yang paling banyak dibahas". */
   async sampleInboundForReport(companyId, from, to, limit = 80) {
     if (!this.enabled) return [];

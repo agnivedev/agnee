@@ -105,3 +105,70 @@ test('template laporan: disimpan per company, kosong kembali ke bawaan, ikut ke 
     await db.saveReportTemplate(company.id, '');
     assert.equal(await db.getReportTemplate(company.id), null);
   });
+
+test('chat penting untuk laporan: urutan, status penanganan, dan hitungan menunggu balasan',
+  { skip: !DB_URL && 'DATABASE_URL tidak diset' }, async (t) => {
+    const db = new Database({ connectionString: DB_URL, logger: { info() {}, warn() {} } });
+    await db.connect();
+    const stamp = Date.now();
+    const { rows: [company] } = await db.pool.query("INSERT INTO companies (slug, name) VALUES ($1, 'Toko Chat') RETURNING id", [`chat-${stamp}`]);
+    const { rows: [agent] } = await db.pool.query("INSERT INTO users (email, display_name) VALUES ($1, 'Sari') RETURNING id", [`sari-${stamp}@t.test`]);
+    await db.pool.query("INSERT INTO company_members (company_id, user_id, role) VALUES ($1, $2, 'agent')", [company.id, agent.id]);
+    t.after(async () => {
+      await db.pool.query('DELETE FROM companies WHERE id = $1', [company.id]);
+      await db.pool.query('DELETE FROM users WHERE id = $1', [agent.id]);
+      await db.pool.end();
+    });
+    const cid = company.id;
+    const from = new Date('2026-10-14T00:00:00Z');
+    const to = new Date('2026-10-15T00:00:00Z');
+    const at = (hour) => new Date(`2026-10-14T${String(hour).padStart(2, '0')}:00:00Z`);
+    let seq = 0;
+    const inbound = (chat, hour, body, type = 'text') => db.pool.query(
+      "INSERT INTO inbound_messages (company_id, chat_id, provider, wa_message_id, body, message_type, timestamp, created_at) VALUES ($1, $2, 'whatsapp_web', $3, $4, $5, $6, $7)",
+      [cid, chat, `m${stamp}-${seq += 1}`, body, type, Math.floor(at(hour) / 1000), at(hour)],
+    );
+    const outbound = (chat, hour, author, body) => db.pool.query(
+      'INSERT INTO outbound_replies (company_id, chat_id, author, body, created_at) VALUES ($1, $2, $3, $4, $5)', [cid, chat, author, body, at(hour)],
+    );
+    const lead = (chat, stage) => db.pool.query(
+      "INSERT INTO lead_states (company_id, chat_id, title, detail, pipeline_stage) VALUES ($1, $2, 't', 'd', $3)", [cid, chat, stage],
+    );
+
+    // A: panas, dipegang Sari, customer menunggu. B: hangat, AI sudah membalas. C: selesai. D: batal. E: grup. F: ramai tapi dingin.
+    await inbound('a@c.us', 8, 'Mau paket 3 bulan, ada diskon?'); await inbound('a@c.us', 9, 'Halo?');
+    await lead('a@c.us', 'hot');
+    await db.pool.query("INSERT INTO conversation_routing (company_id, chat_id, handling_mode, assignee_user_id, status, priority) VALUES ($1, 'a@c.us', 'human', $2, 'open', 'high')", [cid, agent.id]);
+    await db.pool.query("INSERT INTO contact_names (company_id, chat_id, name) VALUES ($1, 'a@c.us', 'Budi')", [cid]);
+    await inbound('b@c.us', 10, 'Tanya jam buka'); await outbound('b@c.us', 11, 'ai', 'Buka jam 9');
+    await lead('b@c.us', 'warm');
+    await inbound('c@c.us', 8, 'Sudah bayar'); await db.pool.query("INSERT INTO conversation_routing (company_id, chat_id, status) VALUES ($1, 'c@c.us', 'closed')", [cid]);
+    await inbound('d@c.us', 8, 'Tidak jadi'); await lead('d@c.us', 'lost');
+    await inbound('g@g.us', 8, 'ramai grup');
+    for (let i = 0; i < 5; i += 1) await inbound('f@c.us', 12, `pertanyaan ${i}`);
+    await db.pool.query("INSERT INTO conversation_summaries (company_id, chat_id, locale, summary) VALUES ($1, 'f@c.us', 'id', 'Ringkasan lama F')", [cid]);
+
+    const { chats, waiting } = await db.getChatReportChats(cid, from, to, 8);
+    assert.deepEqual(chats.map((c) => c.chatId), ['a@c.us', 'f@c.us', 'b@c.us'], 'urut: panas+menunggu, dingin+menunggu, lalu yang sudah dibalas');
+    assert.equal(waiting, 2, 'A dan F menunggu; B sudah dibalas; C selesai, D batal, grup tidak dihitung');
+
+    const a = chats[0];
+    assert.equal(a.contactName, 'Budi');
+    assert.equal(a.stage, 'hot');
+    assert.equal(a.handlingMode, 'human');
+    assert.equal(a.assigneeName, 'Sari');
+    assert.equal(a.priority, 'high');
+    assert.equal(a.inboundCount, 2);
+    assert.deepEqual(a.messages.map((m) => [m.fromMe, m.body]), [[false, 'Mau paket 3 bulan, ada diskon?'], [false, 'Halo?']]);
+    assert.equal(chats[1].storedSummary, 'Ringkasan lama F');
+    assert.equal(chats[1].messages.length, 5);
+    const b = chats[2];
+    assert.deepEqual(b.messages.map((m) => m.fromMe), [false, true]);
+    assert.ok(new Date(b.lastOutboundAt) > new Date(b.lastInboundAt));
+
+    // Batas jumlah chat tidak mengubah hitungan menunggu; jendela kosong tidak error.
+    const limited = await db.getChatReportChats(cid, from, to, 1);
+    assert.equal(limited.chats.length, 1);
+    assert.equal(limited.waiting, 2);
+    assert.deepEqual(await db.getChatReportChats(cid, new Date('2026-01-01'), new Date('2026-01-02')), { chats: [], waiting: 0 });
+  });

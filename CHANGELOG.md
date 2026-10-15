@@ -1,5 +1,23 @@
 ## [Unreleased]
 
+- **Laporan supervisor memuat detail chat dan bisa dikirim untuk hari ini/kemarin/7/30 hari.**
+  Template bawaan kini diakhiri bagian "Chat yang perlu diperhatikan" (sampai 8 chat,
+  dipotong dari bawah bila melewati batas pesan WhatsApp). Tiap chat: **isi** (ringkasan
+  apa yang customer minta dan hal pentingnya), **status** (tahap pipeline, siapa yang
+  ditunggu dan sudah berapa lama, siapa yang memegang) dan **tindakan oleh siapa**.
+  - Urutan: closing/panas, customer menunggu balasan, prioritas tinggi, ditangani
+    manusia. Chat selesai/batal dan grup tidak ikut. Ada juga angka "Menunggu balasan kita".
+  - Status dan penanggung jawab dihitung dari data (`src/report-chats.js`): AI yang
+    memegang chat tapi >2 jam tak membalas menjadi "Tim (AI belum membalas)", lead
+    panas yang dipegang AI menjadi "Tim (lead panas)". Model hanya menulis ringkasan isi
+    dan satu langkah berikutnya, untuk semua chat dalam SATU panggilan; bila AI mati atau
+    gagal dipakai ringkasan lama / pesan terakhir customer dan tindakan bawaan.
+  - Tombol "Kirim sekarang" punya pilihan periode: hari ini (00.00 sampai sekarang), kemarin
+    (satu hari kalender penuh), 7 hari, 30 hari; judul laporan mengikuti periode. Laporan
+    terjadwal tidak berubah (harian/mingguan/bulanan, 08.00). Penanda template baru:
+    `{chat_details}` dan `{waiting}`; template yang tidak memuat `{chat_details}` tidak
+    mengambil data chat dan tidak memanggil model.
+  - Tes: `report-chats.test.js`, `supervisor-report*.test.js` (termasuk query di Postgres asli).
 - **Isi pesan laporan supervisor bisa diganti (template dengan penanda).** Satu template
   per perusahaan di Pengaturan > Tim > Laporan hasil chat > "Isi pesan laporan":
   penanda `{name}`, `{company}`, `{frequency}`, `{period}`, `{inbound}`, `{chats}`,

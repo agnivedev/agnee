@@ -38,6 +38,7 @@ const mayarSync = require('./mayar-sync.js');
 const { createReplyPacer } = require('./reply-delay.js');
 const handoffNotice = require('./handoff-notice.js');
 const supervisorReport = require('./supervisor-report.js');
+const reportChats = require('./report-chats.js');
 const { createTypingHooks } = require('./typing-indicator.js');
 const { buildXlsx } = require('./xlsx-writer.js');
 const Database = require('./database.js');
@@ -5547,14 +5548,52 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     return supervisorReport.parseHighlights(result?.text);
   }
 
-  async function sendSupervisorReport(row, window, { sample = false } = {}) {
+  /**
+   * Chat penting untuk laporan: ringkasan isi dan langkah berikutnya ditulis
+   * model dalam SATU panggilan untuk semua chat; status dan penanggung jawab
+   * dihitung dari data (report-chats.js). Kalau AI mati atau gagal, ringkasan
+   * lama atau pesan terakhir customer yang dipakai, jadi bagian ini tetap terisi.
+   */
+  async function reportChatSection(companyId, from, to) {
+    if (!canCall('getChatReportChats')) return { chats: [], waiting: 0 };
+    const { chats, waiting } = await database.getChatReportChats(companyId, from, to, 8);
+    let digest = new Map();
+    if (chats.length) {
+      const companyAi = await getCompanyAi(companyId).catch(() => null);
+      if (companyAi?.enabled) {
+        const { transcript, systemPrompt } = reportChats.buildDigestPrompt(chats);
+        const result = await llmService.generateReply(transcript, {
+          systemPrompt, companyId, purpose: 'supervisor_report', modelChain: companyAi.modelChain,
+        }).catch(() => null);
+        digest = reportChats.parseChatDigest(result?.text);
+      }
+    }
+    return {
+      waiting,
+      chats: chats.map((chat, index) => {
+        const lastCustomer = [...chat.messages].reverse().find((m) => !m.fromMe)?.body;
+        const entry = digest.get(index + 1);
+        return {
+          ...chat,
+          name: reportChats.displayName(chat),
+          summary: entry?.summary || chat.storedSummary || lastCustomer || '',
+          nextStep: entry?.nextStep || null,
+        };
+      }),
+    };
+  }
+
+  async function sendSupervisorReport(row, window, { sample = false, periodName = '' } = {}) {
     const stats = await database.getChatReportStats(row.companyId, window.from, window.to);
-    const highlights = stats?.inboundMessages ? await summarizeInboundForReport(row.companyId, window.from, window.to) : [];
     const template = row.template !== undefined ? row.template
       : (canCall('getReportTemplate') ? await database.getReportTemplate(row.companyId).catch(() => null) : null);
+    const wantsChats = String(template || supervisorReport.DEFAULT_TEMPLATE).includes('{chat_details}');
+    const section = wantsChats ? await reportChatSection(row.companyId, window.from, window.to) : { chats: [], waiting: 0 };
+    if (stats) stats.waiting = section.waiting;
+    const highlights = stats?.inboundMessages ? await summarizeInboundForReport(row.companyId, window.from, window.to) : [];
     const text = supervisorReport.buildReport({
-      companyName: row.companyName, frequency: row.frequency, from: window.from, to: window.to,
-      tz: row.timezone, stats, highlights, sample, template, recipientName: row.displayName,
+      companyName: row.companyName, frequency: row.frequency, periodName, from: window.from, to: window.to,
+      tz: row.timezone, stats, highlights, sample, template, recipientName: row.displayName, chats: section.chats,
     });
     // sendLeadMessage = sendOutbound, dan mode demo menulis ke riwayat demo.
     await sendLeadMessage(row.companyId, normalizeChatId(row.whatsappNumber, config.defaultCountryCode), text);
@@ -5630,6 +5669,21 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     return { ok: true, isDefault: useDefault };
   });
 
+  /** Dua chat contoh untuk pratinjau template: bentuknya sama dengan chat nyata, isinya jelas karangan. */
+  function previewChats() {
+    const ago = (hours) => new Date(Date.now() - hours * 3_600_000).toISOString();
+    return [
+      {
+        name: 'Budi (contoh)', summary: 'Menanyakan paket 3 bulan dan meminta diskon.', stage: 'hot', handlingMode: 'human',
+        assigneeName: 'Sari', routingStatus: 'open', lastInboundAt: ago(4), lastOutboundAt: ago(5), nextStep: 'Kirim penawaran paket 3 bulan',
+      },
+      {
+        name: 'Rina (contoh)', summary: 'Bertanya jam buka dan cara pembayaran.', stage: 'warm', handlingMode: 'ai',
+        routingStatus: 'open', lastInboundAt: ago(1), lastOutboundAt: ago(3), nextStep: null,
+      },
+    ];
+  }
+
   /** Pratinjau dengan angka contoh; tidak menyimpan dan tidak mengirim apa pun. */
   app.post('/v1/reports/template/preview', { schema: { body: TEMPLATE_BODY } }, async (request, reply) => {
     if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat melihat pratinjau.' });
@@ -5641,14 +5695,15 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     const text = supervisorReport.buildReport({
       companyName: companyConfig?.name || 'Perusahaan Anda', frequency: 'daily',
       from: supervisorReport.previousSlot('daily', to, tz), to, tz,
-      stats: { inboundMessages: 128, activeChats: 23, newChats: 6, aiReplies: 97, humanReplies: 14, handoffs: 3, hotLeads: 4 },
+      stats: { inboundMessages: 128, activeChats: 23, newChats: 6, aiReplies: 97, humanReplies: 14, handoffs: 3, hotLeads: 4, waiting: 5 },
       highlights: ['Harga dan paket', 'Cara pembayaran', 'Jadwal pengiriman'],
       template: request.body.template, recipientName: request.agneeSession.displayName,
+      now: new Date(), chats: previewChats(),
     });
     return { text };
   });
 
-  /** Kirim laporan contoh sekarang (periode sesuai frekuensi) supaya supervisor bisa melihat bentuknya. */
+  /** Kirim laporan sekarang untuk satu periode (hari ini, kemarin, 7 atau 30 hari) supaya supervisor bisa melihat isinya. */
   app.post('/v1/reports/supervisors/:userId/test', async (request, reply) => {
     if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengirim laporan.' });
     if (!canCall('listSupervisorReportSettings')) return reply.code(503).send({ error: 'Database belum tersedia.' });
@@ -5659,13 +5714,15 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     const config_ = await database.getCompanyConfig(companyId).catch(() => null);
     const tz = config_?.timezone || 'Asia/Jakarta';
     const frequency = target.frequency === 'off' ? 'daily' : target.frequency;
-    // Periode jadwal sering kosong (mis. kemarin sepi), jadi contoh memakai 7 hari terakhir.
-    const to = new Date();
-    const from = new Date(to.getTime() - 7 * 24 * 60 * 60 * 1000);
+    // Periode jadwal sering kosong (mis. kemarin sepi), jadi yang manual boleh memilih periodenya.
+    // Tanpa badan permintaan (klien lama) = 7 hari; nilai asing ditolak, bukan diam-diam diganti.
+    const period = request.body?.period || '7d';
+    if (!supervisorReport.PERIODS.includes(period)) return reply.code(400).send({ error: 'Periode tidak dikenal.' });
+    const window = supervisorReport.periodWindow(period, new Date(), tz);
     try {
       await sendSupervisorReport({
         ...target, companyId, frequency, timezone: tz, companyName: config_?.name || '',
-      }, { from, to }, { sample: true });
+      }, window, { sample: true, periodName: supervisorReport.PERIOD_NAME[period] });
     } catch (error) {
       app.log.warn({ err: error, companyId }, 'Laporan contoh supervisor gagal');
       return reply.code(502).send({ error: 'Laporan tidak terkirim. Pastikan nomor WhatsApp perusahaan sedang tersambung.' });

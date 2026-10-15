@@ -63,69 +63,9 @@ test('dueWindow: server mati melewati jam 08.00 tetap mengirim jadwal itu setela
   assert.equal(window.to.toISOString(), '2026-10-12T01:00:00.000Z');
 });
 
-test('buildReport: angka, topik, dan tanda format nama company dinetralkan', () => {
-  const text = r.buildReport({
-    companyName: '*Toko* _X_', frequency: 'weekly',
-    from: new Date('2026-10-05T01:00:00Z'), to: new Date('2026-10-12T01:00:00Z'), tz: TZ,
-    stats: { inboundMessages: 1234, activeChats: 56, newChats: 7, aiReplies: 900, humanReplies: 30, handoffs: 4, hotLeads: 3 },
-    highlights: ['Harga paket', '*Cara bayar*'],
-  });
-  assert.match(text, /Laporan Mingguan — Toko X/);
-  assert.match(text, /Pesan masuk dari customer: 1\.234/);
-  assert.match(text, /Customer yang chat: 56 \(7 baru\)/);
-  assert.match(text, /– Cara bayar/);
-});
-
-test('buildReport: periode sepi ditulis apa adanya', () => {
-  const text = r.buildReport({
-    companyName: 'X', frequency: 'daily', from: new Date('2026-10-14T01:00:00Z'), to: new Date('2026-10-15T01:00:00Z'), tz: TZ,
-    stats: { inboundMessages: 0, activeChats: 0, newChats: 0, aiReplies: 0, humanReplies: 0, handoffs: 0, hotLeads: 0 },
-  });
-  assert.match(text, /Tidak ada percakapan/);
-});
-
 test('parseHighlights membersihkan butir dan membatasi 5 baris', () => {
   const out = r.parseHighlights('1. Harga paket\n- Cara bayar\n• Jadwal live\nx\n4) Refund\n5. Promo\n6. Lainnya');
   assert.deepEqual(out, ['Harga paket', 'Cara bayar', 'Jadwal live', 'Refund', 'Promo']);
-});
-
-test('buildReport: contoh diberi label CONTOH dan penjelasan periode; laporan asli tidak', () => {
-  const base = {
-    companyName: 'X', frequency: 'daily', from: new Date('2026-10-08T01:00:00Z'), to: new Date('2026-10-15T01:00:00Z'), tz: TZ,
-    stats: { inboundMessages: 3, activeChats: 2, newChats: 1, aiReplies: 2, humanReplies: 0, handoffs: 0, hotLeads: 0 },
-  };
-  const sample = r.buildReport({ ...base, sample: true });
-  assert.match(sample, /^\*CONTOH\* — dikirim manual/);
-  assert.match(sample, /\*Laporan Harian — X\*/);
-  assert.doesNotMatch(r.buildReport(base), /CONTOH|dikirim manual/);
-});
-
-test('template: penanda diganti, format di nilai dinetralkan, dan nilai tidak diganti dua kali', () => {
-  const base = {
-    companyName: '*{name}*', frequency: 'weekly', from: new Date('2026-10-05T01:00:00Z'), to: new Date('2026-10-12T01:00:00Z'), tz: TZ,
-    stats: { inboundMessages: 1234, activeChats: 56, newChats: 7, aiReplies: 900, humanReplies: 30, handoffs: 4, hotLeads: 3 },
-    highlights: ['Harga paket'],
-  };
-  const text = r.buildReport({ ...base, recipientName: '_Hanny_', template: 'Halo {name}! {inbound} pesan, {hot_leads} lead panas di {company}.\n\n{topics}' });
-  assert.equal(text.split('\n')[0], 'Halo Hanny! 1.234 pesan, 3 lead panas di {name}.');
-  assert.match(text, /– Harga paket/);
-});
-
-test('template: {topics} kosong tidak meninggalkan baris kosong berlipat, dan periode sepi memakai pesan kosong', () => {
-  const quiet = { inboundMessages: 0, activeChats: 0, newChats: 0, aiReplies: 0, humanReplies: 0, handoffs: 0, hotLeads: 0 };
-  const text = r.buildReport({
-    companyName: 'X', frequency: 'daily', from: new Date('2026-10-14T01:00:00Z'), to: new Date('2026-10-15T01:00:00Z'), tz: TZ,
-    stats: quiet, template: 'A\n\n{topics}\n\nB {stats}',
-  });
-  assert.equal(text, 'A\n\nB Tidak ada percakapan pada periode ini.');
-});
-
-test('template bawaan menghasilkan laporan yang sama seperti sebelum template ada', () => {
-  const text = r.buildReport({
-    companyName: 'X', frequency: 'daily', from: new Date('2026-10-14T01:00:00Z'), to: new Date('2026-10-15T01:00:00Z'), tz: TZ,
-    stats: { inboundMessages: 1, activeChats: 1, newChats: 0, aiReplies: 1, humanReplies: 0, handoffs: 0, hotLeads: 0 }, highlights: ['Harga'],
-  });
-  assert.equal(text, '*Laporan Harian — X*\n14 Okt 2026 – 15 Okt 2026\n\n• Pesan masuk dari customer: 1\n• Customer yang chat: 1 (0 baru)\n• Dibalas AI: 1\n• Dibalas tim: 0\n• Diambil alih tim: 0\n• Lead panas/closing: 0\n\n*Yang paling banyak dibahas*\n– Harga');
 });
 
 test('validateTemplate: menolak kosong, kepanjangan, dan penanda yang tidak dikenal', () => {
@@ -136,54 +76,128 @@ test('validateTemplate: menolak kosong, kepanjangan, dan penanda yang tidak dike
   assert.match(r.validateTemplate('kurung kosong {} ikut ditolak'), /\{\}/);
 });
 
-const quietStats = { inboundMessages: 0, activeChats: 0, newChats: 0, aiReplies: 0, humanReplies: 0, handoffs: 0, hotLeads: 0 };
-const busyStats = { inboundMessages: 40, activeChats: 9, newChats: 3, aiReplies: 30, humanReplies: 5, handoffs: 1, hotLeads: 2, waiting: 4 };
-const NOW = new Date('2026-10-15T10:00:00Z');
+const NOW = new Date('2026-10-15T03:16:00Z'); // Kamis 10.16 WIB
+const st = (n, over = {}) => ({ inboundMessages: n, activeChats: Math.floor(n / 2), newChats: Math.floor(n / 4), aiReplies: Math.floor(n / 3), humanReplies: 0, handoffs: 0, hotLeads: 0, ...over });
+const overviewOf = (sizes, prevSizes) => r.reportWindows(NOW, TZ).map((w, i) => ({
+  key: w.key, label: w.label, versus: w.versus, stats: st(sizes[i]), prev: st(prevSizes[i]),
+}));
+const BUSY = overviewOf([12, 30, 157, 420], [8, 32, 137, 365]);
+const QUIET = overviewOf([0, 0, 0, 0], [0, 0, 0, 0]);
 const mkChat = (over = {}) => ({
   name: 'Budi', summary: 'Tanya paket 3 bulan.', stage: 'hot', handlingMode: 'human', assigneeName: 'Sari', routingStatus: 'open',
-  lastInboundAt: '2026-10-15T06:00:00Z', lastOutboundAt: '2026-10-15T05:00:00Z', nextStep: 'Kirim penawaran', ...over,
+  lastInboundAt: '2026-10-15T00:00:00Z', lastOutboundAt: '2026-10-14T23:00:00Z', nextStep: 'Kirim penawaran', ...over,
+});
+const base = { companyName: 'X', frequency: 'daily', tz: TZ, now: NOW };
+
+test('reportWindows: hari ini sampai sekarang, kemarin penuh, 7 dan 30 hari, masing-masing dengan pembanding', () => {
+  const iso = (w) => [w.from, w.to, w.prevFrom, w.prevTo].map((d) => d.toISOString());
+  const [today, yesterday, week, month] = r.reportWindows(NOW, TZ);
+  assert.equal(today.label, 'Hari ini (sampai 10.16)');
+  assert.deepEqual(iso(today), ['2026-10-14T17:00:00.000Z', '2026-10-15T03:16:00.000Z', '2026-10-13T17:00:00.000Z', '2026-10-14T03:16:00.000Z']);
+  assert.deepEqual(iso(yesterday), ['2026-10-13T17:00:00.000Z', '2026-10-14T17:00:00.000Z', '2026-10-12T17:00:00.000Z', '2026-10-13T17:00:00.000Z']);
+  assert.deepEqual(iso(week), ['2026-10-08T03:16:00.000Z', '2026-10-15T03:16:00.000Z', '2026-10-01T03:16:00.000Z', '2026-10-08T03:16:00.000Z']);
+  assert.deepEqual(iso(month), ['2026-09-15T03:16:00.000Z', '2026-10-15T03:16:00.000Z', '2026-08-16T03:16:00.000Z', '2026-09-15T03:16:00.000Z']);
 });
 
-test('periodWindow: hari ini, kemarin (hari kalender penuh), 7 dan 30 hari di zona company', () => {
-  const now = new Date('2026-10-15T10:00:00Z'); // 17.00 WIB
-  const day = (w) => [w.from.toISOString(), w.to.toISOString()];
-  assert.deepEqual(day(r.periodWindow('today', now, TZ)), ['2026-10-14T17:00:00.000Z', '2026-10-15T10:00:00.000Z']);
-  assert.deepEqual(day(r.periodWindow('yesterday', now, TZ)), ['2026-10-13T17:00:00.000Z', '2026-10-14T17:00:00.000Z']);
-  assert.deepEqual(day(r.periodWindow('7d', now, TZ)), ['2026-10-08T10:00:00.000Z', '2026-10-15T10:00:00.000Z']);
-  assert.deepEqual(day(r.periodWindow('30d', now, TZ)), ['2026-09-15T10:00:00.000Z', '2026-10-15T10:00:00.000Z']);
-  assert.deepEqual(r.PERIODS, ['today', 'yesterday', '7d', '30d']);
+test('reportWindows: lewat tengah malam WIB "hari ini" sudah hari baru; zona lain dihormati', () => {
+  const late = r.reportWindows(new Date('2026-10-14T18:30:00Z'), TZ)[0]; // 01.30 WIB tanggal 15
+  assert.equal(late.from.toISOString(), '2026-10-14T17:00:00.000Z');
+  assert.equal(late.label, 'Hari ini (sampai 01.30)');
+  const wita = r.reportWindows(new Date('2026-10-15T03:16:00Z'), 'Asia/Makassar')[0];
+  assert.equal(wita.from.toISOString(), '2026-10-14T16:00:00.000Z');
 });
 
-test('periodWindow: lewat tengah malam WIB "hari ini" sudah hari baru', () => {
-  const w = r.periodWindow('today', new Date('2026-10-14T18:30:00Z'), TZ); // 01.30 WIB tanggal 15
-  assert.equal(w.from.toISOString(), '2026-10-14T17:00:00.000Z');
+test('deltaLabel: naik, turun, dan sama', () => {
+  assert.equal(r.deltaLabel(12, 8), '(+4)');
+  assert.equal(r.deltaLabel(30, 32), '(-2)');
+  assert.equal(r.deltaLabel(5, 5), '(sama)');
+  assert.equal(r.deltaLabel(1234, 0), '(+1.234)');
 });
 
-test('laporan bawaan memuat detail chat: isi, status, dan tindakan oleh siapa', () => {
+test('laporan bawaan: semua periode dengan selisih, topik, dan waktu pembuatan', () => {
+  const text = r.buildReport({ ...base, overview: BUSY, waiting: 59, highlights: ['Harga paket', '*Cara bayar*'] });
+  assert.match(text, /^\*Laporan Chat — X\*\nKamis, 15 Okt 2026, 10\.16\n/);
+  for (const heading of ['*Hari ini (sampai 10.16)* — dibanding kemarin sampai jam yang sama', '*Kemarin* — dibanding sehari sebelumnya',
+    '*7 hari terakhir* — dibanding 7 hari sebelumnya', '*30 hari terakhir* — dibanding 30 hari sebelumnya']) {
+    assert.ok(text.includes(heading), heading);
+  }
+  assert.match(text, /\*Hari ini[^\n]*\n• Pesan masuk dari customer: 12 \(\+4\)/);
+  assert.match(text, /\*Kemarin[^\n]*\n• Pesan masuk dari customer: 30 \(-2\)/);
+  assert.match(text, /\*7 hari terakhir[^\n]*\n• Pesan masuk dari customer: 157 \(\+20\)/);
+  assert.match(text, /\*30 hari terakhir[^\n]*\n• Pesan masuk dari customer: 420 \(\+55\)/);
+  assert.match(text, /\*Saat ini\*\n• Menunggu balasan kita: 59 chat/);
+  assert.match(text, /– Cara bayar/);
+});
+
+test('laporan bawaan: periode tanpa percakapan ditulis apa adanya dan tanpa judul kosong', () => {
+  const text = r.buildReport({ ...base, overview: QUIET });
+  assert.equal((text.match(/Tidak ada percakapan pada periode ini\./g) || []).length, 4);
+  assert.doesNotMatch(text, /Saat ini|Yang paling banyak dibahas|follow-up/);
+  // Hari ini sepi tetapi kemarin ramai: bukan "kosong", karena selisihnya penting.
+  const mixed = overviewOf([0, 30, 157, 420], [8, 32, 137, 365]);
+  const text2 = r.buildReport({ ...base, overview: mixed });
+  assert.match(text2, /\*Hari ini[^\n]*\n• Pesan masuk dari customer: 0 \(-8\)/);
+});
+
+test('contoh diberi label CONTOH; laporan asli tidak', () => {
+  assert.match(r.buildReport({ ...base, overview: BUSY, sample: true }), /^\*CONTOH\* — dikirim manual/);
+  assert.doesNotMatch(r.buildReport({ ...base, overview: BUSY }), /CONTOH|dikirim manual/);
+});
+
+test('template: penanda diganti, format di nilai dinetralkan, dan nilai tidak diganti dua kali', () => {
   const text = r.buildReport({
-    companyName: 'X', frequency: 'daily', periodName: 'Kemarin', from: new Date('2026-10-13T17:00:00Z'), to: new Date('2026-10-14T17:00:00Z'),
-    tz: TZ, stats: busyStats, chats: [mkChat()], now: NOW,
+    ...base, companyName: '*{name}*', recipientName: '_Hanny_', overview: BUSY, waiting: 3, highlights: ['Harga paket'],
+    template: 'Halo {name}! {inbound} pesan, {waiting} menunggu di {company}.\n\n{topics}',
   });
-  assert.match(text, /^\*Laporan Kemarin — X\*/);
-  assert.match(text, /• Menunggu balasan kita: 4/);
-  assert.match(text, /\*Chat yang perlu diperhatikan\*/);
-  assert.match(text, /\*1\. Budi\*\nIsi: Tanya paket 3 bulan\.\nStatus: Panas · Customer menunggu balasan 4 jam · Dipegang Sari\nTindakan: Kirim penawaran — \*Sari\*/);
+  assert.equal(text.split('\n')[0], 'Halo Hanny! 157 pesan, 3 menunggu di {name}.');
+  assert.match(text, /– Harga paket/);
 });
 
-test('detail chat: periode sepi tidak menampilkan judul kosong, dan template tanpa {chat_details} tidak memuatnya', () => {
-  const quiet = r.buildReport({ companyName: 'X', frequency: 'daily', from: new Date('2026-10-13T17:00:00Z'), to: new Date('2026-10-14T17:00:00Z'), tz: TZ, stats: quietStats, now: NOW });
-  assert.doesNotMatch(quiet, /perlu diperhatikan/);
-  const own = r.buildReport({ companyName: 'X', frequency: 'daily', from: new Date('2026-10-13T17:00:00Z'), to: new Date('2026-10-14T17:00:00Z'), tz: TZ, stats: busyStats, chats: [mkChat()], now: NOW, template: 'Ringkas {inbound}' });
-  assert.equal(own, 'Ringkas 40');
+test('template: {topics} kosong tidak meninggalkan baris kosong berlipat; {stats} = angka 7 hari', () => {
+  const text = r.buildReport({ ...base, overview: QUIET, template: 'A\n\n{topics}\n\nB {stats}' });
+  assert.equal(text, 'A\n\nB Tidak ada percakapan pada periode ini.');
+  const busy = r.buildReport({ ...base, overview: BUSY, template: '{stats}' });
+  assert.match(busy, /^• Pesan masuk dari customer: 157\n/);
 });
 
-test('detail chat: dipotong dari yang paling tidak penting sampai muat di batas pesan WhatsApp', () => {
+test('template tanpa {chat_details} tidak memuat chat; {overview} bisa dipakai di template sendiri', () => {
+  const own = r.buildReport({ ...base, overview: BUSY, chats: [mkChat()], template: 'Ringkas {inbound}' });
+  assert.equal(own, 'Ringkas 157');
+  assert.match(r.buildReport({ ...base, overview: BUSY, template: '{overview}' }), /^\*Hari ini \(sampai 10\.16\)\*/);
+});
+
+test('detail chat: isi, status, dan tindakan oleh siapa ikut di laporan bawaan, dengan jumlah total di judul', () => {
+  const text = r.buildReport({ ...base, overview: BUSY, chats: [mkChat()], followUpTotal: 1 });
+  assert.match(text, /\*Chat yang perlu di-follow up\* \(1\)/);
+  assert.match(text, /\*1\. Budi\*\nIsi: Tanya paket 3 bulan\.\nStatus: Panas · Customer menunggu balasan 3 jam · Dipegang Sari\nTindakan: Kirim penawaran — \*Sari\*/);
+  assert.equal(r.buildReportMessages({ ...base, overview: BUSY, chats: [mkChat()] }).length, 1);
+});
+
+test('detail chat: daftar yang tidak muat di satu pesan menjadi pesan berikutnya, penomoran lanjut', () => {
   const chats = Array.from({ length: 20 }, (_, i) => mkChat({ name: `Customer ${i + 1}`, summary: 'x'.repeat(300) }));
-  const text = r.buildReport({
-    companyName: 'X', frequency: 'daily', from: new Date('2026-10-13T17:00:00Z'), to: new Date('2026-10-14T17:00:00Z'),
-    tz: TZ, stats: busyStats, chats, now: NOW,
-  });
-  assert.ok(text.length <= 3800, `panjang ${text.length}`);
-  assert.match(text, /\*1\. Customer 1\*/);
-  assert.doesNotMatch(text, /Customer 20\*/);
+  const messages = r.buildReportMessages({ ...base, overview: BUSY, chats, followUpTotal: 20, waiting: 20 });
+  assert.ok(messages.length > 1 && messages.length <= 4, `jumlah pesan ${messages.length}`);
+  assert.ok(messages.every((m) => m.length <= 3800), 'tiap pesan muat di batas WhatsApp');
+  // Pesan pertama = angka lengkap, tanpa daftar chat.
+  assert.match(messages[0], /\*30 hari terakhir/);
+  assert.doesNotMatch(messages[0], /follow-up/);
+  assert.match(messages[1], /^\*Chat yang perlu di-follow up\* \(20\)/);
+  assert.match(messages[2], /^\*Chat yang perlu di-follow up\* \(lanjutan\)/);
+  const numbers = messages.slice(1).join('\n').match(/^\*(\d+)\. Customer/gm).map((m) => Number(m.match(/\d+/)[0]));
+  assert.deepEqual(numbers, numbers.map((_, i) => i + 1), 'nomor berurutan tanpa celah');
+  assert.equal(numbers.length, 20, 'semua chat tampil');
+});
+
+test('detail chat: dibatasi tiga pesan daftar; sisanya dicatat, bukan dibuang diam-diam', () => {
+  const chats = Array.from({ length: 60 }, (_, i) => mkChat({ name: `Customer ${i + 1}`, summary: 'x'.repeat(300) }));
+  const messages = r.buildReportMessages({ ...base, overview: BUSY, chats, followUpTotal: 140 });
+  assert.equal(messages.length, 4);
+  assert.ok(messages.every((m) => m.length <= 3800));
+  const shown = messages.slice(1).join('\n').match(/^\*\d+\. Customer/gm).length;
+  assert.match(messages.at(-1), new RegExp(`Dan ${140 - shown} chat lain yang juga perlu tindak lanjut`));
+});
+
+test('detail chat: tanpa chat atau tanpa {chat_details} hanya satu pesan', () => {
+  assert.equal(r.buildReportMessages({ ...base, overview: BUSY }).length, 1);
+  assert.equal(r.buildReportMessages({ ...base, overview: BUSY, chats: [mkChat()], template: '{overview}' }).length, 1);
 });

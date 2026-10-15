@@ -57,5 +57,6 @@ test('displayName: nama kontak, kalau tidak ada nomornya', () => {
   assert.equal(c.displayName({ contactName: 'Budi', chatId: '6281@c.us' }), 'Budi');
   assert.equal(c.displayName({ chatId: '6281234@c.us' }), '+6281234');
   assert.equal(c.displayName({ phone: '62899', chatId: '123@lid' }), '+62899');
+  assert.equal(c.displayName({ chatId: '148268311020@lid' }), 'Customer WhatsApp (nomor tersembunyi)');
   assert.equal(c.displayName({}), 'Customer');
 });

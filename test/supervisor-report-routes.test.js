@@ -12,6 +12,8 @@ async function app(t, overrides = {}) {
   const audits = [];
   const tpl = { value: null };
   const periods = [];
+  let manyChats = 0;
+  const statWindows = [];
   const users = { [owner.email]: owner, [agent.email]: agent };
   const database = {
     enabled: true, connected: true,
@@ -29,13 +31,25 @@ async function app(t, overrides = {}) {
       Object.assign(saved.get(userId), { frequency, whatsappNumber });
       return { frequency, whatsappNumber };
     },
-    async getChatReportStats() { return { inboundMessages: 10, activeChats: 4, newChats: 1, aiReplies: 8, humanReplies: 1, handoffs: 0, hotLeads: 0 }; },
+    // Jendela terbaru (to mendekati sekarang) diberi angka lebih besar dari pembandingnya.
+    async getChatReportStats(_company, from, to) {
+      statWindows.push([from, to]);
+      const recent = Date.now() - to.getTime() < 3600_000 * 24 * 2;
+      return { inboundMessages: recent ? 12 : 10, activeChats: 4, newChats: 1, aiReplies: 8, humanReplies: 1, handoffs: 0, hotLeads: 0 };
+    },
     async sampleInboundForReport() { return []; },
     async getChatReportChats(_company, from, to) {
       periods.push([from, to]);
-      return { waiting: 1, chats: [{
+      if (manyChats) {
+        return { waiting: 30, followUpTotal: 30, chats: Array.from({ length: manyChats }, (_, i) => ({
+          chatId: `${i}@c.us`, contactName: `Customer ${i + 1}`, stage: 'warm', handlingMode: 'human', assigneeName: 'Sari', routingStatus: 'open',
+          lastInboundAt: new Date(Date.now() - 5 * 3_600_000).toISOString(), lastOutboundAt: null,
+          storedSummary: `Ringkasan ${i + 1} ${'x'.repeat(280)}`, messages: [{ fromMe: false, body: `Pesan ${i + 1}` }],
+        })) };
+      }
+      return { waiting: 1, followUpTotal: 1, chats: [{
         chatId: '6281@c.us', contactName: 'Budi', stage: 'hot', handlingMode: 'human', assigneeName: 'Sari', routingStatus: 'open',
-        lastInboundAt: new Date(Date.now() - 3 * 3_600_000).toISOString(), lastOutboundAt: null,
+        lastInboundAt: new Date(Date.now() - 3.5 * 3_600_000).toISOString(), lastOutboundAt: null,
         storedSummary: null, messages: [{ fromMe: false, body: 'Mau paket 3 bulan, ada diskon?' }],
       }] };
     },
@@ -43,7 +57,7 @@ async function app(t, overrides = {}) {
   const server = await buildApp({ logger: false, startupEnabled: false, demoMode: true, database, sessionSecret: 'rep-session', ...overrides });
   t.after(() => server.close());
   const login = async (email) => (await server.inject({ method: 'POST', url: '/v1/auth/login', payload: { email, password: 'pass-12345' } })).headers['set-cookie'].split(';')[0];
-  return { server, saved, audits, tpl, periods, ownerCookie: await login(owner.email), agentCookie: await login(agent.email) };
+  return { server, saved, audits, tpl, periods, statWindows, setManyChats: (n) => { manyChats = n; }, ownerCookie: await login(owner.email), agentCookie: await login(agent.email) };
 }
 
 test('agent biasa tidak boleh melihat atau mengubah laporan supervisor', async (t) => {
@@ -82,8 +96,9 @@ test('kirim contoh: laporan terkirim ke nomor supervisor lewat WhatsApp company'
   const sent = await server.inject({ method: 'GET', url: `/v1/chats/${encodeURIComponent('6281234567890@c.us')}/messages`, headers: { cookie: ownerCookie } });
   const outbound = (sent.json().messages || []).filter((m) => m.fromMe);
   assert.equal(outbound.length, 1);
-  assert.match(outbound[0].body, /Laporan 7 Hari Terakhir — Toko Uji/);
-  assert.match(outbound[0].body, /Pesan masuk dari customer: 10/);
+  assert.match(outbound[0].body, /\*Laporan Chat — Toko Uji\*/);
+  assert.match(outbound[0].body, /\*7 hari terakhir\*/);
+  assert.match(outbound[0].body, /Pesan masuk dari customer: 12 \(\+2\)/);
 });
 
 test('template laporan: agent ditolak; penanda tak dikenal ditolak; tersimpan dan dicatat', async (t) => {
@@ -131,32 +146,31 @@ test('kirim contoh memakai template company dan nama penerima', async (t) => {
   const sent = await server.inject({ method: 'GET', url: `/v1/chats/${encodeURIComponent('6281234567890@c.us')}/messages`, headers: { cookie: ownerCookie } });
   const body = (sent.json().messages || []).filter((m) => m.fromMe).at(-1).body;
   assert.match(body, /^\*CONTOH\*/);
-  assert.match(body, /Untuk Owner: 10 pesan$/);
+  assert.match(body, /Untuk Owner: 12 pesan$/);
 });
 
-test('kirim sekarang: periode dipilih, judulnya mengikuti periode, dan detail chat ikut terkirim', async (t) => {
-  const { server, saved, periods, ownerCookie } = await app(t);
+test('kirim sekarang: tanpa pilihan periode; semua periode dan pembandingnya diambil, plus detail chat', async (t) => {
+  const { server, saved, statWindows, periods, ownerCookie } = await app(t);
   Object.assign(saved.get('owner-1'), { frequency: 'daily', whatsappNumber: '081234567890' });
-  const send = (payload) => server.inject({ method: 'POST', url: '/v1/reports/supervisors/owner-1/test', headers: { cookie: ownerCookie }, payload });
-
-  const res = await send({ period: 'yesterday' });
+  const res = await server.inject({ method: 'POST', url: '/v1/reports/supervisors/owner-1/test', headers: { cookie: ownerCookie } });
   assert.equal(res.statusCode, 200, res.body);
+  assert.equal(statWindows.length, 8, 'empat periode, masing-masing dengan pembandingnya');
+  // Chat penting memakai 7 hari terakhir.
   const [from, to] = periods.at(-1);
-  assert.equal(to - from, 24 * 3_600_000, 'kemarin = satu hari kalender penuh');
+  assert.equal(Math.round((to - from) / 86_400_000), 7);
   const sent = await server.inject({ method: 'GET', url: `/v1/chats/${encodeURIComponent('6281234567890@c.us')}/messages`, headers: { cookie: ownerCookie } });
   const body = (sent.json().messages || []).filter((m) => m.fromMe).at(-1).body;
-  assert.match(body, /\*Laporan Kemarin — Toko Uji\*/);
-  assert.match(body, /• Menunggu balasan kita: 1/);
+  for (const label of ['*Kemarin*', '*7 hari terakhir*', '*30 hari terakhir*']) assert.ok(body.includes(label), label);
+  assert.match(body, /\*Hari ini \(sampai \d\d\.\d\d\)\*/);
+  assert.match(body, /• Menunggu balasan kita: 1 chat/);
   assert.match(body, /\*1\. Budi\*\nIsi: Mau paket 3 bulan, ada diskon\?\nStatus: Panas · Customer menunggu balasan 3 jam · Dipegang Sari\nTindakan: Balas dan dorong ke closing — \*Sari\*/);
-
-  assert.equal((await send({ period: 'bulan-depan' })).statusCode, 400);
 });
 
 test('template tanpa {chat_details} tidak mengambil data chat sama sekali', async (t) => {
   const { server, saved, tpl, periods, ownerCookie } = await app(t);
   tpl.value = 'Ringkas {inbound}';
   Object.assign(saved.get('owner-1'), { frequency: 'daily', whatsappNumber: '081234567890' });
-  const res = await server.inject({ method: 'POST', url: '/v1/reports/supervisors/owner-1/test', headers: { cookie: ownerCookie }, payload: { period: 'today' } });
+  const res = await server.inject({ method: 'POST', url: '/v1/reports/supervisors/owner-1/test', headers: { cookie: ownerCookie }, });
   assert.equal(res.statusCode, 200);
   assert.equal(periods.length, 0);
 });
@@ -172,7 +186,7 @@ test('ringkasan isi dan langkah berikutnya datang dari SATU panggilan model untu
   };
   const { server, saved, ownerCookie } = await app(t, { llmService });
   Object.assign(saved.get('owner-1'), { frequency: 'daily', whatsappNumber: '081234567890' });
-  const res = await server.inject({ method: 'POST', url: '/v1/reports/supervisors/owner-1/test', headers: { cookie: ownerCookie }, payload: { period: '7d' } });
+  const res = await server.inject({ method: 'POST', url: '/v1/reports/supervisors/owner-1/test', headers: { cookie: ownerCookie }, });
   assert.equal(res.statusCode, 200, res.body);
   const digestCalls = prompts.filter((p) => p.purpose === 'supervisor_report' && p.transcript.includes('Mau paket 3 bulan'));
   assert.equal(digestCalls.length, 1);
@@ -187,10 +201,51 @@ test('model gagal: detail chat tetap terkirim dengan pesan terakhir customer dan
   const llmService = { enabled: true, model: 'fake', async generateReply() { throw new Error('model down'); } };
   const { server, saved, ownerCookie } = await app(t, { llmService });
   Object.assign(saved.get('owner-1'), { frequency: 'daily', whatsappNumber: '081234567890' });
-  const res = await server.inject({ method: 'POST', url: '/v1/reports/supervisors/owner-1/test', headers: { cookie: ownerCookie }, payload: { period: 'today' } });
+  const res = await server.inject({ method: 'POST', url: '/v1/reports/supervisors/owner-1/test', headers: { cookie: ownerCookie }, });
   assert.equal(res.statusCode, 200, res.body);
   const sent = await server.inject({ method: 'GET', url: `/v1/chats/${encodeURIComponent('6281234567890@c.us')}/messages`, headers: { cookie: ownerCookie } });
   const body = (sent.json().messages || []).filter((m) => m.fromMe).at(-1).body;
   assert.match(body, /Isi: Mau paket 3 bulan, ada diskon\?/);
   assert.match(body, /Tindakan: Balas dan dorong ke closing — \*Sari\*/);
+});
+
+test('daftar chat panjang dikirim sebagai pesan terpisah, berurutan, setelah pesan angka', async (t) => {
+  const { server, saved, setManyChats, ownerCookie } = await app(t);
+  setManyChats(24);
+  Object.assign(saved.get('owner-1'), { frequency: 'daily', whatsappNumber: '081234567890' });
+  const res = await server.inject({ method: 'POST', url: '/v1/reports/supervisors/owner-1/test', headers: { cookie: ownerCookie } });
+  assert.equal(res.statusCode, 200, res.body);
+  const sent = await server.inject({ method: 'GET', url: `/v1/chats/${encodeURIComponent('6281234567890@c.us')}/messages`, headers: { cookie: ownerCookie } });
+  const bodies = (sent.json().messages || []).filter((m) => m.fromMe).map((m) => m.body);
+  assert.ok(bodies.length >= 3, `pesan terkirim ${bodies.length}`);
+  assert.match(bodies[0], /\*Laporan Chat — Toko Uji\*/);
+  assert.match(bodies[0], /\*30 hari terakhir/);
+  assert.doesNotMatch(bodies[0], /follow-up/);
+  assert.match(bodies[1], /^\*Chat yang perlu di-follow up\* \(30\)/);
+  assert.match(bodies[2], /^\*Chat yang perlu di-follow up\* \(lanjutan\)/);
+  assert.ok(bodies.every((b) => b.length <= 3800));
+  assert.doesNotMatch(bodies[1], /CONTOH/, 'label CONTOH hanya di pesan pertama');
+});
+
+test('ringkasan model dipanggil per batch 8 chat dan hasilnya jatuh ke chat yang benar', async (t) => {
+  const calls = [];
+  const llmService = {
+    enabled: true, model: 'fake',
+    async generateReply(transcript, options) {
+      if (options.purpose !== 'supervisor_report' || !transcript.includes('#1')) return { text: '' };
+      calls.push(transcript);
+      // Setiap chat dijawab dengan nomor pesannya sendiri, supaya salah tempel terlihat.
+      const items = [...transcript.matchAll(/^#(\d+)\n(?:Ringkasan lama:[^\n]*\n)?Customer: (Pesan \d+)/gm)];
+      return { text: JSON.stringify(items.map((m) => ({ id: Number(m[1]), summary: `Ringkasan model untuk ${m[2]}`, nextStep: 'Hubungi' }))) };
+    },
+  };
+  const { server, saved, setManyChats, ownerCookie } = await app(t, { llmService });
+  setManyChats(20);
+  Object.assign(saved.get('owner-1'), { frequency: 'daily', whatsappNumber: '081234567890' });
+  const res = await server.inject({ method: 'POST', url: '/v1/reports/supervisors/owner-1/test', headers: { cookie: ownerCookie } });
+  assert.equal(res.statusCode, 200, res.body);
+  assert.equal(calls.length, 3, '20 chat = 8 + 8 + 4');
+  const sent = await server.inject({ method: 'GET', url: `/v1/chats/${encodeURIComponent('6281234567890@c.us')}/messages`, headers: { cookie: ownerCookie } });
+  const all = (sent.json().messages || []).filter((m) => m.fromMe).map((m) => m.body).join('\n');
+  for (const n of [1, 9, 17, 20]) assert.match(all, new RegExp(`\\*${n}\\. Customer ${n}\\*\\nIsi: Ringkasan model untuk Pesan ${n}\\n`));
 });

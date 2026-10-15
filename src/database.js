@@ -1417,13 +1417,17 @@ class Database {
   }
 
   /**
-   * Chat yang paling perlu dilihat supervisor untuk [from, to): lead panas, customer
-   * yang menunggu balasan, prioritas tinggi. Yang sudah selesai/batal tidak ikut.
-   * `waiting` menghitung SEMUA chat yang menunggu balasan, bukan hanya `limit` teratas.
+   * Chat yang perlu di-follow up untuk [from, to), paling penting dulu. Perlu
+   * tindakan kalau: customer menunggu balasan manusia (dipegang agent, atau dipegang
+   * AI tetapi sudah `silentHours` jam tanpa balasan), atau lead panas/closing, atau
+   * prioritas tinggi. Chat yang sudah dibalas dan masih dingin/hangat, yang selesai,
+   * dan yang batal tidak ikut.
+   * `waiting` = SEMUA chat yang menunggu balasan; `followUpTotal` = semua yang perlu
+   * tindakan, keduanya bukan hanya `limit` teratas.
    */
-  async getChatReportChats(companyId, from, to, limit = 8) {
-    if (!this.enabled) return { chats: [], waiting: 0 };
-    const ranked = await this.pool.query(`
+  async getChatReportChats(companyId, from, to, limit = 25, silentHours = 2) {
+    if (!this.enabled) return { chats: [], waiting: 0, followUpTotal: 0 };
+    const candidates = `
       WITH active AS (
         SELECT chat_id, COUNT(*)::int AS n FROM inbound_messages
         WHERE company_id = $1 AND created_at >= $2 AND created_at < $3 AND chat_id NOT LIKE '%@g.us'
@@ -1450,17 +1454,30 @@ class Database {
       ), scored AS (
         SELECT *, (last_in IS NOT NULL AND (last_out IS NULL OR last_in > last_out)) AS waiting
         FROM base WHERE stage <> 'lost' AND routing_status <> 'closed'
-      )
-      SELECT *, COUNT(*) FILTER (WHERE waiting) OVER ()::int AS waiting_total,
+      ), actionable AS (
+        SELECT *, (
+          (waiting AND (mode = 'human' OR last_in <= $3::timestamptz - make_interval(hours => $4)))
+          OR stage IN ('hot', 'closing') OR priority IN ('urgent', 'high')
+        ) AS needs_action
+        FROM scored
+      )`;
+    const params = [companyId, from, to, Math.max(0, Math.floor(Number(silentHours)) || 0)];
+    const rowLimit = Math.max(1, Math.floor(Number(limit)) || 25);
+    const totals = await this.pool.query(`${candidates}
+      SELECT COUNT(*) FILTER (WHERE waiting)::int AS waiting, COUNT(*) FILTER (WHERE needs_action)::int AS "followUpTotal"
+      FROM actionable`, params);
+    const { waiting, followUpTotal } = totals.rows[0];
+    if (!followUpTotal) return { chats: [], waiting, followUpTotal: 0 };
+    const ranked = await this.pool.query(`${candidates}
+      SELECT *,
         (CASE stage WHEN 'closing' THEN 40 WHEN 'hot' THEN 30 WHEN 'warm' THEN 10 ELSE 0 END
          + CASE WHEN waiting THEN 25 ELSE 0 END
          + CASE priority WHEN 'urgent' THEN 20 WHEN 'high' THEN 10 ELSE 0 END
          + CASE WHEN mode = 'human' THEN 5 ELSE 0 END) AS score
-      FROM scored
+      FROM actionable WHERE needs_action
       ORDER BY score DESC, n DESC, last_in DESC
-      LIMIT $4
-    `, [companyId, from, to, limit]);
-    if (!ranked.rowCount) return { chats: [], waiting: 0 };
+      LIMIT ${rowLimit}
+    `, params);
 
     const chatIds = ranked.rows.map((row) => row.chat_id);
     const messages = await this.pool.query(`
@@ -1468,12 +1485,12 @@ class Database {
         SELECT chat_id, from_me, body, at, ROW_NUMBER() OVER (PARTITION BY chat_id ORDER BY at DESC) AS rn FROM (
           SELECT chat_id, FALSE AS from_me, body, created_at AS at FROM inbound_messages
           WHERE company_id = $1 AND chat_id = ANY($4::text[]) AND created_at >= $2 AND created_at < $3
-            AND message_type = 'text' AND LENGTH(TRIM(COALESCE(body, ''))) > 0
+            AND message_type IN ('text', 'chat') AND LENGTH(TRIM(COALESCE(body, ''))) > 0
           UNION ALL
           SELECT chat_id, TRUE, body, created_at FROM outbound_replies
           WHERE company_id = $1 AND chat_id = ANY($4::text[]) AND created_at >= $2 AND created_at < $3
         ) merged
-      ) numbered WHERE rn <= 10 ORDER BY chat_id, at ASC
+      ) numbered WHERE rn <= 6 ORDER BY chat_id, at ASC
     `, [companyId, from, to, chatIds]);
     const byChat = new Map();
     for (const row of messages.rows) {
@@ -1481,7 +1498,8 @@ class Database {
       byChat.get(row.chat_id).push({ fromMe: row.from_me, body: row.body });
     }
     return {
-      waiting: ranked.rows[0].waiting_total,
+      waiting,
+      followUpTotal,
       chats: ranked.rows.map((row) => ({
         chatId: row.chat_id, inboundCount: row.n,
         contactName: row.contact_name, phone: row.phone,
@@ -1493,13 +1511,14 @@ class Database {
     };
   }
 
+  // WhatsApp Web menyimpan pesan teks sebagai 'chat', Cloud API sebagai 'text': keduanya teks.
   /** Cuplikan pesan customer untuk diringkas jadi "yang paling banyak dibahas". */
   async sampleInboundForReport(companyId, from, to, limit = 80) {
     if (!this.enabled) return [];
     const result = await this.pool.query(`
       SELECT LEFT(body, 200) AS body FROM inbound_messages
       WHERE company_id = $1 AND created_at >= $2 AND created_at < $3
-        AND message_type = 'text' AND chat_id NOT LIKE '%@g.us' AND LENGTH(TRIM(COALESCE(body, ''))) >= 8
+        AND message_type IN ('text', 'chat') AND chat_id NOT LIKE '%@g.us' AND LENGTH(TRIM(COALESCE(body, ''))) >= 8
       ORDER BY created_at DESC LIMIT $4
     `, [companyId, from, to, limit]);
     return result.rows.map((r) => r.body);
@@ -2973,6 +2992,19 @@ class Database {
       : { where: "connection_key = 'whatsapp-main'", arg: null };
     const params = [companyId, status, phoneNumber];
     if (target.arg) params.push(target.arg);
+    // 'waiting_for_qr' hanya muncul saat QR baru ditampilkan. Kalau nomor
+    // sampai 'ready' dari status itu, berarti baru dipasangkan: AI dimatikan
+    // dulu supaya tidak membalas customer sebelum supervisor sengaja
+    // menyalakannya. Restart sesi lama tidak melewati 'waiting_for_qr'.
+    if (status === 'ready') {
+      const prev = await this.pool.query(
+        `SELECT status FROM whatsapp_connections WHERE company_id = $1 AND ${target.where}`,
+        target.arg ? [companyId, target.arg] : [companyId],
+      ).catch(() => null);
+      if (prev?.rows[0]?.status === 'waiting_for_qr') {
+        await this.pool.query('UPDATE companies SET ai_enabled = FALSE WHERE id = $1', [companyId]);
+      }
+    }
     await this.pool.query(`
       UPDATE whatsapp_connections SET
         status = $2,

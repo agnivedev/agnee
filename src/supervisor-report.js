@@ -4,8 +4,9 @@
  * Laporan hasil chat berkala untuk supervisor.
  *
  * Jadwal: pukul 08.00 zona waktu company. Harian = tiap hari, mingguan = tiap
- * Senin, bulanan = tiap tanggal 1. Periode laporan adalah jadwal sebelumnya
- * sampai jadwal ini (kemarin, 7 hari terakhir, bulan lalu).
+ * Senin, bulanan = tiap tanggal 1. Jadwal hanya menentukan KAPAN laporan
+ * dikirim; isinya selalu sama: hari ini (sampai saat dikirim), kemarin, 7 dan
+ * 30 hari, masing-masing dengan selisih terhadap periode sebelumnya.
  *
  * Server yang mati saat jam 08.00 tidak membuat laporan hilang: jadwal terbaru
  * yang belum terkirim tetap dikirim begitu server hidup. Jadwal SEBELUM
@@ -50,24 +51,34 @@ function localParts(date, tz) {
   };
 }
 
-/** Pilihan periode untuk laporan yang dikirim manual. */
-const PERIODS = ['today', 'yesterday', '7d', '30d'];
-const PERIOD_NAME = { today: 'Hari Ini', yesterday: 'Kemarin', '7d': '7 Hari Terakhir', '30d': '30 Hari Terakhir' };
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+/** Jam:menit zona company, mis. "10.16". */
+function clockLabel(date, tz) {
+  return new Intl.DateTimeFormat('id-ID', { timeZone: safeZone(tz), hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(date);
+}
+
 /**
- * Jendela waktu satu periode. Hari ini = dari 00.00 zona company sampai
- * sekarang; kemarin = satu hari kalender penuh; 7 dan 30 hari = mundur dari
- * sekarang.
+ * Empat periode yang selalu ada di laporan, masing-masing dengan pembandingnya.
+ * Hari ini = 00.00 zona company sampai sekarang (dibanding kemarin sampai jam
+ * yang sama, supaya adil); kemarin = satu hari kalender penuh; 7 dan 30 hari =
+ * mundur dari sekarang. Pembanding 7/30 hari adalah periode sebelumnya yang
+ * sama panjang.
  */
-function periodWindow(period, now, tz) {
+function reportWindows(now, tz) {
   const zone = safeZone(tz);
   const p = localParts(now, zone);
-  const midnight = (dayOffset) => zonedToUtc(p.y, p.m, p.d + dayOffset, 0, zone);
-  if (period === 'today') return { from: midnight(0), to: now };
-  if (period === 'yesterday') return { from: midnight(-1), to: midnight(0) };
-  if (period === '30d') return { from: new Date(now.getTime() - 30 * DAY_MS), to: now };
-  return { from: new Date(now.getTime() - 7 * DAY_MS), to: now };
+  const midnight = (offset) => zonedToUtc(p.y, p.m, p.d + offset, 0, zone);
+  const back = (days) => new Date(now.getTime() - days * DAY_MS);
+  return [
+    {
+      key: 'today', label: `Hari ini (sampai ${clockLabel(now, zone)})`, versus: 'kemarin sampai jam yang sama',
+      from: midnight(0), to: now, prevFrom: midnight(-1), prevTo: new Date(now.getTime() - DAY_MS),
+    },
+    { key: 'yesterday', label: 'Kemarin', versus: 'sehari sebelumnya', from: midnight(-1), to: midnight(0), prevFrom: midnight(-2), prevTo: midnight(-1) },
+    { key: '7d', label: '7 hari terakhir', versus: '7 hari sebelumnya', from: back(7), to: now, prevFrom: back(14), prevTo: back(7) },
+    { key: '30d', label: '30 hari terakhir', versus: '30 hari sebelumnya', from: back(30), to: now, prevFrom: back(60), prevTo: back(30) },
+  ];
 }
 
 /** Jadwal kirim terbaru yang sudah lewat (<= now) untuk frekuensi ini. */
@@ -138,10 +149,10 @@ const TOPICS_HEADING = '*Yang paling banyak dibahas*';
  * diganti, jadi company yang tidak mengubah apa pun tidak melihat bedanya.
  */
 const DEFAULT_TEMPLATE = [
-  '*Laporan {frequency} — {company}*',
+  '*Laporan Chat — {company}*',
   '{period}',
   '',
-  '{stats}',
+  '{overview}',
   '',
   '{topics}',
   '',
@@ -154,19 +165,20 @@ const MAX_TEMPLATE_LENGTH = 1500;
 const PLACEHOLDERS = [
   { key: 'name', label: 'Nama penerima', example: 'Hanny' },
   { key: 'company', label: 'Nama perusahaan', example: 'Beweix Digital' },
-  { key: 'frequency', label: 'Harian / Mingguan / Bulanan, atau nama periode (Kemarin, 7 Hari Terakhir)', example: 'Harian' },
-  { key: 'period', label: 'Periode laporan', example: '14 Okt 2026' },
-  { key: 'inbound', label: 'Pesan masuk dari customer', example: '128' },
-  { key: 'chats', label: 'Customer yang chat', example: '23' },
-  { key: 'new_chats', label: 'Customer baru', example: '6' },
-  { key: 'ai_replies', label: 'Dibalas AI', example: '97' },
-  { key: 'human_replies', label: 'Dibalas tim', example: '14' },
-  { key: 'handoffs', label: 'Diambil alih tim', example: '3' },
-  { key: 'hot_leads', label: 'Lead panas/closing', example: '4' },
-  { key: 'stats', label: 'Semua angka di atas sebagai daftar (atau "tidak ada percakapan")', example: null },
-  { key: 'topics', label: 'Topik terbanyak (judul + daftar, kosong kalau tidak ada)', example: null },
-  { key: 'waiting', label: 'Chat yang menunggu balasan kita', example: '5' },
-  { key: 'chat_details', label: 'Chat penting: isi, status, dan tindakan oleh siapa (kosong kalau tidak ada)', example: null },
+  { key: 'frequency', label: 'Jadwal: Harian / Mingguan / Bulanan', example: 'Harian' },
+  { key: 'period', label: 'Waktu laporan dibuat', example: 'Kamis, 15 Okt 2026 10.16' },
+  { key: 'overview', label: 'Angka hari ini, kemarin, 7 dan 30 hari, lengkap dengan selisih terhadap periode sebelumnya', example: null },
+  { key: 'inbound', label: 'Pesan masuk dari customer (7 hari terakhir)', example: '128' },
+  { key: 'chats', label: 'Customer yang chat (7 hari terakhir)', example: '23' },
+  { key: 'new_chats', label: 'Customer baru (7 hari terakhir)', example: '6' },
+  { key: 'ai_replies', label: 'Dibalas AI (7 hari terakhir)', example: '97' },
+  { key: 'human_replies', label: 'Dibalas tim (7 hari terakhir)', example: '14' },
+  { key: 'handoffs', label: 'Diambil alih tim (7 hari terakhir)', example: '3' },
+  { key: 'hot_leads', label: 'Lead panas/closing (7 hari terakhir)', example: '4' },
+  { key: 'stats', label: 'Angka 7 hari terakhir di atas sebagai daftar', example: null },
+  { key: 'topics', label: 'Topik terbanyak 7 hari terakhir (judul + daftar, kosong kalau tidak ada)', example: null },
+  { key: 'waiting', label: 'Chat yang menunggu balasan kita sekarang', example: '5' },
+  { key: 'chat_details', label: 'Chat yang perlu di-follow up: isi, status, dan tindakan oleh siapa (kosong kalau tidak ada; bila panjang dikirim sebagai pesan terpisah)', example: null },
 ];
 const PLACEHOLDER_KEYS = new Set(PLACEHOLDERS.map((p) => p.key));
 
@@ -184,24 +196,61 @@ function validateTemplate(template) {
   return null;
 }
 
-/** Nilai tiap penanda untuk satu laporan. */
-function placeholderValues({ recipientName, companyName, frequency, periodName, from, to, tz, stats, highlights, chatText }) {
-  const quiet = !stats.inboundMessages && !stats.aiReplies && !stats.humanReplies;
-  const statLines = quiet ? [EMPTY_PERIOD] : [
+const quietStats = (stats) => !stats.inboundMessages && !stats.aiReplies && !stats.humanReplies;
+
+/** "(+4)", "(-2)" atau "(sama)": selisih terhadap periode pembanding. */
+function deltaLabel(current, previous) {
+  const diff = (Number(current) || 0) - (Number(previous) || 0);
+  if (diff === 0) return '(sama)';
+  return `(${diff > 0 ? '+' : '-'}${num(Math.abs(diff))})`;
+}
+
+const METRICS = [
+  ['Pesan masuk dari customer', (s) => s.inboundMessages],
+  ['Customer yang chat', (s) => s.activeChats],
+  ['Customer baru', (s) => s.newChats],
+  ['Dibalas AI', (s) => s.aiReplies],
+  ['Dibalas tim', (s) => s.humanReplies],
+  ['Diambil alih tim', (s) => s.handoffs],
+  ['Lead panas/closing', (s) => s.hotLeads],
+];
+
+/**
+ * Ringkasan semua periode, tiap angka dengan selisih terhadap periode sebelumnya.
+ * @param overview {{label, versus, stats, prev}[]} urutan seperti reportWindows
+ * @param waiting jumlah chat yang menunggu balasan saat ini (tanpa pembanding: kondisi sekarang)
+ */
+function formatOverview(overview, waiting = 0) {
+  const blocks = overview.map(({ label, versus, stats, prev }) => {
+    const head = `*${label}*${versus ? ` — dibanding ${versus}` : ''}`;
+    if (quietStats(stats) && quietStats(prev)) return `${head}\n${EMPTY_PERIOD}`;
+    const lines = METRICS.map(([name, pick]) => `• ${name}: ${num(pick(stats))} ${deltaLabel(pick(stats), pick(prev))}`);
+    return [head, ...lines].join('\n');
+  });
+  if (waiting) blocks.push(`*Saat ini*\n• Menunggu balasan kita: ${num(waiting)} chat`);
+  return blocks.join('\n\n');
+}
+
+/** Nilai tiap penanda untuk satu laporan. `stats` = angka 7 hari terakhir. */
+function placeholderValues({ recipientName, companyName, frequency, tz, now, stats, overviewText, highlights, chatText }) {
+  const statLines = quietStats(stats) ? [EMPTY_PERIOD] : [
     `• Pesan masuk dari customer: ${num(stats.inboundMessages)}`,
     `• Customer yang chat: ${num(stats.activeChats)} (${num(stats.newChats)} baru)`,
     `• Dibalas AI: ${num(stats.aiReplies)}`,
     `• Dibalas tim: ${num(stats.humanReplies)}`,
     `• Diambil alih tim: ${num(stats.handoffs)}`,
     `• Lead panas/closing: ${num(stats.hotLeads)}`,
-    ...(stats.waiting ? [`• Menunggu balasan kita: ${num(stats.waiting)}`] : []),
   ];
-  const points = quiet ? [] : highlights.map((h) => stripFormatting(h).trim()).filter(Boolean).slice(0, 5);
+  const points = quietStats(stats) ? [] : highlights.map((h) => stripFormatting(h).trim()).filter(Boolean).slice(0, 5);
+  const stamp = new Intl.DateTimeFormat('id-ID', {
+    timeZone: safeZone(tz), weekday: 'long', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  }).format(now);
   return {
     name: stripFormatting(recipientName),
     company: stripFormatting(companyName),
-    frequency: periodName || FREQUENCY_LABEL[frequency] || 'Chat',
-    period: periodLabel(frequency, from, to, tz),
+    frequency: FREQUENCY_LABEL[frequency] || 'Chat',
+    period: stamp,
+    overview: overviewText,
     inbound: num(stats.inboundMessages),
     chats: num(stats.activeChats),
     new_chats: num(stats.newChats),
@@ -217,38 +266,47 @@ function placeholderValues({ recipientName, companyName, frequency, periodName, 
 }
 
 /**
- * @param stats {{inboundMessages, activeChats, newChats, aiReplies, humanReplies, handoffs, hotLeads}}
+ * @param overview {{label, versus, stats, prev}[]} hari ini, kemarin, 7 dan 30 hari (lihat reportWindows);
+ *   stats entri '7d' menjadi nilai penanda {inbound}, {stats}, dst.
  * @param highlights string[] poin ringkas dari AI (boleh kosong)
  * @param template teks dengan penanda {name} dst.; kosong = DEFAULT_TEMPLATE
  * @param recipientName nama penerima untuk {name}
  * @param sample true = laporan dari tombol "Kirim sekarang" (diberi label CONTOH)
- * @param periodName nama periode untuk {frequency} (mis. "Kemarin"); kosong = Harian/Mingguan/Bulanan
- * @param chats chat penting berurutan dari yang paling penting (lihat report-chats.js)
+ * @param chats chat yang perlu di-follow up, paling penting dulu (lihat report-chats.js)
+ * @param followUpTotal jumlah SEMUA chat yang perlu di-follow up (bisa lebih banyak dari `chats`)
+ * @param waiting jumlah chat yang menunggu balasan kita
+ * @returns {string[]} pesan pertama = laporan; bila daftar chat tidak muat di satu pesan WhatsApp,
+ *   daftar itu menjadi pesan-pesan berikutnya (penomoran lanjut)
  */
-function buildReport({
-  companyName, frequency, periodName = '', from, to, tz, stats, highlights = [], template = null, recipientName = '',
-  sample = false, chats = [], now = new Date(),
+function buildReportMessages({
+  companyName, frequency, tz, now = new Date(), overview, waiting = 0, highlights = [], template = null, recipientName = '',
+  sample = false, chats = [], followUpTotal = chats.length,
 }) {
+  const weekly = overview.find((entry) => entry.key === '7d') || overview[overview.length - 1];
+  const stats = { ...weekly.stats, waiting };
+  const overviewText = formatOverview(overview, waiting);
   const source = String(template || DEFAULT_TEMPLATE);
   const render = (chatText) => {
-    const values = placeholderValues({ recipientName, companyName, frequency, periodName, from, to, tz, stats, highlights, chatText });
+    const values = placeholderValues({ recipientName, companyName, frequency, tz, now, stats, overviewText, highlights, chatText });
     // Satu lintasan, jadi isi nilai (nama company yang memuat "{name}") tidak ikut diganti lagi.
     let text = source.replace(/\{([a-z_]+)\}/g, (match, key) => (Object.hasOwn(values, key) ? values[key] : match));
     // Penanda kosong (mis. {topics}) meninggalkan baris kosong berlipat.
     text = text.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
     if (sample) {
-      text = `*CONTOH* — dikirim manual lewat tombol; laporan terjadwal memakai jadwalnya sendiri.\n\n${text}`;
+      text = `*CONTOH* — dikirim manual lewat tombol "Kirim sekarang".\n\n${text}`;
     }
     return text;
   };
-  // Chat ditambahkan selama pesan masih muat di batas WhatsApp; sisanya dipotong dari bawah (yang paling tidak penting).
-  let count = source.includes('{chat_details}') ? chats.length : 0;
-  let text = render(chatDetails.formatChatDetails(chats, now, count));
-  while (count > 0 && text.length > chatDetails.MAX_MESSAGE_LENGTH) {
-    count -= 1;
-    text = render(chatDetails.formatChatDetails(chats, now, count));
-  }
-  return text;
+  if (!source.includes('{chat_details}') || !chats.length) return [render('')];
+  const single = render(chatDetails.formatChatDetails(chats, now, followUpTotal));
+  if (single.length <= chatDetails.MAX_MESSAGE_LENGTH) return [single];
+  // Tidak muat: laporan tanpa daftar, lalu daftar chat di pesan tersendiri.
+  return [render(''), ...chatDetails.chunkChatDetails(chats, now, followUpTotal)];
+}
+
+/** Seluruh pesan sebagai satu teks (pratinjau dan tes); pesan dipisah garis. */
+function buildReport(options) {
+  return buildReportMessages(options).join('\n\n──────────\n\n');
 }
 
 /** Balasan model -> daftar poin pendek; baris bernomor/berbutir dibersihkan. */
@@ -263,5 +321,5 @@ function parseHighlights(text) {
 module.exports = {
   FREQUENCIES, SEND_HOUR, latestSlot, previousSlot, dueWindow, buildReport, parseHighlights, periodLabel, zonedToUtc,
   DEFAULT_TEMPLATE, PLACEHOLDERS, MAX_TEMPLATE_LENGTH, validateTemplate,
-  PERIODS, PERIOD_NAME, periodWindow,
+  buildReportMessages, reportWindows, formatOverview, deltaLabel,
 };

@@ -6,8 +6,6 @@ import { SelectField, SettingCard, StatusLine, TextField } from './parts';
 import { ReportTemplateEditor } from './ReportTemplateEditor';
 
 type Frequency = 'off' | 'daily' | 'weekly' | 'monthly';
-type Period = 'today' | 'yesterday' | '7d' | '30d';
-const PERIODS: Period[] = ['today', 'yesterday', '7d', '30d'];
 
 type ReportRow = {
   userId: string;
@@ -26,7 +24,6 @@ export function ReportSection({ reloadKey = 0 }: { reloadKey?: number }) {
   const { t, dateLocale } = useI18n();
   const [rows, setRows] = useState<ReportRow[]>([]);
   const [drafts, setDrafts] = useState<Record<string, { frequency: Frequency; number: string }>>({});
-  const [period, setPeriod] = useState<Period>('7d');
   const [busy, setBusy] = useState<string | null>(null);
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
@@ -68,7 +65,7 @@ export function ReportSection({ reloadKey = 0 }: { reloadKey?: number }) {
   async function sendSample(row: ReportRow) {
     setError(''); setStatus(''); setBusy(row.userId);
     try {
-      await api(`/v1/reports/supervisors/${row.userId}/test`, { method: 'POST', body: { period } });
+      await api(`/v1/reports/supervisors/${row.userId}/test`, { method: 'POST', body: {} });
       setStatus(t('report.sampleSent', { name: row.displayName }));
     } catch (failure) {
       setError(messageFromError(failure, ''));
@@ -127,16 +124,6 @@ export function ReportSection({ reloadKey = 0 }: { reloadKey?: number }) {
                 <Button size="sm" onClick={() => void save(row)} disabled={busy === row.userId || !dirty}>
                   {busy === row.userId ? t('common.loading') : t('common.save')}
                 </Button>
-                <select
-                  value={period}
-                  onChange={(event) => setPeriod(event.target.value as Period)}
-                  aria-label={t('report.sendPeriod')}
-                  className="min-h-9 rounded-[10px] border border-border bg-white px-3 text-xs"
-                >
-                  {PERIODS.map((option) => (
-                    <option key={option} value={option}>{t(`report.period.${option}`)}</option>
-                  ))}
-                </select>
                 <Button
                   size="sm"
                   variant="outline"

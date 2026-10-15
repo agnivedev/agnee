@@ -136,7 +136,8 @@ test('chat penting untuk laporan: urutan, status penanganan, dan hitungan menung
     );
 
     // A: panas, dipegang Sari, customer menunggu. B: hangat, AI sudah membalas. C: selesai. D: batal. E: grup. F: ramai tapi dingin.
-    await inbound('a@c.us', 8, 'Mau paket 3 bulan, ada diskon?'); await inbound('a@c.us', 9, 'Halo?');
+    // WhatsApp Web menyimpan teks sebagai 'chat', Cloud API sebagai 'text'; keduanya harus terbaca.
+    await inbound('a@c.us', 8, 'Mau paket 3 bulan, ada diskon?', 'chat'); await inbound('a@c.us', 9, 'Halo?', 'chat');
     await lead('a@c.us', 'hot');
     await db.pool.query("INSERT INTO conversation_routing (company_id, chat_id, handling_mode, assignee_user_id, status, priority) VALUES ($1, 'a@c.us', 'human', $2, 'open', 'high')", [cid, agent.id]);
     await db.pool.query("INSERT INTO contact_names (company_id, chat_id, name) VALUES ($1, 'a@c.us', 'Budi')", [cid]);
@@ -148,9 +149,18 @@ test('chat penting untuk laporan: urutan, status penanganan, dan hitungan menung
     for (let i = 0; i < 5; i += 1) await inbound('f@c.us', 12, `pertanyaan ${i}`);
     await db.pool.query("INSERT INTO conversation_summaries (company_id, chat_id, locale, summary) VALUES ($1, 'f@c.us', 'id', 'Ringkasan lama F')", [cid]);
 
-    const { chats, waiting } = await db.getChatReportChats(cid, from, to, 8);
-    assert.deepEqual(chats.map((c) => c.chatId), ['a@c.us', 'f@c.us', 'b@c.us'], 'urut: panas+menunggu, dingin+menunggu, lalu yang sudah dibalas');
-    assert.equal(waiting, 2, 'A dan F menunggu; B sudah dibalas; C selesai, D batal, grup tidak dihitung');
+    // G: hangat, AI baru 1 jam lalu belum membalas (masih wajar). H: panas, kita yang terakhir membalas. I: hangat, dibalas, prioritas tinggi.
+    await inbound('g2@c.us', 23, 'Permisi'); await lead('g2@c.us', 'warm');
+    await inbound('h@c.us', 6, 'Jadi ambil'); await outbound('h@c.us', 7, 'ai', 'Siap kak'); await lead('h@c.us', 'hot');
+    await inbound('i@c.us', 5, 'Tanya garansi'); await outbound('i@c.us', 6, 'ai', 'Garansi 1 tahun'); await lead('i@c.us', 'warm');
+    await db.pool.query("INSERT INTO conversation_routing (company_id, chat_id, status, priority) VALUES ($1, 'i@c.us', 'open', 'high')", [cid]);
+
+    const { chats, waiting, followUpTotal } = await db.getChatReportChats(cid, from, to, 25);
+    assert.deepEqual(chats.map((c) => c.chatId), ['a@c.us', 'h@c.us', 'f@c.us', 'i@c.us'],
+      'hanya yang perlu tindakan: panas+menunggu, panas yang sudah dibalas, dingin tapi AI diam 12 jam, prioritas tinggi');
+    assert.equal(followUpTotal, 4);
+    assert.ok(!chats.some((c) => ['b@c.us', 'g2@c.us'].includes(c.chatId)), 'B sudah dibalas dan G masih wajar menunggu AI: bukan follow-up');
+    assert.equal(waiting, 3, 'A, F, dan G menunggu; B dibalas; C selesai, D batal, grup tidak dihitung');
 
     const a = chats[0];
     assert.equal(a.contactName, 'Budi');
@@ -160,15 +170,22 @@ test('chat penting untuk laporan: urutan, status penanganan, dan hitungan menung
     assert.equal(a.priority, 'high');
     assert.equal(a.inboundCount, 2);
     assert.deepEqual(a.messages.map((m) => [m.fromMe, m.body]), [[false, 'Mau paket 3 bulan, ada diskon?'], [false, 'Halo?']]);
-    assert.equal(chats[1].storedSummary, 'Ringkasan lama F');
-    assert.equal(chats[1].messages.length, 5);
-    const b = chats[2];
-    assert.deepEqual(b.messages.map((m) => m.fromMe), [false, true]);
-    assert.ok(new Date(b.lastOutboundAt) > new Date(b.lastInboundAt));
+    const f = chats.find((c) => c.chatId === 'f@c.us');
+    assert.equal(f.storedSummary, 'Ringkasan lama F');
+    assert.equal(f.messages.length, 5);
+    const h = chats.find((c) => c.chatId === 'h@c.us');
+    assert.deepEqual(h.messages.map((m) => m.fromMe), [false, true]);
+    assert.ok(new Date(h.lastOutboundAt) > new Date(h.lastInboundAt));
 
     // Batas jumlah chat tidak mengubah hitungan menunggu; jendela kosong tidak error.
+    const sample = await db.sampleInboundForReport(cid, from, to);
+    assert.ok(sample.includes('Mau paket 3 bulan, ada diskon?'), 'cuplikan topik ikut membaca pesan bertipe chat');
+
     const limited = await db.getChatReportChats(cid, from, to, 1);
     assert.equal(limited.chats.length, 1);
-    assert.equal(limited.waiting, 2);
-    assert.deepEqual(await db.getChatReportChats(cid, new Date('2026-01-01'), new Date('2026-01-02')), { chats: [], waiting: 0 });
+    assert.equal(limited.waiting, 3);
+    assert.equal(limited.followUpTotal, 4, 'total tidak terpengaruh batas jumlah');
+    // Ambang AI diam bisa diubah: dengan 0 jam, G (menunggu AI) ikut perlu tindakan.
+    assert.equal((await db.getChatReportChats(cid, from, to, 25, 0)).followUpTotal, 5);
+    assert.deepEqual(await db.getChatReportChats(cid, new Date('2026-01-01'), new Date('2026-01-02')), { chats: [], waiting: 0, followUpTotal: 0 });
   });

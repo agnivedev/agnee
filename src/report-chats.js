@@ -87,17 +87,54 @@ function formatChat(chat, index, now) {
   return lines.join('\n');
 }
 
-const HEADING = '*Chat yang perlu diperhatikan*';
+const HEADING = '*Chat yang perlu di-follow up*';
+const MAX_DETAIL_MESSAGES = 3;
+
+const moreFooter = (rest) => `Dan ${rest} chat lain yang juga perlu tindak lanjut; lihat selengkapnya di Inbox.`;
 
 /**
- * Daftar chat sebagai teks, `count` chat pertama. Pemanggil mengurangi `count`
- * sampai seluruh pesan muat di batas WhatsApp.
+ * Daftar chat sebagai SATU teks: judul dengan jumlah total, semua chat yang
+ * diberikan, dan catatan bila ada yang tidak ikut ditampilkan.
  * @returns {string} kosong kalau tidak ada chat
  */
-function formatChatDetails(chats, now = new Date(), count = chats.length) {
-  const list = chats.slice(0, count);
-  if (!list.length) return '';
-  return [HEADING, ...list.map((chat, index) => formatChat(chat, index, now))].join('\n\n');
+function formatChatDetails(chats, now = new Date(), total = chats.length) {
+  if (!chats.length) return '';
+  const lines = [`${HEADING} (${total})`, ...chats.map((chat, index) => formatChat(chat, index, now))];
+  if (total > chats.length) lines.push(moreFooter(total - chats.length));
+  return lines.join('\n\n');
+}
+
+/**
+ * Daftar chat dipecah jadi beberapa pesan yang masing-masing muat di batas
+ * WhatsApp. Penomoran lanjut antar pesan. Paling banyak `maxMessages` pesan;
+ * sisanya dihitung di catatan akhir.
+ * @returns {string[]}
+ */
+function chunkChatDetails(chats, now = new Date(), total = chats.length, { maxLength = MAX_MESSAGE_LENGTH, maxMessages = MAX_DETAIL_MESSAGES } = {}) {
+  if (!chats.length) return [];
+  const chunks = [];
+  let current = [];
+  let size = 0;
+  let shown = 0;
+  const flush = () => { if (current.length) chunks.push(current); current = []; size = 0; };
+  for (let index = 0; index < chats.length; index += 1) {
+    const block = formatChat(chats[index], index, now);
+    // Ruang untuk judul dan catatan akhir dicadangkan supaya pesan tidak melewati batas.
+    if (current.length && size + block.length + 2 > maxLength - 160) {
+      if (chunks.length + 1 >= maxMessages) break;
+      flush();
+    }
+    current.push(block);
+    size += block.length + 2;
+    shown = index + 1;
+  }
+  flush();
+  const rest = total - shown;
+  return chunks.map((blocks, i) => {
+    const lines = [i === 0 ? `${HEADING} (${total})` : `${HEADING} (lanjutan)`, ...blocks];
+    if (i === chunks.length - 1 && rest > 0) lines.push(moreFooter(rest));
+    return lines.join('\n\n');
+  });
 }
 
 /** Balasan model -> {id: {summary, nextStep}}. Toleran terhadap pagar kode dan teks di sekitar array. */
@@ -123,7 +160,7 @@ function parseChatDigest(text) {
 /** Prompt untuk satu panggilan model yang meringkas semua chat sekaligus. */
 function buildDigestPrompt(chats) {
   const blocks = chats.map((chat, index) => {
-    const lines = (chat.messages || []).map((m) => `${m.fromMe ? 'Tim' : 'Customer'}: ${clip(m.body, 200)}`);
+    const lines = (chat.messages || []).map((m) => `${m.fromMe ? 'Tim' : 'Customer'}: ${clip(m.body, 160)}`);
     const known = chat.storedSummary ? `\nRingkasan lama: ${clip(chat.storedSummary, 300)}` : '';
     return `#${index + 1}${known}\n${lines.join('\n') || '(tidak ada pesan teks)'}`;
   });
@@ -133,14 +170,19 @@ function buildDigestPrompt(chats) {
   };
 }
 
-/** Isi nama untuk tampilan: nama kontak, kalau tidak ada nomornya. */
+/**
+ * Nama untuk tampilan: nama kontak, kalau tidak ada nomornya. Id @lid yang
+ * nomornya belum terpetakan bukan nomor telepon; menampilkannya sebagai "+148…"
+ * menyesatkan, jadi disebut apa adanya.
+ */
 function displayName(row) {
   if (row.contactName) return row.contactName;
+  if (!row.phone && String(row.chatId || '').endsWith('@lid')) return 'Customer WhatsApp (nomor tersembunyi)';
   const digits = String(row.phone || row.chatId || '').split('@')[0].replace(/\D/g, '');
   return digits ? `+${digits}` : 'Customer';
 }
 
 module.exports = {
   STAGE_LABEL, AI_SILENT_HOURS, MAX_MESSAGE_LENGTH, HEADING,
-  describeChat, formatChat, formatChatDetails, parseChatDigest, buildDigestPrompt, displayName,
+  describeChat, formatChat, formatChatDetails, chunkChatDetails, MAX_DETAIL_MESSAGES, parseChatDigest, buildDigestPrompt, displayName,
 };

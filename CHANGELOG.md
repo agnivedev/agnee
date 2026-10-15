@@ -1,8 +1,35 @@
 ## [Unreleased]
 
+- **Laporan supervisor: hanya chat yang perlu di-follow up, dan daftarnya dipecah jadi pesan
+  tersendiri bila panjang.** Bagian "Chat yang perlu di-follow up (N)" kini hanya memuat chat
+  yang butuh tindakan: customer menunggu balasan manusia (dipegang agent, atau dipegang AI
+  tetapi sudah lebih dari 2 jam tak membalas), lead panas/closing, atau prioritas tinggi. Chat
+  yang sudah dibalas dan masih dingin/hangat, yang selesai/batal, dan grup tidak ikut.
+  - Sampai 25 chat. Kalau tidak muat di satu pesan WhatsApp (3.800 karakter), pesan pertama berisi
+    angka lengkap, lalu daftar chat menyusul sebagai pesan kedua (dan ketiga, keempat), penomoran
+    lanjut; maksimal 3 pesan daftar, sisanya ditulis "Dan N chat lain…". Pesan dikirim berurutan.
+  - Ringkasan isi ditulis model per batch 8 chat (jawaban 25 chat sekaligus mudah terpotong
+    jadi JSON rusak); satu batch gagal tidak mengosongkan batch lain.
+  - Catatan: bila pesan kedua gagal terkirim setelah pesan pertama, putaran ulang mengirim ulang
+    semuanya.
+- **Laporan supervisor memuat semua periode sekaligus, dengan pembandingnya.** Tidak ada lagi
+  pilihan periode di "Kirim sekarang": laporan (manual maupun terjadwal) selalu berisi
+  **hari ini (sampai saat dikirim)**, **kemarin**, **7 hari** dan **30 hari**, tiap angka
+  dengan selisih terhadap periode sebelumnya, mis. "Pesan masuk: 157 (+20)". Pembanding hari
+  ini = kemarin sampai jam yang sama; kemarin = sehari sebelumnya; 7/30 hari = 7/30 hari
+  sebelumnya. Ada blok "Saat ini" (chat menunggu balasan kita). Jadwal hanya menentukan
+  KAPAN dikirim. Chat penting dan topik terbanyak memakai 7 hari terakhir.
+  - Template bawaan: `{overview}` menggantikan `{stats}`; judulnya "Laporan Chat" dan
+    `{period}` kini waktu laporan dibuat. `{inbound}`, `{stats}`, dst. = angka 7 hari.
+  - Pratinjau template memakai angka contoh untuk semua periode.
+- **Fix: laporan supervisor tidak membaca pesan WhatsApp Web.** WhatsApp Web menyimpan
+  pesan teks bertipe `chat` (Cloud API: `text`), dan dua query laporan hanya menerima
+  `text`. Akibatnya untuk company WhatsApp Web bagian "Chat yang perlu diperhatikan"
+  selalu "Belum ada ringkasan" dan "Yang paling banyak dibahas" tidak pernah muncul.
+  Id `@lid` tanpa nomor terpetakan kini ditulis "Customer WhatsApp (nomor tersembunyi)",
+  bukan "+148…" yang bukan nomor telepon.
 - **Laporan supervisor memuat detail chat dan bisa dikirim untuk hari ini/kemarin/7/30 hari.**
-  Template bawaan kini diakhiri bagian "Chat yang perlu diperhatikan" (sampai 8 chat,
-  dipotong dari bawah bila melewati batas pesan WhatsApp). Tiap chat: **isi** (ringkasan
+  Template bawaan kini diakhiri bagian "Chat yang perlu di-follow up". Tiap chat: **isi** (ringkasan
   apa yang customer minta dan hal pentingnya), **status** (tahap pipeline, siapa yang
   ditunggu dan sudah berapa lama, siapa yang memegang) dan **tindakan oleh siapa**.
   - Urutan: closing/panas, customer menunggu balasan, prioritas tinggi, ditangani
@@ -12,11 +39,8 @@
     panas yang dipegang AI menjadi "Tim (lead panas)". Model hanya menulis ringkasan isi
     dan satu langkah berikutnya, untuk semua chat dalam SATU panggilan; bila AI mati atau
     gagal dipakai ringkasan lama / pesan terakhir customer dan tindakan bawaan.
-  - Tombol "Kirim sekarang" punya pilihan periode: hari ini (00.00 sampai sekarang), kemarin
-    (satu hari kalender penuh), 7 hari, 30 hari; judul laporan mengikuti periode. Laporan
-    terjadwal tidak berubah (harian/mingguan/bulanan, 08.00). Penanda template baru:
-    `{chat_details}` dan `{waiting}`; template yang tidak memuat `{chat_details}` tidak
-    mengambil data chat dan tidak memanggil model.
+  - Penanda template baru: `{chat_details}` dan `{waiting}`; template yang tidak memuat
+    `{chat_details}` tidak mengambil data chat dan tidak memanggil model.
   - Tes: `report-chats.test.js`, `supervisor-report*.test.js` (termasuk query di Postgres asli).
 - **Isi pesan laporan supervisor bisa diganti (template dengan penanda).** Satu template
   per perusahaan di Pengaturan > Tim > Laporan hasil chat > "Isi pesan laporan":

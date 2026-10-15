@@ -9,17 +9,14 @@ import { MemberAvatar, Row, SettingCard, StatusLine } from './parts';
 import type { TeamMember } from '@/features/inbox/types';
 import { CompanySwitcher } from '@/components/CompanyAccess';
 
-type PendingInvite = { id: string; email: string; role: string; expiresAt: string };
-
 export function TeamSection({ onChanged }: { onChanged?: () => void }) {
-  const { t, dateLocale } = useI18n();
+  const { t } = useI18n();
   const { user, isSupervisor } = useSession();
   const confirm = useConfirm();
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [status, setStatus] = useState('');
   const [editing, setEditing] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
-  const [invitations, setInvitations] = useState<PendingInvite[]>([]);
   const loadedOnce = useRef(false);
 
   const load = useCallback(async () => {
@@ -35,23 +32,9 @@ export function TeamSection({ onChanged }: { onChanged?: () => void }) {
     }
   }, [onChanged]);
 
-  const loadInvitations = useCallback(async () => {
-    if (!isSupervisor) return;
-    try {
-      const data = await api<{ invitations: PendingInvite[] }>('/v1/team/invitations');
-      setInvitations(data.invitations || []);
-    } catch {
-      setInvitations([]);
-    }
-  }, [isSupervisor]);
-
   useEffect(() => {
     void load();
   }, [load]);
-
-  useEffect(() => {
-    void loadInvitations();
-  }, [loadInvitations]);
 
   async function addMember(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -62,19 +45,18 @@ export function TeamSection({ onChanged }: { onChanged?: () => void }) {
     setStatus(t('common.loading'));
     try {
       const password = String(form.get('password') || '');
-      const result = await api<{ invited?: boolean }>('/v1/team/members', {
+      const result = await api<{ existingAccount?: boolean }>('/v1/team/members', {
         method: 'POST',
         body: {
-          displayName: form.get('displayName'),
           email: form.get('email'),
-          // Kosong = hanya undangan untuk akun yang sudah ada.
-          ...(password ? { password } : {}),
+          // Nama dan password hanya untuk akun baru; kosong = masukkan akun Agnee yang sudah ada.
+          ...(password ? { password, displayName: form.get('displayName') } : {}),
           role: form.get('role'),
         },
       });
       element.reset();
-      setStatus(t(result.invited ? 'team.invited' : 'team.added'));
-      await Promise.all([load(), loadInvitations()]);
+      setStatus(t(result.existingAccount ? 'team.addedExisting' : 'team.added'));
+      await load();
     } catch (error) {
       setStatus(messageFromError(error, ''));
     } finally {
@@ -160,44 +142,11 @@ export function TeamSection({ onChanged }: { onChanged?: () => void }) {
         })}
       </div>
 
-      {isSupervisor && invitations.length ? (
-        <div className="mt-4 grid gap-2">
-          <p className="m-0 font-mono text-[10px] tracking-[.1em] text-muted uppercase">{t('team.pendingTitle')}</p>
-          {invitations.map((invite) => (
-            <Row key={invite.id}>
-              <span className="grid min-w-0 flex-1 gap-0.5">
-                <strong className="truncate text-[13px]">{invite.email}</strong>
-                <small className="text-[11px] text-muted">
-                  {t('team.pendingUntil', { date: new Date(invite.expiresAt).toLocaleDateString(dateLocale) })}
-                </small>
-              </span>
-              <b className="rounded-full bg-ink/8 px-2.5 py-1 font-mono text-[10px] font-semibold">
-                {invite.role === 'agent' ? t('team.agent') : t('team.supervisor')}
-              </b>
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={async () => {
-                  try {
-                    await api(`/v1/team/invitations/${invite.id}`, { method: 'DELETE' });
-                  } catch (error) {
-                    await confirm.error(error);
-                  }
-                  await loadInvitations();
-                }}
-              >
-                {t('team.cancelInvite')}
-              </Button>
-            </Row>
-          ))}
-        </div>
-      ) : null}
-
       {isSupervisor ? (
         <form onSubmit={addMember} className="mt-4 grid gap-3 rounded-xl border border-border bg-white/40 p-4 sm:grid-cols-2 lg:grid-cols-3">
-          <Input name="displayName" required minLength={2} placeholder={t('team.namePlaceholder')} />
-          <Input name="email" type="email" required placeholder="email@perusahaan.com" />
-          <Input name="password" type="password" minLength={8} autoComplete="new-password" placeholder={t('team.passwordPlaceholder')} />
+          <Input name="email" type="email" required placeholder="email@perusahaan.com" className="sm:col-span-2 lg:col-span-3" />
+          <Input name="displayName" minLength={2} placeholder={t('team.namePlaceholderNew')} />
+          <Input name="password" type="password" minLength={8} autoComplete="new-password" placeholder={t('team.passwordPlaceholderNew')} />
           <div className="flex flex-wrap items-center gap-3 sm:col-span-2 lg:col-span-3">
             <select
               name="role"
@@ -214,7 +163,7 @@ export function TeamSection({ onChanged }: { onChanged?: () => void }) {
           </div>
           <div className="grid gap-1 sm:col-span-2 lg:col-span-3">
             <StatusLine>{status}</StatusLine>
-            <p className="m-0 text-[11px] leading-[1.6] text-muted">{t('team.passwordHint')}</p>
+            <p className="m-0 text-[11px] leading-[1.6] text-muted">{t('team.addHint')}</p>
             <p className="m-0 text-[11px] leading-[1.6] text-muted">
               {t('team.reportHint')}{' '}
               <a href="#reportSection" className="font-semibold text-green-dark">{t('team.reportLink')}</a>

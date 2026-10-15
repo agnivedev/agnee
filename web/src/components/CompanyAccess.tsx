@@ -3,11 +3,9 @@ import { Building2, Check } from 'lucide-react';
 import { api, messageFromError } from '@/lib/api';
 import { useI18n } from '@/lib/i18n';
 import { useSession } from '@/lib/session';
-import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
 type CompanyOption = { id: string; name: string; role: string };
-type Invitation = { id: string; role: string; companyName: string; invitedBy: string };
 
 /** Ganti company = ganti seluruh ruang kerja, jadi halaman dimuat ulang agar tak ada data company lama yang tersisa. */
 function reloadIntoWorkspace() {
@@ -115,71 +113,5 @@ export function CompanySwitcher({ variant = 'popover', compact = false }: { vari
         </>
       ) : null}
     </>
-  );
-}
-
-/**
- * Undangan ke company lain untuk akun yang sedang login. Tanpa email: undangan
- * muncul di sini, dan orangnya sendiri yang menekan Terima. Menerima memindahkan
- * sesi ke company itu.
- */
-export function PendingInvitations() {
-  const { t } = useI18n();
-  const [invitations, setInvitations] = useState<Invitation[]>([]);
-  const [busy, setBusy] = useState<string | null>(null);
-  const [error, setError] = useState('');
-
-  useEffect(() => {
-    let alive = true;
-    api<{ invitations: Invitation[] }>('/v1/auth/invitations')
-      .then((data) => { if (alive) setInvitations(data.invitations || []); })
-      .catch(() => {});
-    return () => { alive = false; };
-  }, []);
-
-  if (!invitations.length) return null;
-
-  async function answer(invitation: Invitation, action: 'accept' | 'decline') {
-    setBusy(invitation.id);
-    setError('');
-    try {
-      await api(`/v1/auth/invitations/${invitation.id}/${action}`, { method: 'POST', body: {} });
-      if (action === 'accept') { reloadIntoWorkspace(); return; }
-      setInvitations((list) => list.filter((item) => item.id !== invitation.id));
-    } catch (failure) {
-      setError(messageFromError(failure, ''));
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  return (
-    <section
-      role="region"
-      aria-label={t('invite.title')}
-      className="fixed right-4 bottom-20 z-40 grid w-[min(92vw,360px)] gap-3 rounded-2xl border border-border bg-white p-4 shadow-xl md:bottom-6"
-    >
-      <h2 className="m-0 text-sm font-bold">{t('invite.title')}</h2>
-      {invitations.map((invitation) => (
-        <div key={invitation.id} className="grid gap-2 border-t border-border pt-3 first:border-t-0 first:pt-0">
-          <p className="m-0 text-[13px] leading-snug">
-            {t('invite.copy', {
-              inviter: invitation.invitedBy,
-              company: invitation.companyName,
-              role: t(invitation.role === 'agent' ? 'team.agent' : 'team.supervisor'),
-            })}
-          </p>
-          <div className="flex gap-2">
-            <Button size="sm" disabled={busy === invitation.id} onClick={() => void answer(invitation, 'accept')}>
-              {t('invite.accept')}
-            </Button>
-            <Button size="sm" variant="outline" disabled={busy === invitation.id} onClick={() => void answer(invitation, 'decline')}>
-              {t('invite.decline')}
-            </Button>
-          </div>
-        </div>
-      ))}
-      {error ? <p role="alert" className="m-0 text-[12px] text-red-700">{error}</p> : null}
-    </section>
   );
 }

@@ -16,6 +16,40 @@
 - **Laporan contoh supervisor memakai 7 hari terakhir dan berlabel CONTOH.** Sebelumnya
   contoh memakai periode jadwal (mis. kemarin), sehingga di hari sepi isinya hanya
   "Tidak ada percakapan". Laporan terjadwal tidak berubah.
+- **Satu akun Agnee bisa menjadi anggota beberapa company.** Di Pengaturan > Tim,
+  "Tambah anggota" cukup diisi email: kalau akunnya sudah terdaftar di Agnee, ia
+  langsung masuk ke company ini dan akunnya (password, nama) tidak disentuh.
+  Email yang belum terdaftar ditolak ("minta orangnya mendaftar dulu"); membuat
+  akun baru tetap bisa dengan mengisi nama dan password. Menimpa password akun
+  yang sudah ada tetap mustahil (celah ambil alih akun 3 Okt tetap tertutup).
+  - Migrasi 055 (`users.last_company_id`): login membuka company yang terakhir
+    dipakai, bukan selalu yang tertua. Tabel undangan dari 055 tidak dipakai.
+  - Pagar: staf platform tidak bisa ditambahkan, plafon anggota dicek di dalam
+    transaksi (baris company dikunci), yang sudah anggota aktif ditolak, yang
+    pernah dinonaktifkan diaktifkan lagi dengan peran baru. Audit
+    `team.member_added` memuat `existingAccount: true`.
+  - Pemilih company di sidebar/rail dan di kartu Akun (muncul bila lebih dari satu
+    company; ganti = muat ulang). API: `GET /v1/auth/companies`,
+    `POST /v1/auth/switch-company` (keanggotaan dicek ulang di DB; cookie baru
+    mempertahankan masa berlaku lama).
+  - Tes: `company-members-*.test.js`. Catatan: sesi MCP/OAuth mengikuti company
+    terakhir dipakai saat login.
+- **Isi pesan laporan supervisor bisa diganti (template dengan penanda).** Satu template
+  per perusahaan di Pengaturan > Tim > Laporan hasil chat > "Isi pesan laporan":
+  penanda `{name}`, `{company}`, `{frequency}`, `{period}`, `{inbound}`, `{chats}`,
+  `{new_chats}`, `{ai_replies}`, `{human_replies}`, `{handoffs}`, `{hot_leads}`,
+  `{stats}` (semua angka sebagai daftar), `{topics}` (judul + topik, kosong bila tak
+  ada). Klik penanda untuk menyelipkan, Pratinjau dengan angka contoh, Kembalikan
+  bawaan. Bawaan menghasilkan laporan yang sama seperti sebelumnya.
+  - Migrasi 056 `companies.report_template` (NULL = bawaan). Server menolak penanda
+    tak dikenal dan template > 1.500 karakter; menyimpan teks yang sama dengan
+    bawaan berarti kembali ke bawaan. Nilai penanda dinetralkan dari tanda format
+    WhatsApp dan tidak diganti dua kali.
+  - API: `GET/PUT /v1/reports/template`, `POST /v1/reports/template/preview`;
+    audit `report.template_changed`. Laporan contoh kini berlabel di baris pertama.
+- **Laporan contoh supervisor memakai 7 hari terakhir dan berlabel CONTOH.** Sebelumnya
+  contoh memakai periode jadwal (mis. kemarin), sehingga di hari sepi isinya hanya
+  "Tidak ada percakapan". Laporan terjadwal tidak berubah.
 - **Satu email bisa ada di beberapa company (undangan + pilih company).** Menambah
   anggota dengan email yang sudah punya akun di company lain tidak lagi ditolak
   dan tidak pernah menyentuh password-nya (celah ambil alih akun 3 Okt tetap

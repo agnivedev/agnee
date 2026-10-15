@@ -5,7 +5,6 @@ import { SessionProvider, useSession } from '@/lib/session';
 import { ConfirmProvider } from '@/components/ui/confirm';
 import { LanguageSwitch } from '@/components/LanguageSwitch';
 import { LoginView } from '@/features/auth/LoginView';
-import { PendingInvitations } from '@/components/CompanyAccess';
 import { InboxPage } from '@/features/inbox/InboxPage';
 
 // Inbox stays in the first bundle: it is the landing route for everyone who
@@ -107,7 +106,6 @@ function Shell() {
 
   return (
     <Suspense fallback={<RouteFallback label={t('common.loading')} />}>
-      <PendingInvitations />
       <Routes>
         <Route path="/" element={<InboxPage />} />
         <Route path="/leads" element={<LeadsPage />} />

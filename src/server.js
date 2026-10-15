@@ -3253,10 +3253,10 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
   });
 
   app.post('/v1/team/members', {
-    schema: { body: { type: 'object', additionalProperties: false, required: ['email', 'displayName', 'role'], properties: {
+    schema: { body: { type: 'object', additionalProperties: false, required: ['email', 'role'], properties: {
       email: { type: 'string', minLength: 5, maxLength: 200 },
+      // Nama dan password hanya dipakai untuk membuat akun baru; akun yang sudah ada tidak disentuh.
       displayName: { type: 'string', minLength: 2, maxLength: 100 },
-      // Kosong = hanya mengundang akun yang sudah ada (lihat inviteExistingAccount).
       password: { type: 'string', minLength: 8, maxLength: 200 },
       role: { type: 'string', enum: ['supervisor', 'agent'] },
     } } },
@@ -3270,8 +3270,9 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     if (usage && usage.maxUsers > 0 && usage.currentUsers >= usage.maxUsers) {
       return reply.code(403).send({ error: `Batas anggota tim tercapai (${usage.maxUsers} pengguna). Upgrade plan untuk menambah lebih banyak.` });
     }
-    // Tanpa password: tidak ada akun yang dibuat, hanya undangan untuk akun yang sudah ada.
-    if (!request.body.password) return inviteExistingAccount(request, reply);
+    // Tanpa password: tidak ada akun yang dibuat, hanya memasukkan akun yang sudah terdaftar.
+    if (!request.body.password) return addExistingAccount(request, reply);
+    if (!request.body.displayName) return reply.code(400).send({ error: 'Isi nama untuk akun baru.' });
     let member;
     try {
       member = await database.createTeamMember(request.body, teamCompanyId);
@@ -3284,8 +3285,8 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
         });
       }
       // Email sudah punya akun di company lain: passwordnya TIDAK disentuh dan
-      // password yang diketik diabaikan. Yang terjadi adalah undangan.
-      if (error?.code === 'EMAIL_TAKEN') return inviteExistingAccount(request, reply);
+      // password yang diketik diabaikan; akun itu hanya ditambahkan ke company ini.
+      if (error?.code === 'EMAIL_TAKEN') return addExistingAccount(request, reply);
       throw error;
     }
     broadcastEvent(teamCompanyId, 'team', { action: 'created', member });
@@ -3296,28 +3297,21 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     return reply.code(201).send({ member });
   });
 
-  // ── Undangan lintas company ───────────────────────────────────────────────
-  // Satu email boleh ada di beberapa company. Akun tidak pernah dibuat ulang dan
-  // password tidak pernah ditimpa: company mengundang, pemilik emailnya menerima
-  // sendiri setelah login. Lihat db/migrations/055_company_invitations.sql.
+  // ── Satu akun, beberapa company ───────────────────────────────────────────
+  // Email yang sudah terdaftar boleh menjadi anggota beberapa company. Akunnya
+  // tidak dibuat ulang dan password tidak pernah ditimpa.
 
-  async function inviteExistingAccount(request, reply) {
+  async function addExistingAccount(request, reply) {
     const session = request.agneeSession;
-    if (!session.userId || session.apiClient) {
-      return reply.code(403).send({ error: 'Undangan hanya bisa dikirim oleh supervisor yang login.' });
-    }
     const role = request.body.role === 'supervisor' ? 'supervisor' : 'agent';
-    let invitation;
+    let member;
     try {
-      invitation = await database.createCompanyInvitation(
-        { email: request.body.email.trim(), role, invitedBy: session.userId }, session.companyId,
-      );
+      member = await database.addExistingUserToCompany({ email: request.body.email.trim(), role }, session.companyId);
     } catch (error) {
       const known = {
-        NO_ACCOUNT: [422, 'Email ini belum punya akun di Agnee. Isi password supaya akunnya dibuat.'],
+        NO_ACCOUNT: [422, error?.message],
         EMAIL_TAKEN: [409, 'Email sudah dipakai akun lain.'],
         ALREADY_MEMBER: [409, error?.message],
-        INVITE_LIMIT: [429, error?.message],
       }[error?.code];
       if (known) return reply.code(known[0]).send({ error: known[1] });
       if (error?.code === 'USER_LIMIT') {
@@ -3325,43 +3319,12 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       }
       throw error;
     }
-    broadcastEvent(session.companyId, 'team', { action: 'invited' });
-    await catatAudit(request, 'team.invitation_sent', {
-      entityType: 'invitation', entityId: invitation.id,
-      metadata: { email: invitation.email, role },
+    broadcastEvent(session.companyId, 'team', { action: 'created', member });
+    await catatAudit(request, 'team.member_added', {
+      entityType: 'user', entityId: member.id, metadata: { email: member.email, role, existingAccount: true },
     });
-    return reply.code(202).send({ invited: true, invitation });
+    return reply.code(201).send({ member, existingAccount: true });
   }
-
-  /** Catat di company yang bersangkutan, bukan di company sesi yang sedang dipakai. */
-  async function auditInCompany(request, companyId, action, { entityType, entityId = null, metadata = {} }) {
-    try {
-      await database.recordAuditLog({ actorUserId: request.agneeSession?.userId || null, action, entityType, entityId, metadata }, companyId);
-    } catch (error) {
-      app.log.warn({ err: error, action, companyId }, 'Audit tidak tercatat');
-    }
-  }
-
-  const UUID_RE = '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$';
-  const INVITATION_PARAMS = { type: 'object', required: ['id'], properties: { id: { type: 'string', pattern: UUID_RE } } };
-
-  app.get('/v1/team/invitations', async (request, reply) => {
-    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat melihat undangan.' });
-    if (!database.status().connected) return { invitations: [] };
-    return { invitations: await database.listCompanyInvitations(request.agneeSession.companyId) };
-  });
-
-  app.delete('/v1/team/invitations/:id', { schema: { params: INVITATION_PARAMS } }, async (request, reply) => {
-    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat membatalkan undangan.' });
-    if (!database.status().connected) return reply.code(503).send({ error: 'Penyimpanan belum tersedia.' });
-    const revoked = await database.revokeCompanyInvitation(request.params.id, request.agneeSession.companyId);
-    if (!revoked) return reply.code(404).send({ error: 'Undangan tidak ditemukan atau sudah dijawab.' });
-    broadcastEvent(request.agneeSession.companyId, 'team', { action: 'invited' });
-    await catatAudit(request, 'team.invitation_revoked', {
-      entityType: 'invitation', entityId: revoked.id, metadata: { email: revoked.email, role: revoked.role },
-    });
-    return { ok: true };
-  });
 
   /** Sesi orang sungguhan; kunci API layanan tidak punya akun untuk diundang. */
   function requireAccount(request, reply) {
@@ -3405,6 +3368,8 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     return { currentCompanyId: session.companyId, companies: await database.listCompaniesForUser(session.userId) };
   });
 
+  const UUID_RE = '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$';
+
   app.post('/v1/auth/switch-company', {
     schema: { body: { type: 'object', additionalProperties: false, required: ['companyId'], properties: {
       companyId: { type: 'string', pattern: UUID_RE },
@@ -3416,45 +3381,6 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     const user = await switchSessionCompany(request, reply, request.body.companyId);
     if (!user) return reply.code(403).send({ error: 'Anda bukan anggota company itu.' });
     return { ok: true, user };
-  });
-
-  app.get('/v1/auth/invitations', async (request, reply) => {
-    const session = requireAccount(request, reply);
-    if (!session) return reply;
-    return { invitations: await database.listInvitationsForUser(session.userId) };
-  });
-
-  app.post('/v1/auth/invitations/:id/accept', { schema: { params: INVITATION_PARAMS } }, async (request, reply) => {
-    const session = requireAccount(request, reply);
-    if (!session) return reply;
-    let joined;
-    try {
-      joined = await database.acceptCompanyInvitation(request.params.id, session.userId);
-    } catch (error) {
-      if (error?.code === 'NOT_FOUND') return reply.code(404).send({ error: error.message });
-      if (error?.code === 'USER_LIMIT') {
-        return reply.code(403).send({ error: `Tim company itu sudah penuh (${error.maxUsers} pengguna). Minta supervisornya menambah kuota.` });
-      }
-      throw error;
-    }
-    await auditInCompany(request, joined.companyId, 'team.invitation_accepted', {
-      entityType: 'user', entityId: session.userId, metadata: { email: session.email, role: joined.role },
-    });
-    broadcastEvent(joined.companyId, 'team', { action: 'created' });
-    const user = await switchSessionCompany(request, reply, joined.companyId);
-    return { ok: true, companyId: joined.companyId, companyName: joined.companyName, user };
-  });
-
-  app.post('/v1/auth/invitations/:id/decline', { schema: { params: INVITATION_PARAMS } }, async (request, reply) => {
-    const session = requireAccount(request, reply);
-    if (!session) return reply;
-    const declined = await database.declineCompanyInvitation(request.params.id, session.userId);
-    if (!declined) return reply.code(404).send({ error: 'Undangan tidak ditemukan atau sudah dijawab.' });
-    await auditInCompany(request, declined.companyId, 'team.invitation_declined', {
-      entityType: 'user', entityId: session.userId, metadata: { email: session.email },
-    });
-    broadcastEvent(declined.companyId, 'team', { action: 'invited' });
-    return { ok: true };
   });
 
   // User role management

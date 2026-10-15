@@ -422,18 +422,13 @@ class Database {
     return user;
   }
 
-  // ── Undangan lintas company (migrasi 055) ────────────────────────────────
-  // Email yang sudah punya akun di Agnee tidak dibuatkan akun lagi dan
-  // passwordnya tidak pernah disentuh. Company mengundang; pemilik emailnya
-  // menerima setelah login. Siapa pun yang bisa mengetik email orang lain tidak
-  // bisa masuk sebagai orang itu, dan orang itu tidak masuk ke company mana pun
-  // tanpa menekan "Terima" sendiri.
+  // ── Satu akun, beberapa company ──────────────────────────────────────────
+  // `users` adalah identitas bersama dan `company_members` banyak-ke-banyak.
+  // Menambah email yang sudah terdaftar hanya menambah keanggotaan di company
+  // ini: baris `users` (password, nama) tidak disentuh, jadi supervisor tidak
+  // bisa mengambil alih akun orang lain lewat jalur ini.
 
-  static INVITE_TTL_DAYS = 14;
-  static INVITES_PER_COMPANY = 20;
-  static INVITES_PER_EMAIL = 5;
-
-  /** Anggota aktif company, tidak menghitung `userId` (yang mungkin sedang masuk). */
+  /** Anggota aktif company, tidak menghitung `userId` (yang mungkin sedang masuk). Mengembalikan plafon bila penuh. */
   async _seatsFull(client, companyId, userId) {
     const limit = await client.query('SELECT max_users AS "maxUsers" FROM companies WHERE id = $1 FOR UPDATE', [companyId]);
     const maxUsers = limit.rows[0]?.maxUsers ?? 0;
@@ -446,153 +441,40 @@ class Database {
   }
 
   /**
-   * Undang email yang SUDAH punya akun. Melempar: NO_ACCOUNT (email belum
-   * terdaftar), EMAIL_TAKEN (staf platform), ALREADY_MEMBER, USER_LIMIT,
-   * INVITE_LIMIT.
+   * Masukkan akun Agnee yang SUDAH ada ke company ini. Melempar: NO_ACCOUNT
+   * (email belum terdaftar), EMAIL_TAKEN (staf platform), ALREADY_MEMBER, USER_LIMIT.
    */
-  async createCompanyInvitation({ email, role = 'agent', invitedBy }, companyId) {
+  async addExistingUserToCompany({ email, role = 'agent' }, companyId) {
     if (!this.enabled) return null;
     const client = await this.pool.connect();
     const fail = (code, message, extra = {}) => Object.assign(new Error(message), { code }, extra);
     try {
       await client.query('BEGIN');
-      const target = (await client.query(
-        'SELECT id, is_platform_admin AS "isPlatformAdmin" FROM users WHERE LOWER(email) = LOWER($1)', [email],
-      )).rows[0];
-      if (!target) throw fail('NO_ACCOUNT', 'Email ini belum punya akun di Agnee.');
+      const target = (await client.query(`
+        SELECT id, email, COALESCE(display_name, email) AS "displayName", is_platform_admin AS "isPlatformAdmin"
+        FROM users WHERE LOWER(email) = LOWER($1) AND status = 'active'
+      `, [email])).rows[0];
+      if (!target) throw fail('NO_ACCOUNT', 'Email ini belum terdaftar di Agnee. Minta orangnya mendaftar dulu.');
       if (target.isPlatformAdmin) throw fail('EMAIL_TAKEN', 'Email sudah dipakai akun lain.');
       const maxUsers = await this._seatsFull(client, companyId, target.id);
       if (maxUsers) throw fail('USER_LIMIT', `Batas anggota tim tercapai (${maxUsers} pengguna).`, { maxUsers });
-      const member = await client.query(
-        "SELECT 1 FROM company_members WHERE company_id = $1 AND user_id = $2 AND status = 'active'", [companyId, target.id],
-      );
-      if (member.rowCount) throw fail('ALREADY_MEMBER', 'Orang ini sudah menjadi anggota tim.');
-
-      const pending = `accepted_at IS NULL AND revoked_at IS NULL AND expires_at > NOW()`;
-      const here = await client.query(`SELECT COUNT(*)::int AS n FROM company_invitations WHERE company_id = $1 AND ${pending}`, [companyId]);
-      const ofEmail = await client.query(
-        `SELECT COUNT(*)::int AS n FROM company_invitations WHERE LOWER(email) = LOWER($1) AND company_id <> $2 AND ${pending}`, [email, companyId],
-      );
-      if (here.rows[0].n >= Database.INVITES_PER_COMPANY || ofEmail.rows[0].n >= Database.INVITES_PER_EMAIL) {
-        throw fail('INVITE_LIMIT', 'Terlalu banyak undangan yang menunggu. Coba lagi nanti.');
-      }
-
-      // Undangan yang belum dijawab (termasuk yang sudah kedaluwarsa) dipakai ulang:
-      // indeks uniknya per (company, email) selama belum diterima/dicabut.
-      const existing = await client.query(`
-        SELECT id FROM company_invitations
-        WHERE company_id = $1 AND LOWER(email) = LOWER($2) AND accepted_at IS NULL AND revoked_at IS NULL
-        FOR UPDATE
-      `, [companyId, email]);
-      const interval = `${Database.INVITE_TTL_DAYS} days`;
-      const saved = existing.rowCount
-        ? await client.query(`
-            UPDATE company_invitations SET role = $2, invited_by = $3, expires_at = NOW() + $4::interval, created_at = NOW()
-            WHERE id = $1 RETURNING id, email, role, expires_at AS "expiresAt"
-          `, [existing.rows[0].id, role, invitedBy, interval])
-        : await client.query(`
-            INSERT INTO company_invitations (company_id, email, role, token_hash, invited_by, expires_at)
-            VALUES ($1, LOWER($2), $3, $4, $5, NOW() + $6::interval)
-            RETURNING id, email, role, expires_at AS "expiresAt"
-          `, [companyId, email, role, crypto.randomBytes(32).toString('hex'), invitedBy, interval]);
-      await client.query('COMMIT');
-      return saved.rows[0];
-    } catch (error) {
-      await client.query('ROLLBACK');
-      throw error;
-    } finally {
-      client.release();
-    }
-  }
-
-  async listCompanyInvitations(companyId) {
-    if (!this.enabled) return [];
-    const result = await this.pool.query(`
-      SELECT i.id, i.email, i.role, i.created_at AS "createdAt", i.expires_at AS "expiresAt"
-      FROM company_invitations i
-      WHERE i.company_id = $1 AND i.accepted_at IS NULL AND i.revoked_at IS NULL AND i.expires_at > NOW()
-      ORDER BY i.created_at DESC
-    `, [companyId]);
-    return result.rows;
-  }
-
-  async revokeCompanyInvitation(id, companyId) {
-    if (!this.enabled) return null;
-    const result = await this.pool.query(`
-      UPDATE company_invitations SET revoked_at = NOW()
-      WHERE id = $1 AND company_id = $2 AND accepted_at IS NULL AND revoked_at IS NULL
-      RETURNING id, email, role
-    `, [id, companyId]);
-    return result.rows[0] || null;
-  }
-
-  /** Undangan yang menunggu jawaban `userId` (dicocokkan lewat email akunnya sendiri). */
-  async listInvitationsForUser(userId) {
-    if (!this.enabled) return [];
-    const result = await this.pool.query(`
-      SELECT i.id, i.role, i.expires_at AS "expiresAt", i.created_at AS "createdAt",
-             c.name AS "companyName", COALESCE(inv.display_name, inv.email) AS "invitedBy"
-      FROM users u
-      JOIN company_invitations i ON LOWER(i.email) = LOWER(u.email)
-      JOIN companies c ON c.id = i.company_id AND c.status = 'active'
-      LEFT JOIN users inv ON inv.id = i.invited_by
-      WHERE u.id = $1 AND u.status = 'active'
-        AND i.accepted_at IS NULL AND i.revoked_at IS NULL AND i.expires_at > NOW()
-      ORDER BY i.created_at DESC
-    `, [userId]);
-    return result.rows;
-  }
-
-  /** Terima undangan. Melempar NOT_FOUND (bukan milik user ini / sudah dijawab / kedaluwarsa) atau USER_LIMIT. */
-  async acceptCompanyInvitation(id, userId) {
-    if (!this.enabled) return null;
-    const client = await this.pool.connect();
-    try {
-      await client.query('BEGIN');
-      const invitation = (await client.query(`
-        SELECT i.id, i.company_id AS "companyId", i.role
-        FROM company_invitations i
-        JOIN users u ON u.id = $2 AND u.status = 'active' AND LOWER(u.email) = LOWER(i.email)
-        WHERE i.id = $1 AND i.accepted_at IS NULL AND i.revoked_at IS NULL AND i.expires_at > NOW()
-        FOR UPDATE OF i
-      `, [id, userId])).rows[0];
-      const company = invitation && (await client.query(
-        "SELECT name FROM companies WHERE id = $1 AND status = 'active'", [invitation.companyId],
+      const existing = (await client.query(
+        'SELECT status FROM company_members WHERE company_id = $1 AND user_id = $2 FOR UPDATE', [companyId, target.id],
       )).rows[0];
-      if (!invitation || !company) throw Object.assign(new Error('Undangan tidak ditemukan atau sudah tidak berlaku.'), { code: 'NOT_FOUND' });
-      const maxUsers = await this._seatsFull(client, invitation.companyId, userId);
-      if (maxUsers) throw Object.assign(new Error(`Batas anggota tim tercapai (${maxUsers} pengguna).`), { code: 'USER_LIMIT', maxUsers });
-      // Keanggotaan yang sudah aktif tidak diturunkan/dinaikkan oleh undangan.
-      const member = await client.query(`
+      if (existing?.status === 'active') throw fail('ALREADY_MEMBER', 'Orang ini sudah menjadi anggota tim.');
+      await client.query(`
         INSERT INTO company_members (company_id, user_id, role, status, joined_at)
         VALUES ($1, $2, $3, 'active', NOW())
-        ON CONFLICT (company_id, user_id) DO UPDATE SET
-          role = CASE WHEN company_members.status = 'active' THEN company_members.role ELSE EXCLUDED.role END,
-          status = 'active', joined_at = COALESCE(company_members.joined_at, NOW()), updated_at = NOW()
-        RETURNING role
-      `, [invitation.companyId, userId, invitation.role]);
-      await client.query('UPDATE company_invitations SET accepted_at = NOW() WHERE id = $1', [id]);
-      await client.query('UPDATE users SET last_company_id = $2, updated_at = NOW() WHERE id = $1', [userId, invitation.companyId]);
+        ON CONFLICT (company_id, user_id) DO UPDATE SET role = EXCLUDED.role, status = 'active', updated_at = NOW()
+      `, [companyId, target.id, role]);
       await client.query('COMMIT');
-      return { companyId: invitation.companyId, companyName: company.name, role: member.rows[0].role };
+      return { id: target.id, email: target.email, displayName: target.displayName, role, status: 'active', presence: 'offline' };
     } catch (error) {
       await client.query('ROLLBACK');
       throw error;
     } finally {
       client.release();
     }
-  }
-
-  async declineCompanyInvitation(id, userId) {
-    if (!this.enabled) return null;
-    const result = await this.pool.query(`
-      UPDATE company_invitations i SET declined_at = NOW(), revoked_at = NOW()
-      FROM users u
-      WHERE i.id = $1 AND u.id = $2 AND LOWER(u.email) = LOWER(i.email)
-        AND i.accepted_at IS NULL AND i.revoked_at IS NULL
-      RETURNING i.company_id AS "companyId"
-    `, [id, userId]);
-    return result.rows[0] || null;
   }
 
   /** Company aktif tempat `userId` menjadi anggota aktif — untuk pemilih company. */

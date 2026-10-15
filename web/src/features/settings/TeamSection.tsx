@@ -194,26 +194,27 @@ export function TeamSection({ onChanged }: { onChanged?: () => void }) {
       ) : null}
 
       {isSupervisor ? (
-        <form onSubmit={addMember} className="mt-4 grid gap-3 rounded-xl border border-border bg-white/40 p-4 md:grid-cols-4">
+        <form onSubmit={addMember} className="mt-4 grid gap-3 rounded-xl border border-border bg-white/40 p-4 sm:grid-cols-2 lg:grid-cols-3">
           <Input name="displayName" required minLength={2} placeholder={t('team.namePlaceholder')} />
           <Input name="email" type="email" required placeholder="email@perusahaan.com" />
           <Input name="password" type="password" minLength={8} autoComplete="new-password" placeholder={t('team.passwordPlaceholder')} />
-          <div className="flex gap-2">
+          <div className="flex flex-wrap items-center gap-3 sm:col-span-2 lg:col-span-3">
             <select
               name="role"
               defaultValue="agent"
-              className="flex-1 rounded-app border border-input bg-white/60 px-2 text-sm"
+              aria-label={t('team.role')}
+              className="min-h-11 w-full rounded-app border border-input bg-white/60 px-4 text-sm sm:w-56"
             >
               <option value="agent">{t('team.agent')}</option>
               <option value="supervisor">{t('team.supervisor')}</option>
             </select>
-            <Button type="submit" size="sm" disabled={adding}>
+            <Button type="submit" disabled={adding} className="min-h-11 w-full sm:w-auto">
               {t('team.add')}
             </Button>
           </div>
-          <div className="md:col-span-4">
+          <div className="grid gap-1 sm:col-span-2 lg:col-span-3">
             <StatusLine>{status}</StatusLine>
-            <p className="m-0 mb-1 text-[11px] leading-[1.6] text-muted">{t('team.passwordHint')}</p>
+            <p className="m-0 text-[11px] leading-[1.6] text-muted">{t('team.passwordHint')}</p>
             <p className="m-0 text-[11px] leading-[1.6] text-muted">
               {t('team.reportHint')}{' '}
               <a href="#reportSection" className="font-semibold text-green-dark">{t('team.reportLink')}</a>

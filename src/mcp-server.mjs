@@ -47,9 +47,21 @@ function result(data) {
 
 const canWrite = () => Boolean(mcpContext.getStore()?.scopes?.includes(WRITE_SCOPE));
 
+// Klien (ChatGPT, Claude) mengambil ikon aplikasi dari sini; tanpa ini mereka
+// menampilkan ikon acak. File-nya disajikan mcp-http.mjs dari origin MCP_PUBLIC_URL.
+function serverIcons() {
+  const base = process.env.MCP_PUBLIC_URL ? new URL(process.env.MCP_PUBLIC_URL).origin : '';
+  if (!base) return undefined;
+  return [
+    { src: `${base}/icon-512.png`, mimeType: 'image/png', sizes: ['512x512'] },
+    { src: `${base}/icon-180.png`, mimeType: 'image/png', sizes: ['180x180'] },
+    { src: `${base}/icon-48.png`, mimeType: 'image/png', sizes: ['48x48'] },
+  ];
+}
+
 export function buildMcpServer() {
   const server = new McpServer(
-    { name: 'agnee', version: '0.3.0' },
+    { name: 'agnee', title: 'Agnee WhatsApp', version: '0.3.0', icons: serverIcons() },
     {
       instructions: [
         'WhatsApp: read a conversation before replying. Ask for confirmation before sending consequential or promotional messages.',

@@ -1,10 +1,23 @@
 import http from 'node:http';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { createMcpHandler } from '@modelcontextprotocol/server';
 import { toNodeHandler } from '@modelcontextprotocol/node';
 import { createMcpOAuth, clientAddressOf } from './mcp-auth.mjs';
 import { buildMcpServer } from './mcp-server.mjs';
 import { mcpContext } from './mcp-context.mjs';
 
+const brandDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'assets', 'brand');
+// Ikon publik tanpa auth: dibaca klien MCP sebelum login.
+const ICON_FILES = {
+  '/icon-512.png': 'agnee-app-icon-512.png',
+  '/icon-180.png': 'agnee-app-icon-180.png',
+  '/apple-touch-icon.png': 'agnee-app-icon-180.png',
+  '/icon-48.png': 'agnee-app-icon-48.png',
+  '/favicon.ico': 'agnee-app-icon-48.png',
+  '/favicon.png': 'agnee-app-icon-48.png',
+};
 const port = Number(process.env.MCP_PORT || 4200);
 const host = process.env.MCP_HOST || '0.0.0.0';
 const publicUrl = process.env.MCP_PUBLIC_URL || `http://127.0.0.1:${port}/mcp`;
@@ -97,6 +110,12 @@ const server = http.createServer(async (request, response) => {
   if (url.pathname === '/health') {
     response.writeHead(200, { 'content-type': 'application/json' });
     response.end(JSON.stringify({ ok: true, service: 'agnee-mcp' }));
+    return;
+  }
+  if (request.method === 'GET' && ICON_FILES[url.pathname]) {
+    const body = fs.readFileSync(path.join(brandDir, ICON_FILES[url.pathname]));
+    response.writeHead(200, { 'content-type': 'image/png', 'cache-control': 'public, max-age=86400' });
+    response.end(body);
     return;
   }
   if (await oauth.handle(request, response, url, clientAddress(request))) return;

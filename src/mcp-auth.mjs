@@ -226,7 +226,9 @@ export function createMcpOAuth({ publicUrl, legacyBearerToken, legacyIdentity, s
   function validateAuthorize(params) {
     const clientId = params.get('client_id');
     const redirectUri = params.get('redirect_uri');
-    const requestedResource = params.get('resource');
+    // RFC 8707: `resource` opsional; klien yang tidak mengirimnya (Codex/rmcp)
+    // dianggap meminta resource ini. Bila dikirim, tetap harus cocok.
+    const requestedResource = params.get('resource') || resource;
     const scopes = normalizeScopes(params.get('scope'));
     const client = clients.get(clientId);
     if (!client || !client.redirect_uris.includes(redirectUri)) return { error: 'invalid_client' };
@@ -311,7 +313,10 @@ export function createMcpOAuth({ publicUrl, legacyBearerToken, legacyIdentity, s
       response.writeHead(200, {
         'content-type': 'text/html; charset=utf-8',
         'cache-control': 'no-store',
-        'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+        // Chrome/Safari memeriksa form-action juga terhadap redirect setelah POST.
+        // Tanpa origin redirect_uri (sudah divalidasi terhadap client terdaftar),
+        // 302 ke callback klien diblokir diam-diam dan tombol terasa mati.
+        'content-security-policy': `default-src 'none'; style-src 'unsafe-inline'; form-action 'self' ${new URL(validated.redirectUri).origin}; base-uri 'none'; frame-ancestors 'none'`,
       });
       response.end(`<!doctype html><html lang="id"><meta name="viewport" content="width=device-width"><title>Hubungkan Agnee</title><style>body{font:16px system-ui;background:#f4f5ef;color:#102820;display:grid;place-items:center;min-height:100vh;margin:0}.card{width:min(390px,calc(100% - 48px));padding:32px;background:white;border:1px solid #dce3dc;border-radius:24px;box-shadow:0 24px 70px #183c2920}h1{margin:0 0 8px}p{color:#5d6d65}label{display:block;margin:18px 0 6px;font-weight:650}input{box-sizing:border-box;width:100%;padding:13px;border:1px solid #bcc8c0;border-radius:12px;font:inherit}button{width:100%;margin-top:22px;padding:14px;border:0;border-radius:12px;background:#102820;color:white;font:700 16px system-ui}</style><body><form class="card" method="post" action="/oauth/authorize"><h1>Hubungkan Agnee</h1><p>${html(validated.client.client_name)} meminta izin ${purpose}. Masuk dengan akun Agnee Anda; aksesnya sama dengan akses Anda di aplikasi.</p>${hidden}<label>Email akun Agnee</label><input name="email" type="email" autocomplete="username" required><label>Password</label><input name="password" type="password" autocomplete="current-password" required><button type="submit">Masuk dan izinkan</button></form></body></html>`);
       return true;
@@ -376,7 +381,7 @@ export function createMcpOAuth({ publicUrl, legacyBearerToken, legacyIdentity, s
         codes.delete(codeValue);
         const verifier = params.get('code_verifier') || '';
         const challenge = crypto.createHash('sha256').update(verifier).digest('base64url');
-        if (!record || record.expiresAt < Date.now() || record.clientId !== params.get('client_id') || record.redirectUri !== params.get('redirect_uri') || record.resource !== params.get('resource') || !safeEqual(challenge, record.codeChallenge)) {
+        if (!record || record.expiresAt < Date.now() || record.clientId !== params.get('client_id') || record.redirectUri !== params.get('redirect_uri') || record.resource !== (params.get('resource') || resource) || !safeEqual(challenge, record.codeChallenge)) {
           json(response, 400, { error: 'invalid_grant' });
           return true;
         }
@@ -396,7 +401,7 @@ export function createMcpOAuth({ publicUrl, legacyBearerToken, legacyIdentity, s
         const oldToken = params.get('refresh_token');
         const record = refreshTokens.get(oldToken);
         refreshTokens.delete(oldToken);
-        if (!record || !record.companyId || record.expiresAt < Date.now() || record.clientId !== params.get('client_id') || record.resource !== params.get('resource')) {
+        if (!record || !record.companyId || record.expiresAt < Date.now() || record.clientId !== params.get('client_id') || record.resource !== (params.get('resource') || resource)) {
           json(response, 400, { error: 'invalid_grant' });
           return true;
         }

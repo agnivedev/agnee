@@ -131,3 +131,43 @@ test('pendaftaran client dibatasi per alamat', async (t) => {
   assert.deepEqual(statuses.slice(0, 9), Array(9).fill(201));
   assert.equal(statuses[9], 429);
 });
+
+test('form consent mengizinkan redirect ke origin callback klien (CSP form-action), dan hanya itu', async (t) => {
+  const ctx = await setup(t);
+  const params = authorizeForm(ctx.client, 'whatsapp:read', '', '', 'v'.repeat(43));
+  params.delete('email'); params.delete('password');
+  const res = await fetch(`${ctx.base}/oauth/authorize?${params}`);
+  assert.equal(res.status, 200);
+  const csp = res.headers.get('content-security-policy');
+  // Tanpa origin ini browser memblokir 302 setelah POST: tombol "Masuk" terasa mati.
+  assert.match(csp, /form-action 'self' http:\/\/localhost;/);
+  assert.doesNotMatch(csp, /form-action[^;]*\*/);
+  assert.doesNotMatch(csp, /script-src|unsafe-eval/);
+});
+
+test('parameter resource opsional (RFC 8707): klien tanpa resource tetap dapat token', async (t) => {
+  const ctx = await setup(t);
+  const verifier = crypto.randomBytes(32).toString('base64url');
+  const form = authorizeForm(ctx.client, 'whatsapp:read', 'rina@acme.test', 'benar-123', verifier);
+  form.delete('resource');
+  const auth = await fetch(`${ctx.base}/oauth/authorize`, {
+    method: 'POST', redirect: 'manual', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: form,
+  });
+  assert.equal(auth.status, 302);
+  const code = new URL(auth.headers.get('location')).searchParams.get('code');
+  const token = await fetch(`${ctx.base}/oauth/token`, {
+    method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ grant_type: 'authorization_code', code, code_verifier: verifier, client_id: ctx.client.client_id, redirect_uri: 'http://localhost/cb' }),
+  }).then((r) => r.json());
+  assert.ok(ctx.oauth.verifyAccessToken(token.access_token, 'whatsapp:read'));
+});
+
+test('resource yang dikirim tapi salah tetap ditolak', async (t) => {
+  const ctx = await setup(t);
+  const form = authorizeForm(ctx.client, 'whatsapp:read', 'rina@acme.test', 'benar-123', 'v'.repeat(43));
+  form.set('resource', 'https://evil.example/mcp');
+  const res = await fetch(`${ctx.base}/oauth/authorize`, {
+    method: 'POST', redirect: 'manual', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: form,
+  });
+  assert.equal(res.status, 400);
+});

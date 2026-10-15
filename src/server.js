@@ -37,6 +37,7 @@ const { HUB_REPLY_WORKING_DAYS, addWorkingDays, workingDaysSince } = require('./
 const mayarSync = require('./mayar-sync.js');
 const { createReplyPacer } = require('./reply-delay.js');
 const handoffNotice = require('./handoff-notice.js');
+const supervisorReport = require('./supervisor-report.js');
 const { createTypingHooks } = require('./typing-indicator.js');
 const { buildXlsx } = require('./xlsx-writer.js');
 const Database = require('./database.js');
@@ -5433,6 +5434,130 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
 
   // ── Follow-up settings ────────────────────────────────────────────────────
 
+  // ── Laporan hasil chat berkala ke supervisor (migrasi 054) ──────────────
+  // Frekuensi dan nomor WhatsApp diatur PER supervisor. Dikirim dari nomor
+  // WhatsApp company itu sendiri, pukul 08.00 zona waktunya (lihat supervisor-report.js).
+
+  async function summarizeInboundForReport(companyId, from, to) {
+    const companyAi = await getCompanyAi(companyId);
+    if (!companyAi.enabled) return [];
+    const sample = await database.sampleInboundForReport(companyId, from, to);
+    if (sample.length < 5) return [];
+    const result = await llmService.generateReply(
+      sample.map((line, i) => `${i + 1}. ${line}`).join('\n'),
+      {
+        systemPrompt: 'Berikut pesan customer sebuah bisnis dalam satu periode. Tulis 3 sampai 5 topik yang paling sering ditanyakan atau dikeluhkan, satu baris pendek per topik (maksimal 12 kata), tanpa pembuka dan tanpa penutup. Jangan menyebut nama atau nomor customer.',
+        companyId,
+        purpose: 'supervisor_report',
+        modelChain: companyAi.modelChain,
+      },
+    ).catch(() => null);
+    return supervisorReport.parseHighlights(result?.text);
+  }
+
+  async function sendSupervisorReport(row, window) {
+    const stats = await database.getChatReportStats(row.companyId, window.from, window.to);
+    const highlights = stats?.inboundMessages ? await summarizeInboundForReport(row.companyId, window.from, window.to) : [];
+    const text = supervisorReport.buildReport({
+      companyName: row.companyName, frequency: row.frequency, from: window.from, to: window.to,
+      tz: row.timezone, stats, highlights,
+    });
+    // sendLeadMessage = sendOutbound, dan mode demo menulis ke riwayat demo.
+    await sendLeadMessage(row.companyId, normalizeChatId(row.whatsappNumber, config.defaultCountryCode), text);
+  }
+
+  app.get('/v1/reports/supervisors', async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengatur laporan.' });
+    if (!canCall('listSupervisorReportSettings')) return { supervisors: [] };
+    return { supervisors: await database.listSupervisorReportSettings(request.agneeSession.companyId) };
+  });
+
+  app.put('/v1/reports/supervisors/:userId', {
+    schema: {
+      params: { type: 'object', required: ['userId'], properties: { userId: { type: 'string', minLength: 1, maxLength: 64 } } },
+      body: {
+        type: 'object', additionalProperties: false, required: ['frequency'],
+        properties: {
+          frequency: { type: 'string', enum: supervisorReport.FREQUENCIES },
+          whatsappNumber: { type: 'string', maxLength: 32 },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengatur laporan.' });
+    if (!canCall('saveSupervisorReportSetting')) return reply.code(503).send({ error: 'Database belum tersedia.' });
+    const companyId = request.agneeSession.companyId;
+    const { userId } = request.params;
+    const target = (await database.listSupervisorReportSettings(companyId)).find((row) => row.userId === userId);
+    if (!target) return reply.code(404).send({ error: 'Supervisor tidak ditemukan di perusahaan ini.' });
+    const { frequency } = request.body;
+    const number = String(request.body.whatsappNumber || '').trim();
+    if (frequency !== 'off' && !number) {
+      return reply.code(400).send({ error: 'Isi nomor WhatsApp penerima laporan.' });
+    }
+    if (number) {
+      try { normalizeChatId(number, config.defaultCountryCode); } catch { return reply.code(400).send({ error: 'Nomor WhatsApp tidak valid.' }); }
+    }
+    const saved = await database.saveSupervisorReportSetting({ userId, frequency, whatsappNumber: number || null }, companyId);
+    await catatAudit(request, 'report.schedule_changed', {
+      entityType: 'user', entityId: userId, metadata: { frequency },
+    });
+    return saved;
+  });
+
+  /** Kirim laporan contoh sekarang (periode sesuai frekuensi) supaya supervisor bisa melihat bentuknya. */
+  app.post('/v1/reports/supervisors/:userId/test', async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengirim laporan.' });
+    if (!canCall('listSupervisorReportSettings')) return reply.code(503).send({ error: 'Database belum tersedia.' });
+    const companyId = request.agneeSession.companyId;
+    const target = (await database.listSupervisorReportSettings(companyId)).find((row) => row.userId === request.params.userId);
+    if (!target) return reply.code(404).send({ error: 'Supervisor tidak ditemukan di perusahaan ini.' });
+    if (!target.whatsappNumber) return reply.code(400).send({ error: 'Isi dan simpan nomor WhatsApp dulu.' });
+    const config_ = await database.getCompanyConfig(companyId).catch(() => null);
+    const tz = config_?.timezone || 'Asia/Jakarta';
+    const frequency = target.frequency === 'off' ? 'daily' : target.frequency;
+    const to = supervisorReport.latestSlot(frequency, new Date(), tz);
+    const from = supervisorReport.previousSlot(frequency, to, tz);
+    try {
+      await sendSupervisorReport({
+        ...target, companyId, frequency, timezone: tz, companyName: config_?.name || '',
+      }, { from, to });
+    } catch (error) {
+      app.log.warn({ err: error, companyId }, 'Laporan contoh supervisor gagal');
+      return reply.code(502).send({ error: 'Laporan tidak terkirim. Pastikan nomor WhatsApp perusahaan sedang tersambung.' });
+    }
+    return { ok: true };
+  });
+
+  function startSupervisorReportSweeper() {
+    const running = { value: false };
+    const jalankan = async () => {
+      if (running.value) return;
+      running.value = true;
+      try {
+        const rows = await database.listActiveSupervisorReports();
+        const now = new Date();
+        for (const row of rows) {
+          const window = supervisorReport.dueWindow(row, now, row.timezone);
+          if (!window) continue;
+          try {
+            await sendSupervisorReport(row, window);
+            await database.markSupervisorReportSent(row.companyId, row.userId, now);
+          } catch (error) {
+            // Tidak ditandai terkirim: putaran berikutnya (10 menit lagi) mencoba lagi,
+            // mis. kalau nomor WhatsApp sedang terputus.
+            app.log.warn({ err: error, companyId: row.companyId, userId: row.userId }, 'Laporan supervisor gagal terkirim');
+          }
+        }
+      } finally {
+        running.value = false;
+      }
+    };
+    const timer = setInterval(() => { jalankan().catch(() => {}); }, 10 * 60_000);
+    timer.unref?.();
+    setTimeout(() => { jalankan().catch(() => {}); }, 90_000).unref?.();
+  }
+
   app.get('/v1/follow-up/settings', async (request, reply) => {
     if (!requireCoachSupervisor(request, reply)) return;
     if (!requireCoachDb(reply)) return;
@@ -9051,6 +9176,7 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     if (database.enabled && database.connected) startOneDriveSyncLoop();
     if (database.enabled && database.connected) startAutoAssignSweeper();
     if (database.enabled && database.connected) startSlaSweeper();
+    if (canCall('listActiveSupervisorReports')) startSupervisorReportSweeper();
     if (database.enabled && database.connected) startHubFollowUpSweeper();
     if (database.enabled && database.connected) startBroadcastSender();
     if (database.enabled && database.connected) startWedgeWatch();

@@ -903,7 +903,7 @@ class Database {
       SELECT plan, plan_status AS "planStatus", status, knowledge_client AS "knowledgeClient",
              ai_message_limit AS "aiMessageLimit", ai_message_count AS "aiMessageCount",
              ai_count_reset_at AS "aiCountResetAt", max_users AS "maxUsers",
-             max_playbooks AS "maxPlaybooks", max_whatsapp AS "maxWhatsapp", name, slug,
+             max_playbooks AS "maxPlaybooks", max_whatsapp AS "maxWhatsapp", name, slug, timezone,
              rotation_enabled AS "rotationEnabled", ai_identity AS "aiIdentity",
              reply_delay_enabled AS "replyDelayEnabled",
              reply_delay_min_seconds AS "replyDelayMinSeconds",
@@ -1223,6 +1223,119 @@ class Database {
       GROUP BY c.id
     `);
     return result.rows;
+  }
+
+  /**
+   * Supervisor aktif company beserta setelan laporannya (migrasi 054).
+   * Yang belum punya baris tampil dengan frekuensi 'off'.
+   */
+  async listSupervisorReportSettings(companyId) {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(`
+      SELECT u.id AS "userId", u.email, COALESCE(u.display_name, u.email) AS "displayName", cm.role,
+             COALESCE(s.frequency, 'off') AS frequency, s.whatsapp_number AS "whatsappNumber",
+             s.last_sent_at AS "lastSentAt"
+      FROM company_members cm
+      JOIN users u ON u.id = cm.user_id
+      LEFT JOIN supervisor_report_settings s ON s.company_id = cm.company_id AND s.user_id = cm.user_id
+      WHERE cm.company_id = $1 AND cm.status = 'active' AND cm.role IN ('owner', 'admin', 'supervisor')
+      ORDER BY COALESCE(u.display_name, u.email)
+    `, [companyId]);
+    return result.rows;
+  }
+
+  /** Simpan setelan satu supervisor. enabled_at hanya dimajukan saat laporan baru dinyalakan/diganti frekuensinya. */
+  async saveSupervisorReportSetting({ userId, frequency, whatsappNumber }, companyId) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      INSERT INTO supervisor_report_settings (company_id, user_id, frequency, whatsapp_number)
+      VALUES ($1, $2, $3, $4)
+      ON CONFLICT (company_id, user_id) DO UPDATE SET
+        enabled_at = CASE WHEN supervisor_report_settings.frequency IS DISTINCT FROM EXCLUDED.frequency
+                          THEN NOW() ELSE supervisor_report_settings.enabled_at END,
+        frequency = EXCLUDED.frequency,
+        whatsapp_number = EXCLUDED.whatsapp_number,
+        updated_at = NOW()
+      RETURNING frequency, whatsapp_number AS "whatsappNumber"
+    `, [companyId, userId, frequency, whatsappNumber || null]);
+    return result.rows[0] || null;
+  }
+
+  /** Semua penerima laporan yang aktif di semua company, dengan zona waktunya. */
+  async listActiveSupervisorReports() {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(`
+      SELECT s.company_id AS "companyId", s.user_id AS "userId", s.frequency,
+             s.whatsapp_number AS "whatsappNumber", s.enabled_at AS "enabledAt",
+             s.last_sent_at AS "lastSentAt", c.name AS "companyName", c.timezone
+      FROM supervisor_report_settings s
+      JOIN companies c ON c.id = s.company_id AND c.status = 'active'
+      JOIN company_members cm ON cm.company_id = s.company_id AND cm.user_id = s.user_id
+        AND cm.status = 'active' AND cm.role IN ('owner', 'admin', 'supervisor')
+      WHERE s.frequency <> 'off' AND s.whatsapp_number IS NOT NULL
+    `);
+    return result.rows;
+  }
+
+  async markSupervisorReportSent(companyId, userId, sentAt = new Date()) {
+    if (!this.enabled) return;
+    await this.pool.query(
+      'UPDATE supervisor_report_settings SET last_sent_at = $3 WHERE company_id = $1 AND user_id = $2',
+      [companyId, userId, sentAt],
+    );
+  }
+
+  /** Angka percakapan satu company untuk [from, to). Chat grup tidak dihitung. */
+  async getChatReportStats(companyId, from, to) {
+    if (!this.enabled) return null;
+    const [inbound, outbound, handoffs, leads] = await Promise.all([
+      this.pool.query(`
+        SELECT COUNT(*)::int AS messages, COUNT(DISTINCT chat_id)::int AS chats,
+               COUNT(DISTINCT chat_id) FILTER (WHERE NOT EXISTS (
+                 SELECT 1 FROM inbound_messages o
+                 WHERE o.company_id = $1 AND o.chat_id = m.chat_id AND o.created_at < $2
+               ))::int AS "newChats"
+        FROM inbound_messages m
+        WHERE m.company_id = $1 AND m.created_at >= $2 AND m.created_at < $3
+          AND m.chat_id NOT LIKE '%@g.us'
+      `, [companyId, from, to]),
+      this.pool.query(`
+        SELECT author, COUNT(*)::int AS n FROM outbound_replies
+        WHERE company_id = $1 AND created_at >= $2 AND created_at < $3 AND chat_id NOT LIKE '%@g.us'
+        GROUP BY author
+      `, [companyId, from, to]),
+      this.pool.query(`
+        SELECT COUNT(*)::int AS n FROM conversation_handoffs
+        WHERE company_id = $1 AND to_mode = 'human' AND created_at >= $2 AND created_at < $3
+      `, [companyId, from, to]),
+      this.pool.query(`
+        SELECT COUNT(*)::int AS n FROM lead_states
+        WHERE company_id = $1 AND pipeline_stage IN ('hot', 'closing')
+          AND updated_at >= $2 AND updated_at < $3
+      `, [companyId, from, to]),
+    ]);
+    const by = Object.fromEntries(outbound.rows.map((r) => [r.author, r.n]));
+    return {
+      inboundMessages: inbound.rows[0].messages,
+      activeChats: inbound.rows[0].chats,
+      newChats: inbound.rows[0].newChats,
+      aiReplies: by.ai || 0,
+      humanReplies: by.human || 0,
+      handoffs: handoffs.rows[0].n,
+      hotLeads: leads.rows[0].n,
+    };
+  }
+
+  /** Cuplikan pesan customer untuk diringkas jadi "yang paling banyak dibahas". */
+  async sampleInboundForReport(companyId, from, to, limit = 80) {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(`
+      SELECT LEFT(body, 200) AS body FROM inbound_messages
+      WHERE company_id = $1 AND created_at >= $2 AND created_at < $3
+        AND message_type = 'text' AND chat_id NOT LIKE '%@g.us' AND LENGTH(TRIM(COALESCE(body, ''))) >= 8
+      ORDER BY created_at DESC LIMIT $4
+    `, [companyId, from, to, limit]);
+    return result.rows.map((r) => r.body);
   }
 
   async markCostAlertNotified(companyIds) {

@@ -9,6 +9,20 @@
   "Broadcast ke yang tampil". Daftar dibawa lewat sessionStorage, bukan URL.
   Batas 1.000 penerima per broadcast dicabut (plafon 300/hari dan jam kirim
   tetap). Memulai impor chat WhatsApp kini tercatat di jejak audit.
+- **Laporan hasil chat berkala ke supervisor.** Tiap supervisor (owner/admin/
+  supervisor) diatur sendiri: sehari sekali, seminggu sekali, sebulan sekali,
+  atau tidak dikirim, dan ke nomor WhatsApp mana. Dikirim dari nomor WhatsApp
+  company pukul 08.00 zona waktunya (harian = kemarin, mingguan = tiap Senin
+  untuk 7 hari terakhir, bulanan = tiap tanggal 1 untuk bulan lalu). Isinya:
+  pesan masuk, customer aktif/baru, balasan AI dan tim, diambil alih tim, lead
+  panas/closing, dan 3-5 topik terbanyak (ringkasan AI; dilewati kalau AI mati).
+  - Migrasi 054 `supervisor_report_settings`. Tanpa baris = tidak dikirimi.
+  - UI: Pengaturan > Tim > "Laporan hasil chat" (supervisor saja), dengan
+    tombol "Kirim contoh sekarang". API: `GET /v1/reports/supervisors`,
+    `PUT /v1/reports/supervisors/:userId`, `POST .../:userId/test`.
+  - Server mati saat 08.00 tidak menghilangkan laporan (dikirim begitu hidup);
+    jadwal sebelum laporan dinyalakan tidak dikejar. Gagal kirim dicoba lagi tiap 10 menit.
+  - Tes: `supervisor-report*.test.js` (jadwal/zona waktu, rute, SQL di Postgres asli).
 
 - **Verifikasi lead oleh robot Anduman: `POST /webhook/lead-verify`.** Menutup
   alur lead website: setelah lead mendaftar di broker, hasil bacaan portal IB

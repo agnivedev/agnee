@@ -46,6 +46,7 @@ const AUDIT_ACTIONS = [
   'broadcast.started',
   'broadcast.cancelled',
   'broadcast.opt_out_removed',
+  'report.schedule_changed',
 ] as const;
 
 /**

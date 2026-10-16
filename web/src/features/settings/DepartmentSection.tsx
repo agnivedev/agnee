@@ -16,7 +16,9 @@ type Question = {
   question: string;
   department: string | null;
   createdAt: string;
-  status?: 'open' | 'unresolved';
+  status?: 'open' | 'unresolved' | 'review';
+  thirdParty?: string | null;
+  thirdPartyReply?: string | null;
 };
 
 /** Departemen yang bisa ditanya AI, dan anggota yang menjawabnya. */
@@ -219,11 +221,13 @@ export function DepartmentQuestionsSection() {
 
   const load = useCallback(async () => {
     try {
-      const [open, stuck] = await Promise.all([
+      const [open, stuck, review] = await Promise.all([
         api<{ questions: Question[] }>('/v1/department-questions'),
         api<{ questions: Question[] }>('/v1/department-questions?status=unresolved'),
+        api<{ questions: Question[] }>('/v1/department-questions?status=review'),
       ]);
       setQuestions([
+        ...(review.questions || []).map((q) => ({ ...q, status: 'review' as const })),
         ...(open.questions || []).map((q) => ({ ...q, status: 'open' as const })),
         ...(stuck.questions || []).map((q) => ({ ...q, status: 'unresolved' as const })),
       ]);
@@ -262,10 +266,13 @@ export function DepartmentQuestionsSection() {
             <small className="font-mono text-[10px] uppercase text-muted">
               {q.department}
               {q.status === 'unresolved' ? ` · ${t('deptq.unresolved')}` : ''}
+              {q.status === 'review' ? ` · ${t('deptq.review')}` : ''}
             </small>
             <strong className="text-[13px]">{q.question}</strong>
+            {q.status === 'review' ? <small className="text-[11px] text-muted">{t('deptq.reviewHint')}</small> : null}
             <textarea
               name="answer"
+              defaultValue={q.status === 'review' ? q.thirdPartyReply || '' : ''}
               required
               maxLength={2000}
               rows={2}
@@ -276,6 +283,136 @@ export function DepartmentQuestionsSection() {
           </form>
         ))}
       </div>
+      <StatusLine>{status}</StatusLine>
+    </SettingCard>
+  );
+}
+
+type ThirdParty = { id: string; name: string; whatsappNumber: string; notes: string; tags: string[]; active: boolean };
+
+const splitTags = (value: string) => value.split(',').map((tag) => tag.trim()).filter(Boolean);
+
+/** Supplier, pabrik, dan pihak luar lain yang bisa ditanya AI lewat WhatsApp. */
+export function ThirdPartySection() {
+  const { t } = useI18n();
+  const confirm = useConfirm();
+  const [parties, setParties] = useState<ThirdParty[]>([]);
+  const [status, setStatus] = useState('');
+  const [editing, setEditing] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const data = await api<{ thirdParties: ThirdParty[] }>('/v1/third-parties');
+      setParties(data.thirdParties || []);
+      setEditing(null);
+    } catch (error) {
+      setStatus(messageFromError(error, ''));
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  async function save(event: FormEvent<HTMLFormElement>, id: string | null) {
+    event.preventDefault();
+    const element = event.currentTarget;
+    const form = new FormData(element);
+    const body = {
+      name: String(form.get('name') || '').trim(),
+      whatsappNumber: String(form.get('whatsappNumber') || '').trim(),
+      notes: String(form.get('notes') || '').trim(),
+      tags: splitTags(String(form.get('tags') || '')),
+    };
+    try {
+      await api(id ? `/v1/third-parties/${id}` : '/v1/third-parties', { method: id ? 'PATCH' : 'POST', body });
+      if (!id) element.reset();
+      setStatus(t('tp.saved'));
+      await load();
+    } catch (error) {
+      setStatus(messageFromError(error, ''));
+    }
+  }
+
+  const fields = (party?: ThirdParty) => (
+    <>
+      <Input name="name" required minLength={2} maxLength={80} defaultValue={party?.name} placeholder={t('tp.namePlaceholder')} />
+      <Input name="whatsappNumber" required defaultValue={party?.whatsappNumber} placeholder="08123456789" />
+      <Input name="tags" required defaultValue={party?.tags.join(', ')} placeholder={t('tp.tagsPlaceholder')} className="sm:col-span-2" />
+      <Input name="notes" maxLength={300} defaultValue={party?.notes} placeholder={t('tp.notesPlaceholder')} className="sm:col-span-2" />
+    </>
+  );
+
+  return (
+    <SettingCard id="thirdPartySection" eyebrow={t('tp.eyebrow')} title={t('tp.title')} description={t('tp.description')}>
+      <div className="grid gap-2">
+        {parties.map((party) =>
+          editing === party.id ? (
+            <form key={party.id} onSubmit={(event) => void save(event, party.id)} className="grid gap-3 rounded-xl border border-border bg-white/40 p-4 sm:grid-cols-2">
+              {fields(party)}
+              <span className="flex gap-2 sm:col-span-2">
+                <Button size="sm" type="submit">{t('common.save')}</Button>
+                <Button size="sm" variant="ghost" type="button" onClick={() => setEditing(null)}>{t('common.cancel')}</Button>
+              </span>
+            </form>
+          ) : (
+            <Row key={party.id}>
+              <span className="grid min-w-0 flex-1 gap-1">
+                <strong className="truncate text-[13px]">{party.name}{party.active ? '' : ` (${t('tp.inactive')})`}</strong>
+                <small className="text-[11px] text-muted">+{party.whatsappNumber}{party.notes ? ` · ${party.notes}` : ''}</small>
+                <ul className="flex flex-wrap gap-1.5 pt-0.5">
+                  {party.tags.map((tag) => (
+                    <li key={tag} className="rounded-full bg-ink/8 px-2.5 py-1 text-[11px]">{tag}</li>
+                  ))}
+                </ul>
+              </span>
+              <span className="flex flex-wrap items-center gap-2">
+                <Button size="sm" variant="outline" onClick={() => setEditing(party.id)}>{t('team.edit')}</Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={async () => {
+                    try {
+                      await api(`/v1/third-parties/${party.id}`, { method: 'PATCH', body: { active: !party.active } });
+                      await load();
+                    } catch (error) {
+                      await confirm.error(error);
+                    }
+                  }}
+                >
+                  {party.active ? t('tp.deactivate') : t('tp.activate')}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={async () => {
+                    const ok = await confirm.confirm({
+                      title: t('tp.deleteTitle'),
+                      message: t('tp.deleteCopy', { name: party.name }),
+                      confirmLabel: t('dept.deleteConfirm'),
+                      danger: true,
+                    });
+                    if (!ok) return;
+                    try {
+                      await api(`/v1/third-parties/${party.id}`, { method: 'DELETE' });
+                      await load();
+                    } catch (error) {
+                      await confirm.error(error);
+                    }
+                  }}
+                >
+                  {t('dept.delete')}
+                </Button>
+              </span>
+            </Row>
+          ),
+        )}
+        {parties.length === 0 ? <p className="text-xs text-muted">{t('tp.empty')}</p> : null}
+      </div>
+      <form onSubmit={(event) => void save(event, null)} className="mt-4 grid gap-3 rounded-xl border border-border bg-white/40 p-4 sm:grid-cols-2">
+        {fields()}
+        <Button type="submit" className="sm:col-span-2 sm:justify-self-start">{t('tp.add')}</Button>
+      </form>
       <StatusLine>{status}</StatusLine>
     </SettingCard>
   );

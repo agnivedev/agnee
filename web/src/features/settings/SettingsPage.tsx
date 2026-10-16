@@ -18,7 +18,7 @@ import { McpSection } from './McpSection';
 import { SourcesSection } from './SourcesSection';
 import { WhatsappNumbersSection, CloudApiSection } from './WhatsappSections';
 import { AccountSection, TeamSection } from './TeamSection';
-import { DepartmentQuestionsSection, DepartmentSection } from './DepartmentSection';
+import { DepartmentQuestionsSection, DepartmentSection, ThirdPartySection } from './DepartmentSection';
 
 type TabId = 'paket' | 'whatsapp' | 'ai' | 'data' | 'tim' | 'audit';
 
@@ -40,6 +40,7 @@ const SECTION_TAB: Record<string, TabId> = {
   teamSection: 'tim',
   departmentSection: 'tim',
   departmentQuestions: 'tim',
+  thirdPartySection: 'tim',
   reportSection: 'tim',
   myAccount: 'tim',
   auditSection: 'audit',
@@ -196,6 +197,7 @@ export function SettingsPage() {
               <TeamSection onChanged={bumpTeam} />
               <DepartmentQuestionsSection />
               <DepartmentSection />
+              {isSupervisor ? <ThirdPartySection /> : null}
               {isSupervisor ? <ReportSection reloadKey={teamVersion} /> : null}
               <AccountSection />
             </>

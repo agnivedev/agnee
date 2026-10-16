@@ -57,6 +57,42 @@ Aturan:
 - Setelah alat dipanggil, jangan memberi jawaban tebakan sambil menunggu.`;
 }
 
+function guideThirdParties(parties) {
+  const list = parties.map((p) => `- ${p.name} [${p.tags.join(', ')}]${p.notes ? `: ${p.notes}` : ''}`).join('\n');
+  return `## BERTANYA KE PIHAK KETIGA (alat ask_third_party)
+Untuk hal yang hanya diketahui pihak LUAR perusahaan (stok atau harga bahan dari supplier, kapasitas pabrik, dsb.) dan tidak ada di pengetahuan, kamu boleh bertanya ke pihak ketiga yang tersedia lewat WhatsApp. Departemen internal diutamakan untuk hal internal; pihak ketiga untuk hal yang jelas ada di luar.
+
+Pihak ketiga yang tersedia (tag di dalam kurung):
+${list}
+
+Aturan:
+- Pilih pihak yang tag dan catatannya paling cocok. Tulis pertanyaan singkat dan teknis (bahan, ukuran, jumlah). JANGAN menyebut nama, nomor, atau data pribadi customer, dan jangan membuka harga jual atau margin kita.
+- Setelah alat dipanggil, beri tahu customer bahwa kamu sedang memastikan dulu dan akan mengabari. JANGAN menyebut nama pihak ketiga itu ke customer.
+- Jangan memberi jawaban tebakan sambil menunggu.`;
+}
+
+function toolSpecThirdParty({ parties, run }) {
+  return {
+    name: 'ask_third_party',
+    description: 'Tanya ke pihak ketiga (supplier/pabrik) lewat WhatsApp saat jawaban untuk customer hanya diketahui pihak luar. Balasan ditinjau staf dulu sebelum diteruskan; balas customer dengan kalimat tunggu.',
+    parameters: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['party', 'question'],
+      properties: {
+        party: { type: 'string', enum: parties.map((p) => p.name), description: 'Nama pihak ketiga yang paling cocok dengan tag-nya.' },
+        question: { type: 'string', maxLength: QUESTION_MAX, description: 'Pertanyaan singkat tanpa data customer.' },
+      },
+    },
+    run,
+  };
+}
+
+/** Pesan WhatsApp ke pihak ketiga. Tidak memuat data customer. */
+function buildThirdPartyMessage({ companyName, partyName, question }) {
+  return `Halo ${partyName}, kami dari ${companyName || 'tim kami'}. Mau menanyakan: ${String(question).replace(/\s+/g, ' ').trim()}\n\nMohon dibalas di chat ini ya. Terima kasih 🙏`;
+}
+
 function toolSpec({ departments, run }) {
   const names = departments.map((d) => d.name);
   return {
@@ -88,8 +124,11 @@ function buildQuestionNotice({ department, question, customerLabel }) {
 }
 
 /** Perintah ke model untuk menyusun balasan ke customer dari jawaban departemen. */
-function relayPrompt({ customerText, question, answer, department }) {
+function relayPrompt({ customerText, question, answer, department, external = false }) {
+  if (external) {
+    return `Customer sebelumnya menulis: "${customerText}"\nKamu lalu memastikan hal ini ke pihak terkait: "${question}"\nKonfirmasi yang sudah diperiksa staf: "${answer}"\n\nTulis balasan ke customer dengan persona kamu berdasarkan konfirmasi itu. Pakai HANYA isi konfirmasi — jangan menambah fakta, angka, atau janji yang tidak ada di sana. JANGAN menyebut nama supplier/pabrik atau harga modal. Singkat dan ramah. Keluarkan HANYA pesannya.`;
+  }
   return `Customer sebelumnya menulis: "${customerText}"\nKamu lalu menanyakan ke tim ${department}: "${question}"\nJawaban dari tim: "${answer}"\n\nTulis balasan ke customer dengan persona kamu berdasarkan jawaban tim itu. Pakai HANYA isi jawaban tim — jangan menambah fakta, angka, atau janji yang tidak ada di sana. Singkat dan ramah, tanpa menyebut "tim internal menjawab" secara kaku. Keluarkan HANYA pesannya.`;
 }
 
-module.exports = { mentionsWaiting, ensureHolding, buildReminderNotice, REMINDER_MINUTES, guide, toolSpec, buildQuestionNotice, relayPrompt, HOLDING_FALLBACK, QUESTION_MAX };
+module.exports = { guideThirdParties, toolSpecThirdParty, buildThirdPartyMessage, mentionsWaiting, ensureHolding, buildReminderNotice, REMINDER_MINUTES, guide, toolSpec, buildQuestionNotice, relayPrompt, HOLDING_FALLBACK, QUESTION_MAX };

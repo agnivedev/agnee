@@ -109,3 +109,79 @@ test('jadwal pengingat 5 mnt, 15 mnt, 2 jam, 12 jam dan pengingat terakhir menye
   assert.match(last, /12 jam/);
   assert.match(departmentAsk.buildReminderNotice({ department: 'Product', question: 'q', customerLabel: '+62', reminderCount: 2, final: false }), /2\/4/);
 });
+
+// ---- pihak ketiga -------------------------------------------------------
+
+async function tpApp(t, { sender = null } = {}) {
+  const calls = { recorded: [], captured: [], notified: [], created: [], audits: [], replies: [] };
+  const sup2 = { id: '44444444-4444-4444-8444-444444444444', companyId: 'co-1', email: 's2@t.test', displayName: 'S2', role: 'owner' };
+  const ag = { id: '55555555-5555-4555-8555-555555555555', companyId: 'co-1', email: 'a2@t.test', displayName: 'A2', role: 'agent' };
+  const users = { [sup2.email]: sup2, [ag.email]: ag };
+  const database = {
+    enabled: true, connected: true,
+    async connect() {}, async close() {},
+    status() { return { driver: 'postgresql', connected: true }; },
+    async authenticateUser(email, password) { return password === 'pass-12345' ? users[email] || null : null; },
+    async getActiveSessionUser(userId) { return { ...Object.values(users).find((u) => u.id === userId), isPlatformAdmin: false }; },
+    async setPresence() {}, async setLastCompany() {},
+    async listCompaniesForUser() { return [{ id: 'co-1' }]; },
+    async recordAuditLog(e) { calls.audits.push(e); return { id: 1 }; },
+    async listThirdParties() { return []; },
+    async createThirdParty(b) { calls.created.push(b); return { id: 'tp-1', ...b, active: true }; },
+    async findThirdPartySender(_c, chatId) { return sender && chatId === sender.chatId ? sender.hit : null; },
+    async captureThirdPartyReply(id, text) { calls.captured.push([id, text]); return { id, chatId: '62811@c.us', thirdParty: 'Toko Semen', first: true }; },
+    async notifySupervisors(n) { calls.notified.push(n); },
+    async recordInboundMessage(_c, m) { calls.recorded.push(m); return true; },
+    async markFollowUpReplied() {}, async stopFollowUpSequence() {}, async upsertContactName() {},
+  };
+  const server = await buildApp({ logger: false, startupEnabled: false, demoMode: true, database, sessionSecret: 'mem-session' });
+  t.after(() => server.close());
+  const login = async (email) => (await server.inject({ method: 'POST', url: '/v1/auth/login', payload: { email, password: 'pass-12345' } })).headers['set-cookie'].split(';')[0];
+  return { server, calls, supCookie: await login(sup2.email), agentCookie: await login(ag.email) };
+}
+
+test('pihak ketiga: hanya supervisor, nomor dinormalkan ke 62..., tag dibersihkan, tercatat audit', async (t) => {
+  const { server, calls, supCookie, agentCookie } = await tpApp(t);
+  const body = { name: 'Toko Semen', whatsappNumber: '0812-3456-789', tags: [' Semen ', 'semen', 'SUPPLIER'] };
+  assert.equal((await server.inject({ method: 'POST', url: '/v1/third-parties', headers: { cookie: agentCookie }, payload: body })).statusCode, 403);
+  assert.equal((await server.inject({ method: 'GET', url: '/v1/third-parties', headers: { cookie: agentCookie } })).statusCode, 403);
+  const res = await server.inject({ method: 'POST', url: '/v1/third-parties', headers: { cookie: supCookie }, payload: body });
+  assert.equal(res.statusCode, 201);
+  assert.equal(calls.created[0].whatsappNumber, '628123456789');
+  assert.deepEqual(calls.created[0].tags, ['semen', 'supplier']);
+  assert.ok(calls.audits.some((a) => a.action === 'third_party.created'));
+});
+
+test('balasan dari nomor pihak ketiga dicegat: tersimpan untuk ditinjau, bukan chat customer', async (t) => {
+  const hit = { thirdParty: { id: 'tp-1', name: 'Toko Semen' }, question: { id: 'q-1', status: 'open' } };
+  const { server, calls } = await tpApp(t, { sender: { chatId: '628123456789@c.us', hit } });
+  let replied = false;
+  await server.handleInboundMessage('co-1', {
+    from: '628123456789@c.us', body: 'Stok ada 200 sak, Rp 62rb/sak', type: 'chat', timestamp: 1,
+    id: { _serialized: 'm1' }, async reply() { replied = true; },
+  });
+  assert.deepEqual(calls.captured, [['q-1', 'Stok ada 200 sak, Rp 62rb/sak']]);
+  assert.equal(calls.notified.length, 1, 'supervisor dipanggil untuk meninjau');
+  assert.equal(calls.recorded.length, 0, 'supplier tidak tercatat sebagai pesan customer');
+  assert.equal(replied, false, 'AI tidak membalas supplier');
+});
+
+test('pesan pihak ketiga tanpa pertanyaan terbuka diabaikan; customer biasa tetap lewat jalur normal', async (t) => {
+  const hit = { thirdParty: { id: 'tp-1', name: 'Toko Semen' }, question: null };
+  const { server, calls } = await tpApp(t, { sender: { chatId: '628123456789@c.us', hit } });
+  const msg = (from) => ({ from, body: 'halo', type: 'chat', timestamp: 1, id: { _serialized: `m-${from}` }, async reply() {} });
+  await server.handleInboundMessage('co-1', msg('628123456789@c.us'));
+  assert.equal(calls.captured.length, 0);
+  assert.equal(calls.recorded.length, 0);
+  await server.handleInboundMessage('co-1', msg('62899999@c.us'));
+  assert.equal(calls.recorded.length, 1, 'customer biasa tetap dicatat');
+});
+
+test('pesan ke pihak ketiga tidak memuat data customer dan prompt relay tidak menyebut nama supplier', () => {
+  const m = departmentAsk.buildThirdPartyMessage({ companyName: 'Toko Bangunan X', partyName: 'Toko Semen', question: 'Stok semen 50kg ada?' });
+  assert.match(m, /Toko Bangunan X/);
+  assert.doesNotMatch(m, /\+62|customer/i);
+  assert.match(departmentAsk.relayPrompt({ customerText: 'c', question: 'q', answer: 'a', department: 'x', external: true }), /JANGAN menyebut nama supplier/);
+  const spec = departmentAsk.toolSpecThirdParty({ parties: [{ name: 'A', tags: ['x'] }], run: () => ({}) });
+  assert.deepEqual(spec.parameters.properties.party.enum, ['A']);
+});

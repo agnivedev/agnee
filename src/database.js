@@ -1409,11 +1409,16 @@ class Database {
 
   async listDepartmentQuestions(companyId, { userId = null, status = 'open', limit = 50 } = {}) {
     if (!this.enabled) return [];
+    // Pertanyaan ke pihak ketiga tidak punya departemen: hanya terlihat saat
+    // userId null (supervisor), tidak oleh anggota biasa.
     const result = await this.pool.query(`
       SELECT q.id, q.chat_id AS "chatId", q.customer_text AS "customerText", q.question, q.status, q.answer,
-             q.created_at AS "createdAt", q.answered_at AS "answeredAt", d.id AS "departmentId", d.name AS department
+             q.created_at AS "createdAt", q.answered_at AS "answeredAt", d.id AS "departmentId",
+             COALESCE(d.name, tp.name) AS department, tp.name AS "thirdParty",
+             q.third_party_reply AS "thirdPartyReply"
       FROM department_questions q
       LEFT JOIN departments d ON d.id = q.department_id
+      LEFT JOIN third_parties tp ON tp.id = q.third_party_id
       WHERE q.company_id = $1 AND q.status = $2
         AND ($3::uuid IS NULL OR EXISTS (
           SELECT 1 FROM department_members dm WHERE dm.department_id = q.department_id AND dm.user_id = $3))
@@ -1427,8 +1432,8 @@ class Database {
     if (!this.enabled) return null;
     const result = await this.pool.query(`
       UPDATE department_questions SET status = 'answered', answer = $3, answered_by = $4, answered_at = NOW()
-      WHERE id = $1 AND company_id = $2 AND status IN ('open', 'unresolved')
-      RETURNING id, chat_id AS "chatId", customer_text AS "customerText", question, answer
+      WHERE id = $1 AND company_id = $2 AND status IN ('open', 'unresolved', 'review')
+      RETURNING id, third_party_id AS "thirdPartyId", chat_id AS "chatId", customer_text AS "customerText", question, answer
     `, [id, companyId, String(answer).slice(0, 2000), userId || null]);
     return result.rows[0] || null;
   }
@@ -1452,11 +1457,26 @@ class Database {
           status = CASE WHEN reminder_count + 1 >= 4 THEN 'unresolved' ELSE status END
       WHERE q.status = 'open' AND q.reminder_count < 4
         AND q.created_at + make_interval(mins => (ARRAY[5, 15, 120, 720])[q.reminder_count + 1]) <= NOW()
-      RETURNING q.id, q.company_id AS "companyId", q.department_id AS "departmentId", q.chat_id AS "chatId",
+      RETURNING q.id, q.company_id AS "companyId", q.department_id AS "departmentId", q.third_party_id AS "thirdPartyId", q.chat_id AS "chatId",
                 q.question, q.reminder_count AS "reminderCount", (q.reminder_count >= 4) AS final
     `);
     const rows = [];
     for (const row of claimed.rows) {
+      if (row.thirdPartyId) {
+        // Pihak ketiga tak punya akun: yang diingatkan supervisor (lonceng saja).
+        const tp = await this.pool.query('SELECT name FROM third_parties WHERE id = $1', [row.thirdPartyId]);
+        const name = tp.rows[0]?.name || 'pihak ketiga';
+        const body = row.final
+          ? `${name} belum membalas setelah 12 jam; customer ditandai belum terjawab (menunggu pihak ketiga): ${String(row.question).slice(0, 300)}`
+          : `Pengingat ${row.reminderCount}/4: ${name} belum membalas pertanyaan AI: ${String(row.question).slice(0, 300)}`;
+        await this.pool.query(`
+          INSERT INTO notifications (company_id, user_id, kind, chat_id, actor_kind, body)
+          SELECT $1, user_id, 'department_question', $2, 'ai', $3 FROM company_members
+          WHERE company_id = $1 AND status = 'active' AND role IN ('owner', 'admin', 'supervisor')
+        `, [row.companyId, row.chatId, body]);
+        rows.push({ ...row, department: name, members: [] });
+        continue;
+      }
       const members = await this.pool.query(`
         SELECT u.id AS "userId", cm.whatsapp_number AS "whatsappNumber", d.name AS department
         FROM departments d
@@ -1487,6 +1507,130 @@ class Database {
       rows.push({ ...row, department, members: people });
     }
     return rows;
+  }
+
+  // ---- Pihak ketiga (migrasi 062) -----------------------------------------
+
+  async listThirdParties(companyId, { onlyActive = false } = {}) {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(`
+      SELECT id, name, whatsapp_number AS "whatsappNumber", notes, tags, active
+      FROM third_parties WHERE company_id = $1 ${onlyActive ? 'AND active' : ''}
+      ORDER BY lower(name)
+    `, [companyId]);
+    return result.rows;
+  }
+
+  async createThirdParty({ name, whatsappNumber, notes = '', tags = [] }, companyId) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      INSERT INTO third_parties (company_id, name, whatsapp_number, notes, tags)
+      VALUES ($1, $2, $3, $4, $5)
+      RETURNING id, name, whatsapp_number AS "whatsappNumber", notes, tags, active
+    `, [companyId, String(name).trim(), whatsappNumber, String(notes || '').trim(), tags]);
+    return result.rows[0];
+  }
+
+  async updateThirdParty(id, { name, whatsappNumber, notes, tags, active }, companyId) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      UPDATE third_parties SET
+        name = COALESCE($3, name), whatsapp_number = COALESCE($4, whatsapp_number),
+        notes = COALESCE($5, notes), tags = COALESCE($6, tags), active = COALESCE($7, active), updated_at = NOW()
+      WHERE id = $1 AND company_id = $2
+      RETURNING id, name, whatsapp_number AS "whatsappNumber", notes, tags, active
+    `, [id, companyId, name === undefined ? null : String(name).trim(), whatsappNumber ?? null,
+      notes === undefined ? null : String(notes).trim(), tags ?? null, active ?? null]);
+    return result.rows[0] || null;
+  }
+
+  async deleteThirdParty(id, companyId) {
+    if (!this.enabled) return false;
+    const result = await this.pool.query('DELETE FROM third_parties WHERE id = $1 AND company_id = $2', [id, companyId]);
+    return result.rowCount > 0;
+  }
+
+  /** Pertanyaan AI ke satu pihak ketiga; supervisor diberi lonceng informasi. */
+  async createThirdPartyQuestion({ thirdPartyId, chatId, customerText, question }, companyId) {
+    if (!this.enabled) return null;
+    const tp = await this.pool.query(
+      'SELECT id, name, whatsapp_number AS "whatsappNumber" FROM third_parties WHERE id = $1 AND company_id = $2 AND active',
+      [thirdPartyId, companyId],
+    );
+    if (!tp.rowCount) return null;
+    const created = await this.pool.query(`
+      INSERT INTO department_questions (company_id, third_party_id, chat_id, customer_text, question)
+      VALUES ($1, $2, $3, $4, $5) RETURNING id
+    `, [companyId, thirdPartyId, chatId, String(customerText || '').slice(0, 1000), String(question).slice(0, 1000)]);
+    await this.pool.query(`
+      INSERT INTO notifications (company_id, user_id, kind, chat_id, actor_kind, body)
+      SELECT $1, user_id, 'department_question', $2, 'ai', $3 FROM company_members
+      WHERE company_id = $1 AND status = 'active' AND role IN ('owner', 'admin', 'supervisor')
+    `, [companyId, chatId, `AI bertanya ke ${tp.rows[0].name}: ${String(question).slice(0, 400)}`]);
+    return { id: created.rows[0].id, thirdParty: tp.rows[0] };
+  }
+
+  /**
+   * Apakah pengirim pesan ini pihak ketiga terdaftar? Dicocokkan lewat nomor
+   * (chat @c.us) atau lewat lid_phone_map (chat @lid). Mengembalikan pihak itu
+   * dan pertanyaan terbukanya yang paling baru (atau status review yang masih
+   * bisa menerima tambahan balasan).
+   */
+  async findThirdPartySender(companyId, chatId) {
+    if (!this.enabled) return null;
+    const idPart = String(chatId).split('@')[0];
+    const tp = await this.pool.query(`
+      SELECT id, name FROM third_parties
+      WHERE company_id = $1 AND active AND (
+        whatsapp_number = $2
+        OR whatsapp_number = (SELECT regexp_replace(phone, '\\D', '', 'g') FROM lid_phone_map
+                              WHERE company_id = $1 AND lid IN ($2, $3) LIMIT 1))
+      LIMIT 1
+    `, [companyId, idPart, String(chatId)]);
+    if (!tp.rowCount) return null;
+    const q = await this.pool.query(`
+      SELECT id, status FROM department_questions
+      WHERE company_id = $1 AND third_party_id = $2 AND status IN ('open', 'review')
+      ORDER BY created_at DESC LIMIT 1
+    `, [companyId, tp.rows[0].id]);
+    return { thirdParty: tp.rows[0], question: q.rows[0] || null };
+  }
+
+  /**
+   * Menyimpan balasan pihak ketiga; berpindah ke 'review'. `first` benar hanya
+   * untuk balasan pertama, supaya supervisor dipanggil sekali, bukan per pesan.
+   */
+  async captureThirdPartyReply(questionId, text, companyId) {
+    if (!this.enabled) return null;
+    const before = await this.pool.query(
+      "SELECT status FROM department_questions WHERE id = $1 AND company_id = $2 AND status IN ('open', 'review')",
+      [questionId, companyId],
+    );
+    if (!before.rowCount) return null;
+    const result = await this.pool.query(`
+      UPDATE department_questions SET
+        third_party_reply = CASE WHEN third_party_reply IS NULL THEN $3 ELSE third_party_reply || ' ' || $3 END,
+        third_party_replied_at = NOW(), status = 'review'
+      WHERE id = $1 AND company_id = $2 AND status IN ('open', 'review')
+      RETURNING id, chat_id AS "chatId", question,
+                (SELECT name FROM third_parties WHERE id = third_party_id) AS "thirdParty"
+    `, [questionId, companyId, String(text).slice(0, 1500)]);
+    return result.rows[0] ? { ...result.rows[0], first: before.rows[0].status === 'open' } : null;
+  }
+
+  async getCompanyName(companyId) {
+    if (!this.enabled) return null;
+    const r = await this.pool.query('SELECT name FROM companies WHERE id = $1', [companyId]);
+    return r.rows[0]?.name || null;
+  }
+
+  async notifySupervisors({ chatId, body }, companyId) {
+    if (!this.enabled) return;
+    await this.pool.query(`
+      INSERT INTO notifications (company_id, user_id, kind, chat_id, actor_kind, body)
+      SELECT $1, user_id, 'department_question', $2, 'ai', $3 FROM company_members
+      WHERE company_id = $1 AND status = 'active' AND role IN ('owner', 'admin', 'supervisor')
+    `, [companyId, chatId, String(body).slice(0, 500)]);
   }
 
   /** Nomor yang diberi tahu saat AI menjanjikan meneruskan ke manusia (migrasi 052). */

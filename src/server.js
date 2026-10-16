@@ -863,6 +863,16 @@ async function buildApp(overrides = {}) {
   async function handleInboundMessage(companyId, message, meta = {}) {
     // Patokan jeda balasan: kapan customer menulis, bukan kapan balasan siap.
     const receivedAt = Date.now();
+    // Pihak ketiga terdaftar (supplier/pabrik) bukan customer: dicegat sebelum
+    // tercatat sebagai chat customer atau dijawab AI.
+    if (!message.from.endsWith('@g.us') && canCall('findThirdPartySender')) {
+      const hit = await database.findThirdPartySender(companyId, message.from).catch(() => null);
+      if (hit) {
+        await captureThirdPartyMessage(companyId, hit, message)
+          .catch((error) => app.log.warn({ err: error, companyId }, 'Balasan pihak ketiga gagal disimpan'));
+        return;
+      }
+    }
     rememberInbound(companyId, message.from, message.body);
     // Catat pesan masuk supaya "pesan terakhir" tetap terbaca walau client
     // WhatsApp sedang bermasalah. Untuk jalur whatsapp-web.js, sebelum ini isi
@@ -1225,6 +1235,57 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
   }
 
   /**
+   * Alat ask_third_party: kirim pertanyaan (tanpa data customer) ke WhatsApp
+   * pihak ketiga. Balasannya dicegat di handleInboundMessage dan menunggu
+   * tinjauan staf. Gagal kirim = pertanyaan tidak dibuat, supaya customer tidak
+   * dijanjikan jawaban dari pesan yang tidak pernah terkirim.
+   */
+  async function askThirdParty({ companyId, chatId, customerText, parties, args }) {
+    const party = parties.find((p) => p.name === args.party);
+    const question = String(args.question || '').trim().slice(0, departmentAsk.QUESTION_MAX);
+    if (!party || !question) return { error: 'Pihak ketiga atau pertanyaan tidak valid.' };
+    const open = (await database.listDepartmentQuestions(companyId, { status: 'open', limit: 200 }).catch(() => []))
+      .find((q) => q.chatId === chatId && q.thirdParty === party.name);
+    if (open) return { status: 'already_asked' };
+    const message = departmentAsk.buildThirdPartyMessage({
+      companyName: await database.getCompanyName(companyId).catch(() => null), partyName: party.name, question,
+    });
+    const target = `${party.whatsappNumber}@c.us`;
+    let sent;
+    try {
+      sent = await sendOutbound(companyId, target, message);
+    } catch (error) {
+      app.log.warn({ err: error, companyId }, 'Pertanyaan ke pihak ketiga gagal terkirim');
+      return { error: 'Pesan ke pihak ketiga gagal terkirim.' };
+    }
+    await database.recordOutboundReply({ chatId: target, messageId: sent?.messageId || null, author: 'ai', body: message }, companyId).catch(() => {});
+    const created = await database.createThirdPartyQuestion({ thirdPartyId: party.id, chatId, customerText, question }, companyId);
+    if (!created) return { error: 'Pihak ketiga tidak ditemukan.' };
+    broadcastEvent(companyId, 'department_question', { id: created.id, department: party.name });
+    return { status: 'sent' };
+  }
+
+  /**
+   * Pesan dari nomor pihak ketiga terdaftar: BUKAN customer. Disimpan sebagai
+   * balasan atas pertanyaan terbukanya (menunggu tinjauan staf); tanpa
+   * pertanyaan terbuka diabaikan. Dalam kedua kasus AI tidak membalas dan
+   * pengirim tidak masuk Lead List.
+   */
+  async function captureThirdPartyMessage(companyId, hit, message) {
+    const text = String(message.body || '').trim() || '[lampiran]';
+    if (!hit.question) {
+      app.log.info({ companyId, party: hit.thirdParty.name }, 'Pesan dari pihak ketiga tanpa pertanyaan terbuka diabaikan');
+      return;
+    }
+    const row = await database.captureThirdPartyReply(hit.question.id, text, companyId);
+    if (row?.first) {
+      await database.notifySupervisors({ chatId: row.chatId, body: `${row.thirdParty} membalas pertanyaan AI. Periksa lalu teruskan ke customer: ${text.slice(0, 300)}` }, companyId)
+        .catch(() => {});
+      broadcastEvent(companyId, 'department_question', { id: row.id, department: row.thirdParty });
+    }
+  }
+
+  /**
    * Alat ask_department: simpan pertanyaan, beri tahu SEMUA anggota departemen
    * (lonceng di Agnee + WhatsApp bila nomornya diisi). Satu pertanyaan terbuka
    * per chat per departemen supaya model yang mengulang tidak membanjiri.
@@ -1267,7 +1328,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     const ctx = await buildReplyContext({ companyId, text: row.customerText, chatId: row.chatId });
     const result = await llmService.generateReply(
       departmentAsk.relayPrompt({
-        customerText: row.customerText, question: row.question, answer: row.answer, department: row.department || 'terkait',
+        customerText: row.customerText, question: row.question, answer: row.answer, department: row.department || 'terkait', external: Boolean(row.thirdPartyId),
       }),
       { systemPrompt: ctx.systemPrompt, companyId, purpose: 'auto_reply', modelChain: companyAi.modelChain },
     ).catch(() => null);
@@ -1361,19 +1422,35 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     let departmentTools = [];
     let departmentGuide = '';
     const departmentAsked = [];
+    if (allowDepartments && chatId && dbLive && canCall('listThirdParties') && !ks) {
+      const parties = (await database.listThirdParties(companyId, { onlyActive: true }).catch(() => []))
+        .filter((p) => p.tags.length > 0);
+      if (parties.length) {
+        departmentTools.push(departmentAsk.toolSpecThirdParty({
+          parties,
+          run: async (args = {}) => {
+            const out = await askThirdParty({ companyId, chatId, customerText: text, parties, args });
+            // Nama pihak ketiga tidak boleh sampai ke customer.
+            if (out.status === 'sent' || out.status === 'already_asked') departmentAsked.push('terkait');
+            return out;
+          },
+        }));
+        departmentGuide = departmentAsk.guideThirdParties(parties);
+      }
+    }
     if (allowDepartments && chatId && dbLive && canCall('listDepartments') && !ks) {
       const departments = (await database.listDepartments(companyId).catch(() => []))
         .filter((d) => d.members.length > 0);
       if (departments.length) {
-        departmentTools = [departmentAsk.toolSpec({
+        departmentTools.push(departmentAsk.toolSpec({
           departments,
           run: async (args = {}) => {
             const out = await askDepartment({ companyId, chatId, customerText: text, departments, args });
             if (out.status === 'sent' || out.status === 'already_asked') departmentAsked.push(out.department);
             return out;
           },
-        })];
-        departmentGuide = departmentAsk.guide(departments);
+        }));
+        departmentGuide = [departmentAsk.guide(departments), departmentGuide].filter(Boolean).join('\n\n');
       }
     }
     const contextSections = [
@@ -3616,6 +3693,73 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     return { ok: true };
   });
 
+  // ---- Pihak ketiga (supplier, pabrik, dll.) ----------------------------
+  const tpStore = () => database.status().connected && typeof database.listThirdParties === 'function';
+  const cleanTags = (tags) => [...new Set((tags || []).map((t) => String(t).trim().toLowerCase().slice(0, 30)).filter(Boolean))].slice(0, 12);
+  const tpNumber = (raw) => {
+    try { return normalizeChatId(String(raw), config.defaultCountryCode).split('@')[0]; } catch { return null; }
+  };
+  const TP_BODY = {
+    name: { type: 'string', minLength: 2, maxLength: 80 },
+    whatsappNumber: { type: 'string', minLength: 8, maxLength: 30 },
+    notes: { type: 'string', maxLength: 300 },
+    tags: { type: 'array', maxItems: 12, items: { type: 'string', minLength: 1, maxLength: 30 } },
+  };
+
+  app.get('/v1/third-parties', async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor.' });
+    if (!tpStore()) return { thirdParties: [] };
+    return { thirdParties: await database.listThirdParties(request.agneeSession.companyId) };
+  });
+
+  app.post('/v1/third-parties', {
+    schema: { body: { type: 'object', additionalProperties: false, required: ['name', 'whatsappNumber'], properties: TP_BODY } },
+  }, async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor.' });
+    if (!tpStore()) return reply.code(503).send({ error: 'Penyimpanan belum tersedia.' });
+    const number = tpNumber(request.body.whatsappNumber);
+    if (!number) return reply.code(400).send({ error: 'Nomor WhatsApp tidak valid.' });
+    try {
+      const party = await database.createThirdParty({ ...request.body, whatsappNumber: number, tags: cleanTags(request.body.tags) }, request.agneeSession.companyId);
+      await catatAudit(request, 'third_party.created', { entityType: 'third_party', entityId: party.id, metadata: { name: party.name } });
+      return reply.code(201).send({ thirdParty: party });
+    } catch (error) {
+      if (error?.code === '23505') return reply.code(409).send({ error: 'Nama pihak ketiga itu sudah dipakai.' });
+      throw error;
+    }
+  });
+
+  app.patch('/v1/third-parties/:id', {
+    schema: { params: UUID_PARAM, body: { type: 'object', additionalProperties: false, minProperties: 1, properties: { ...TP_BODY, active: { type: 'boolean' } } } },
+  }, async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor.' });
+    if (!tpStore()) return reply.code(503).send({ error: 'Penyimpanan belum tersedia.' });
+    const body = { ...request.body };
+    if (body.whatsappNumber !== undefined) {
+      body.whatsappNumber = tpNumber(body.whatsappNumber);
+      if (!body.whatsappNumber) return reply.code(400).send({ error: 'Nomor WhatsApp tidak valid.' });
+    }
+    if (body.tags !== undefined) body.tags = cleanTags(body.tags);
+    try {
+      const party = await database.updateThirdParty(request.params.id, body, request.agneeSession.companyId);
+      if (!party) return reply.code(404).send({ error: 'Pihak ketiga tidak ditemukan.' });
+      await catatAudit(request, 'third_party.updated', { entityType: 'third_party', entityId: party.id, metadata: { fields: Object.keys(request.body) } });
+      return { thirdParty: party };
+    } catch (error) {
+      if (error?.code === '23505') return reply.code(409).send({ error: 'Nama pihak ketiga itu sudah dipakai.' });
+      throw error;
+    }
+  });
+
+  app.delete('/v1/third-parties/:id', { schema: { params: UUID_PARAM } }, async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor.' });
+    if (!tpStore()) return reply.code(503).send({ error: 'Penyimpanan belum tersedia.' });
+    const removed = await database.deleteThirdParty(request.params.id, request.agneeSession.companyId);
+    if (!removed) return reply.code(404).send({ error: 'Pihak ketiga tidak ditemukan.' });
+    await catatAudit(request, 'third_party.deleted', { entityType: 'third_party', entityId: request.params.id });
+    return reply.code(204).send();
+  });
+
   // Nomor WhatsApp anggota untuk dipanggil saat ada pertanyaan AI.
   app.put('/v1/team/members/:id/whatsapp', {
     schema: { params: UUID_PARAM, body: { type: 'object', additionalProperties: false, required: ['number'], properties: {
@@ -3637,7 +3781,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
 
   // Pertanyaan AI. Supervisor melihat semua; anggota biasa hanya departemennya.
   app.get('/v1/department-questions', {
-    schema: { querystring: { type: 'object', properties: { status: { type: 'string', enum: ['open', 'answered', 'expired', 'unresolved'], default: 'open' } } } },
+    schema: { querystring: { type: 'object', properties: { status: { type: 'string', enum: ['open', 'answered', 'expired', 'unresolved', 'review'], default: 'open' } } } },
   }, async (request) => {
     if (!deptStore()) return { questions: [] };
     const s = request.agneeSession;
@@ -3659,6 +3803,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     const visible = [
       ...(await database.listDepartmentQuestions(s.companyId, { ...scope, status: 'open' })),
       ...(await database.listDepartmentQuestions(s.companyId, { ...scope, status: 'unresolved' })),
+      ...(await database.listDepartmentQuestions(s.companyId, { ...scope, status: 'review' })),
     ];
     const target = visible.find((q) => q.id === request.params.id);
     if (!target) return reply.code(404).send({ error: 'Pertanyaan tidak ditemukan, sudah dijawab, atau bukan untuk departemenmu.' });
@@ -9638,6 +9783,7 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     },
   });
   app.decorate('followUpScheduler', followUpScheduler);
+  app.decorate('handleInboundMessage', handleInboundMessage);
 
   const costAlertMonitor = new CostAlertMonitor({
     database,

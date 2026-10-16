@@ -82,13 +82,15 @@ function fakeLlm(state) {
   return {
     enabled: true, model: 'tiruan',
     async generateReply(message, options) {
-      state.last = { message, ...options };
+      const repair = (options.tools || []).length === 1 && options.maxToolCalls === 1;
+      state.calls = (state.calls || 0) + 1;
+      if (repair) state.repairMessage = message; else state.last = { message, ...options };
       state.results = [];
       const byName = new Map((options.tools || []).map((t) => [t.name, t]));
-      for (const [name, args] of state.script || []) {
+      for (const [name, args] of (repair ? state.repairScript : state.script) || []) {
         try { state.results.push({ name, out: await byName.get(name).run(args) }); } catch (error) { state.results.push({ name, error: error.message }); }
       }
-      return { text: 'Usulannya sudah kusiapkan, cek lalu Terapkan.', model: 'tiruan' };
+      return { text: state.text || 'Usulannya sudah kusiapkan, cek lalu Terapkan.', model: 'tiruan' };
     },
   };
 }
@@ -360,4 +362,52 @@ test('ask_choices: satu rekomendasi di urutan pertama; pilihan jamak tanpa rekom
   assert.equal((await chat(a, 'lagi')).json().question, null);
   assert.match(state.results[0].error, /dua pilihan/);
   assert.deepEqual(database.writes, []);
+});
+
+test('pertanyaan terbuka tanpa kartu diubah jadi kartu pilihan oleh server; gagal = tetap teks', async (t) => {
+  const { chat, a, state } = await setup(t);
+  state.script = [];
+  state.text = 'Mari mulai dari larangan.\n\nApa saja topik yang tidak boleh dibahas AI?';
+  state.repairScript = [['ask_choices', { question: 'Topik apa yang dilarang?', multiple: true, options: [{ label: 'Harga kompetitor' }, { label: 'Janji profit' }, { label: 'Hal pribadi' }] }]];
+  const res = await chat(a, 'bantu isi larangan');
+  const body = res.json();
+  assert.equal(body.question.multiple, true);
+  assert.equal(body.question.options.length, 3);
+  assert.equal(body.reply, 'Mari mulai dari larangan.', 'pertanyaan tidak tampil dua kali');
+  assert.match(state.repairMessage, /topik yang tidak boleh/);
+  assert.match(body.memo, /Pertanyaan yang kuajukan/);
+
+  // Perbaikan gagal (model tidak memanggil alat): balasan asli utuh, tanpa kartu.
+  state.repairScript = [];
+  const plain = (await chat(a, 'lagi')).json();
+  assert.equal(plain.question, null);
+  assert.match(plain.reply, /Apa saja topik/);
+
+  // Bukan pertanyaan: tidak ada panggilan kedua.
+  state.text = 'Usulannya siap untuk playbook `qna`.';
+  state.calls = 0;
+  const done = await chat(a, 'ok');
+  assert.equal(state.calls, 1);
+  assert.equal(done.json().reply, 'Usulannya siap untuk playbook tanya-jawab.', 'kode teknis diganti nama biasa');
+});
+
+test('pertanyaan lanjutan setelah usulan juga jadi kartu, dan usulan tidak hilang', async (t) => {
+  const { chat, a, state } = await setup(t);
+  state.script = [['propose_playbook_edit', { kind: 'compliance', summary: 'Larang janji diskon', edits: [{ action: 'append', text: '- Jangan menjanjikan diskon.' }] }]];
+  state.text = 'Usulannya sudah kusiapkan, cek lalu Terapkan.\n\nSelanjutnya kita isi tanya-jawab. Pertanyaan apa yang paling sering ditanya customer?';
+  state.repairScript = [['ask_choices', { question: 'Pertanyaan paling sering?', options: [{ label: 'Harga', recommended: true }, { label: 'Jadwal' }] }]];
+  const body = (await chat(a, 'oke')).json();
+  assert.equal(body.proposals.length, 1);
+  assert.equal(body.question.options[0].recommended, true);
+  assert.equal(body.reply, 'Usulannya sudah kusiapkan, cek lalu Terapkan.');
+});
+
+test('kalimat tanya di ujung satu paragraf tidak diulang di teks; kode jenis dokumen disamarkan', async (t) => {
+  const { chat, a, state } = await setup(t);
+  state.script = [];
+  state.text = 'Mari mulai dengan playbook larangan (compliance). Isinya batasan untuk AI. Apa saja yang dilarang?';
+  state.repairScript = [['ask_choices', { question: 'Apa yang dilarang?', options: [{ label: 'Janji profit' }, { label: 'Harga kompetitor' }] }]];
+  const body = (await chat(a, 'mulai')).json();
+  assert.equal(body.reply, 'Mari mulai dengan playbook larangan. Isinya batasan untuk AI.');
+  assert.ok(body.question);
 });

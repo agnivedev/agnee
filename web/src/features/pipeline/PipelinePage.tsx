@@ -131,7 +131,9 @@ export function PipelinePage() {
                       onClick={() =>
                         navigate(
                           `/?chat=${encodeURIComponent(lead.chatId)}` +
-                            (lead.title ? `&title=${encodeURIComponent(lead.title)}` : ''),
+                            (lead.contactName || lead.phone
+              ? `&title=${encodeURIComponent(lead.contactName || `+${lead.phone}`)}`
+              : ''),
                         )
                       }
                       className="grid cursor-grab gap-1.5 rounded-xl border border-border bg-white/80 p-2.5 text-left active:cursor-grabbing"

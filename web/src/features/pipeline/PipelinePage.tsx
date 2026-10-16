@@ -136,8 +136,13 @@ export function PipelinePage() {
                       }
                       className="grid cursor-grab gap-1.5 rounded-xl border border-border bg-white/80 p-2.5 text-left active:cursor-grabbing"
                     >
-                      <strong className="text-[13px]">{lead.title || lead.phone}</strong>
-                      <span className="text-[11px] text-muted">{lead.phone}</span>
+                      <strong className="text-[13px]">
+                        {lead.contactName || (lead.phone ? `+${lead.phone}` : lead.title) || t('pipeline.unnamed')}
+                      </strong>
+                      {lead.contactName && lead.title && lead.title !== lead.contactName ? (
+                        <span className="text-[12px]">{lead.title}</span>
+                      ) : null}
+                      {lead.phone ? <span className="text-[11px] text-muted">+{lead.phone}</span> : null}
                       {lead.detail ? (
                         <span className="line-clamp-2 text-[11px] text-muted">{lead.detail}</span>
                       ) : null}

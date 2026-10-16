@@ -5991,12 +5991,11 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
       waiting,
       followUpTotal,
       chats: chats.map((chat, index) => {
-        const lastCustomer = [...chat.messages].reverse().find((m) => !m.fromMe)?.body;
         const entry = digest.get(index + 1);
         return {
           ...chat,
           name: reportChats.displayName(chat),
-          summary: entry?.summary || chat.storedSummary || lastCustomer || '',
+          summary: entry?.summary || chat.storedSummary || reportChats.fallbackSummary(chat),
           nextStep: entry?.nextStep || null,
         };
       }),

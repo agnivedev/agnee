@@ -19,7 +19,7 @@ test('customer menunggu dan AI yang memegang: AI yang bergerak, kecuali sudah la
 test('chat yang dipegang agent: tindakan dan penanggung jawabnya agent itu', () => {
   const info = c.describeChat({ ...base, handlingMode: 'human', assigneeName: 'Sari', lastInboundAt: '2026-10-15T09:00:00Z' }, NOW);
   assert.equal(info.owner, 'Sari');
-  assert.equal(info.action, 'Balas customer');
+  assert.equal(info.action, 'Balas customer dan tanyakan kebutuhannya');
 });
 
 test('giliran customer: tidak ada yang harus membalas; lead panas dialihkan ke tim', () => {
@@ -57,6 +57,17 @@ test('displayName: nama kontak, kalau tidak ada nomornya', () => {
   assert.equal(c.displayName({ contactName: 'Budi', chatId: '6281@c.us' }), 'Budi');
   assert.equal(c.displayName({ chatId: '6281234@c.us' }), '+6281234');
   assert.equal(c.displayName({ phone: '62899', chatId: '123@lid' }), '+62899');
-  assert.equal(c.displayName({ chatId: '148268311020@lid' }), 'Customer WhatsApp (nomor tersembunyi)');
+  assert.equal(c.displayName({ chatId: '148268311020@lid' }), 'Customer WhatsApp (nama & nomor belum terbaca)');
   assert.equal(c.displayName({}), 'Customer');
+});
+
+test('displayName: judul lead dipakai bila tak ada nama dan nomor', () => {
+  assert.equal(c.displayName({ chatId: '1@lid', leadTitle: 'ALFIAN · Valetax' }), 'ALFIAN · Valetax');
+});
+
+test('fallbackSummary: teks, detail lead, lalu jenis media; tak pernah kosong', () => {
+  assert.equal(c.fallbackSummary({ messages: [{ fromMe: false, body: 'Halo' }] }), 'Halo');
+  assert.equal(c.fallbackSummary({ messages: [], leadDetail: 'Tanya rebate' }), 'Tanya rebate');
+  assert.match(c.fallbackSummary({ messages: [], lastInboundType: 'video' }), /video/);
+  assert.ok(c.fallbackSummary({ messages: [] }).length > 10);
 });

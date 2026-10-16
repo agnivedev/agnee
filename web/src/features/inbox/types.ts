@@ -103,7 +103,8 @@ export type Lead = {
 /** Satu baris dari GET /v1/leads/pipeline — dipakai board Kanban. */
 export type PipelineLead = {
   chatId: string;
-  phone: string;
+  phone?: string | null;
+  contactName?: string | null;
   title?: string | null;
   detail?: string | null;
   pipelineStage: PipelineStage;

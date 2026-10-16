@@ -61,7 +61,10 @@ function describeChat(chat, now = new Date()) {
     // AI yang diam terlalu lama berarti ada yang macet: pindahkan ke manusia.
     const silent = !human && hoursSince(lastIn, now) >= AI_SILENT_HOURS;
     if (silent) owner = 'Tim (AI belum membalas)';
-    fallback = hot ? 'Balas dan dorong ke closing' : 'Balas customer';
+    const media = !chat.messages?.some((m) => !m.fromMe) && MEDIA_LABEL[chat.lastInboundType];
+    fallback = hot ? 'Balas dan dorong ke closing'
+      : media ? `Lihat ${media} dari customer, lalu balas dan tanyakan kebutuhannya`
+        : 'Balas customer dan tanyakan kebutuhannya';
   } else {
     fallback = hot ? 'Follow-up untuk closing' : 'Tunggu balasan; follow-up bila 1–2 hari tanpa kabar';
     if (hot && !human) owner = 'Tim (lead panas)';
@@ -177,12 +180,34 @@ function buildDigestPrompt(chats) {
  */
 function displayName(row) {
   if (row.contactName) return row.contactName;
-  if (!row.phone && String(row.chatId || '').endsWith('@lid')) return 'Customer WhatsApp (nomor tersembunyi)';
-  const digits = String(row.phone || row.chatId || '').split('@')[0].replace(/\D/g, '');
-  return digits ? `+${digits}` : 'Customer';
+  const lid = !row.phone && String(row.chatId || '').endsWith('@lid');
+  const digits = lid ? '' : String(row.phone || row.chatId || '').split('@')[0].replace(/\D/g, '');
+  if (digits) return `+${digits}`;
+  // Judul lead (mis. dari form website: "Nama · Produk") lebih berguna daripada "tanpa nama".
+  const title = String(row.leadTitle || '').trim();
+  if (title) return title;
+  return lid ? 'Customer WhatsApp (nama & nomor belum terbaca)' : 'Customer';
+}
+
+const MEDIA_LABEL = {
+  image: 'foto', video: 'video', audio: 'pesan suara', ptt: 'pesan suara', document: 'dokumen',
+  sticker: 'stiker', location: 'lokasi',
+};
+
+/**
+ * Isi ringkas bila model dan ringkasan tersimpan tidak ada: pesan teks terakhir
+ * customer, lalu detail lead, lalu jenis pesan non-teks yang dikirim.
+ */
+function fallbackSummary(chat) {
+  const lastText = [...(chat.messages || [])].reverse().find((m) => !m.fromMe)?.body;
+  if (lastText) return lastText;
+  if (chat.leadDetail) return chat.leadDetail;
+  const media = MEDIA_LABEL[chat.lastInboundType];
+  if (media) return `Customer mengirim ${media} tanpa keterangan teks.`;
+  return 'Customer menghubungi tetapi belum ada pesan teks yang bisa diringkas.';
 }
 
 module.exports = {
   STAGE_LABEL, AI_SILENT_HOURS, MAX_MESSAGE_LENGTH, HEADING,
-  describeChat, formatChat, formatChatDetails, chunkChatDetails, MAX_DETAIL_MESSAGES, parseChatDigest, buildDigestPrompt, displayName,
+  describeChat, formatChat, formatChatDetails, chunkChatDetails, MAX_DETAIL_MESSAGES, parseChatDigest, buildDigestPrompt, displayName, fallbackSummary,
 };

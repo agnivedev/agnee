@@ -416,16 +416,21 @@ class Database {
   async listPipelineLeads(companyId, limit = 500) {
     if (!this.enabled) return [];
     const result = await this.pool.query(`
-      SELECT chat_id AS "chatId",
-        regexp_replace(chat_id, '@.*$', '') AS "phone",
-        title, detail,
-        pipeline_stage AS "pipelineStage",
-        pipeline_stage_suggested AS "pipelineStageSuggested",
-        pipeline_stage_suggested_reason AS "pipelineStageSuggestedReason",
-        pipeline_stage_updated_at AS "pipelineStageUpdatedAt"
-      FROM lead_states
-      WHERE company_id = $1
-      ORDER BY pipeline_stage, updated_at DESC
+      SELECT ls.chat_id AS "chatId",
+        CASE WHEN ls.chat_id LIKE '%@lid' THEN lp.phone
+             ELSE regexp_replace(ls.chat_id, '@.*$', '') END AS "phone",
+        COALESCE(cn.name, CASE WHEN ls.pipeline_stage_updated_by = 'website-lead' THEN ls.title END) AS "contactName",
+        ls.title, ls.detail,
+        ls.pipeline_stage AS "pipelineStage",
+        ls.pipeline_stage_suggested AS "pipelineStageSuggested",
+        ls.pipeline_stage_suggested_reason AS "pipelineStageSuggestedReason",
+        ls.pipeline_stage_updated_at AS "pipelineStageUpdatedAt"
+      FROM lead_states ls
+      LEFT JOIN contact_names cn ON cn.company_id = ls.company_id AND cn.chat_id = ls.chat_id
+      LEFT JOIN lid_phone_map lp ON lp.company_id = ls.company_id AND ls.chat_id LIKE '%@lid'
+        AND lp.lid = split_part(ls.chat_id, '@', 1)
+      WHERE ls.company_id = $1
+      ORDER BY ls.pipeline_stage, ls.updated_at DESC
       LIMIT $2
     `, [companyId, limit]);
     return result.rows;
@@ -1703,6 +1708,10 @@ class Database {
                (SELECT o.created_at FROM outbound_replies o
                  WHERE o.company_id = $1 AND o.chat_id = a.chat_id AND o.created_at < $3
                  ORDER BY o.created_at DESC LIMIT 1) AS last_out,
+               (SELECT i.message_type FROM inbound_messages i
+                 WHERE i.company_id = $1 AND i.chat_id = a.chat_id AND i.created_at < $3
+                 ORDER BY i.created_at DESC LIMIT 1) AS last_in_type,
+               ls.title AS lead_title, ls.detail AS lead_detail,
                COALESCE(ls.pipeline_stage, 'cold') AS stage,
                COALESCE(r.handling_mode, 'ai') AS mode, COALESCE(r.status, 'open') AS routing_status,
                COALESCE(r.priority, 'normal') AS priority,
@@ -1767,6 +1776,7 @@ class Database {
       chats: ranked.rows.map((row) => ({
         chatId: row.chat_id, inboundCount: row.n,
         contactName: row.contact_name, phone: row.phone,
+        lastInboundType: row.last_in_type, leadTitle: row.lead_title, leadDetail: row.lead_detail,
         stage: row.stage, handlingMode: row.mode, assigneeName: row.assignee_name,
         routingStatus: row.routing_status, priority: row.priority,
         lastInboundAt: row.last_in, lastOutboundAt: row.last_out,

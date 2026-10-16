@@ -84,7 +84,7 @@ async function install({ database, companyId, userId, template, sections }) {
     done.playbook = Object.keys(t.playbook).length;
   }
   if (sections.includes('facts') && t.facts) {
-    for (const f of t.facts) await database.upsertPlaybookFact({ ...f, source: 'template' }, userId, companyId);
+    for (const f of t.facts) await database.upsertPlaybookFact({ ...f, source: 'manual' }, userId, companyId);
     done.facts = t.facts.length;
   }
   if (sections.includes('brief') && typeof t.brief === 'string' && t.brief.trim()) {

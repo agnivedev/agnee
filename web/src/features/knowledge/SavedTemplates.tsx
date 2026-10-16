@@ -88,7 +88,8 @@ export function SavedTemplates({ onApplied }: { onApplied: () => void }) {
   }
 
   const line = (section: Section, value: Record<string, unknown>) => {
-    const parts = Object.entries(value).map(([k, v]) => `${t(`savedTpl.diff.${k}`)}: ${typeof v === 'boolean' ? t(v ? 'savedTpl.yes' : 'savedTpl.no') : String(v)}`);
+    const show = (k: string, v: unknown) => (typeof v === 'boolean' ? t(v ? 'savedTpl.yes' : 'savedTpl.no') : k === 'to' ? t(`savedTpl.identity.${String(v)}`) : String(v));
+    const parts = Object.entries(value).map(([k, v]) => `${t(`savedTpl.diff.${k}`)}: ${show(k, v)}`);
     return `${t(`savedTpl.section.${section}`)} · ${parts.join(', ')}`;
   };
 

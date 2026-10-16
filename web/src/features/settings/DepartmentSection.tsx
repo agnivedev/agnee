@@ -16,6 +16,7 @@ type Question = {
   question: string;
   department: string | null;
   createdAt: string;
+  status?: 'open' | 'unresolved';
 };
 
 /** Departemen yang bisa ditanya AI, dan anggota yang menjawabnya. */
@@ -218,8 +219,14 @@ export function DepartmentQuestionsSection() {
 
   const load = useCallback(async () => {
     try {
-      const data = await api<{ questions: Question[] }>('/v1/department-questions');
-      setQuestions(data.questions || []);
+      const [open, stuck] = await Promise.all([
+        api<{ questions: Question[] }>('/v1/department-questions'),
+        api<{ questions: Question[] }>('/v1/department-questions?status=unresolved'),
+      ]);
+      setQuestions([
+        ...(open.questions || []).map((q) => ({ ...q, status: 'open' as const })),
+        ...(stuck.questions || []).map((q) => ({ ...q, status: 'unresolved' as const })),
+      ]);
     } catch (error) {
       setStatus(messageFromError(error, ''));
     }
@@ -252,7 +259,10 @@ export function DepartmentQuestionsSection() {
               await load();
             }}
           >
-            <small className="font-mono text-[10px] uppercase text-muted">{q.department}</small>
+            <small className="font-mono text-[10px] uppercase text-muted">
+              {q.department}
+              {q.status === 'unresolved' ? ` · ${t('deptq.unresolved')}` : ''}
+            </small>
             <strong className="text-[13px]">{q.question}</strong>
             <textarea
               name="answer"

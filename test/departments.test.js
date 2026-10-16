@@ -95,3 +95,17 @@ test('kelima tindakan departemen tercatat di audit, tanpa isi jawaban', async (t
   assert.ok(!JSON.stringify(calls.audits).includes('RAHASIA-JAWABAN'), 'isi jawaban tidak boleh masuk audit');
   assert.ok(calls.audits.every((a) => a.entityType.startsWith('department')));
 });
+
+test('kabar tunggu dipaksa: balasan tanpa kata tunggu ditambah teks cadangan', () => {
+  assert.match(departmentAsk.ensureHolding('', 'Product'), /tim Product/);
+  assert.match(departmentAsk.ensureHolding('Stoknya ada 5 pcs', 'Product'), /ditunggu sebentar/);
+  const ok = 'Baik kak, saya konfirmasikan dulu ya, mohon ditunggu.';
+  assert.equal(departmentAsk.ensureHolding(ok, 'Product'), ok);
+});
+
+test('jadwal pengingat 5 mnt, 15 mnt, 2 jam, 12 jam dan pengingat terakhir menyebut 12 jam', () => {
+  assert.deepEqual(departmentAsk.REMINDER_MINUTES, [5, 15, 120, 720]);
+  const last = departmentAsk.buildReminderNotice({ department: 'Product', question: 'q', customerLabel: '+62', reminderCount: 4, final: true });
+  assert.match(last, /12 jam/);
+  assert.match(departmentAsk.buildReminderNotice({ department: 'Product', question: 'q', customerLabel: '+62', reminderCount: 2, final: false }), /2\/4/);
+});

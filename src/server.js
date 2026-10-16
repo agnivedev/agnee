@@ -1287,7 +1287,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
    * so what a supervisor tests is what a customer actually gets. Testing
    * against a different context than production is worse than not testing.
    */
-  async function buildReplyContext({ companyId, text, chatId = null, productId = null, ks = null }) {
+  async function buildReplyContext({ companyId, text, chatId = null, productId = null, ks = null, allowDepartments = false }) {
     const kb = await getKnowledgeBase(companyId);
     if (!kb.loaded) await kb.load().catch(() => {});
     const relevantFaqs = kb.findRelevantFaq(text || '');
@@ -1359,13 +1359,18 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     // tidak boleh membangunkan anggota departemen sungguhan.
     let departmentTools = [];
     let departmentGuide = '';
-    if (chatId && dbLive && canCall('listDepartments') && !ks) {
+    const departmentAsked = [];
+    if (allowDepartments && chatId && dbLive && canCall('listDepartments') && !ks) {
       const departments = (await database.listDepartments(companyId).catch(() => []))
         .filter((d) => d.members.length > 0);
       if (departments.length) {
         departmentTools = [departmentAsk.toolSpec({
           departments,
-          run: (args = {}) => askDepartment({ companyId, chatId, customerText: text, departments, args }),
+          run: async (args = {}) => {
+            const out = await askDepartment({ companyId, chatId, customerText: text, departments, args });
+            if (out.status === 'sent' || out.status === 'already_asked') departmentAsked.push(out.department);
+            return out;
+          },
         })];
         departmentGuide = departmentAsk.guide(departments);
       }
@@ -1392,6 +1397,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       paymentContext,
       companyConfig,
       tools: [...hubTools, ...departmentTools],
+      departmentAsked,
       leadState: latestSummary?.summary
         ? { ...(leadStateRaw || {}), conversationSummary: latestSummary.summary }
         : leadStateRaw,
@@ -1451,7 +1457,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     }
 
     // Use this company's own knowledge client from DB — never another tenant's
-    const ctx = await buildReplyContext({ companyId, text: message.body, chatId: message.from });
+    const ctx = await buildReplyContext({ companyId, text: message.body, chatId: message.from, allowDepartments: true });
 
     // Fetch recent conversation history so the AI knows what was already said.
     //
@@ -1562,6 +1568,13 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       modelChain: companyAi.modelChain,
       tools: ctx.tools,
     });
+    // Alat ask_department sudah jalan: customer HARUS dapat kabar tunggu. Dipaksa
+    // di sini, bukan dititipkan ke model, yang kadang menjawab tanpa menyebutnya.
+    if (ctx.departmentAsked?.length) {
+      const holding = departmentAsk.ensureHolding(result?.text, ctx.departmentAsked[0]);
+      if (!result?.text) return holding;
+      result.text = holding;
+    }
     if (!result?.text) return null;
 
     // Aturan di system prompt saja tidak cukup. Diukur pada funnel Anya dengan
@@ -3623,7 +3636,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
 
   // Pertanyaan AI. Supervisor melihat semua; anggota biasa hanya departemennya.
   app.get('/v1/department-questions', {
-    schema: { querystring: { type: 'object', properties: { status: { type: 'string', enum: ['open', 'answered', 'expired'], default: 'open' } } } },
+    schema: { querystring: { type: 'object', properties: { status: { type: 'string', enum: ['open', 'answered', 'expired', 'unresolved'], default: 'open' } } } },
   }, async (request) => {
     if (!deptStore()) return { questions: [] };
     const s = request.agneeSession;
@@ -3641,7 +3654,11 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
   }, async (request, reply) => {
     if (!deptStore()) return reply.code(503).send({ error: 'Penyimpanan belum tersedia.' });
     const s = request.agneeSession;
-    const visible = await database.listDepartmentQuestions(s.companyId, { status: 'open', userId: isSupervisor(s) ? null : s.userId, limit: 200 });
+    const scope = { userId: isSupervisor(s) ? null : s.userId, limit: 200 };
+    const visible = [
+      ...(await database.listDepartmentQuestions(s.companyId, { ...scope, status: 'open' })),
+      ...(await database.listDepartmentQuestions(s.companyId, { ...scope, status: 'unresolved' })),
+    ];
     const target = visible.find((q) => q.id === request.params.id);
     if (!target) return reply.code(404).send({ error: 'Pertanyaan tidak ditemukan, sudah dijawab, atau bukan untuk departemenmu.' });
     const row = await database.answerDepartmentQuestion(request.params.id, { answer: request.body.answer.trim(), userId: s.userId }, s.companyId);
@@ -9793,24 +9810,35 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     timer.unref?.();
   }
 
-  // Pertanyaan departemen yang tak dijawab dalam 3 jam: customer diberi tahu
-  // dengan jujur, tidak dibiarkan menunggu tanpa kabar.
-  const DEPARTMENT_QUESTION_TTL_MINUTES = 180;
+  // Pengingat ke departemen yang belum menjawab: 5 mnt, 15 mnt, 2 jam, 12 jam,
+  // lalu berhenti (pertanyaan menjadi 'unresolved'). Lonceng dibuat di database;
+  // di sini hanya WhatsApp-nya.
   function startDepartmentQuestionSweeper() {
     const jalankan = async () => {
-      const lewat = await database.expireDepartmentQuestions(DEPARTMENT_QUESTION_TTL_MINUTES).catch(() => []);
-      for (const row of lewat) {
-        try {
-          const routing = await getRouting(row.chatId, row.companyId).catch(() => null);
-          if (routing?.mode === 'human') continue;
-          const sent = await sendOutbound(row.companyId, row.chatId, departmentAsk.EXPIRED_FALLBACK);
-          await database.recordOutboundReply({ chatId: row.chatId, messageId: sent?.messageId || null, author: 'ai', body: departmentAsk.EXPIRED_FALLBACK }, row.companyId).catch(() => {});
-        } catch (error) {
-          app.log.warn({ err: error, companyId: row.companyId }, 'Kabar pertanyaan departemen kedaluwarsa gagal dikirim');
+      const due = await database.claimDueDepartmentReminders().catch((error) => {
+        app.log.warn({ err: error }, 'Penyapu pengingat departemen gagal');
+        return [];
+      });
+      for (const row of due) {
+        broadcastEvent(row.companyId, 'department_question', { id: row.id, department: row.department });
+        const notice = departmentAsk.buildReminderNotice({
+          department: row.department, question: row.question,
+          customerLabel: handoffNotice.describeCustomer({ chatId: row.chatId }),
+          reminderCount: row.reminderCount, final: row.final,
+        });
+        for (const member of row.members) {
+          if (!member.whatsappNumber) continue;
+          try {
+            const target = normalizeChatId(member.whatsappNumber, config.defaultCountryCode);
+            const sent = await sendOutbound(row.companyId, target, notice);
+            await database.recordOutboundReply({ chatId: target, messageId: sent?.messageId || null, author: 'ai', body: notice }, row.companyId).catch(() => {});
+          } catch (error) {
+            app.log.warn({ err: error, recipient: `…${String(member.whatsappNumber).slice(-4)}` }, 'Pengingat departemen via WhatsApp gagal');
+          }
         }
       }
     };
-    const timer = setInterval(() => { jalankan().catch(() => {}); }, 10 * 60_000);
+    const timer = setInterval(() => { jalankan().catch(() => {}); }, 60_000);
     timer.unref?.();
   }
 
@@ -9824,7 +9852,7 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     if (database.enabled && database.connected) startOneDriveSyncLoop();
     if (database.enabled && database.connected) startAutoAssignSweeper();
     if (database.enabled && database.connected) startSlaSweeper();
-    if (canCall('expireDepartmentQuestions')) startDepartmentQuestionSweeper();
+    if (canCall('claimDueDepartmentReminders')) startDepartmentQuestionSweeper();
     if (canCall('listActiveSupervisorReports')) startSupervisorReportSweeper();
     if (database.enabled && database.connected) startHubFollowUpSweeper();
     if (database.enabled && database.connected) startBroadcastSender();

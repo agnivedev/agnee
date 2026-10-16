@@ -1379,7 +1379,7 @@ class Database {
     if (!this.enabled) return null;
     const result = await this.pool.query(`
       UPDATE department_questions SET status = 'answered', answer = $3, answered_by = $4, answered_at = NOW()
-      WHERE id = $1 AND company_id = $2 AND status = 'open'
+      WHERE id = $1 AND company_id = $2 AND status IN ('open', 'unresolved')
       RETURNING id, chat_id AS "chatId", customer_text AS "customerText", question, answer
     `, [id, companyId, String(answer).slice(0, 2000), userId || null]);
     return result.rows[0] || null;
@@ -1390,15 +1390,55 @@ class Database {
     await this.pool.query('UPDATE department_questions SET relayed_at = NOW() WHERE id = $1 AND company_id = $2', [id, companyId]);
   }
 
-  /** Pertanyaan yang lewat batas waktu; dikembalikan supaya pemanggil bisa memberi tahu customer. */
-  async expireDepartmentQuestions(olderThanMinutes) {
+  /**
+   * Pengingat yang jatuh tempo: 5 mnt, 15 mnt, 2 jam, 12 jam sejak pertanyaan
+   * dibuat. Setiap panggilan "mengklaim" pengingat secara atomik (UPDATE ...
+   * RETURNING), jadi dua penyapu tidak mengirim dobel. Pengingat ke-4 adalah yang
+   * terakhir: pertanyaan menjadi 'unresolved' dan supervisor diberi lonceng.
+   */
+  async claimDueDepartmentReminders() {
     if (!this.enabled) return [];
-    const result = await this.pool.query(`
-      UPDATE department_questions SET status = 'expired'
-      WHERE status = 'open' AND created_at < NOW() - make_interval(mins => $1)
-      RETURNING id, company_id AS "companyId", chat_id AS "chatId", customer_text AS "customerText", question
-    `, [olderThanMinutes]);
-    return result.rows;
+    const claimed = await this.pool.query(`
+      UPDATE department_questions q
+      SET reminder_count = reminder_count + 1, last_reminded_at = NOW(),
+          status = CASE WHEN reminder_count + 1 >= 4 THEN 'unresolved' ELSE status END
+      WHERE q.status = 'open' AND q.reminder_count < 4
+        AND q.created_at + make_interval(mins => (ARRAY[5, 15, 120, 720])[q.reminder_count + 1]) <= NOW()
+      RETURNING q.id, q.company_id AS "companyId", q.department_id AS "departmentId", q.chat_id AS "chatId",
+                q.question, q.reminder_count AS "reminderCount", (q.reminder_count >= 4) AS final
+    `);
+    const rows = [];
+    for (const row of claimed.rows) {
+      const members = await this.pool.query(`
+        SELECT u.id AS "userId", cm.whatsapp_number AS "whatsappNumber", d.name AS department
+        FROM departments d
+        LEFT JOIN department_members dm ON dm.department_id = d.id
+        LEFT JOIN company_members cm ON cm.company_id = d.company_id AND cm.user_id = dm.user_id AND cm.status = 'active'
+        LEFT JOIN users u ON u.id = cm.user_id
+        WHERE d.id = $1
+      `, [row.departmentId]);
+      const department = members.rows[0]?.department || 'terkait';
+      const people = members.rows.filter((m) => m.userId);
+      const body = row.final
+        ? `Belum ada jawaban dari ${department} setelah 12 jam; customer ditandai belum terjawab (menunggu internal): ${String(row.question).slice(0, 300)}`
+        : `Pengingat ${row.reminderCount}/4: pertanyaan AI untuk ${department} belum dijawab: ${String(row.question).slice(0, 300)}`;
+      const targets = new Set(people.map((m) => m.userId));
+      if (row.final) {
+        const sup = await this.pool.query(
+          "SELECT user_id FROM company_members WHERE company_id = $1 AND status = 'active' AND role IN ('owner', 'admin', 'supervisor')",
+          [row.companyId],
+        );
+        for (const r of sup.rows) targets.add(r.user_id);
+      }
+      if (targets.size) {
+        await this.pool.query(`
+          INSERT INTO notifications (company_id, user_id, kind, chat_id, actor_kind, body)
+          SELECT $1, x, 'department_question', $2, 'ai', $3 FROM unnest($4::uuid[]) AS x
+        `, [row.companyId, row.chatId, body, [...targets]]);
+      }
+      rows.push({ ...row, department, members: people });
+    }
+    return rows;
   }
 
   /** Nomor yang diberi tahu saat AI menjanjikan meneruskan ke manusia (migrasi 052). */

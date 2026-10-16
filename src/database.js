@@ -1180,6 +1180,14 @@ class Database {
         VALUES ($1, $2, 'owner', 'active', NOW())
       `, [company.id, user.id]);
 
+      await client.query(`
+        INSERT INTO departments (company_id, name, description) VALUES
+          ($1, 'Management', 'Keputusan bisnis, kebijakan, persetujuan, dan hal di luar wewenang CS.'),
+          ($1, 'Product', 'Fitur, spesifikasi, ketersediaan, dan detail teknis produk.'),
+          ($1, 'Procurement', 'Stok, pengadaan, harga modal, pemasok, dan waktu pengiriman barang.')
+        ON CONFLICT DO NOTHING
+      `, [company.id]);
+
       // Each tenant needs its own WhatsApp client identity — without this row,
       // getConnConfig() falls back to the shared default clientId/sessionPath
       // and this company's messages would collide with another tenant's session.
@@ -1237,6 +1245,155 @@ class Database {
       FROM companies WHERE id = $1
     `, [companyId]);
     return result.rows[0] || null;
+  }
+
+  // ---- Departemen (migrasi 060) -------------------------------------------
+
+  async listDepartments(companyId) {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(`
+      SELECT d.id, d.name, d.description,
+             COALESCE(json_agg(json_build_object(
+               'userId', u.id, 'displayName', COALESCE(u.display_name, u.email),
+               'email', u.email, 'whatsappNumber', cm.whatsapp_number)
+               ORDER BY u.display_name) FILTER (WHERE u.id IS NOT NULL), '[]') AS members
+      FROM departments d
+      LEFT JOIN department_members dm ON dm.department_id = d.id
+      LEFT JOIN company_members cm ON cm.company_id = d.company_id AND cm.user_id = dm.user_id AND cm.status = 'active'
+      LEFT JOIN users u ON u.id = cm.user_id
+      WHERE d.company_id = $1
+      GROUP BY d.id
+      ORDER BY lower(d.name)
+    `, [companyId]);
+    return result.rows;
+  }
+
+  async createDepartment({ name, description = '' }, companyId) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      INSERT INTO departments (company_id, name, description) VALUES ($1, $2, $3)
+      RETURNING id, name, description
+    `, [companyId, String(name).trim(), String(description || '').trim()]);
+    return { ...result.rows[0], members: [] };
+  }
+
+  async updateDepartment(id, { name, description }, companyId) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      UPDATE departments SET name = COALESCE($3, name), description = COALESCE($4, description), updated_at = NOW()
+      WHERE id = $1 AND company_id = $2 RETURNING id, name, description
+    `, [id, companyId, name === undefined ? null : String(name).trim(), description === undefined ? null : String(description).trim()]);
+    return result.rows[0] || null;
+  }
+
+  async deleteDepartment(id, companyId) {
+    if (!this.enabled) return false;
+    const result = await this.pool.query('DELETE FROM departments WHERE id = $1 AND company_id = $2', [id, companyId]);
+    return result.rowCount > 0;
+  }
+
+  /** Mengganti seluruh anggota departemen; hanya anggota aktif company ini yang diterima. */
+  async setDepartmentMembers(id, userIds, companyId) {
+    if (!this.enabled) return null;
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const dept = await client.query('SELECT 1 FROM departments WHERE id = $1 AND company_id = $2', [id, companyId]);
+      if (!dept.rowCount) { await client.query('ROLLBACK'); return null; }
+      await client.query('DELETE FROM department_members WHERE department_id = $1', [id]);
+      if (userIds.length) {
+        await client.query(`
+          INSERT INTO department_members (department_id, user_id, company_id)
+          SELECT $1, cm.user_id, $2 FROM company_members cm
+          WHERE cm.company_id = $2 AND cm.status = 'active' AND cm.user_id = ANY($3::uuid[])
+          ON CONFLICT DO NOTHING
+        `, [id, companyId, userIds]);
+      }
+      await client.query('COMMIT');
+      return true;
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async setMemberWhatsappNumber(userId, number, companyId) {
+    if (!this.enabled) return false;
+    const result = await this.pool.query(
+      'UPDATE company_members SET whatsapp_number = $3, updated_at = NOW() WHERE company_id = $1 AND user_id = $2',
+      [companyId, userId, number || null],
+    );
+    return result.rowCount > 0;
+  }
+
+  /** Pertanyaan AI ke satu departemen. Mengembalikan pertanyaan + anggota yang harus diberi tahu. */
+  async createDepartmentQuestion({ departmentId, chatId, customerText, question }, companyId) {
+    if (!this.enabled) return null;
+    const dept = await this.pool.query('SELECT id, name FROM departments WHERE id = $1 AND company_id = $2', [departmentId, companyId]);
+    if (!dept.rowCount) return null;
+    const created = await this.pool.query(`
+      INSERT INTO department_questions (company_id, department_id, chat_id, customer_text, question)
+      VALUES ($1, $2, $3, $4, $5) RETURNING id, created_at AS "createdAt"
+    `, [companyId, departmentId, chatId, String(customerText || '').slice(0, 1000), String(question).slice(0, 1000)]);
+    const members = await this.pool.query(`
+      SELECT u.id AS "userId", COALESCE(u.display_name, u.email) AS "displayName", cm.whatsapp_number AS "whatsappNumber"
+      FROM department_members dm
+      JOIN company_members cm ON cm.company_id = $2 AND cm.user_id = dm.user_id AND cm.status = 'active'
+      JOIN users u ON u.id = dm.user_id
+      WHERE dm.department_id = $1
+    `, [departmentId, companyId]);
+    const body = `Pertanyaan dari AI untuk ${dept.rows[0].name}: ${String(question).slice(0, 400)}`;
+    if (members.rowCount) {
+      await this.pool.query(`
+        INSERT INTO notifications (company_id, user_id, kind, chat_id, actor_kind, body)
+        SELECT $1, x, 'department_question', $2, 'ai', $3 FROM unnest($4::uuid[]) AS x
+      `, [companyId, chatId, body, members.rows.map((m) => m.userId)]);
+    }
+    return { id: created.rows[0].id, department: dept.rows[0].name, members: members.rows };
+  }
+
+  async listDepartmentQuestions(companyId, { userId = null, status = 'open', limit = 50 } = {}) {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(`
+      SELECT q.id, q.chat_id AS "chatId", q.customer_text AS "customerText", q.question, q.status, q.answer,
+             q.created_at AS "createdAt", q.answered_at AS "answeredAt", d.id AS "departmentId", d.name AS department
+      FROM department_questions q
+      LEFT JOIN departments d ON d.id = q.department_id
+      WHERE q.company_id = $1 AND q.status = $2
+        AND ($3::uuid IS NULL OR EXISTS (
+          SELECT 1 FROM department_members dm WHERE dm.department_id = q.department_id AND dm.user_id = $3))
+      ORDER BY q.created_at DESC LIMIT $4
+    `, [companyId, status, userId, Math.min(Math.max(Number(limit) || 50, 1), 200)]);
+    return result.rows;
+  }
+
+  /** Jawaban pertama menang: hanya pertanyaan yang masih open yang bisa dijawab. */
+  async answerDepartmentQuestion(id, { answer, userId }, companyId) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      UPDATE department_questions SET status = 'answered', answer = $3, answered_by = $4, answered_at = NOW()
+      WHERE id = $1 AND company_id = $2 AND status = 'open'
+      RETURNING id, chat_id AS "chatId", customer_text AS "customerText", question, answer
+    `, [id, companyId, String(answer).slice(0, 2000), userId || null]);
+    return result.rows[0] || null;
+  }
+
+  async markDepartmentQuestionRelayed(id, companyId) {
+    if (!this.enabled) return;
+    await this.pool.query('UPDATE department_questions SET relayed_at = NOW() WHERE id = $1 AND company_id = $2', [id, companyId]);
+  }
+
+  /** Pertanyaan yang lewat batas waktu; dikembalikan supaya pemanggil bisa memberi tahu customer. */
+  async expireDepartmentQuestions(olderThanMinutes) {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(`
+      UPDATE department_questions SET status = 'expired'
+      WHERE status = 'open' AND created_at < NOW() - make_interval(mins => $1)
+      RETURNING id, company_id AS "companyId", chat_id AS "chatId", customer_text AS "customerText", question
+    `, [olderThanMinutes]);
+    return result.rows;
   }
 
   /** Nomor yang diberi tahu saat AI menjanjikan meneruskan ke manusia (migrasi 052). */

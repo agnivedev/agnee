@@ -37,6 +37,7 @@ const { HUB_REPLY_WORKING_DAYS, addWorkingDays, workingDaysSince } = require('./
 const mayarSync = require('./mayar-sync.js');
 const { createReplyPacer } = require('./reply-delay.js');
 const handoffNotice = require('./handoff-notice.js');
+const departmentAsk = require('./department-ask.js');
 const supervisorReport = require('./supervisor-report.js');
 const reportChats = require('./report-chats.js');
 const { createTypingHooks } = require('./typing-indicator.js');
@@ -1223,6 +1224,60 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
   }
 
   /**
+   * Alat ask_department: simpan pertanyaan, beri tahu SEMUA anggota departemen
+   * (lonceng di Agnee + WhatsApp bila nomornya diisi). Satu pertanyaan terbuka
+   * per chat per departemen supaya model yang mengulang tidak membanjiri.
+   */
+  async function askDepartment({ companyId, chatId, customerText, departments, args }) {
+    const dept = departments.find((d) => d.name === args.department);
+    const question = String(args.question || '').trim().slice(0, departmentAsk.QUESTION_MAX);
+    if (!dept || !question) return { error: 'Departemen atau pertanyaan tidak valid.' };
+    const open = (await database.listDepartmentQuestions(companyId, { status: 'open', limit: 200 }).catch(() => []))
+      .find((q) => q.chatId === chatId && q.departmentId === dept.id);
+    if (open) return { status: 'already_asked', department: dept.name };
+    const created = await database.createDepartmentQuestion({ departmentId: dept.id, chatId, customerText, question }, companyId);
+    if (!created) return { error: 'Departemen tidak ditemukan.' };
+    broadcastEvent(companyId, 'department_question', { id: created.id, department: dept.name });
+    const notice = departmentAsk.buildQuestionNotice({
+      department: dept.name, question, customerLabel: handoffNotice.describeCustomer({ chatId }),
+    });
+    for (const member of created.members) {
+      if (!member.whatsappNumber) continue;
+      try {
+        const target = normalizeChatId(member.whatsappNumber, config.defaultCountryCode);
+        const sent = await sendOutbound(companyId, target, notice);
+        await database.recordOutboundReply({ chatId: target, messageId: sent?.messageId || null, author: 'ai', body: notice }, companyId).catch(() => {});
+      } catch (error) {
+        app.log.warn({ err: error, recipient: `…${String(member.whatsappNumber).slice(-4)}` }, 'Pertanyaan departemen ke satu anggota via WhatsApp gagal');
+      }
+    }
+    return { status: 'sent', department: dept.name, notified: created.members.length };
+  }
+
+  /**
+   * Jawaban masuk: AI menyusun balasan dari jawaban itu saja dan mengirimnya ke
+   * customer. Bila chat sudah dipegang manusia, tidak dikirim otomatis —
+   * jawabannya tetap tersimpan dan terlihat oleh yang memegang chat.
+   */
+  async function relayDepartmentAnswer(row, companyId) {
+    const routing = await getRouting(row.chatId, companyId).catch(() => null);
+    if (routing?.mode === 'human') return { relayed: false, reason: 'human' };
+    const companyAi = await getCompanyAi(companyId);
+    const ctx = await buildReplyContext({ companyId, text: row.customerText, chatId: row.chatId });
+    const result = await llmService.generateReply(
+      departmentAsk.relayPrompt({
+        customerText: row.customerText, question: row.question, answer: row.answer, department: row.department || 'terkait',
+      }),
+      { systemPrompt: ctx.systemPrompt, companyId, purpose: 'auto_reply', modelChain: companyAi.modelChain },
+    ).catch(() => null);
+    const text = stripLinks(result?.text || '') || row.answer;
+    const sent = await sendOutbound(companyId, row.chatId, text);
+    await database.recordOutboundReply({ chatId: row.chatId, messageId: sent?.messageId || null, author: 'ai', body: text, inReplyTo: row.question }, companyId).catch(() => {});
+    await database.markDepartmentQuestionRelayed(row.id, companyId);
+    return { relayed: true };
+  }
+
+  /**
    * Assemble everything the model needs to answer as this company: its own
    * knowledge pack, its confirmed facts + brief + uploaded documents, its
    * payment/closing instructions, and (when a real chat is involved) the lead
@@ -1300,11 +1355,27 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     }).filter(Boolean).join('\n\n');
 
     const hubTools = companyConfig?.hubToolsEnabled ? hubListingTools() : [];
+    // Departemen hanya dipakai pada chat nyata (ada chatId): simulator Coach
+    // tidak boleh membangunkan anggota departemen sungguhan.
+    let departmentTools = [];
+    let departmentGuide = '';
+    if (chatId && dbLive && canCall('listDepartments') && !ks) {
+      const departments = (await database.listDepartments(companyId).catch(() => []))
+        .filter((d) => d.members.length > 0);
+      if (departments.length) {
+        departmentTools = [departmentAsk.toolSpec({
+          departments,
+          run: (args = {}) => askDepartment({ companyId, chatId, customerText: text, departments, args }),
+        })];
+        departmentGuide = departmentAsk.guide(departments);
+      }
+    }
     const contextSections = [
       playbookContext ? `## PLAYBOOK PERUSAHAAN INI (SUMBER UTAMA — prioritaskan di atas knowledge umum di atas)\n${playbookContext}` : '',
       ksContext ? `${KS_PRECEDENCE}\n\n${ksContext}` : '',
       paymentContext,
       hubTools.length ? HUB_TOOLS_GUIDE : '',
+      departmentGuide,
       // Bentuk percakapannya milik Agnee dan sama untuk semua tenant; isinya
       // milik playbook di atas. Ditaruh paling akhir supaya paling dekat dengan
       // pesan customer — instruksi di ujung prompt lebih konsisten dipatuhi
@@ -1320,7 +1391,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       playbookContext,
       paymentContext,
       companyConfig,
-      tools: hubTools,
+      tools: [...hubTools, ...departmentTools],
       leadState: latestSummary?.summary
         ? { ...(leadStateRaw || {}), conversationSummary: latestSummary.summary }
         : leadStateRaw,
@@ -3457,6 +3528,134 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       ? 'Hanya owner yang dapat mengubah atau menonaktifkan sesama supervisor.'
       : null;
   }
+
+  // ---- Departemen --------------------------------------------------------
+  const UUID_PARAM = { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } };
+  const deptStore = () => database.status().connected && typeof database.listDepartments === 'function';
+
+  app.get('/v1/departments', async (request, reply) => {
+    if (!deptStore()) return { departments: [] };
+    const departments = await database.listDepartments(request.agneeSession.companyId);
+    // Email dan nomor anggota hanya untuk supervisor.
+    if (!isSupervisor(request.agneeSession)) {
+      return { departments: departments.map((d) => ({ ...d, members: d.members.map(({ email: _e, whatsappNumber: _w, ...m }) => m) })) };
+    }
+    return { departments };
+  });
+
+  app.post('/v1/departments', {
+    schema: { body: { type: 'object', additionalProperties: false, required: ['name'], properties: {
+      name: { type: 'string', minLength: 2, maxLength: 60 },
+      description: { type: 'string', maxLength: 300 },
+    } } },
+  }, async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengelola departemen.' });
+    if (!deptStore()) return reply.code(503).send({ error: 'Penyimpanan departemen belum tersedia.' });
+    try {
+      const department = await database.createDepartment(request.body, request.agneeSession.companyId);
+      await catatAudit(request, 'department.created', { entityType: 'department', entityId: department.id, metadata: { name: department.name } });
+      return reply.code(201).send({ department });
+    } catch (error) {
+      if (error?.code === '23505') return reply.code(409).send({ error: 'Nama departemen itu sudah dipakai.' });
+      throw error;
+    }
+  });
+
+  app.patch('/v1/departments/:id', {
+    schema: { params: UUID_PARAM, body: { type: 'object', additionalProperties: false, minProperties: 1, properties: {
+      name: { type: 'string', minLength: 2, maxLength: 60 },
+      description: { type: 'string', maxLength: 300 },
+    } } },
+  }, async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengelola departemen.' });
+    if (!deptStore()) return reply.code(503).send({ error: 'Penyimpanan departemen belum tersedia.' });
+    try {
+      const department = await database.updateDepartment(request.params.id, request.body, request.agneeSession.companyId);
+      if (!department) return reply.code(404).send({ error: 'Departemen tidak ditemukan.' });
+      await catatAudit(request, 'department.updated', { entityType: 'department', entityId: department.id, metadata: { fields: Object.keys(request.body) } });
+      return { department };
+    } catch (error) {
+      if (error?.code === '23505') return reply.code(409).send({ error: 'Nama departemen itu sudah dipakai.' });
+      throw error;
+    }
+  });
+
+  app.delete('/v1/departments/:id', { schema: { params: UUID_PARAM } }, async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengelola departemen.' });
+    if (!deptStore()) return reply.code(503).send({ error: 'Penyimpanan departemen belum tersedia.' });
+    const removed = await database.deleteDepartment(request.params.id, request.agneeSession.companyId);
+    if (!removed) return reply.code(404).send({ error: 'Departemen tidak ditemukan.' });
+    await catatAudit(request, 'department.deleted', { entityType: 'department', entityId: request.params.id });
+    return reply.code(204).send();
+  });
+
+  app.put('/v1/departments/:id/members', {
+    schema: { params: UUID_PARAM, body: { type: 'object', additionalProperties: false, required: ['userIds'], properties: {
+      userIds: { type: 'array', maxItems: 100, items: { type: 'string', format: 'uuid' } },
+    } } },
+  }, async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengelola departemen.' });
+    if (!deptStore()) return reply.code(503).send({ error: 'Penyimpanan departemen belum tersedia.' });
+    const ok = await database.setDepartmentMembers(request.params.id, [...new Set(request.body.userIds)], request.agneeSession.companyId);
+    if (!ok) return reply.code(404).send({ error: 'Departemen tidak ditemukan.' });
+    await catatAudit(request, 'department.members_set', { entityType: 'department', entityId: request.params.id, metadata: { count: request.body.userIds.length } });
+    return { ok: true };
+  });
+
+  // Nomor WhatsApp anggota untuk dipanggil saat ada pertanyaan AI.
+  app.put('/v1/team/members/:id/whatsapp', {
+    schema: { params: UUID_PARAM, body: { type: 'object', additionalProperties: false, required: ['number'], properties: {
+      number: { type: 'string', maxLength: 30 },
+    } } },
+  }, async (request, reply) => {
+    if (!isSupervisor(request.agneeSession) && request.params.id !== request.agneeSession.userId) {
+      return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengubah nomor anggota lain.' });
+    }
+    if (!deptStore()) return reply.code(503).send({ error: 'Penyimpanan belum tersedia.' });
+    const digits = request.body.number.replace(/[^\d]/g, '');
+    if (request.body.number.trim() && (digits.length < 8 || digits.length > 15)) {
+      return reply.code(400).send({ error: 'Nomor WhatsApp tidak valid.' });
+    }
+    const ok = await database.setMemberWhatsappNumber(request.params.id, digits || null, request.agneeSession.companyId);
+    if (!ok) return reply.code(404).send({ error: 'Anggota tidak ditemukan.' });
+    return { ok: true };
+  });
+
+  // Pertanyaan AI. Supervisor melihat semua; anggota biasa hanya departemennya.
+  app.get('/v1/department-questions', {
+    schema: { querystring: { type: 'object', properties: { status: { type: 'string', enum: ['open', 'answered', 'expired'], default: 'open' } } } },
+  }, async (request) => {
+    if (!deptStore()) return { questions: [] };
+    const s = request.agneeSession;
+    const questions = await database.listDepartmentQuestions(s.companyId, {
+      status: request.query.status || 'open',
+      userId: isSupervisor(s) ? null : s.userId,
+    });
+    return { questions };
+  });
+
+  app.post('/v1/department-questions/:id/answer', {
+    schema: { params: UUID_PARAM, body: { type: 'object', additionalProperties: false, required: ['answer'], properties: {
+      answer: { type: 'string', minLength: 1, maxLength: 2000 },
+    } } },
+  }, async (request, reply) => {
+    if (!deptStore()) return reply.code(503).send({ error: 'Penyimpanan belum tersedia.' });
+    const s = request.agneeSession;
+    const visible = await database.listDepartmentQuestions(s.companyId, { status: 'open', userId: isSupervisor(s) ? null : s.userId, limit: 200 });
+    const target = visible.find((q) => q.id === request.params.id);
+    if (!target) return reply.code(404).send({ error: 'Pertanyaan tidak ditemukan, sudah dijawab, atau bukan untuk departemenmu.' });
+    const row = await database.answerDepartmentQuestion(request.params.id, { answer: request.body.answer.trim(), userId: s.userId }, s.companyId);
+    if (!row) return reply.code(409).send({ error: 'Pertanyaan ini sudah dijawab orang lain.' });
+    await catatAudit(request, 'department.question_answered', { entityType: 'department_question', entityId: row.id });
+    let relay = { relayed: false };
+    try {
+      relay = await relayDepartmentAnswer({ ...row, department: target.department }, s.companyId);
+    } catch (error) {
+      app.log.warn({ err: error, companyId: s.companyId }, 'Jawaban departemen gagal diteruskan ke customer');
+      relay = { relayed: false, reason: 'send_failed' };
+    }
+    return { ok: true, ...relay };
+  });
 
   app.get('/v1/team/members', async (request) => {
     const members = await getTeamMembers(request.agneeSession?.companyId);
@@ -9595,6 +9794,27 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     timer.unref?.();
   }
 
+  // Pertanyaan departemen yang tak dijawab dalam 3 jam: customer diberi tahu
+  // dengan jujur, tidak dibiarkan menunggu tanpa kabar.
+  const DEPARTMENT_QUESTION_TTL_MINUTES = 180;
+  function startDepartmentQuestionSweeper() {
+    const jalankan = async () => {
+      const lewat = await database.expireDepartmentQuestions(DEPARTMENT_QUESTION_TTL_MINUTES).catch(() => []);
+      for (const row of lewat) {
+        try {
+          const routing = await getRouting(row.chatId, row.companyId).catch(() => null);
+          if (routing?.mode === 'human') continue;
+          const sent = await sendOutbound(row.companyId, row.chatId, departmentAsk.EXPIRED_FALLBACK);
+          await database.recordOutboundReply({ chatId: row.chatId, messageId: sent?.messageId || null, author: 'ai', body: departmentAsk.EXPIRED_FALLBACK }, row.companyId).catch(() => {});
+        } catch (error) {
+          app.log.warn({ err: error, companyId: row.companyId }, 'Kabar pertanyaan departemen kedaluwarsa gagal dikirim');
+        }
+      }
+    };
+    const timer = setInterval(() => { jalankan().catch(() => {}); }, 10 * 60_000);
+    timer.unref?.();
+  }
+
   app.decorate('startWhatsapp', async () => {
     if (!config.startupEnabled || config.demoMode) return;
 
@@ -9605,6 +9825,7 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     if (database.enabled && database.connected) startOneDriveSyncLoop();
     if (database.enabled && database.connected) startAutoAssignSweeper();
     if (database.enabled && database.connected) startSlaSweeper();
+    if (canCall('expireDepartmentQuestions')) startDepartmentQuestionSweeper();
     if (canCall('listActiveSupervisorReports')) startSupervisorReportSweeper();
     if (database.enabled && database.connected) startHubFollowUpSweeper();
     if (database.enabled && database.connected) startBroadcastSender();

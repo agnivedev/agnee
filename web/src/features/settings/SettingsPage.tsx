@@ -14,6 +14,7 @@ import { AuditSection } from './AuditSection';
 import { ExportSection } from './ExportSection';
 import { MayarSection } from './MayarSection';
 import { LeadWebhookSection } from './LeadWebhookSection';
+import { McpSection } from './McpSection';
 import { SourcesSection } from './SourcesSection';
 import { WhatsappNumbersSection, CloudApiSection } from './WhatsappSections';
 import { AccountSection, TeamSection } from './TeamSection';
@@ -34,6 +35,7 @@ const SECTION_TAB: Record<string, TabId> = {
   followUpSection: 'ai',
   replyDelaySection: 'ai',
   exportSection: 'data',
+  mcpSection: 'data',
   teamSection: 'tim',
   reportSection: 'tim',
   myAccount: 'tim',
@@ -182,6 +184,7 @@ export function SettingsPage() {
               <ExportSection />
               <MayarSection />
               <LeadWebhookSection />
+              <McpSection />
               <SourcesSection />
             </>
           ) : null}

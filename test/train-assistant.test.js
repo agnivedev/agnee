@@ -411,3 +411,13 @@ test('kalimat tanya di ujung satu paragraf tidak diulang di teks; kode jenis dok
   assert.equal(body.reply, 'Mari mulai dengan playbook larangan. Isinya batasan untuk AI.');
   assert.ok(body.question);
 });
+
+test('balasan yang seluruhnya pertanyaan: teks dikosongkan, kartu yang membawa pertanyaannya', async (t) => {
+  const { chat, a, state } = await setup(t);
+  state.script = [];
+  state.text = 'Apa demografi utama pelangganmu?';
+  state.repairScript = [['ask_choices', { question: 'Demografi utama?', options: [{ label: 'Profesional muda', recommended: true }, { label: 'Pelajar' }] }]];
+  const body = (await chat(a, 'lanjut')).json();
+  assert.equal(body.reply, '');
+  assert.equal(body.question.options[0].recommended, true);
+});

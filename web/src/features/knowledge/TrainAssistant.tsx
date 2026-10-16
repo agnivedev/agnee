@@ -331,14 +331,16 @@ export function TrainAssistant({ onChanged }: { onChanged: () => void }) {
           ) : null}
           {messages.map((message, index) => (
             <div key={`${index}-${message.text.slice(0, 8)}`} className="grid gap-2">
-              <div
-                className={cn(
-                  'max-w-[88%] rounded-[14px] px-3 py-2 text-[13px] whitespace-pre-wrap',
-                  message.role === 'user' ? 'justify-self-end bg-[#d9ffd6]' : 'justify-self-start bg-white',
-                )}
-              >
-                {message.text}
-              </div>
+              {message.text ? (
+                <div
+                  className={cn(
+                    'max-w-[88%] rounded-[14px] px-3 py-2 text-[13px] whitespace-pre-wrap',
+                    message.role === 'user' ? 'justify-self-end bg-[#d9ffd6]' : 'justify-self-start bg-white',
+                  )}
+                >
+                  {message.text}
+                </div>
+              ) : null}
               {message.question ? (
                 <QuestionCard
                   question={message.question}

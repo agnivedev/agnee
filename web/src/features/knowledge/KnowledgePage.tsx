@@ -20,6 +20,7 @@ import { cn } from '@/lib/utils';
 import { CoachSection, FactsPanel } from './CoachSection';
 import { BriefPanel } from './BriefSection';
 import { KsSection } from './ks/KsSection';
+import { SavedTemplates } from './SavedTemplates';
 import { ProductBar, ImportPanel, productQuery, type Product } from './PlaybookProducts';
 import { Markdown, diffLines } from './DocMarkdown';
 import { TrainAssistant } from './TrainAssistant';
@@ -413,7 +414,7 @@ export function KnowledgePage() {
         </div>
 
         {section === 'playbook' ? <PlaybookDocs refreshKey={refreshKey} /> : null}
-        {section === 'template' ? <div className="max-w-4xl"><KsSection key={refreshKey} /></div> : null}
+        {section === 'template' ? <div className="max-w-4xl"><SavedTemplates onApplied={() => setRefreshKey((n) => n + 1)} /><KsSection key={refreshKey} /></div> : null}
       </main>
       <TrainAssistant onChanged={() => setRefreshKey((value) => value + 1)} />
     </div>

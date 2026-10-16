@@ -14,6 +14,7 @@ const { putaranSla } = require('./sla');
 const broadcast = require('./broadcast');
 const { compileKsPrompt, validateSpecific, specificHash } = require('./ks-package');
 const { registerTrainAssistant } = require('./train-assistant');
+const { registerCompanyTemplates } = require('./company-templates');
 const { runPackageSimulation, makeLlmGrader } = require('./ks-simulation');
 const { builtinSource } = require('./ks-source');
 const chatImport = require('./chat-import');
@@ -5696,6 +5697,9 @@ Aturan:
     kinds: Database.PLAYBOOK_KINDS, kindBrief: PLAYBOOK_KIND_BRIEF, categories: COACH_CATEGORIES,
     ksSources, ksView, validateSpecific, maxSpecificBytes: KS_MAX_SPECIFIC_BYTES,
   });
+
+  // Template potret konfigurasi per company: simpan, simpan baru, pasang.
+  registerCompanyTemplates(app, { database, isSupervisor, requireCoachDb, catatAudit, kinds: Database.PLAYBOOK_KINDS });
 
   // ── Impor playbook dari file ──────────────────────────────────────────────
   //

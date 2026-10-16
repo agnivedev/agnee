@@ -1324,6 +1324,54 @@ class Database {
     }
   }
 
+  // ---- Template potret konfigurasi (migrasi 062) --------------------------
+
+  async listCompanyTemplates(companyId) {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(`
+      SELECT id, name, sections, version, created_at AS "createdAt", updated_at AS "updatedAt"
+      FROM company_templates WHERE company_id = $1 ORDER BY updated_at DESC
+    `, [companyId]);
+    return result.rows;
+  }
+
+  async getCompanyTemplate(id, companyId) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      SELECT id, name, sections, version, created_at AS "createdAt", updated_at AS "updatedAt"
+      FROM company_templates WHERE id = $1 AND company_id = $2
+    `, [id, companyId]);
+    return result.rows[0] || null;
+  }
+
+  async createCompanyTemplate({ name, sections }, createdBy, companyId) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      INSERT INTO company_templates (company_id, name, sections, created_by)
+      VALUES ($1, $2, $3::jsonb, $4)
+      RETURNING id, name, sections, version, created_at AS "createdAt", updated_at AS "updatedAt"
+    `, [companyId, String(name).trim(), JSON.stringify(sections), createdBy || null]);
+    return result.rows[0];
+  }
+
+  /** Menimpa isi template dengan potret baru; versi naik satu. */
+  async overwriteCompanyTemplate(id, { name, sections }, companyId) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      UPDATE company_templates
+      SET sections = $3::jsonb, name = COALESCE($4, name), version = version + 1, updated_at = NOW()
+      WHERE id = $1 AND company_id = $2
+      RETURNING id, name, sections, version, created_at AS "createdAt", updated_at AS "updatedAt"
+    `, [id, companyId, JSON.stringify(sections), name ? String(name).trim() : null]);
+    return result.rows[0] || null;
+  }
+
+  async deleteCompanyTemplate(id, companyId) {
+    if (!this.enabled) return false;
+    const result = await this.pool.query('DELETE FROM company_templates WHERE id = $1 AND company_id = $2', [id, companyId]);
+    return result.rowCount > 0;
+  }
+
   async setMemberWhatsappNumber(userId, number, companyId) {
     if (!this.enabled) return false;
     const result = await this.pool.query(

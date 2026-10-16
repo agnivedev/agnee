@@ -616,7 +616,12 @@ function UpgradeWall({ onSignOut }: { onSignOut: () => void }) {
     <div className="grid min-h-dvh place-items-center bg-ink px-6 text-center text-white">
       <div className="max-w-md">
         <img src="/brand/agnee-mark.svg" alt="" className="mx-auto w-12" />
-        <h1 className="mt-6 text-3xl tracking-[-.03em]">{t('upgrade.title')}</h1>
+        <h1 className="mt-6 text-3xl tracking-[-.03em]">{t('upgrade.title').split('<br>').map((line, i) => (
+          <span key={i}>
+            {i > 0 && <br />}
+            {line}
+          </span>
+        ))}</h1>
         <p className="mt-3 text-white/70">{t('upgrade.copy')}</p>
         <a
           href="https://wa.me/6281218700276?text=Halo%2C%20saya%20mau%20langganan%20Agnee"

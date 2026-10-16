@@ -24,6 +24,8 @@ async function app(t) {
     async recordAuditLog(entry) { calls.audits.push(entry); return { id: 1 }; },
     async listDepartments() { return [{ id: DEPT, name: 'Product', description: 'x', members: [{ userId: agent.id, displayName: 'Agen', email: agent.email, whatsappNumber: '0812' }] }]; },
     async createDepartment(b) { calls.created.push(b); return { id: DEPT, ...b, members: [] }; },
+    async updateDepartment(id, b) { return { id, name: b.name || 'Product', description: '' }; },
+    async deleteDepartment() { return true; },
     async setDepartmentMembers(id, ids) { calls.memberSets.push([id, ids]); return true; },
     async listDepartmentQuestions(_c, { userId }) {
       if (!open) return [];
@@ -76,4 +78,20 @@ test('panduan prompt melarang menebak dan alat membatasi pilihan ke departemen y
   const spec = departmentAsk.toolSpec({ departments: deps, run: () => ({}) });
   assert.deepEqual(spec.parameters.properties.department.enum, ['Product', 'Procurement']);
   assert.match(departmentAsk.buildQuestionNotice({ department: 'Product', question: 'q', customerLabel: '+62' }), /Pertanyaan AI/);
+});
+
+test('kelima tindakan departemen tercatat di audit, tanpa isi jawaban', async (t) => {
+  const { server, calls, supCookie } = await app(t);
+  const h = { cookie: supCookie };
+  await server.inject({ method: 'POST', url: '/v1/departments', headers: h, payload: { name: 'Legal' } });
+  await server.inject({ method: 'PATCH', url: `/v1/departments/${DEPT}`, headers: h, payload: { name: 'Produk' } });
+  await server.inject({ method: 'PUT', url: `/v1/departments/${DEPT}/members`, headers: h, payload: { userIds: [agent.id] } });
+  await server.inject({ method: 'POST', url: `/v1/department-questions/${DEPT}/answer`, headers: h, payload: { answer: 'RAHASIA-JAWABAN' } });
+  await server.inject({ method: 'DELETE', url: `/v1/departments/${DEPT}`, headers: h });
+  const actions = calls.audits.map((a) => a.action);
+  for (const a of ['department.created', 'department.updated', 'department.members_set', 'department.question_answered', 'department.deleted']) {
+    assert.ok(actions.includes(a), `audit ${a} tidak tercatat`);
+  }
+  assert.ok(!JSON.stringify(calls.audits).includes('RAHASIA-JAWABAN'), 'isi jawaban tidak boleh masuk audit');
+  assert.ok(calls.audits.every((a) => a.entityType.startsWith('department')));
 });

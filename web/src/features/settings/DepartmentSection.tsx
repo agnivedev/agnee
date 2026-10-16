@@ -255,8 +255,8 @@ export function DepartmentQuestionsSection() {
               const answer = String(new FormData(event.currentTarget).get('answer') || '').trim();
               if (!answer) return;
               try {
-                const result = await api<{ relayed: boolean }>(`/v1/department-questions/${q.id}/answer`, { method: 'POST', body: { answer } });
-                setStatus(t(result.relayed ? 'deptq.relayed' : 'deptq.savedOnly'));
+                const result = await api<{ relayed: boolean; reason?: string }>(`/v1/department-questions/${q.id}/answer`, { method: 'POST', body: { answer } });
+                setStatus(t(result.relayed ? 'deptq.relayed' : result.reason === 'unsure' ? 'deptq.unsure' : result.reason === 'unsafe' ? 'deptq.unsafe' : 'deptq.savedOnly'));
               } catch (error) {
                 setStatus(messageFromError(error, ''));
               }

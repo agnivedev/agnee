@@ -97,10 +97,11 @@ test('kelima tindakan departemen tercatat di audit, tanpa isi jawaban', async (t
 });
 
 test('kabar tunggu dipaksa: balasan tanpa kata tunggu ditambah teks cadangan', () => {
-  assert.match(departmentAsk.ensureHolding('', 'Product'), /tim Product/);
-  assert.match(departmentAsk.ensureHolding('Stoknya ada 5 pcs', 'Product'), /ditunggu sebentar/);
+  assert.match(departmentAsk.ensureHolding(''), /saya pastikan dulu/);
+  assert.doesNotMatch(departmentAsk.ensureHolding(''), /tim|internal|departemen|supplier/i, 'kabar tunggu tidak membuka proses internal');
+  assert.match(departmentAsk.ensureHolding('Stoknya ada 5 pcs'), /ditunggu sebentar/);
   const ok = 'Baik kak, saya konfirmasikan dulu ya, mohon ditunggu.';
-  assert.equal(departmentAsk.ensureHolding(ok, 'Product'), ok);
+  assert.equal(departmentAsk.ensureHolding(ok), ok);
 });
 
 test('jadwal pengingat 5 mnt, 15 mnt, 2 jam, 12 jam dan pengingat terakhir menyebut 12 jam', () => {
@@ -181,7 +182,32 @@ test('pesan ke pihak ketiga tidak memuat data customer dan prompt relay tidak me
   const m = departmentAsk.buildThirdPartyMessage({ companyName: 'Toko Bangunan X', partyName: 'Toko Semen', question: 'Stok semen 50kg ada?' });
   assert.match(m, /Toko Bangunan X/);
   assert.doesNotMatch(m, /\+62|customer/i);
-  assert.match(departmentAsk.relayPrompt({ customerText: 'c', question: 'q', answer: 'a', department: 'x', external: true }), /JANGAN menyebut nama supplier/);
+  assert.match(departmentAsk.relayPrompt({ customerText: 'c', question: 'q', answer: 'a' }), /supplier/);
   const spec = departmentAsk.toolSpecThirdParty({ parties: [{ name: 'A', tags: ['x'] }], run: () => ({}) });
   assert.deepEqual(spec.parameters.properties.party.enum, ['A']);
+});
+
+test('relay: jawaban pasti lolos, belum pasti ditahan, bocoran proses internal ditolak', () => {
+  assert.equal(departmentAsk.judgeRelay('Stok semen 50kg tersedia kak, siap dikirim besok.').kind, 'ok');
+  assert.equal(departmentAsk.judgeRelay(departmentAsk.UNSURE_TOKEN).kind, 'unsure');
+  assert.equal(departmentAsk.judgeRelay('').kind, 'empty');
+  for (const bocor of [
+    'Kata tim Product, stoknya ada kak.',
+    'Sudah kami tanyakan ke supplier, ada kak.',
+    'Setelah dibahas internal, harganya 62rb.',
+    'Menurut departemen terkait, bisa kak.',
+  ]) {
+    assert.equal(departmentAsk.judgeRelay(bocor).kind, 'leak', bocor);
+  }
+  // Kata "pabrik"/"semen" milik topik customer tidak dianggap bocoran.
+  assert.equal(departmentAsk.judgeRelay('Untuk pabrik kakak, semen 50kg tersedia.').kind, 'ok');
+});
+
+test('prompt relay: santun, hanya isi jawaban, tanpa proses internal, token belum pasti', () => {
+  const p = departmentAsk.relayPrompt({ customerText: 'c', question: 'q', answer: 'a' });
+  assert.match(p, /BELUM_PASTI/);
+  assert.match(p, /Tidak menggurui, tidak sombong/);
+  assert.match(p, /HANYA isi jawaban/);
+  assert.match(departmentAsk.relayPrompt({ customerText: 'c', question: 'q', answer: 'a', strict: true }), /menyebut proses internal/);
+  assert.match(departmentAsk.guide([{ name: 'Product', description: '' }]), /JANGAN menyebut proses internal ke customer/);
 });

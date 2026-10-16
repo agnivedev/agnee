@@ -9,8 +9,8 @@
 const QUESTION_MAX = 600;
 
 // Cadangan bila model lupa menulis kalimat tunggu setelah memanggil alat.
-const HOLDING_FALLBACK = (department) =>
-  `Baik kak, untuk hal ini saya konfirmasikan dulu ke tim ${department} kami ya. Mohon ditunggu sebentar, begitu ada jawabannya langsung saya kabari kakak 🙏`;
+const HOLDING_FALLBACK = () =>
+  'Baik kak, saya pastikan dulu ya supaya informasinya akurat. Mohon ditunggu sebentar, begitu sudah jelas langsung saya kabari kakak 🙏';
 
 // Balasan ke customer HARUS memuat kabar tunggu. Model kadang lupa menulisnya
 // setelah memanggil alat, dan customer yang ditinggal diam adalah kegagalan.
@@ -18,10 +18,10 @@ const WAITING = /\b(tunggu|menunggu|ditunggu|konfirmasi|konfirmasikan|kukonfirma
 function mentionsWaiting(text) { return WAITING.test(String(text || '')); }
 
 /** Pastikan balasan setelah ask_department memuat kabar tunggu; bila tidak, tambahkan. */
-function ensureHolding(text, department) {
+function ensureHolding(text) {
   const clean = String(text || '').trim();
   if (clean && mentionsWaiting(clean)) return clean;
-  const hold = HOLDING_FALLBACK(department);
+  const hold = HOLDING_FALLBACK();
   return clean ? `${clean}\n\n${hold}` : hold;
 }
 
@@ -52,7 +52,8 @@ ${list}
 
 Aturan:
 - Pilih SATU departemen yang paling relevan. Tulis pertanyaan yang singkat, lengkap, dan bisa dijawab tanpa membaca chat (sebut produk/hal yang dimaksud). Jangan menyertakan nomor telepon atau data pribadi customer.
-- Setelah alat dipanggil, balas customer dengan 1–2 kalimat sesuai persona: katakan kamu konfirmasikan dulu ke tim terkait, minta ditunggu sebentar, dan bahwa kamu akan kabari begitu ada jawabannya. Contoh nada: "Baik kak, untuk itu saya konfirmasikan dulu ke tim Product kami ya. Mohon ditunggu sebentar, begitu ada jawabannya langsung saya kabari 🙏". Jangan menyebut kata "AI", "alat", atau "sistem", dan jangan menjanjikan jam atau durasi tertentu.
+- Setelah alat dipanggil, balas customer dengan 1–2 kalimat sesuai persona: katakan kamu memastikan dulu supaya informasinya akurat, minta ditunggu sebentar, dan kamu akan kabari begitu sudah jelas. Contoh nada: "Baik kak, saya pastikan dulu ya supaya informasinya akurat. Mohon ditunggu sebentar, begitu sudah jelas langsung saya kabari 🙏".
+- JANGAN menyebut proses internal ke customer: tanpa kata "tim", "internal", "departemen", "bagian", "supplier", "pabrik", nama divisi, atau "saya tanyakan ke…". Customer cukup tahu kamu sedang memastikan. Jangan menyebut kata "AI", "alat", atau "sistem", dan jangan menjanjikan jam atau durasi tertentu.
 - Jangan bertanya ke departemen untuk hal yang sudah ada jawabannya di pengetahuan, dan jangan memanggil alat dua kali untuk pertanyaan yang sama.
 - Setelah alat dipanggil, jangan memberi jawaban tebakan sambil menunggu.`;
 }
@@ -67,7 +68,7 @@ ${list}
 
 Aturan:
 - Pilih pihak yang tag dan catatannya paling cocok. Tulis pertanyaan singkat dan teknis (bahan, ukuran, jumlah). JANGAN menyebut nama, nomor, atau data pribadi customer, dan jangan membuka harga jual atau margin kita.
-- Setelah alat dipanggil, beri tahu customer bahwa kamu sedang memastikan dulu dan akan mengabari. JANGAN menyebut nama pihak ketiga itu ke customer.
+- Setelah alat dipanggil, beri tahu customer bahwa kamu sedang memastikan dulu dan akan mengabari. JANGAN menyebut pihak ketiga, supplier, atau pabrik itu ke customer.
 - Jangan memberi jawaban tebakan sambil menunggu.`;
 }
 
@@ -123,12 +124,32 @@ function buildQuestionNotice({ department, question, customerLabel }) {
   ].join('\n');
 }
 
-/** Perintah ke model untuk menyusun balasan ke customer dari jawaban departemen. */
-function relayPrompt({ customerText, question, answer, department, external = false }) {
-  if (external) {
-    return `Customer sebelumnya menulis: "${customerText}"\nKamu lalu memastikan hal ini ke pihak terkait: "${question}"\nKonfirmasi yang sudah diperiksa staf: "${answer}"\n\nTulis balasan ke customer dengan persona kamu berdasarkan konfirmasi itu. Pakai HANYA isi konfirmasi — jangan menambah fakta, angka, atau janji yang tidak ada di sana. JANGAN menyebut nama supplier/pabrik atau harga modal. Singkat dan ramah. Keluarkan HANYA pesannya.`;
-  }
-  return `Customer sebelumnya menulis: "${customerText}"\nKamu lalu menanyakan ke tim ${department}: "${question}"\nJawaban dari tim: "${answer}"\n\nTulis balasan ke customer dengan persona kamu berdasarkan jawaban tim itu. Pakai HANYA isi jawaban tim — jangan menambah fakta, angka, atau janji yang tidak ada di sana. Singkat dan ramah, tanpa menyebut "tim internal menjawab" secara kaku. Keluarkan HANYA pesannya.`;
+const UNSURE_TOKEN = '[BELUM_PASTI]';
+
+/** Kata yang membuka proses internal. Dipakai sebagai pagar setelah model menulis. */
+const INTERNAL_LEAK = /\b(internal|departemen|divisi|supplier|vendor|pemasok|tim\s+(?:product|produk|procurement|management|manajemen|kami\s+di\s+dalam)|saya\s+(?:tanyakan|tanya)\s+(?:ke|kepada)|sudah\s+(?:kami\s+)?(?:bahas|tanyakan)|dibahas)\b/i;
+
+function leaksInternal(text) { return INTERNAL_LEAK.test(String(text || '')); }
+
+const RELAY_RULES = `Aturan keras:
+- Pakai HANYA isi jawaban yang diberikan. Jangan menambah fakta, angka, janji, atau kepastian yang tidak ada di sana.
+- Kalau jawabannya belum pasti (mengandung "kurang tahu", "belum tahu", "mungkin", "sepertinya", "nanti dicek", atau tidak menjawab pertanyaan), JANGAN menyampaikannya sebagai fakta. Keluarkan HANYA tulisan ${UNSURE_TOKEN} dan tidak ada yang lain.
+- Jangan menceritakan apa yang terjadi di dalam: tanpa kata "tim", "internal", "departemen", "divisi", "bagian", "supplier", "pabrik", "vendor", tanpa nama orang atau divisi, tanpa "sudah kami tanyakan/bahas". Sampaikan hasilnya saja, seolah kamu sendiri sudah memastikan.
+- Nada santun, hangat, dan rendah hati. Tidak menggurui, tidak sombong, tidak menyalahkan, tidak membesar-besarkan, tidak berlebihan memohon maaf. Singkat (1–3 kalimat), sesuai persona.
+- Keluarkan HANYA pesannya.`;
+
+/** Perintah ke model untuk menyusun balasan ke customer dari jawaban yang sudah ditinjau. */
+function relayPrompt({ customerText, question, answer, strict = false }) {
+  return `Customer sebelumnya menulis: "${customerText}"\nKamu memastikan hal ini: "${question}"\nHasil yang sudah dipastikan: "${answer}"\n\nTulis balasan ke customer berdasarkan hasil itu.\n\n${RELAY_RULES}${strict ? '\n\nPERHATIAN: percobaan sebelumnya menyebut proses internal. Ulangi tanpa menyebut siapa pun atau proses apa pun, hanya hasilnya.' : ''}`;
 }
 
-module.exports = { guideThirdParties, toolSpecThirdParty, buildThirdPartyMessage, mentionsWaiting, ensureHolding, buildReminderNotice, REMINDER_MINUTES, guide, toolSpec, buildQuestionNotice, relayPrompt, HOLDING_FALLBACK, QUESTION_MAX };
+/** Bacaan model: pasti / belum pasti / bocor. */
+function judgeRelay(text) {
+  const clean = String(text || '').trim();
+  if (!clean) return { kind: 'empty' };
+  if (clean.includes(UNSURE_TOKEN)) return { kind: 'unsure' };
+  if (leaksInternal(clean)) return { kind: 'leak' };
+  return { kind: 'ok', text: clean };
+}
+
+module.exports = { judgeRelay, leaksInternal, UNSURE_TOKEN, guideThirdParties, toolSpecThirdParty, buildThirdPartyMessage, mentionsWaiting, ensureHolding, buildReminderNotice, REMINDER_MINUTES, guide, toolSpec, buildQuestionNotice, relayPrompt, HOLDING_FALLBACK, QUESTION_MAX };

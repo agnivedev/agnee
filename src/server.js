@@ -1326,13 +1326,20 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     if (routing?.mode === 'human') return { relayed: false, reason: 'human' };
     const companyAi = await getCompanyAi(companyId);
     const ctx = await buildReplyContext({ companyId, text: row.customerText, chatId: row.chatId });
-    const result = await llmService.generateReply(
-      departmentAsk.relayPrompt({
-        customerText: row.customerText, question: row.question, answer: row.answer, department: row.department || 'terkait', external: Boolean(row.thirdPartyId),
-      }),
-      { systemPrompt: ctx.systemPrompt, companyId, purpose: 'auto_reply', modelChain: companyAi.modelChain },
-    ).catch(() => null);
-    const text = stripLinks(result?.text || '') || row.answer;
+    // Sampai dua percobaan: yang pertama biasa, yang kedua lebih ketat bila
+    // yang pertama membocorkan proses internal. Jawaban yang belum pasti atau
+    // tetap bocor TIDAK dikirim; staf diberi tahu dan menghubungi customer.
+    let verdict = { kind: 'empty' };
+    for (const strict of [false, true]) {
+      const result = await llmService.generateReply(
+        departmentAsk.relayPrompt({ customerText: row.customerText, question: row.question, answer: row.answer, strict }),
+        { systemPrompt: ctx.systemPrompt, companyId, purpose: 'auto_reply', modelChain: companyAi.modelChain },
+      ).catch(() => null);
+      verdict = departmentAsk.judgeRelay(stripLinks(result?.text || ''));
+      if (verdict.kind === 'ok' || verdict.kind === 'unsure') break;
+    }
+    if (verdict.kind !== 'ok') return { relayed: false, reason: verdict.kind === 'unsure' ? 'unsure' : 'unsafe' };
+    const text = verdict.text;
     const sent = await sendOutbound(companyId, row.chatId, text);
     await database.recordOutboundReply({ chatId: row.chatId, messageId: sent?.messageId || null, author: 'ai', body: text, inReplyTo: row.question }, companyId).catch(() => {});
     await database.markDepartmentQuestionRelayed(row.id, companyId);
@@ -1649,7 +1656,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     // Alat ask_department sudah jalan: customer HARUS dapat kabar tunggu. Dipaksa
     // di sini, bukan dititipkan ke model, yang kadang menjawab tanpa menyebutnya.
     if (ctx.departmentAsked?.length) {
-      const holding = departmentAsk.ensureHolding(result?.text, ctx.departmentAsked[0]);
+      const holding = departmentAsk.ensureHolding(result?.text);
       if (!result?.text) return holding;
       result.text = holding;
     }

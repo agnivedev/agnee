@@ -76,35 +76,69 @@ async function diff({ database, companyId, kinds, template }) {
   return out;
 }
 
+/**
+ * Memasang dengan catatan pembatalan: tiap tulisan mencatat cara
+ * mengembalikannya. Bila satu langkah gagal, yang sudah tertulis dikembalikan
+ * (urutan terbalik) lalu error dilempar, jadi pemasangan semua-atau-tidak-sama-sekali.
+ */
 async function install({ database, companyId, userId, template, sections }) {
   const t = template.sections;
   const done = {};
-  if (sections.includes('playbook') && t.playbook) {
-    for (const [kind, contentMd] of Object.entries(t.playbook)) await database.savePlaybookDoc({ kind, contentMd }, userId, companyId);
-    done.playbook = Object.keys(t.playbook).length;
-  }
-  if (sections.includes('facts') && t.facts) {
-    for (const f of t.facts) await database.upsertPlaybookFact({ ...f, source: 'manual' }, userId, companyId);
-    done.facts = t.facts.length;
-  }
-  if (sections.includes('brief') && typeof t.brief === 'string' && t.brief.trim()) {
-    await database.savePlaybookBrief(t.brief, userId, companyId);
-    done.brief = true;
-  }
-  if (sections.includes('departments') && t.departments) {
-    const have = new Map((await database.listDepartments(companyId)).map((d) => [d.name.toLowerCase(), d]));
-    for (const d of t.departments) {
-      const existing = have.get(d.name.toLowerCase());
-      if (existing) await database.updateDepartment(existing.id, { description: d.description }, companyId);
-      else await database.createDepartment(d, companyId);
+  const undo = [];
+  try {
+    if (sections.includes('playbook') && t.playbook) {
+      for (const [kind, contentMd] of Object.entries(t.playbook)) {
+        const before = await database.getPlaybookDoc(kind, companyId, null);
+        await database.savePlaybookDoc({ kind, contentMd }, userId, companyId);
+        undo.push(() => (before
+          ? database.savePlaybookDoc({ kind, contentMd: before.contentMd }, userId, companyId)
+          : database.deletePlaybookDoc(kind, companyId, null)));
+      }
+      done.playbook = Object.keys(t.playbook).length;
     }
-    done.departments = t.departments.length;
+    if (sections.includes('facts') && t.facts) {
+      const existing = new Map((await database.listPlaybookFacts(companyId)).map((f) => [f.question.trim().toLowerCase(), f]));
+      for (const f of t.facts) {
+        const found = existing.get(f.question.trim().toLowerCase());
+        const before = found ? { ...found } : null;
+        const row = await database.upsertPlaybookFact({ ...f, source: 'manual' }, userId, companyId);
+        undo.push(() => (before
+          ? database.upsertPlaybookFact({ category: before.category, question: before.question, answer: before.answer, priority: before.priority, source: before.source }, userId, companyId)
+          : database.deletePlaybookFact(row.id, companyId)));
+      }
+      done.facts = t.facts.length;
+    }
+    if (sections.includes('brief') && typeof t.brief === 'string' && t.brief.trim()) {
+      const before = (await database.getPlaybook(companyId)).brief || '';
+      await database.savePlaybookBrief(t.brief, userId, companyId);
+      undo.push(() => database.savePlaybookBrief(before, userId, companyId));
+      done.brief = true;
+    }
+    if (sections.includes('departments') && t.departments) {
+      const have = new Map((await database.listDepartments(companyId)).map((d) => [d.name.toLowerCase(), d]));
+      for (const d of t.departments) {
+        const existing = have.get(d.name.toLowerCase());
+        if (existing) {
+          await database.updateDepartment(existing.id, { description: d.description }, companyId);
+          undo.push(() => database.updateDepartment(existing.id, { description: existing.description || '' }, companyId));
+        } else {
+          const created = await database.createDepartment(d, companyId);
+          undo.push(() => database.deleteDepartment(created.id, companyId));
+        }
+      }
+      done.departments = t.departments.length;
+    }
+    if (sections.includes('identity') && t.identity) {
+      const before = (await database.getAiSettings(companyId)).identity;
+      await database.setAiSettings(companyId, { identity: t.identity });
+      undo.push(() => database.setAiSettings(companyId, { identity: before }));
+      done.identity = t.identity;
+    }
+    return done;
+  } catch (error) {
+    for (const revert of undo.reverse()) await Promise.resolve(revert()).catch(() => {});
+    throw error;
   }
-  if (sections.includes('identity') && t.identity) {
-    await database.setAiSettings(companyId, { identity: t.identity });
-    done.identity = t.identity;
-  }
-  return done;
 }
 
 function registerCompanyTemplates(app, deps) {

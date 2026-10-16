@@ -45,12 +45,18 @@ function fakeDb() {
     async listPlaybookFacts(c, o = {}) { return state.facts.filter((f) => f.companyId === c && (!o.onlyAnswered || f.answer)); },
     async upsertPlaybookFact(f, _u, c) {
       const hit = state.facts.find((x) => x.companyId === c && x.question.toLowerCase() === f.question.toLowerCase());
-      if (hit) hit.answer = f.answer; else state.facts.push({ id: `n${state.facts.length}`, companyId: c, ...f });
+      if (hit) { hit.answer = f.answer; return hit; }
+      const row = { id: `n${state.facts.length}`, companyId: c, ...f };
+      state.facts.push(row);
+      return row;
     },
+    async deletePlaybookFact(id) { const i = state.facts.findIndex((f) => f.id === id); if (i >= 0) state.facts.splice(i, 1); },
+    async deletePlaybookDoc(kind, c) { state.docs.delete(`${c}|${kind}`); },
+    async deleteDepartment(id) { const i = state.depts.findIndex((d) => d.id === id); if (i >= 0) state.depts.splice(i, 1); },
     async getPlaybook(c) { return { brief: state.brief.get(c) || '' }; },
     async savePlaybookBrief(b, _u, c) { state.brief.set(c, b); },
     async listDepartments(c) { return state.depts.filter((d) => d.companyId === c); },
-    async createDepartment(d, c) { state.depts.push({ id: `d${state.depts.length}`, companyId: c, members: [], ...d }); },
+    async createDepartment(d, c) { const row = { id: `d${state.depts.length}`, companyId: c, members: [], ...d }; state.depts.push(row); return row; },
     async updateDepartment(id, { description }) { state.depts.find((d) => d.id === id).description = description; },
     async listCompanyTemplates(c) { return tpl.filter((t) => t.companyId === c); },
     async getCompanyTemplate(id, c) { return tpl.find((t) => t.id === id && t.companyId === c) || null; },
@@ -124,4 +130,24 @@ test('hanya supervisor yang boleh mengelola template', async (t) => {
   const { call } = await setup(t);
   assert.equal((await call('agent', 'GET', '/v1/templates')).statusCode, 403);
   assert.equal((await call('agent', 'POST', '/v1/templates', { name: 'Xx', sections: ['brief'] })).statusCode, 403);
+});
+
+test('pemasangan semua-atau-tidak-sama-sekali: gagal di tengah mengembalikan yang sudah tertulis', async (t) => {
+  const { call, database } = await setup(t);
+  const id = (await call('a', 'POST', '/v1/templates', { name: 'Dasar', sections: ['playbook', 'facts', 'brief', 'departments', 'identity'] })).json().template.id;
+  // Company berubah setelah potret, lalu satu langkah di tengah gagal.
+  database.state.docs.set('company-a|persona', 'Persona sekarang');
+  database.state.facts.find((f) => f.id === 'f1').answer = 'Rp 2';
+  database.state.brief.set('company-a', 'Brief sekarang');
+  database.state.depts.push({ id: 'dx', companyId: 'company-a', name: 'Legal', description: '', members: [] });
+  database.state.tpl[0].sections.departments.push({ name: 'Baru', description: 'x' });
+  database.state.depts = database.state.depts.filter((d) => d.name !== 'Finance'); // Finance akan dibuat ulang
+  const create = database.createDepartment;
+  database.createDepartment = async (d, c) => { if (d.name === 'Baru') throw new Error('boom'); return create(d, c); };
+  const before = JSON.stringify([...database.state.docs], null) + JSON.stringify(database.state.facts) + [...database.state.brief] + JSON.stringify(database.state.depts);
+  const res = await call('a', 'POST', `/v1/templates/${id}/apply`, { sections: ['playbook', 'facts', 'brief', 'departments', 'identity'] });
+  assert.equal(res.statusCode, 500);
+  const after = JSON.stringify([...database.state.docs], null) + JSON.stringify(database.state.facts) + [...database.state.brief] + JSON.stringify(database.state.depts);
+  assert.equal(after, before, 'semua tulisan sebelum kegagalan dikembalikan');
+  assert.equal(database.state.identity.get('company-a'), undefined);
 });

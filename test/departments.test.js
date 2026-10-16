@@ -208,6 +208,8 @@ test('prompt relay: santun, hanya isi jawaban, tanpa proses internal, token belu
   assert.match(p, /BELUM_PASTI/);
   assert.match(p, /Tidak menggurui, tidak sombong/);
   assert.match(p, /HANYA isi jawaban/);
+  assert.match(p, /JANGAN berbohong/);
+  assert.doesNotMatch(p, /seolah/);
   assert.match(departmentAsk.relayPrompt({ customerText: 'c', question: 'q', answer: 'a', strict: true }), /menyebut proses internal/);
   assert.match(departmentAsk.guide([{ name: 'Product', description: '' }]), /JANGAN menyebut proses internal ke customer/);
 });

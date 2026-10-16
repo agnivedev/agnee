@@ -69,7 +69,8 @@ ${list}
 Aturan:
 - Pilih pihak yang tag dan catatannya paling cocok. Tulis pertanyaan singkat dan teknis (bahan, ukuran, jumlah). JANGAN menyebut nama, nomor, atau data pribadi customer, dan jangan membuka harga jual atau margin kita.
 - Setelah alat dipanggil, beri tahu customer bahwa kamu sedang memastikan dulu dan akan mengabari. JANGAN menyebut pihak ketiga, supplier, atau pabrik itu ke customer.
-- Jangan memberi jawaban tebakan sambil menunggu.`;
+- Jangan memberi jawaban tebakan sambil menunggu.
+- Jangan berbohong: jangan mengaku sudah mengecek sesuatu yang belum kamu cek, dan jangan mengarang alasan penundaan. Cukup katakan kamu sedang memastikan.`;
 }
 
 function toolSpecThirdParty({ parties, run }) {
@@ -134,7 +135,8 @@ function leaksInternal(text) { return INTERNAL_LEAK.test(String(text || '')); }
 const RELAY_RULES = `Aturan keras:
 - Pakai HANYA isi jawaban yang diberikan. Jangan menambah fakta, angka, janji, atau kepastian yang tidak ada di sana.
 - Kalau jawabannya belum pasti (mengandung "kurang tahu", "belum tahu", "mungkin", "sepertinya", "nanti dicek", atau tidak menjawab pertanyaan), JANGAN menyampaikannya sebagai fakta. Keluarkan HANYA tulisan ${UNSURE_TOKEN} dan tidak ada yang lain.
-- Jangan menceritakan apa yang terjadi di dalam: tanpa kata "tim", "internal", "departemen", "divisi", "bagian", "supplier", "pabrik", "vendor", tanpa nama orang atau divisi, tanpa "sudah kami tanyakan/bahas". Sampaikan hasilnya saja, seolah kamu sendiri sudah memastikan.
+- Jangan menceritakan apa yang terjadi di dalam: tanpa kata "tim", "internal", "departemen", "divisi", "bagian", "supplier", "pabrik", "vendor", tanpa nama orang atau divisi, tanpa "sudah kami tanyakan/bahas". Sampaikan hasilnya saja. Menahan detail proses itu boleh; memalsukannya tidak.
+- JANGAN berbohong: jangan mengaku melakukan hal yang tidak kamu lakukan (mis. "sudah saya cek langsung ke gudang"), jangan mengarang sumber, angka, atau kepastian. Hanya katakan apa yang memang ada di hasil di atas.
 - Nada santun, hangat, dan rendah hati. Tidak menggurui, tidak sombong, tidak menyalahkan, tidak membesar-besarkan, tidak berlebihan memohon maaf. Singkat (1–3 kalimat), sesuai persona.
 - Keluarkan HANYA pesannya.`;
 

@@ -337,3 +337,27 @@ test('keadaan Latih AI ikut di prompt, dengan id yang sah', async (t) => {
   assert.ok(state.last.systemPrompt.includes('"f1"'));
   assert.ok(!state.last.systemPrompt.includes('Rahasia B'), 'data perusahaan lain tidak ikut');
 });
+
+test('ask_choices: satu rekomendasi di urutan pertama; pilihan jamak tanpa rekomendasi; satu pertanyaan per giliran', async (t) => {
+  const { chat, a, state, database } = await setup(t);
+  state.script = [
+    ['ask_choices', { question: 'Gaya bicara CS?', options: [{ label: 'Santai' }, { label: 'Formal' }, { label: 'Ramah profesional', recommended: true }, { label: 'Santai', recommended: true }] }],
+    ['ask_choices', { question: 'Kedua?', options: [{ label: 'a' }, { label: 'b' }] }],
+  ];
+  const res = await chat(a, 'bantu isi persona');
+  const { question } = res.json();
+  assert.deepEqual(question.options.map((o) => o.label), ['Ramah profesional', 'Santai', 'Formal']);
+  assert.deepEqual(question.options.map((o) => o.recommended), [true, false, false]);
+  assert.match(state.results[1].error, /satu pertanyaan/);
+  assert.match(res.json().memo, /Pertanyaan yang kuajukan: Gaya bicara CS\?/);
+
+  state.script = [['ask_choices', { question: 'Larangan apa saja?', multiple: true, options: [{ label: 'Profit', recommended: true }, { label: 'Diskon' }] }]];
+  const multi = (await chat(a, 'lanjut')).json().question;
+  assert.equal(multi.multiple, true);
+  assert.ok(multi.options.every((o) => !o.recommended));
+
+  state.script = [['ask_choices', { question: 'Cuma satu?', options: [{ label: 'x' }, { label: 'X' }] }]];
+  assert.equal((await chat(a, 'lagi')).json().question, null);
+  assert.match(state.results[0].error, /dua pilihan/);
+  assert.deepEqual(database.writes, []);
+});

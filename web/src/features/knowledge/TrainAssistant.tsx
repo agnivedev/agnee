@@ -31,7 +31,8 @@ export type Proposal =
   | (Base & { type: 'ks_activate'; installId: string; active: boolean });
 
 type Turn = { role: 'user' | 'assistant'; content: string };
-type Message = { role: 'user' | 'assistant'; text: string; proposals?: Proposal[] };
+export type Question = { id: string; question: string; multiple: boolean; options: { label: string; recommended: boolean }[] };
+type Message = { role: 'user' | 'assistant'; text: string; proposals?: Proposal[]; question?: Question | null };
 type Outcome = { state: 'applying' | 'applied' | 'failed' | 'discarded'; note?: string };
 
 /** Menerapkan satu usulan lewat rute yang sama dengan layar biasa. */
@@ -160,6 +161,55 @@ function ProposalCard({ proposal, outcome, onApply, onDiscard }: {
   );
 }
 
+function QuestionCard({ question, answered, disabled, onAnswer }: {
+  question: Question;
+  answered: boolean;
+  disabled: boolean;
+  onAnswer: (text: string) => void;
+}) {
+  const { t } = useI18n();
+  const [picked, setPicked] = useState<string[]>([]);
+  const locked = answered || disabled;
+  return (
+    <div className="grid gap-2 rounded-xl border border-green/40 bg-green/5 p-3 text-[12px]">
+      <strong className="text-[12px]">{question.question}</strong>
+      <div className="grid gap-1.5">
+        {question.options.map((option, index) => {
+          const on = picked.includes(option.label);
+          return (
+            <button
+              key={option.label}
+              type="button"
+              disabled={locked}
+              aria-pressed={question.multiple ? on : undefined}
+              onClick={() => (question.multiple
+                ? setPicked((cur) => (on ? cur.filter((l) => l !== option.label) : [...cur, option.label]))
+                : onAnswer(option.label))}
+              className={cn(
+                'flex cursor-pointer items-start gap-2 rounded-lg border bg-white px-2.5 py-2 text-left text-[12px] transition disabled:cursor-default disabled:opacity-60',
+                on ? 'border-green bg-green/10' : 'border-border hover:border-green/60',
+              )}
+            >
+              <span className="mt-px font-mono text-[10px] text-muted">{question.multiple ? (on ? '☑' : '☐') : index + 1}</span>
+              <span className="flex-1">
+                {option.label}
+                {option.recommended ? <em className="ml-1.5 rounded bg-green/20 px-1 text-[10px] font-medium not-italic text-green-dark">{t('trainChat.recommended')}</em> : null}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      {question.multiple && !answered ? (
+        <div className="flex items-center gap-2">
+          <Button size="sm" disabled={locked || !picked.length} onClick={() => onAnswer(picked.join('; '))}>{t('trainChat.sendPicked')}</Button>
+          <span className="text-muted">{t('trainChat.multiHint')}</span>
+        </div>
+      ) : null}
+      {!answered ? <p className="m-0 text-[11px] text-muted">{t('trainChat.orType')}</p> : null}
+    </div>
+  );
+}
+
 export function TrainAssistant({ onChanged }: { onChanged: () => void }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
@@ -182,19 +232,23 @@ export function TrainAssistant({ onChanged }: { onChanged: () => void }) {
     [messages, outcomes],
   );
 
-  async function send(event: FormEvent) {
+  function send(event: FormEvent) {
     event.preventDefault();
-    const message = draft.trim();
+    void submit(draft);
+  }
+
+  async function submit(raw: string) {
+    const message = raw.trim();
     if (!message || busy) return;
     setBusy(true);
     setError('');
     setDraft('');
     setMessages((current) => [...current, { role: 'user', text: message }]);
     try {
-      const result = await api<{ reply: string; memo: string; proposals: Proposal[] }>('/v1/train/chat', {
+      const result = await api<{ reply: string; memo: string; proposals: Proposal[]; question: Question | null }>('/v1/train/chat', {
         method: 'POST', body: { message, history: history.slice(-20) },
       });
-      setMessages((current) => [...current, { role: 'assistant', text: result.reply, proposals: result.proposals }]);
+      setMessages((current) => [...current, { role: 'assistant', text: result.reply, proposals: result.proposals, question: result.question }]);
       setHistory((current) => [...current, { role: 'user', content: message }, { role: 'assistant', content: result.memo }]);
     } catch (failure) {
       setError(messageFromError(failure, t('trainChat.failed')));
@@ -271,6 +325,7 @@ export function TrainAssistant({ onChanged }: { onChanged: () => void }) {
           {!messages.length ? (
             <div className="grid gap-2 text-[13px] text-muted">
               <p className="m-0">{t('trainChat.intro')}</p>
+              <Button size="sm" className="justify-self-start" onClick={() => void submit(t('trainChat.guideMessage'))}>{t('trainChat.guide')}</Button>
               <p className="m-0 text-[12px]">{t('trainChat.examples')}</p>
             </div>
           ) : null}
@@ -284,6 +339,14 @@ export function TrainAssistant({ onChanged }: { onChanged: () => void }) {
               >
                 {message.text}
               </div>
+              {message.question ? (
+                <QuestionCard
+                  question={message.question}
+                  answered={index < messages.length - 1}
+                  disabled={busy}
+                  onAnswer={(text) => void submit(text)}
+                />
+              ) : null}
               {(message.proposals || []).map((proposal) => (
                 <ProposalCard
                   key={proposal.id}

@@ -8,7 +8,9 @@
  * Memasang menambah dan menimpa isi, tidak pernah menghapus apa pun.
  */
 
-const SECTIONS = ['playbook', 'facts', 'brief', 'departments', 'identity'];
+const { CONFIGURABLE_MODES } = require('./agent-modes');
+
+const SECTIONS = ['playbook', 'facts', 'brief', 'departments', 'identity', 'modes'];
 const MAX_TEMPLATES = 20;
 
 async function capture({ database, companyId, kinds, sections }) {
@@ -32,6 +34,8 @@ async function capture({ database, companyId, kinds, sections }) {
     out.departments = (await database.listDepartments(companyId)).map((d) => ({ name: d.name, description: d.description || '' }));
   }
   if (sections.includes('identity')) out.identity = (await database.getAiSettings(companyId)).identity;
+  // Panduan per mode agent (bukan mode tiap nomor: nomor tidak ikut dipotret).
+  if (sections.includes('modes')) out.modes = await database.getAgentModeInstructions(companyId);
   return out;
 }
 
@@ -44,6 +48,7 @@ function summarize(snapshot) {
     brief: typeof s.brief === 'string' ? s.brief.length : undefined,
     departments: s.departments ? s.departments.length : undefined,
     identity: s.identity,
+    modes: s.modes ? Object.keys(s.modes).length : undefined,
   };
 }
 
@@ -73,6 +78,10 @@ async function diff({ database, companyId, kinds, template }) {
     out.departments = { added: t.departments.filter((d) => !have.has(d.name.toLowerCase())).length, total: t.departments.length };
   }
   if (t.identity) out.identity = { changed: current.identity !== t.identity, to: t.identity };
+  if (t.modes) {
+    const names = Object.keys(t.modes);
+    out.modes = { changed: names.filter((m) => (current.modes?.[m] || '').trim() !== String(t.modes[m]).trim()).length, total: names.length };
+  }
   return out;
 }
 
@@ -133,6 +142,15 @@ async function install({ database, companyId, userId, template, sections }) {
       await database.setAiSettings(companyId, { identity: t.identity });
       undo.push(() => database.setAiSettings(companyId, { identity: before }));
       done.identity = t.identity;
+    }
+    if (sections.includes('modes') && t.modes) {
+      const before = await database.getAgentModeInstructions(companyId);
+      for (const [mode, text] of Object.entries(t.modes)) {
+        if (!CONFIGURABLE_MODES.includes(mode)) continue;
+        await database.setAgentModeInstructions(companyId, mode, text, userId);
+        undo.push(() => database.setAgentModeInstructions(companyId, mode, before[mode] || '', userId));
+      }
+      done.modes = Object.keys(t.modes).filter((m) => CONFIGURABLE_MODES.includes(m)).length;
     }
     return done;
   } catch (error) {

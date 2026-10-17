@@ -15,11 +15,12 @@ const broadcast = require('./broadcast');
 const leadImport = require('./lead-import');
 const { compileKsPrompt, validateSpecific, specificHash } = require('./ks-package');
 const { registerTrainAssistant } = require('./train-assistant');
-const { registerCompanyTemplates } = require('./company-templates');
+const { registerCompanyTemplates, install: installCompanyTemplate } = require('./company-templates');
 const { runPackageSimulation, makeLlmGrader } = require('./ks-simulation');
 const { builtinSource } = require('./ks-source');
 const chatImport = require('./chat-import');
 const { pilihNomorUntukPercakapanBaru } = require('./rotator');
+const agentModes = require('./agent-modes');
 const { neutralizeFormula } = require('./formula-guard');
 const { CloudApiManager } = require('./cloud-api-manager.js');
 const KnowledgeBase = require('./knowledge-loader.js');
@@ -694,6 +695,44 @@ async function buildApp(overrides = {}) {
     return primaryWaConn(companyId);
   }
 
+
+  /**
+   * Mode agent untuk percakapan ini: nomor yang menerima pesan (connectionId
+   * dari jalur masuk) atau, bila tak diketahui, nomor yang memegang chat.
+   * Apa pun yang tidak terbaca jatuh ke 'standard' (perilaku lama).
+   */
+  async function resolveAgentMode(companyId, chatId, connectionId = null) {
+    try {
+      if (connectionId) {
+        const found = (await listWaConns(companyId)).find((row) => row.id === connectionId);
+        if (found) return agentModes.normalizeMode(found.agentMode);
+        return 'standard';
+      }
+      const conn = await waConnForChat(companyId, chatId);
+      return agentModes.normalizeMode(conn?.agentMode);
+    } catch {
+      return 'standard';
+    }
+  }
+
+  /**
+   * Siapa pengirim pada nomor mode operasi? Anggota aktif yang nomornya
+   * tercatat (termasuk lewat peta @lid). Pihak ketiga sudah dicegat lebih awal
+   * di handleInboundMessage. Null = tidak dikenal.
+   */
+  async function resolveInternalSender(companyId, chatId) {
+    if (!canCall('listMembersWithWhatsapp')) return null;
+    const norm = (value) => { try { return normalizeChatId(String(value), config.defaultCountryCode); } catch { return null; } };
+    const candidates = new Set([norm(chatId)]);
+    if (String(chatId).endsWith('@lid') && canCall('phoneForLid')) {
+      const phone = await database.phoneForLid(companyId, chatId).catch(() => null);
+      if (phone) candidates.add(norm(phone));
+    }
+    const members = await database.listMembersWithWhatsapp(companyId).catch(() => []);
+    const hit = members.find((m) => { const n = norm(m.whatsappNumber); return n && candidates.has(n); });
+    return hit ? { kind: 'member', name: hit.name, userId: hit.userId, departments: hit.departments || [] } : null;
+  }
+
   /** Nomor ini benar-benar bisa mengirim sekarang? */
   function waSiapKirim(connectionId) {
     return manager.getState(connectionId)?.phase === 'ready';
@@ -927,7 +966,7 @@ async function buildApp(overrides = {}) {
     }
     await paceReply(companyId, message, receivedAt, meta, {
       produce: async () => {
-        const autoReply = await generateAutoReply(message, companyId);
+        const autoReply = await generateAutoReply(message, companyId, meta);
         if (autoReply) {
           // Kalimat serah-terima ditulis setelah chat dipindah ke manusia;
           // dibedakan supaya tetap terkirim walau pesan sesudahnya tidak
@@ -1291,7 +1330,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
    * (lonceng di Agnee + WhatsApp bila nomornya diisi). Satu pertanyaan terbuka
    * per chat per departemen supaya model yang mengulang tidak membanjiri.
    */
-  async function askDepartment({ companyId, chatId, customerText, departments, args }) {
+  async function askDepartment({ companyId, chatId, customerText, departments, args, askerLabel = null }) {
     const dept = departments.find((d) => d.name === args.department);
     const question = String(args.question || '').trim().slice(0, departmentAsk.QUESTION_MAX);
     if (!dept || !question) return { error: 'Departemen atau pertanyaan tidak valid.' };
@@ -1302,7 +1341,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     if (!created) return { error: 'Departemen tidak ditemukan.' };
     broadcastEvent(companyId, 'department_question', { id: created.id, department: dept.name });
     const notice = departmentAsk.buildQuestionNotice({
-      department: dept.name, question, customerLabel: handoffNotice.describeCustomer({ chatId }),
+      department: dept.name, question, customerLabel: handoffNotice.describeCustomer({ chatId }), askerLabel,
     });
     for (const member of created.members) {
       if (!member.whatsappNumber) continue;
@@ -1326,7 +1365,24 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     const routing = await getRouting(row.chatId, companyId).catch(() => null);
     if (routing?.mode === 'human') return { relayed: false, reason: 'human' };
     const companyAi = await getCompanyAi(companyId);
-    const ctx = await buildReplyContext({ companyId, text: row.customerText, chatId: row.chatId });
+    const relayMode = await resolveAgentMode(companyId, row.chatId);
+    const ctx = await buildReplyContext({ companyId, text: row.customerText, chatId: row.chatId, agentMode: relayMode });
+    // Percakapan operasi internal: penerimanya orang dalam, jadi menyebut siapa
+    // yang menjawab boleh dan pagar kebocoran proses internal tidak berlaku.
+    // Jawaban yang belum pasti tetap TIDAK diteruskan sebagai fakta.
+    if (relayMode === 'internal_ops') {
+      const result = await llmService.generateReply(
+        agentModes.opsRelayPrompt({ senderText: row.customerText, question: row.question, answer: row.answer }),
+        { systemPrompt: ctx.systemPrompt, companyId, purpose: 'auto_reply', modelChain: companyAi.modelChain },
+      ).catch(() => null);
+      const text = stripLinks(result?.text || '').trim();
+      if (!text) return { relayed: false, reason: 'empty' };
+      if (text.includes(departmentAsk.UNSURE_TOKEN)) return { relayed: false, reason: 'unsure' };
+      const sent = await sendOutbound(companyId, row.chatId, text);
+      await database.recordOutboundReply({ chatId: row.chatId, messageId: sent?.messageId || null, author: 'ai', body: text, inReplyTo: row.question }, companyId).catch(() => {});
+      await database.markDepartmentQuestionRelayed(row.id, companyId);
+      return { relayed: true };
+    }
     // Sampai dua percobaan: yang pertama biasa, yang kedua lebih ketat bila
     // yang pertama membocorkan proses internal. Jawaban yang belum pasti atau
     // tetap bocor TIDAK dikirim; staf diberi tahu dan menghubungi customer.
@@ -1357,7 +1413,9 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
    * so what a supervisor tests is what a customer actually gets. Testing
    * against a different context than production is worse than not testing.
    */
-  async function buildReplyContext({ companyId, text, chatId = null, productId = null, ks = null, allowDepartments = false }) {
+  async function buildReplyContext({ companyId, text, chatId = null, productId = null, ks = null, allowDepartments = false, agentMode = 'standard', sender = null }) {
+    const mode = agentModes.normalizeMode(agentMode);
+    const ops = mode === 'internal_ops';
     const kb = await getKnowledgeBase(companyId);
     if (!kb.loaded) await kb.load().catch(() => {});
     const relevantFaqs = kb.findRelevantFaq(text || '');
@@ -1371,7 +1429,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       dbLive ? database.getCompanyConfig(companyId).catch(() => null) : null,
     ]);
     // Produk ditentukan dulu karena menentukan playbook mana yang dibaca.
-    const product = dbLive && typeof database.listPlaybookProducts === 'function'
+    const product = !ops && dbLive && typeof database.listPlaybookProducts === 'function'
       ? await resolveConversationProduct({
         companyId, chatId, text, productId, summary: latestSummary?.summary || '',
       }).catch(() => null)
@@ -1401,7 +1459,8 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     }
 
     let paymentContext = '';
-    if (paymentParts.length) {
+    // Nomor operasi internal tidak menagih siapa pun.
+    if (paymentParts.length && !ops) {
       const intro = paymentParts.length > 1
         ? 'Ada dua cara membayar. Tawarkan keduanya dan biarkan customer memilih; jangan memaksakan salah satu.'
         : '';
@@ -1412,7 +1471,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
 
     // `ks` memaksa paket tertentu dipakai (simulasi paket yang belum aktif);
     // tanpa itu yang dibaca adalah paket aktif milik company ini.
-    const ksInstalls = ks || (dbLive && typeof database.listActiveKs === 'function'
+    const ksInstalls = ops ? [] : ks || (dbLive && typeof database.listActiveKs === 'function'
       ? await database.listActiveKs(companyId).catch(() => [])
       : []);
     const ksContext = ksInstalls.map((install) => {
@@ -1424,7 +1483,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       }
     }).filter(Boolean).join('\n\n');
 
-    const hubTools = companyConfig?.hubToolsEnabled ? hubListingTools() : [];
+    const hubTools = companyConfig?.hubToolsEnabled && !ops ? hubListingTools() : [];
     // Departemen hanya dipakai pada chat nyata (ada chatId): simulator Coach
     // tidak boleh membangunkan anggota departemen sungguhan.
     let departmentTools = [];
@@ -1443,7 +1502,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
             return out;
           },
         }));
-        departmentGuide = departmentAsk.guideThirdParties(parties);
+        departmentGuide = ops ? departmentAsk.guideThirdPartiesOps(parties) : departmentAsk.guideThirdParties(parties);
       }
     }
     if (allowDepartments && chatId && dbLive && canCall('listDepartments') && !ks) {
@@ -1453,26 +1512,43 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
         departmentTools.push(departmentAsk.toolSpec({
           departments,
           run: async (args = {}) => {
-            const out = await askDepartment({ companyId, chatId, customerText: text, departments, args });
+            const out = await askDepartment({ companyId, chatId, customerText: text, departments, args, askerLabel: ops ? (sender?.name || 'anggota tim') : null });
             if (out.status === 'sent' || out.status === 'already_asked') departmentAsked.push(out.department);
             return out;
           },
         }));
-        departmentGuide = [departmentAsk.guide(departments), departmentGuide].filter(Boolean).join('\n\n');
+        departmentGuide = [ops ? departmentAsk.guideOps(departments) : departmentAsk.guide(departments), departmentGuide].filter(Boolean).join('\n\n');
       }
     }
+    let modeBlock = '';
+    if (mode !== 'standard') {
+      const custom = dbLive && typeof database.getAgentModeInstructions === 'function'
+        ? await database.getAgentModeInstructions(companyId).catch(() => ({}))
+        : {};
+      modeBlock = agentModes.modeSection(mode, custom[mode]);
+    }
     const contextSections = [
-      playbookContext ? `## PLAYBOOK PERUSAHAAN INI (SUMBER UTAMA — prioritaskan di atas knowledge umum di atas)\n${playbookContext}` : '',
+      playbookContext
+        ? (ops
+          ? `## PENGETAHUAN PERUSAHAAN (referensi fakta untuk menjawab rekan kerja; naskah penjualan di dalamnya BUKAN untuk dipakai di nomor ini)\n${playbookContext}`
+          : `## PLAYBOOK PERUSAHAAN INI (SUMBER UTAMA — prioritaskan di atas knowledge umum di atas)\n${playbookContext}`)
+        : '',
       ksContext ? `${KS_PRECEDENCE}\n\n${ksContext}` : '',
       paymentContext,
       hubTools.length ? HUB_TOOLS_GUIDE : '',
+      // Mode agent: blok peran + panduan tambahan company. 'standard' kosong,
+      // jadi nomor lama persis seperti sebelum ada mode.
+      modeBlock,
+      ops ? agentModes.senderLine(sender) : '',
       departmentGuide,
       // Bentuk percakapannya milik Agnee dan sama untuk semua tenant; isinya
       // milik playbook di atas. Ditaruh paling akhir supaya paling dekat dengan
       // pesan customer — instruksi di ujung prompt lebih konsisten dipatuhi
       // daripada yang terkubur di tengah.
-      conversationRules(companyConfig?.aiIdentity),
+      agentModes.conversationRulesOverride(mode) || conversationRules(companyConfig?.aiIdentity),
     ].filter(Boolean).join('\n\n');
+
+    const basePrompt = ops ? kb.getInternalOpsPrompt() : kb.getSystemPrompt();
 
     return {
       kb,
@@ -1487,13 +1563,14 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       leadState: latestSummary?.summary
         ? { ...(leadStateRaw || {}), conversationSummary: latestSummary.summary }
         : leadStateRaw,
+      agentMode: mode,
       systemPrompt: contextSections
-        ? `${kb.getSystemPrompt()}\n\n${contextSections}`
-        : kb.getSystemPrompt(),
+        ? `${basePrompt}\n\n${contextSections}`
+        : basePrompt,
     };
   }
 
-  async function generateAutoReply(message, companyId) {
+  async function generateAutoReply(message, companyId, meta = {}) {
     if (!config.llmEnabled) return null;
     if (message.from.endsWith('@g.us')) return null;
     if (!message.body || !message.body.trim()) return null;
@@ -1501,9 +1578,24 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     if (!companyAi.enabled) return null;
     const routing = await getRouting(message.from, companyId);
     if (routing.mode === 'human') return null;
+    const agentMode = await resolveAgentMode(companyId, message.from, meta?.connectionId || null);
+    const opsMode = agentMode === 'internal_ops';
+    // Nomor operasi internal hanya melayani orang yang dikenal. Yang tidak
+    // dikenal tidak dijawab AI (percakapannya tetap masuk inbox untuk staf):
+    // mereka bukan customer, dan jawaban otomatis ke orang asing di nomor
+    // internal berisiko membuka informasi operasional.
+    let opsSender = null;
+    if (opsMode) {
+      opsSender = await resolveInternalSender(companyId, message.from);
+      if (!opsSender) {
+        app.log.info({ companyId, chatId: message.from }, 'Mode operasi: pengirim tidak dikenal, AI tidak membalas');
+        return null;
+      }
+    }
     // Penerima pemberitahuan serah-terima adalah orang dalam: kalau mereka
     // membalas pesan pemberitahuan itu, AI tidak boleh menjawabnya sebagai customer.
-    if (canCall('getHandoffNotifyNumbers')) {
+    // (Di nomor operasi justru mereka audiensnya, jadi pagar ini dilewati.)
+    if (!opsMode && canCall('getHandoffNotifyNumbers')) {
       const insiders = await database.getHandoffNotifyNumbers(companyId).catch(() => []);
       if (insiders.some((raw) => normalizeChatId(raw, config.defaultCountryCode) === message.from)) return null;
     }
@@ -1543,7 +1635,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     }
 
     // Use this company's own knowledge client from DB — never another tenant's
-    const ctx = await buildReplyContext({ companyId, text: message.body, chatId: message.from, allowDepartments: true });
+    const ctx = await buildReplyContext({ companyId, text: message.body, chatId: message.from, allowDepartments: true, agentMode, sender: opsSender });
 
     // Fetch recent conversation history so the AI knows what was already said.
     //
@@ -5068,6 +5160,8 @@ Aturan:
       productId: { anyOf: [{ type: 'string', format: 'uuid' }, { type: 'null' }] },
       compareWithAi: { type: 'boolean', default: false },
       grade: { type: 'boolean', default: true },
+      // Uji sebagai mode agent tertentu; kosong = 'standard' seperti sebelumnya.
+      agentMode: { type: 'string', enum: agentModes.MODES },
     } } },
   }, async (request, reply) => {
     if (!requireCoachSupervisor(request, reply)) return;
@@ -5092,6 +5186,7 @@ Aturan:
     // Same context the live WhatsApp path uses, so results match production.
     const ctx = await buildReplyContext({
       companyId, text: customerMessage, chatId: request.body.chatId || null, productId: request.body.productId || null,
+      agentMode: request.body.agentMode || 'standard',
     });
     const history = transcript.map((turn) => ({
       role: turn.role === 'customer' ? 'user' : 'assistant',
@@ -8305,6 +8400,7 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
         label: row.label,
         phoneNumber: row.phoneNumber || null,
         isActive: row.isActive !== false,
+        agentMode: agentModes.normalizeMode(row.agentMode),
         // Fase diambil dari manager, bukan kolom status: kolom itu catatan
         // terakhir yang tersimpan, sedangkan manager tahu keadaan sekarang.
         phase: manager.getState(row.id).phase,
@@ -8345,20 +8441,110 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     schema: {
       params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } },
       body: {
-        type: 'object', required: ['isActive'], additionalProperties: false,
-        properties: { isActive: { type: 'boolean' } },
+        type: 'object', additionalProperties: false, minProperties: 1,
+        properties: {
+          isActive: { type: 'boolean' },
+          agentMode: { type: 'string', enum: agentModes.MODES },
+        },
       },
     },
   }, async (request, reply) => {
     if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengubah koneksi.' });
-    if (!canCall('setWhatsappConnectionActive')) return reply.code(503).send({ error: 'Database tidak tersedia.' });
-    const updated = await database.setWhatsappConnectionActive(
-      request.agneeSession.companyId, request.params.id, request.body.isActive,
-    );
-    if (!updated) return reply.code(404).send({ error: 'Nomor tidak ditemukan.' });
+    const { isActive, agentMode } = request.body;
+    const companyId = request.agneeSession.companyId;
+    let updated = null;
+    if (isActive !== undefined) {
+      if (!canCall('setWhatsappConnectionActive')) return reply.code(503).send({ error: 'Database tidak tersedia.' });
+      updated = await database.setWhatsappConnectionActive(companyId, request.params.id, isActive);
+      if (!updated) return reply.code(404).send({ error: 'Nomor tidak ditemukan.' });
+    }
+    if (agentMode !== undefined) {
+      if (!canCall('setWhatsappConnectionMode')) return reply.code(503).send({ error: 'Database tidak tersedia.' });
+      const modeRow = await database.setWhatsappConnectionMode(companyId, request.params.id, agentMode);
+      if (!modeRow) return reply.code(404).send({ error: 'Nomor tidak ditemukan.' });
+      updated = { ...(updated || {}), id: modeRow.id, agentMode: modeRow.agentMode };
+      await catatAudit(request, 'whatsapp.mode_changed', { entityType: 'whatsapp_connection', entityId: modeRow.id, metadata: { agentMode } });
+    }
     // Percakapan yang sudah menempel tidak dilepas — menonaktifkan hanya
-    // menghentikan nomor ini menerima percakapan baru.
-    return { ok: true, id: updated.id, isActive: updated.isActive };
+    // menghentikan nomor ini menerima percakapan baru. Mengganti mode berlaku
+    // untuk pesan berikutnya; riwayat tidak berubah.
+    return { ok: true, id: updated.id, isActive: updated.isActive, agentMode: updated.agentMode };
+  });
+
+  // ── Mode agent: panduan per mode dan template bawaan ─────────────────────
+
+  const modeParams = { type: 'object', required: ['mode'], properties: { mode: { type: 'string', enum: agentModes.CONFIGURABLE_MODES } } };
+
+  app.get('/v1/agent-modes', async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat melihat mode agent.' });
+    if (!canCall('getAgentModeInstructions')) return reply.code(503).send({ error: 'Database tidak tersedia.' });
+    const companyId = request.agneeSession.companyId;
+    const [custom, conns] = await Promise.all([
+      database.getAgentModeInstructions(companyId),
+      listWaConns(companyId),
+    ]);
+    const perMode = {};
+    for (const row of conns) { const m = agentModes.normalizeMode(row.agentMode); perMode[m] = (perMode[m] || 0) + 1; }
+    return {
+      maxInstructions: agentModes.INSTRUCTIONS_MAX,
+      modes: agentModes.MODES.map((id) => ({
+        id,
+        ...agentModes.META[id],
+        configurable: agentModes.CONFIGURABLE_MODES.includes(id),
+        instructions: custom[id] || '',
+        numbers: perMode[id] || 0,
+      })),
+      templates: agentModes.BUILTIN_TEMPLATES.map(({ code, mode, name, description, sections }) => ({
+        code, mode, name, description,
+        departments: sections.departments.map((d) => d.name),
+      })),
+    };
+  });
+
+  app.put('/v1/agent-modes/:mode/instructions', {
+    schema: {
+      params: modeParams,
+      body: {
+        type: 'object', additionalProperties: false, required: ['instructions'],
+        properties: { instructions: { type: 'string', maxLength: agentModes.INSTRUCTIONS_MAX } },
+      },
+    },
+  }, async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengubah mode agent.' });
+    if (!canCall('setAgentModeInstructions')) return reply.code(503).send({ error: 'Database tidak tersedia.' });
+    await database.setAgentModeInstructions(request.agneeSession.companyId, request.params.mode, request.body.instructions, request.agneeSession.userId);
+    await catatAudit(request, 'agent_mode.instructions_saved', { entityType: 'agent_mode', entityId: request.params.mode });
+    return { ok: true };
+  });
+
+  // Memasang template bawaan memakai install() template company yang sama:
+  // menambah departemen (tanpa anggota) dan panduan mode, tidak menghapus apa pun.
+  app.post('/v1/agent-modes/templates/:code/apply', {
+    schema: { params: { type: 'object', required: ['code'], properties: { code: { type: 'string', maxLength: 60 } } } },
+  }, async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat memasang template.' });
+    if (!canCall('setAgentModeInstructions') || !canCall('listDepartments')) return reply.code(503).send({ error: 'Database tidak tersedia.' });
+    const template = agentModes.getBuiltinTemplate(request.params.code);
+    if (!template) return reply.code(404).send({ error: 'Template tidak ditemukan.' });
+    // Bawaan hanya MENAMBAH: departemen yang sudah ada (dan sudah disunting
+    // company) dan panduan mode yang sudah ditulis company dibiarkan apa adanya.
+    const companyId = request.agneeSession.companyId;
+    const haveDepts = new Set((await database.listDepartments(companyId)).map((d) => d.name.toLowerCase()));
+    const haveModes = await database.getAgentModeInstructions(companyId);
+    const sections = {
+      departments: template.sections.departments.filter((d) => !haveDepts.has(d.name.toLowerCase())),
+      modes: Object.fromEntries(Object.entries(template.sections.modes).filter(([m]) => !haveModes[m])),
+    };
+    const done = await installCompanyTemplate({
+      database, companyId, userId: request.agneeSession.userId,
+      template: { sections }, sections: Object.keys(sections),
+    });
+    done.skipped = {
+      departments: template.sections.departments.length - sections.departments.length,
+      modes: Object.keys(template.sections.modes).length - Object.keys(sections.modes).length,
+    };
+    await catatAudit(request, 'template.applied', { entityType: 'builtin_template', entityId: template.code, metadata: { sections: Object.keys(done) } });
+    return { ok: true, applied: done };
   });
 
   app.delete('/v1/whatsapp/numbers/:id', {

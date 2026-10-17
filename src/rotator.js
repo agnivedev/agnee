@@ -28,6 +28,14 @@
  * @param {(id: string) => boolean} arg.siapKirim              nomor ini siap mengirim sekarang?
  * @returns {{nomor: object|null, alasan: string}}
  */
+/**
+ * Nomor mode operasi internal tidak menerima percakapan customer baru: yang
+ * menulis ke sana anggota tim dan supplier. Tempelan tidak pernah dipindah,
+ * jadi customer yang salah mendarat di nomor operasi tidak akan pernah dilayani
+ * sebagai customer.
+ */
+const melayaniCustomer = (nomor) => nomor?.agentMode !== 'internal_ops';
+
 function pilihNomorUntukPercakapanBaru({
   counts = [],
   connections = [],
@@ -41,7 +49,7 @@ function pilihNomorUntukPercakapanBaru({
     // belakangan tetap langsung menyerap percakapan baru.
     for (const baris of counts) {
       const kandidat = connections.find((row) => row.id === baris.id);
-      if (kandidat && siapKirim(kandidat.id)) {
+      if (kandidat && melayaniCustomer(kandidat) && siapKirim(kandidat.id)) {
         return { nomor: kandidat, alasan: 'beban-paling-ringan' };
       }
     }
@@ -49,7 +57,7 @@ function pilihNomorUntukPercakapanBaru({
 
   // Rotasi mati, atau tidak ada kandidat yang siap: jatuh ke nomor utama —
   // tapi hanya kalau nomor utamanya sendiri siap.
-  if (primary?.id && siapKirim(primary.id)) {
+  if (primary?.id && melayaniCustomer(primary) && siapKirim(primary.id)) {
     return { nomor: primary, alasan: rotationEnabled ? 'hanya-utama-yang-siap' : 'rotasi-mati' };
   }
 

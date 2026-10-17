@@ -38,6 +38,8 @@ const AUDIT_ACTIONS = [
   'lead.open_in_whatsapp',
   'payment.changed',
   'whatsapp.disconnected',
+  'whatsapp.mode_changed',
+  'agent_mode.instructions_saved',
   'team.member_added',
   'team.role_changed',
   'team.member_updated',

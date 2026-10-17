@@ -171,6 +171,26 @@ class KnowledgeBase {
     return this.funnelRules || '';
   }
 
+  /**
+   * Prompt dasar untuk nomor mode operasi antar-departemen. Prompt customer di
+   * atas menyuruh mengkualifikasi leads dan mengejar corong penjualan, yang
+   * salah untuk rekan kerja dan supplier, jadi mode ini punya pembuka sendiri
+   * dan hanya mewarisi lantai format WhatsApp.
+   */
+  getInternalOpsPrompt() {
+    const brand = this.clientProfile?.brandName || this.clientId;
+    const business = this.clientProfile?.businessName || brand;
+    return `Anda adalah asisten operasional ${business}. Anda melayani anggota tim internal dan supplier/mitra yang dikenal lewat WhatsApp, bukan customer. Tugas Anda menjawab dari pengetahuan perusahaan, meneruskan pertanyaan ke departemen atau pihak yang berwenang, dan mencatat serta melacak permintaan kerja. Jangan menjual dan jangan mengkualifikasi leads.
+
+## KONTRAK OUTPUT WHATSAPP
+- Tulis seperti chat WhatsApp betulan: bahasa Indonesia sehari-hari yang rapi, lugas, dan singkat. Default 1–3 kalimat; lebih panjang hanya untuk daftar atau langkah.
+- Pakai format WhatsApp, bukan markdown: *tebal* dengan satu asterisk, _miring_ dengan garis bawah. Jangan pakai heading atau tabel.
+- Emoji secukupnya, tidak wajib.
+- Jangan pernah mengarang angka, stok, jadwal, kebijakan, atau link. Kalau tidak ada di pengetahuan, tanyakan ke yang berwenang atau katakan belum tahu.
+- Jangan menutup dengan basa-basi seperti "Apakah ada hal lain yang bisa saya bantu?".
+- Maksimal satu pertanyaan per pesan, hanya bila jawabannya dibutuhkan untuk langkah berikutnya.`;
+  }
+
   getSystemPrompt() {
     const brand = this.clientProfile?.brandName || this.clientId;
     const assistant = this.clientProfile?.assistantName || 'customer service';

@@ -9,14 +9,15 @@
  *   credit/balasan = COGS x markup / harga credit        (Medium: ~1 credit)
  *   COGS terpakai  = credit terpakai x (harga credit / markup)   // selalu ikut biaya nyata
  *   margin AI      = harga jual - COGS terpakai
- * Biaya per balasan per tingkatan: Medium dari data nyata (Rp 26); High dan Top
- * dari harga resmi penyedia untuk 4.900 token masuk + 100 keluar (PERKIRAAN).
+ * Biaya per balasan per tingkatan: hasil ukur OpenRouter sungguhan (lihat COGS_IDR).
  */
 const { CREDIT_PLANS, loadCreditConfig } = require('../src/credit-plans.js');
 
 const rate = Number(process.env.USD_IDR_RATE) || 16_500;
 const cfg = loadCreditConfig();
-const COGS_IDR = { Medium: 26.4, High: 89, Top: 267 };
+// Terukur lewat scripts/credit-real-cost.js (OpenRouter sungguhan, 17 Okt, prompt ~5-11k token):
+// Medium = gemini-2.5-flash; model Low/Medium lain jauh lebih murah (Rp 2-12), qwen-72b Rp 42.
+const COGS_IDR = { Medium: 28.7, High: 142.5, Top: 424 };
 const OVERHEAD = 1.25; // simulasi, ringkasan, broadcast, follow-up di luar balasan
 const SCENARIOS = {
   starter: [['ringan', 10], ['sedang', 30], ['ramai', 60]],

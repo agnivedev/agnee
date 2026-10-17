@@ -53,7 +53,8 @@ satuan pemakaian AI: **1 credit ≈ 1 balasan AI tingkat Medium**.
 Cara hitung (jalankan `node scripts/credit-simulate.js`):
 
 - COGS balasan = biaya penyedia (USD) × kurs. Medium nyata ≈ **Rp 26**
-  (data lokal 205 panggilan; High ≈ Rp 89 dan Top ≈ Rp 267 PERKIRAAN dari harga resmi).
+  (data lokal 205 panggilan).
+  **Diukur ulang lewat OpenRouter sungguhan 17 Okt** (`scripts/credit-real-cost.js`, prompt playbook Beweix 5–11rb token): Low Rp 2–9, Medium Rp 10–43 (gemini-flash Rp 28,7), **High Rp 142**, **Top-end Rp 424** per balasan. High menghabiskan ±5 credit/balasan dan Top ±16.
 - Harga jual 1 credit (top-up) = **Rp 100**; markup **3,85×** → 1 balasan Medium = 1 credit.
 - COGS per credit = Rp 100 ÷ 3,85 ≈ **Rp 26**; margin kotor AI = **74%** pada harga penuh.
 - COGS terpakai selalu mengikuti biaya nyata, apa pun modelnya (model mahal

@@ -93,16 +93,16 @@ export function NotificationBell({ className }: { className?: string }) {
       {open && panelStyle ? (
         <div
           style={panelStyle}
-          className="z-30 max-h-[70vh] overflow-auto rounded-panel border border-border bg-card p-2 shadow-panel"
+          className="z-30 max-h-[70vh] overflow-auto rounded-panel border border-border bg-card p-2 text-ink shadow-panel"
         >
           <div className="mb-1 flex items-center justify-between gap-2 px-1">
-            <strong className="text-xs">{t('notif.title')}</strong>
+            <strong className="text-sm">{t('notif.title')}</strong>
             <div className="flex items-center gap-2">
               {unread ? (
                 <button
                   type="button"
                   onClick={() => void markAllRead()}
-                  className="cursor-pointer border-0 bg-transparent p-0 text-[10px] text-muted underline"
+                  className="cursor-pointer border-0 bg-transparent p-0 text-xs text-muted underline"
                 >
                   {t('notif.markAllRead')}
                 </button>
@@ -110,7 +110,7 @@ export function NotificationBell({ className }: { className?: string }) {
               <button
                 type="button"
                 onClick={() => { setOpen(false); navigate('/notifications'); }}
-                className="cursor-pointer border-0 bg-transparent p-0 text-[10px] font-semibold text-green-dark underline"
+                className="cursor-pointer border-0 bg-transparent p-0 text-xs font-semibold text-green-dark underline"
               >
                 {t('notif.viewAll')}
               </button>
@@ -124,19 +124,19 @@ export function NotificationBell({ className }: { className?: string }) {
                     type="button"
                     onClick={() => openItem(item)}
                     className={cn(
-                      'grid w-full cursor-pointer gap-0.5 rounded-lg border-0 p-2 text-left',
+                      'grid w-full cursor-pointer gap-1 rounded-lg border-0 p-2.5 text-left text-ink',
                       item.readAt ? 'bg-transparent' : 'bg-[#eef5ee]',
                     )}
                   >
-                    <span className="text-[11px]">
+                    <span className="text-[13px] leading-snug">
                       <strong>{item.kind === 'hub' ? 'Agnive Hub' : item.actorName || t('routing.system')}</strong>{' '}
                       {t(notificationVerbKey(item.kind))}
                       {item.chatName ? ` · ${item.chatName}` : ''}
                     </span>
                     {item.body ? (
-                      <span className="line-clamp-2 text-[11px] text-muted">{item.body}</span>
+                      <span className="line-clamp-2 text-[13px] leading-snug text-muted">{item.body}</span>
                     ) : null}
-                    <time className="font-mono text-[9px] text-muted">
+                    <time className="text-[11px] text-muted">
                       {new Date(item.createdAt).toLocaleString(dateLocale)}
                     </time>
                   </button>
@@ -144,7 +144,7 @@ export function NotificationBell({ className }: { className?: string }) {
               ))}
             </ul>
           ) : (
-            <p className="m-0 px-1 py-3 text-[11px] text-muted">{t('notif.empty')}</p>
+            <p className="m-0 px-1 py-3 text-[13px] text-muted">{t('notif.empty')}</p>
           )}
         </div>
       ) : null}

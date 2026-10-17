@@ -3371,7 +3371,8 @@ class Database {
     const result = await this.pool.query(`
       SELECT id, company_id AS "companyId", connection_key AS "connectionKey",
              label, client_id AS "clientId", phone_number AS "phoneNumber",
-             status, session_path AS "sessionPath", connected_at AS "connectedAt"
+             status, session_path AS "sessionPath", agent_mode AS "agentMode",
+             connected_at AS "connectedAt"
       FROM whatsapp_connections
       WHERE company_id = $1 AND connection_key = 'whatsapp-main'
       LIMIT 1
@@ -3386,7 +3387,7 @@ class Database {
       SELECT id, company_id AS "companyId", connection_key AS "connectionKey",
              label, client_id AS "clientId", phone_number AS "phoneNumber",
              status, session_path AS "sessionPath", is_active AS "isActive",
-             connected_at AS "connectedAt"
+             agent_mode AS "agentMode", connected_at AS "connectedAt"
       FROM whatsapp_connections
       WHERE company_id = $1
       ORDER BY created_at ASC
@@ -3426,6 +3427,72 @@ class Database {
     return result.rows[0] || null;
   }
 
+  async setWhatsappConnectionMode(companyId, id, mode) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      UPDATE whatsapp_connections SET agent_mode = $3, updated_at = NOW()
+      WHERE company_id = $1 AND id = $2
+      RETURNING id, agent_mode AS "agentMode"
+    `, [companyId, id, mode]);
+    return result.rows[0] || null;
+  }
+
+  /** Panduan tambahan per mode milik satu company: { sales: '...', ... }. */
+  async getAgentModeInstructions(companyId) {
+    if (!this.enabled) return {};
+    const result = await this.pool.query(
+      'SELECT mode, instructions FROM agent_mode_instructions WHERE company_id = $1', [companyId],
+    );
+    return Object.fromEntries(result.rows.map((row) => [row.mode, row.instructions]));
+  }
+
+  /** Teks kosong menghapus panduan: mode itu kembali ke bawaan Agnee. */
+  async setAgentModeInstructions(companyId, mode, instructions, userId = null) {
+    if (!this.enabled) return false;
+    const text = String(instructions || '').trim();
+    if (!text) {
+      await this.pool.query('DELETE FROM agent_mode_instructions WHERE company_id = $1 AND mode = $2', [companyId, mode]);
+      return true;
+    }
+    await this.pool.query(`
+      INSERT INTO agent_mode_instructions (company_id, mode, instructions, updated_by)
+      VALUES ($1, $2, $3, $4)
+      ON CONFLICT (company_id, mode) DO UPDATE
+        SET instructions = EXCLUDED.instructions, updated_by = EXCLUDED.updated_by, updated_at = NOW()
+    `, [companyId, mode, text, userId]);
+    return true;
+  }
+
+  /**
+   * Anggota aktif company yang punya nomor WhatsApp, beserta departemennya.
+   * Pencocokan nomor dilakukan pemanggil (format nomor beragam: 0812…, +62…).
+   */
+  async listMembersWithWhatsapp(companyId) {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(`
+      SELECT u.id AS "userId", COALESCE(u.display_name, u.email) AS name, cm.whatsapp_number AS "whatsappNumber",
+             COALESCE(array_agg(d.name ORDER BY d.name) FILTER (WHERE d.name IS NOT NULL), '{}') AS departments
+      FROM company_members cm
+      JOIN users u ON u.id = cm.user_id
+      LEFT JOIN department_members dm ON dm.user_id = cm.user_id AND dm.company_id = cm.company_id
+      LEFT JOIN departments d ON d.id = dm.department_id
+      WHERE cm.company_id = $1 AND cm.status = 'active' AND cm.whatsapp_number IS NOT NULL AND cm.whatsapp_number <> ''
+      GROUP BY u.id, u.display_name, u.email, cm.whatsapp_number
+    `, [companyId]);
+    return result.rows;
+  }
+
+  /** Nomor telepon (digit) di balik chat @lid, atau null. */
+  async phoneForLid(companyId, chatId) {
+    if (!this.enabled) return null;
+    const idPart = String(chatId).split('@')[0];
+    const result = await this.pool.query(
+      "SELECT regexp_replace(phone, '\\D', '', 'g') AS phone FROM lid_phone_map WHERE company_id = $1 AND lid IN ($2, $3) LIMIT 1",
+      [companyId, idPart, String(chatId)],
+    );
+    return result.rows[0]?.phone || null;
+  }
+
   async deleteWhatsappConnection(companyId, id) {
     if (!this.enabled) return null;
     const result = await this.pool.query(`
@@ -3441,7 +3508,8 @@ class Database {
     if (!this.enabled) return null;
     const result = await this.pool.query(`
       SELECT c.id, c.client_id AS "clientId", c.session_path AS "sessionPath",
-             c.connection_key AS "connectionKey", c.label, c.is_active AS "isActive", c.status
+             c.connection_key AS "connectionKey", c.label, c.is_active AS "isActive", c.status,
+             c.agent_mode AS "agentMode"
       FROM whatsapp_chat_numbers n
       JOIN whatsapp_connections c ON c.id = n.connection_id
       WHERE n.company_id = $1 AND n.chat_id = $2

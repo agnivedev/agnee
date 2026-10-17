@@ -9,6 +9,7 @@ import { PlanAndPayment } from './PlanAndPayment';
 import { FollowUpSection } from './FollowUpSection';
 import { ReplyDelaySection } from './ReplyDelaySection';
 import { ReportSection } from './ReportSection';
+import { AgentModeSection } from './AgentModeSection';
 import { AiSettingsSection } from './AiSettingsSection';
 import { AuditSection } from './AuditSection';
 import { ExportSection } from './ExportSection';
@@ -173,6 +174,7 @@ export function SettingsPage() {
           {activeTab === 'whatsapp' && isSupervisor ? (
             <>
               <WhatsappNumbersSection />
+              <AgentModeSection />
               <CloudApiSection />
             </>
           ) : null}

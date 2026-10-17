@@ -13,6 +13,7 @@ type WaNumber = {
   phoneNumber?: string | null;
   phase: string;
   isActive: boolean;
+  agentMode: 'standard' | 'sales' | 'cs' | 'internal_ops';
 };
 
 type CloudNumber = {
@@ -121,12 +122,36 @@ export function WhatsappNumbersSection() {
                 {[
                   number.phoneNumber ? number.phoneNumber.replace('@c.us', '') : t('wa.notConnected'),
                   number.phase === 'ready' ? t('wa.phaseReady') : number.phase,
-                  number.isActive ? t('wa.inRotation') : t('wa.outOfRotation'),
+                  number.agentMode === 'internal_ops'
+                    ? t('wa.opsNoRotation')
+                    : number.isActive ? t('wa.inRotation') : t('wa.outOfRotation'),
                 ]
                   .filter(Boolean)
                   .join(' · ')}
               </small>
             </span>
+            <select
+              value={number.agentMode}
+              aria-label={t('mode.pick')}
+              onChange={async (event) => {
+                try {
+                  await api(`/v1/whatsapp/numbers/${number.id}`, {
+                    method: 'PATCH',
+                    body: { agentMode: event.target.value },
+                  });
+                  await load();
+                } catch (error) {
+                  await confirm.error(error);
+                }
+              }}
+              className="rounded-app border border-input bg-white/60 px-2 py-1.5 text-[12px]"
+            >
+              {(['standard', 'sales', 'cs', 'internal_ops'] as const).map((mode) => (
+                <option key={mode} value={mode}>
+                  {t(`mode.${mode}.label`)}
+                </option>
+              ))}
+            </select>
             <Button
               size="sm"
               variant="outline"

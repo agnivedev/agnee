@@ -6,11 +6,8 @@ const credit = require('../src/credit-plans.js');
 
 const base = { usdIdrRate: 16_500, markup: 3, creditPriceIdr: 1 };
 
-test('biaya AI menjadi credit: kurs x markup, diskon mengurangi', () => {
+test('biaya AI menjadi credit: kurs x markup', () => {
   assert.equal(credit.creditCostOf(0.0016, base), 79.2);
-  assert.equal(credit.creditCostOf(0.0016, { ...base, discountPct: 90 }), 7.92);
-  // diskon di atas batas dipotong ke 90
-  assert.equal(credit.creditCostOf(0.0016, { ...base, discountPct: 150 }), 7.92);
 });
 
 test('biaya tidak dilaporkan atau rusak tidak memotong apa pun', () => {

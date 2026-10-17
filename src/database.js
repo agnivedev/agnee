@@ -3485,12 +3485,6 @@ class Database {
     return result.rows;
   }
 
-  async setCreditDiscount(companyId, pct) {
-    if (!this.enabled) return null;
-    await this.pool.query('UPDATE companies SET credit_discount_pct = $2, updated_at = NOW() WHERE id = $1', [companyId, pct]);
-    return this.getCreditState(companyId);
-  }
-
   /**
    * Penerima kabar credit: owner/admin/supervisor DAN anggota departemen
    * Management. Satu orang tidak dikabari dua kali.

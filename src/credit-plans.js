@@ -41,8 +41,6 @@ const CREDIT_PLAN_KEYS = Object.keys(CREDIT_PLANS);
 /** Tujuan panggilan yang tidak memotong credit. Kosong = semuanya memotong. */
 const FREE_PURPOSES = new Set([]);
 
-const MAX_DISCOUNT_PCT = 90;
-
 function positive(value, fallback) {
   const n = Number(value);
   return Number.isFinite(n) && n > 0 ? n : fallback;
@@ -67,18 +65,12 @@ function isCreditPlan(plan) {
   return Object.hasOwn(CREDIT_PLANS, plan);
 }
 
-function clampDiscount(pct) {
-  const n = Number(pct);
-  if (!Number.isFinite(n)) return 0;
-  return Math.min(MAX_DISCOUNT_PCT, Math.max(0, n));
-}
-
 /** Credit yang dipotong untuk satu panggilan; 0 bila penyedia tidak melaporkan biaya. */
-function creditCostOf(costUsd, { usdIdrRate, markup, discountPct = 0, creditPriceIdr = 1, purpose = '' }) {
+function creditCostOf(costUsd, { usdIdrRate, markup, creditPriceIdr = 1, purpose = '' }) {
   if (FREE_PURPOSES.has(purpose)) return 0;
   const usd = Number(costUsd);
   if (!Number.isFinite(usd) || usd <= 0) return 0;
-  const idr = usd * usdIdrRate * markup * (1 - clampDiscount(discountPct) / 100);
+  const idr = usd * usdIdrRate * markup;
   return Math.round((idr / creditPriceIdr) * 10_000) / 10_000;
 }
 
@@ -114,7 +106,7 @@ function planAllows(plan, feature) {
 }
 
 module.exports = {
-  CREDIT_PLANS, CREDIT_PLAN_KEYS, TIER_RANK, FREE_PURPOSES, MAX_DISCOUNT_PCT,
-  loadCreditConfig, isCreditPlan, clampDiscount, creditCostOf, creditsForTopup,
+  CREDIT_PLANS, CREDIT_PLAN_KEYS, TIER_RANK, FREE_PURPOSES,
+  loadCreditConfig, isCreditPlan, creditCostOf, creditsForTopup,
   rankOfModelId, filterChainForPlan, limitsOfPlan, planAllows,
 };

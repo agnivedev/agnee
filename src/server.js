@@ -604,7 +604,6 @@ async function buildApp(overrides = {}) {
         usdIdrRate: config.usdIdrRate,
         markup: config.credit.markup,
         creditPriceIdr: config.credit.creditPriceIdr,
-        discountPct: state.discountPct,
         purpose,
       });
       if (!(amount > 0)) return;
@@ -4885,24 +4884,6 @@ ${thread || '(belum ada)'}${hubContext}`,
       if (error.code === 'NOT_CREDIT_MODE') return reply.code(409).send({ error: error.message });
       throw error;
     }
-  });
-
-  app.patch('/v1/superhuman/companies/:companyId/credit-discount', {
-    schema: {
-      params: creditParams,
-      body: { type: 'object', required: ['discountPct'], additionalProperties: false, properties: {
-        discountPct: { type: 'integer', minimum: 0, maximum: creditPlans.MAX_DISCOUNT_PCT },
-      } },
-    },
-  }, async (request, reply) => {
-    if (!database.status().connected) return reply.code(503).send({ error: 'Konsol platform butuh PostgreSQL.' });
-    const before = await database.getCreditState(request.params.companyId);
-    if (!before) return reply.code(404).send({ error: 'Tenant tidak ditemukan.' });
-    const state = await database.setCreditDiscount(request.params.companyId, request.body.discountPct);
-    await recordPlatformAudit(request, 'platform.credit.discount', request.params.companyId, {
-      dari: before.discountPct, ke: request.body.discountPct,
-    });
-    return state;
   });
 
   /**

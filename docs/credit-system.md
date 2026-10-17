@@ -24,8 +24,7 @@
    dikonfirmasi, tercatat di buku besar (`credit_ledger`) dan jejak audit.
    **Credit tidak pernah diisi otomatis tanpa pembayaran.** Menyambung gateway
    (Mayar) kelak hanya perlu memanggil dua fungsi yang sama.
-5. Diskon Enterprise sampai 90% = `credit_discount_pct` per company (0–90):
-   credit yang dipotong per panggilan dikurangi sebesar itu.
+5. Tidak ada diskon: Enterprise = credit bulanan custom (bonus maks. +50%).
 
 ## 2. Perilaku saat credit habis (jujur, tidak diam)
 
@@ -73,11 +72,11 @@ Cara hitung (jalankan `node scripts/credit-simulate.js`):
 500 credit Starter sama dengan batas 500 pesan AI paket Personal lama.
 Enterprise: credit dan harga custom.
 
-**Peringatan diskon Enterprise 90%:** pada harga credit Rp 100, diskon 74%
-sudah impas (pendapatan Rp 26 = COGS Rp 26); 90% berarti **rugi Rp 16 per
-credit**. Usulan: batasi diskon di 60% (margin 35%), atau naikkan markup
-bila 90% memang harus aman (markup ~10×). Kode masih mengizinkan 90%
-(`MAX_DISCOUNT_PCT`) sampai pemilik memutuskan.
+**Diskon credit Enterprise dihapus** (keputusan pemilik 17 Okt): pada Rp 100/credit,
+diskon 74% sudah impas dan 90% rugi. Gantinya: Enterprise memakai **credit
+bulanan custom** (kesepakatan komitmen), dengan **credit bonus maksimal +50%**
+dari komitmen (pendapatan efektif Rp 67/credit, margin 61%). Bonus ditulis
+langsung ke jumlah credit bulanan saat paket diterapkan; tidak ada saklar diskon.
 
 ## 4. Yang dibangun
 

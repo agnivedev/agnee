@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
-import { notificationVerbKey } from '@/lib/notification-link';
+import { NotificationItemBody } from './NotificationItem';
 import { useNotifications, type Notification } from '@/lib/notifications';
 import { Bell } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
@@ -12,7 +12,7 @@ import { cn } from '@/lib/utils';
  * customer tidak pernah menghasilkan baris di sini.
  */
 export function NotificationBell({ className }: { className?: string }) {
-  const { t, dateLocale } = useI18n();
+  const { t } = useI18n();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const { items, unread, load, markAllRead, openItem: openNotification } = useNotifications(8);
@@ -124,24 +124,11 @@ export function NotificationBell({ className }: { className?: string }) {
                     type="button"
                     onClick={() => openItem(item)}
                     className={cn(
-                      'grid w-full cursor-pointer gap-1 rounded-lg border-0 p-2.5 text-left text-ink',
+                      'flex w-full cursor-pointer rounded-lg border-0 p-2.5 text-left text-ink max-md:min-h-11',
                       item.readAt ? 'bg-transparent' : 'bg-[#eef5ee]',
                     )}
                   >
-                    <span className={cn('text-[13px] leading-snug', item.kind === 'sla' && 'font-semibold')}>
-                      {/* Pengingat SLA dikirim sistem; "System" di depannya cuma bising. */}
-                      {item.kind === 'sla' ? null : (
-                        <strong>{item.kind === 'hub' ? 'Agnive Hub' : item.actorName || t('routing.system')}</strong>
-                      )}{' '}
-                      {t(notificationVerbKey(item.kind)).replace(/^—\s*/, '')}
-                    </span>
-                    {item.chatName ? <span className="text-[13px] leading-snug font-semibold">{item.chatName}</span> : null}
-                    {item.body ? (
-                      <span className="line-clamp-2 text-[13px] leading-snug text-muted">{item.body}</span>
-                    ) : null}
-                    <time className="text-[11px] text-muted">
-                      {new Date(item.createdAt).toLocaleString(dateLocale)}
-                    </time>
+                    <NotificationItemBody item={item} />
                   </button>
                 </li>
               ))}

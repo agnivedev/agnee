@@ -10,3 +10,12 @@ export const mcpContext = new AsyncLocalStorage();
 
 export const READ_SCOPE = 'whatsapp:read';
 export const WRITE_SCOPE = 'whatsapp:write';
+
+// Satu-satunya identitas yang berlaku seumur proses: transport stdio (satu
+// orang, satu proses). Konteks per-request tetap menang. Tanpa cadangan ini,
+// identitas dari enterWith() hilang di callback stdin dan setiap alat menjawab
+// "tidak ada akun". Mode HTTP tidak pernah mengisinya, jadi request tanpa token
+// tetap tidak punya identitas.
+let processIdentity = null;
+export const setProcessIdentity = (identity) => { processIdentity = identity; };
+export const currentIdentity = () => mcpContext.getStore() ?? processIdentity ?? undefined;

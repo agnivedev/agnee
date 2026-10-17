@@ -124,3 +124,56 @@ test('evaluateRows: duplikat di berkas, sudah ada di Lead List, nomor rusak, ema
   assert.equal(leads[1].note, 'catatan');
   assert.equal(leads[1].email, ''); // email rusak dibuang, barisnya tetap masuk
 });
+
+// ── Diuji dengan berkas asli (temuan uji 17 Okt) ─────────────────────────────
+
+test('XLSX asli dari LibreOffice: sel berformat, baris kosong, nomor angka, spasi, formula', async () => {
+  const buffer = require('node:fs').readFileSync(require('node:path').join(__dirname, 'fixtures', 'lead-import-libreoffice.xlsx'));
+  const table = await li.parseTable(buffer, 'kontak.xlsx');
+  assert.deepEqual(table.headers, ['No. WhatsApp', 'Nama Pelanggan', 'E-mail', 'Keterangan']);
+  assert.equal(table.format, 'xlsx');
+  assert.equal(table.formulaCells, 1);
+  const mapping = li.suggestMapping(table.headers, table.rows);
+  assert.deepEqual(mapping, { phone: 0, email: 2, name: 1, note: 3 });
+  const { leads, summary, problems } = li.evaluateRows(table.rows, mapping, new Set(), table.rowNumbers);
+  assert.deepEqual(summary, { total: 11, ready: 7, invalidPhone: 3, duplicateInFile: 1, alreadyExists: 0, invalidEmail: 1 });
+  assert.deepEqual(leads.map((lead) => lead.phone), [
+    '6281234567801', '6281345678902', '6281456789003', '6281567890004', '6281678900005', '14155552671', '6281800000006']);
+  assert.equal(leads[0].name, 'Budi Santoso');
+  assert.equal(leads[6].name, 'Spasi');
+  assert.equal(leads[2].note, "=cmd|' /C calc'!A0"); // teks apa adanya, tidak dieksekusi
+  // Baris kosong di berkas (5–6) ikut terhitung: nomor baris sama dengan yang dilihat di Excel.
+  assert.deepEqual(problems.map(({ line, kind }) => [line, kind]), [
+    [9, 'duplicate_in_file'], [10, 'invalid_phone'], [12, 'invalid_phone'], [13, 'invalid_phone']]);
+  assert.equal(problems.find((problem) => problem.kind === 'duplicate_in_file').firstLine, 2);
+});
+
+test('XLSX: baris kosong berformat <row/> tidak menelan baris sesudahnya', async () => {
+  const zip = new JSZip();
+  zip.file('xl/workbook.xml', '<workbook xmlns:r="r"><sheets><sheet name="S" sheetId="1" r:id="rId1"/></sheets></workbook>');
+  zip.file('xl/_rels/workbook.xml.rels', '<Relationships><Relationship Id="rId1" Target="worksheets/sheet1.xml"/></Relationships>');
+  zip.file('xl/worksheets/sheet1.xml', `<worksheet><sheetData>
+    <row r="1"><c r="A1" t="inlineStr"><is><t>HP</t></is></c><c r="B1" t="inlineStr"><is><t>Nama</t></is></c></row>
+    <row r="2" ht="20" customHeight="1"/>
+    <row spans="1:2" r="3"><c r="A3" t="inlineStr"><is><t>081211110001</t></is></c><c r="B3" t="inlineStr"><is><t>Satu</t></is></c></row>
+    <row r="4"><c r="A4" t="inlineStr"><is><t>tidak valid</t></is></c></row>
+  </sheetData></worksheet>`);
+  const table = await li.parseTable(await zip.generateAsync({ type: 'nodebuffer' }), 'a.xlsx');
+  assert.deepEqual(table.rows, [['081211110001', 'Satu'], ['tidak valid', '']]);
+  assert.deepEqual(table.rowNumbers, [3, 4]);
+});
+
+test('CSV: baris "sep=;" dari Excel dibuang dan dipakai sebagai pemisah', async () => {
+  const table = await li.parseTable(Buffer.from('sep=;\r\nNama;HP\r\nJaka;081211110011\r\n'), 'a.csv');
+  assert.deepEqual(table.headers, ['Nama', 'HP']);
+  assert.deepEqual(table.rows, [['Jaka', '081211110011']]);
+  assert.deepEqual(table.rowNumbers, [2]); // Excel tidak menampilkan baris sep=
+});
+
+test('CSV: nomor baris masalah mengikuti berkas, termasuk baris kosong dan sel berbaris-baru', async () => {
+  const csv = 'Nama,HP,Catatan\n\nAni,0812111100001,"baris1\nbaris2"\n\nBudi,abc,\n';
+  const table = await li.parseTable(Buffer.from(csv), 'a.csv');
+  const { problems } = li.evaluateRows(table.rows, { name: 0, phone: 1 }, new Set(), table.rowNumbers);
+  assert.deepEqual(table.rowNumbers, [3, 5]);
+  assert.deepEqual(problems.map(({ line }) => line), [5]);
+});

@@ -63,13 +63,22 @@ test('getAgentPerformance: hanya yang tercatat, tanpa mengarang', { skip: !DB_UR
   await reply('6286@c.us', 80, 'human', orang, other.id);
 
   // Handoff: Dewi mengambil alih 2 chat; Raka 1 lalu mengembalikannya ke AI.
-  const handoff = (chat, from, to, fromUser, toUser, sec) => q(
-    `INSERT INTO conversation_handoffs (company_id, chat_id, from_mode, to_mode, from_user_id, to_user_id, created_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)`, [company.id, chat, from, to, fromUser, toUser, at(sec)]);
+  // `by` = siapa yang menekan tombolnya (created_by); bawaannya agent itu sendiri.
+  const handoff = (chat, from, to, fromUser, toUser, sec, by = toUser || fromUser) => q(
+    `INSERT INTO conversation_handoffs (company_id, chat_id, from_mode, to_mode, from_user_id, to_user_id, created_by, created_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`, [company.id, chat, from, to, fromUser, toUser, by, at(sec)]);
   await handoff('6281@c.us', 'ai', 'human', null, dewi, 100);
   await handoff('6282@c.us', 'ai', 'human', null, dewi, 390);
   await handoff('6283@c.us', 'ai', 'human', null, raka, 190);
   await handoff('6283@c.us', 'human', 'ai', raka, null, 900);
+  // Bukan pengambilalihan: simpan ulang routing oleh agent yang sudah memegang chat
+  // (ganti prioritas, tandai selesai), penugasan oleh supervisor, dan chat yang
+  // dikembalikan ke AI oleh supervisor. Dulu semuanya ikut dihitung.
+  await handoff('6281@c.us', 'human', 'human', dewi, dewi, 150);
+  await handoff('6281@c.us', 'human', 'human', dewi, dewi, 160);
+  await handoff('6287@c.us', 'ai', 'human', null, raka, 170, bos);
+  await handoff('6288@c.us', 'ai', 'human', null, dewi, 180, null);
+  await handoff('6282@c.us', 'human', 'ai', dewi, null, 800, bos);
   // Chat yang sedang dipegang Dewi sekarang.
   await q(`INSERT INTO conversation_routing (company_id, chat_id, handling_mode, assignee_user_id, status)
            VALUES ($1, '6281@c.us', 'human', $2, 'open')`, [company.id, dewi]);

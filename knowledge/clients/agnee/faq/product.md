@@ -12,23 +12,25 @@ tags: [agnee, chatbot, whatsapp, customer-service, sales]
 
 - **Status:** confirmed
 - **Intent:** apa itu Agnee, Agnee untuk apa, produk apa ini
-- **Jawaban:** Agnee adalah workspace percakapan pelanggan untuk menyatukan inbox
-  WhatsApp, FAQ, kualifikasi lead, dan handoff ke sales.
-- **Contoh balasan:** “Agnee membantu tim menangani chat WhatsApp dalam satu
-  customer desk—mulai dari menjawab FAQ, memahami kebutuhan calon pelanggan,
-  sampai meneruskan lead yang siap ke sales.”
-- **Next action:** Tanyakan jumlah nomor, agent, dan volume chat saat ini.
+- **Jawaban:** Agnee adalah AI untuk WhatsApp bisnis yang bekerja seperti satu tim
+  CS dan sales: membaca riwayat chat, menjawab dari playbook perusahaan,
+  menyerahkan chat ke manusia saat perlu, menyusul lead yang diam, mengirim
+  broadcast, dan melapor ke supervisor.
+- **Contoh balasan:** “Agnee itu AI yang bukan cuma balas otomatis: dia membaca
+  riwayat chat, menjawab sesuai cara bisnis kakak bicara, dan menyerahkan ke tim
+  kalau perlu. Chat WhatsApp usaha kakak sekarang dipegang berapa orang?”
+- **Next action:** Tanyakan satu hal: siapa yang memegang chat sekarang.
 
 ## FAQ-PRODUCT-002 — Masalah apa yang diselesaikan?
 
 - **Status:** confirmed
 - **Intent:** manfaat, problem, kenapa butuh chatbot, use case
-- **Jawaban:** Agnee mengurangi chat yang terlewat, jawaban berulang, konteks
-  pelanggan yang tercecer, dan handoff sales yang tidak terstruktur.
-- **Contoh balasan:** “Fokusnya supaya pertanyaan rutin tidak menghabiskan waktu
-  tim, tetapi lead bernilai tetap mendapatkan konteks dan tindak lanjut manusia.”
-- **Next action:** Tanyakan bottleneck utama: volume, respons lambat, FAQ, atau
-  follow-up sales.
+- **Jawaban:** Chat yang menumpuk, jawaban CS yang tidak seragam, lead yang
+  dibiarkan diam, dan atasan yang tidak tahu hasil chat. Tidak ada angka hasil
+  yang terverifikasi; jangan menjanjikan peningkatan penjualan atau penghematan.
+- **Contoh balasan:** “Biasanya yang paling terasa: chat menumpuk, jawaban CS
+  beda-beda, atau lead yang tidak sempat disusul. Mana yang paling kakak alami?”
+- **Next action:** Tanyakan titik macet utamanya.
 
 ## FAQ-PRODUCT-003 — Siapa yang cocok memakai Agnee?
 
@@ -53,14 +55,15 @@ tags: [agnee, chatbot, whatsapp, customer-service, sales]
 - **Next action:** Tanyakan bagian mana yang ingin diotomatisasi dan mana yang
   wajib ditangani manusia.
 
-## FAQ-PRODUCT-005 — Apa bedanya app dan MCP?
+## FAQ-PRODUCT-005 — Apa itu MCP dan API?
 
 - **Status:** confirmed
-- **Intent:** beda app MCP, hubungan UI backend, MCP buat apa
-- **Jawaban:** App adalah UI internal untuk agent. MCP adalah interface tools
-  yang memungkinkan ChatGPT atau client MCP lain mengakses kemampuan backend.
-- **Contoh balasan:** “Tim Anda bekerja lewat app, sedangkan ChatGPT bisa bekerja
-  lewat MCP. Keduanya memakai backend dan koneksi WhatsApp yang sama.”
-- **Next action:** Tanyakan apakah kebutuhan utamanya inbox manusia, AI assistant,
-  atau keduanya.
-
+- **Intent:** MCP, API, asisten AI baca chat
+- **Jawaban:** Selain aplikasi web untuk tim, ada API dan MCP supaya asisten AI
+  yang mendukung MCP bisa membaca percakapan dan menyuruh Agnee mengirim pesan,
+  lewat login OAuth. Alat MCP khusus laporan masih segera.
+- **Contoh balasan:** “Tim kakak bekerja lewat aplikasi, sedangkan kalau kakak
+  memakai asisten AI yang mendukung MCP, dia bisa membaca percakapan dan menyuruh
+  Agnee mengirim pesan. Kakak lebih butuh yang mana?”
+- **Next action:** Tanyakan apakah kebutuhan utamanya aplikasi untuk tim atau
+  asisten AI.

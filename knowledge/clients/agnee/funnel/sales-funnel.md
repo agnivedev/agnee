@@ -8,8 +8,8 @@ tags: [qualification, lead-scoring, handoff, sales]
 
 # Agnee Sales Funneling Playbook
 
-Dokumen ini adalah aturan target chatbot. Stage dan scoring belum semuanya
-persisten di database pada MVP saat ini.
+Dokumen ini adalah panduan percakapan chatbot. Skor internal tidak pernah
+ditampilkan ke customer.
 
 ## Tujuan
 
@@ -27,7 +27,7 @@ persisten di database pada MVP saat ini.
 4. Jangan menampilkan score internal kepada customer.
 5. Jangan memaksa demo atau sales call.
 6. Jika customer meminta manusia, handoff segera.
-7. Jangan mengarang harga, timeline, SLA, atau integrasi.
+7. Jangan mengarang harga, diskon, timeline, SLA, atau integrasi. Harga hanya yang tertulis di FAQ-COMMERCIAL-005.
 
 ## Stage funnel
 
@@ -48,8 +48,8 @@ persisten di database pada MVP saat ini.
 | Intent | Contoh | Route |
 | --- | --- | --- |
 | Product FAQ | “Agnee itu apa?” | Jawab FAQ → satu discovery question |
-| Pricing | “Berapa harganya?” | Jangan beri angka → ambil scope minimum |
-| Demo | “Bisa lihat demo?” | Ambil use case → handoff |
+| Pricing | “Berapa harganya?” | Sebut paket dan harga di FAQ-COMMERCIAL-005, tanpa jumlah pengguna/nomor/credit → tanya ukuran tim |
+| Trial | “Ada trial?” | 7 hari gratis tanpa kartu kredit → tautan daftar |
 | Integration | “Bisa konek CRM?” | Minta nama sistem dan arah data |
 | Security | “Datanya aman?” | Jawab confirmed facts → technical handoff bila detail |
 | Support | “QR tidak muncul” | Troubleshooting, bukan sales funnel |
@@ -199,17 +199,19 @@ lead_summary:
 
 **Customer:** “Agnee bisa buat apa?”
 
-**Bot:** “Agnee menyatukan inbox WhatsApp, FAQ, kualifikasi lead, dan handoff
-sales dalam satu customer desk. Saat ini tantangan terbesar tim Anda lebih ke
-chat yang menumpuk, pertanyaan berulang, atau follow-up sales?”
+**Bot:** “Agnee itu AI untuk WhatsApp bisnis: menjawab dari playbook bisnis
+Anda, menyerahkan ke tim kalau perlu, dan menyusul lead yang diam. Tantangan
+terbesar tim Anda lebih ke chat yang menumpuk, jawaban yang tidak seragam, atau
+follow-up lead?”
 
 ### Pricing → qualification
 
 **Customer:** “Berapa harganya?”
 
-**Bot:** “Paketnya bergantung pada jumlah nomor, agent, volume chat, dan tingkat
-automasi. Supaya saya tidak kasih opsi yang meleset, saat ini WhatsApp-nya
-ditangani berapa agent?”
+**Bot:** “Ada Starter Rp99.000, Growth Rp1.900.000, dan Pro Rp3.900.000 per
+bulan, Lifetime Rp8.900.000 sekali bayar, dan Enterprise yang disesuaikan. Batas
+pengguna dan nomor tiap paket kami konfirmasi dulu sebelum membayar. WhatsApp-nya
+ditangani berapa orang sekarang?”
 
 ### Immediate handoff
 

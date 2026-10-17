@@ -6,6 +6,7 @@ const fsSync = require('node:fs');
 const path = require('node:path');
 const Fastify = require('fastify');
 const modelTiers = require('./model-tiers');
+const creditPlans = require('./credit-plans');
 const fastifyStatic = require('@fastify/static');
 const fastifyMultipart = require('@fastify/multipart');
 const QRCode = require('qrcode');
@@ -147,6 +148,7 @@ function loadConfig(overrides = {}) {
       personal: positiveNumber(process.env.AI_COST_ALERT_IDR_PERSONAL, DEFAULT_THRESHOLDS_IDR.personal),
       company: positiveNumber(process.env.AI_COST_ALERT_IDR_COMPANY, DEFAULT_THRESHOLDS_IDR.company),
     },
+    credit: creditPlans.loadCreditConfig(process.env),
     appBaseUrl: process.env.APP_BASE_URL || 'https://app.agnee.agnive.co',
     cloudApiWebhookVerifyToken: process.env.CLOUD_API_WEBHOOK_VERIFY_TOKEN || '',
     // X-Forwarded-For hanya dipercaya kalau permintaannya datang DARI alamat
@@ -508,6 +510,7 @@ async function buildApp(overrides = {}) {
         outputTokens: normalized.outputTokens,
         costUsd: normalized.costUsd,
       }, companyId).catch(() => { /* pencatatan tidak boleh menjatuhkan balasan */ });
+      void chargeCredit(companyId, { costUsd: normalized.costUsd, purpose: context?.purpose || 'unknown' });
     },
   });
   const database = overrides.database || new Database({
@@ -518,6 +521,7 @@ async function buildApp(overrides = {}) {
     logger: app.log,
     credentialsEncryptionKey: config.credentialsEncryptionKey,
   });
+  database.creditGraceDays = config.credit.graceDays;
   // Tanpa database, app tetap menyala tapi lumpuh diam-diam: login pengguna
   // asli jatuh ke fallback admin dan ditolak, pesan masuk tidak tercatat, dan
   // follow-up tidak jalan. Persis itu yang terjadi 20-21 Sep selama 16 jam dan
@@ -574,12 +578,73 @@ async function buildApp(overrides = {}) {
     // (paket berhenti/trial habis) dan status (ditutup dari konsol platform).
     const suspended = companyConfig?.planStatus === 'suspended'
       || (companyConfig?.status != null && companyConfig.status !== 'active');
-    const enabled = llmService.enabled && settings.enabled !== false && !suspended;
+    // Company berbasis credit: saldo habis menghentikan AI di semua jalur sekaligus.
+    const creditEmpty = companyConfig?.creditMode === true && !(Number(companyConfig.creditTotal) > 0);
+    const enabled = llmService.enabled && settings.enabled !== false && !suspended && !creditEmpty;
+    // Tingkatan model dibatasi paketnya (Starter tidak boleh memakai model Top-end).
+    const modelChain = companyConfig?.creditMode === true
+      ? creditPlans.filterChainForPlan(settings.modelChain || [], companyConfig.plan)
+      : (settings.modelChain || []);
     return {
       enabled,
-      modelChain: settings.modelChain || [],
-      reason: suspended ? 'suspended' : (enabled ? null : 'off'),
+      modelChain,
+      reason: suspended ? 'suspended' : (creditEmpty ? 'credit' : (enabled ? null : 'off')),
     };
+  }
+
+  /**
+   * Potong credit untuk satu panggilan AI yang sudah selesai dan, bila saldo
+   * baru saja melewati ambang, kabari supervisor sekali (saldo rendah / habis).
+   * Tidak pernah melempar: gagal memotong tidak boleh menjatuhkan balasan.
+   */
+  async function chargeCredit(companyId, { costUsd, purpose }) {
+    if (!database.enabled || !database.connected || typeof database.debitCredit !== 'function') return;
+    try {
+      const state = typeof database.getCreditState === 'function' ? await database.getCreditState(companyId) : null;
+      if (!state?.creditMode) return;
+      const amount = creditPlans.creditCostOf(costUsd, {
+        usdIdrRate: config.usdIdrRate,
+        markup: config.credit.markup,
+        creditPriceIdr: config.credit.creditPriceIdr,
+        discountPct: state.discountPct,
+        purpose,
+      });
+      if (!(amount > 0)) return;
+      const result = await database.debitCredit(companyId, {
+        amount, costUsd, purpose, alertPercents: config.credit.alertPercents,
+      });
+      if (result?.crossed) await notifyCreditLevel(companyId, result.crossed, result.total);
+    } catch (error) {
+      app.log.warn({ err: error, companyId }, 'Pemotongan credit gagal');
+    }
+  }
+
+  const creditNumberFormat = new Intl.NumberFormat('id-ID', { maximumFractionDigits: 0 });
+
+  /** Kabar saldo rendah/habis: notifikasi dalam aplikasi + WhatsApp ke nomor serah-terima company. */
+  async function notifyCreditLevel(companyId, level, total) {
+    const text = level === 'empty'
+      ? 'Credit AI habis, jadi AI berhenti membalas customer. Balas customer secara manual, atau top-up credit untuk mengaktifkan AI kembali.'
+      : `Credit AI tinggal ${level.slice(1)}% (sisa ${creditNumberFormat.format(Math.round(total))} credit). Top-up sebelum habis supaya AI tidak berhenti membalas customer.`;
+    const userIds = await database.notifyCredit(companyId, text).catch(() => []);
+    notifyUsers(companyId, userIds);
+    // WhatsApp: nomor serah-terima company + nomor WhatsApp para penerima
+    // (supervisor, owner/admin, departemen Management), tanpa duplikat.
+    const recipients = typeof database.listCreditRecipients === 'function'
+      ? await database.listCreditRecipients(companyId).catch(() => []) : [];
+    const handoff = canCall('getHandoffNotifyNumbers')
+      ? await database.getHandoffNotifyNumbers(companyId).catch(() => []) : [];
+    const sent = new Set();
+    for (const raw of [...handoff, ...recipients.map((r) => r.whatsappNumber)].filter(Boolean)) {
+      try {
+        const chatId = normalizeChatId(raw, config.defaultCountryCode);
+        if (sent.has(chatId)) continue;
+        sent.add(chatId);
+        await sendOutbound(companyId, chatId, `*Credit Agnee*\n${text}`);
+      } catch (error) {
+        app.log.warn({ err: error, recipient: `…${String(raw).slice(-4)}` }, 'Kabar credit ke satu penerima gagal');
+      }
+    }
   }
 
   /** Satu jawaban untuk semua rute AI, supaya alasannya tidak tertukar. */
@@ -587,7 +652,9 @@ async function buildApp(overrides = {}) {
     return reply.code(503).send({
       error: companyAi?.reason === 'suspended'
         ? 'Paket perusahaan ini sedang berhenti, jadi AI ikut berhenti. Aktifkan paketnya lebih dulu.'
-        : 'AI belum bisa dipakai saat ini. Hubungi tim Agnee.',
+        : companyAi?.reason === 'credit'
+          ? 'Credit AI perusahaan ini habis, jadi AI berhenti. Top-up credit untuk mengaktifkannya kembali.'
+          : 'AI belum bisa dipakai saat ini. Hubungi tim Agnee.',
     });
   }
 
@@ -3584,6 +3651,13 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     if (request.url.startsWith('/v1/admin/') && !isSupervisor(request.agneeSession)) {
       return reply.code(403).send({ error: 'Halaman ini hanya tersedia untuk supervisor.' });
     }
+    // Fitur yang tidak termasuk paket credit company ini (mis. broadcast di Starter).
+    if (request.url.startsWith('/v1/broadcasts') && session.companyId && database.status().connected) {
+      const co = await database.getCompanyConfig(session.companyId).catch(() => null);
+      if (co?.creditMode && !creditPlans.planAllows(co.plan, 'broadcast')) {
+        return reply.code(403).send({ error: 'Broadcast tidak termasuk paket ini. Upgrade paket untuk memakainya.' });
+      }
+    }
     // Gerbang terpisah, bukan menumpang gerbang di atas. Kalau keduanya dijaga
     // isSupervisor(), setiap owner pelanggan otomatis ikut masuk ke konsol yang
     // melihat seluruh tenant.
@@ -4137,6 +4211,24 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       ? await database.getCompanyUsage(companyId).catch(() => null)
       : null;
     return { ...config_, usage: usage ? { currentUsers: usage.currentUsers, currentWhatsapp: usage.currentWhatsapp } : null };
+  });
+
+  // Saldo dan riwayat credit company sendiri. Riwayat tidak memuat nama model.
+  app.get('/v1/admin/credit', async (request, reply) => {
+    if (!database.status().connected) return reply.code(503).send({ error: 'Tidak tersedia.' });
+    const companyId = request.agneeSession.companyId;
+    await database.getCompanyConfig(companyId).catch(() => null); // memicu kedaluwarsa lazy
+    const state = await database.getCreditState(companyId);
+    if (!state?.creditMode) return { creditMode: false };
+    const ledger = await database.listCreditLedger(companyId, 50);
+    const plan = creditPlans.CREDIT_PLANS[state.plan] || null;
+    return {
+      ...state,
+      planLabel: plan?.label || state.plan,
+      alertPercents: config.credit.alertPercents,
+      graceDays: config.credit.graceDays,
+      ledger,
+    };
   });
 
   // What a company is ENTITLED to (plan, status, quotas) versus how it CHOOSES
@@ -4790,6 +4882,125 @@ ${thread || '(belum ada)'}${hubContext}`,
     };
   });
 
+  // ── Credit: tindakan staf setelah pembayaran dikonfirmasi ────────────────
+  const creditParams = { type: 'object', required: ['companyId'], properties: {
+    companyId: { type: 'string', pattern: UUID_PATTERN },
+  } };
+
+  app.get('/v1/superhuman/credit-plans', async () => ({
+    plans: Object.entries(creditPlans.CREDIT_PLANS).map(([key, plan]) => ({ key, ...plan })),
+    config: config.credit,
+  }));
+
+  app.get('/v1/superhuman/companies/:companyId/credit', { schema: { params: creditParams } }, async (request, reply) => {
+    if (!database.status().connected) return reply.code(503).send({ error: 'Konsol platform butuh PostgreSQL.' });
+    const state = await database.getCreditState(request.params.companyId);
+    if (!state) return reply.code(404).send({ error: 'Tenant tidak ditemukan.' });
+    return { ...state, ledger: await database.listCreditLedger(request.params.companyId, 100) };
+  });
+
+  // Terapkan / perpanjang paket credit. Dipanggil SETELAH pembayaran dikonfirmasi.
+  app.post('/v1/superhuman/companies/:companyId/credit/subscribe', {
+    schema: {
+      params: creditParams,
+      body: { type: 'object', required: ['plan'], additionalProperties: false, properties: {
+        plan: { type: 'string', enum: creditPlans.CREDIT_PLAN_KEYS },
+        // Wajib untuk Enterprise (custom); opsional untuk menimpa credit bawaan paket.
+        monthlyCredit: { type: 'number', minimum: 0, maximum: 1_000_000_000 },
+        note: { type: 'string', maxLength: 300 },
+      } },
+    },
+  }, async (request, reply) => {
+    if (!database.status().connected) return reply.code(503).send({ error: 'Konsol platform butuh PostgreSQL.' });
+    const { plan, note } = request.body;
+    const def = creditPlans.CREDIT_PLANS[plan];
+    const monthlyCredit = request.body.monthlyCredit ?? def.monthlyCredit;
+    if (!(monthlyCredit > 0)) {
+      return reply.code(400).send({ error: 'Paket ini butuh jumlah credit bulanan (monthlyCredit).' });
+    }
+    const before = await database.getCreditState(request.params.companyId);
+    if (!before) return reply.code(404).send({ error: 'Tenant tidak ditemukan.' });
+    const state = await database.subscribeCreditPlan(request.params.companyId, {
+      plan, monthlyCredit, limits: creditPlans.limitsOfPlan(plan),
+      userId: request.agneeSession.userId || null, note,
+    });
+    await recordPlatformAudit(request, 'platform.credit.subscribed', request.params.companyId, {
+      dari: before.plan, ke: plan, monthlyCredit,
+    });
+    return state;
+  });
+
+  app.post('/v1/superhuman/companies/:companyId/credit/topup', {
+    schema: {
+      params: creditParams,
+      body: { type: 'object', required: ['amountIdr'], additionalProperties: false, properties: {
+        amountIdr: { type: 'number', exclusiveMinimum: 0, maximum: 1_000_000_000 },
+        note: { type: 'string', maxLength: 300 },
+      } },
+    },
+  }, async (request, reply) => {
+    if (!database.status().connected) return reply.code(503).send({ error: 'Konsol platform butuh PostgreSQL.' });
+    const { amountIdr, note } = request.body;
+    if (config.credit.minTopupIdr && amountIdr < config.credit.minTopupIdr) {
+      return reply.code(400).send({ error: `Top-up minimum Rp ${creditNumberFormat.format(config.credit.minTopupIdr)}.` });
+    }
+    const amount = creditPlans.creditsForTopup(amountIdr, config.credit);
+    try {
+      const state = await database.grantCredit(request.params.companyId, {
+        kind: 'topup', amount, note: note || `Top-up Rp ${creditNumberFormat.format(amountIdr)}`,
+        userId: request.agneeSession.userId || null,
+      });
+      await recordPlatformAudit(request, 'platform.credit.topup', request.params.companyId, { amountIdr, credit: amount });
+      return state;
+    } catch (error) {
+      if (error.code === 'NOT_CREDIT_MODE') return reply.code(409).send({ error: error.message });
+      throw error;
+    }
+  });
+
+  app.post('/v1/superhuman/companies/:companyId/credit/adjust', {
+    schema: {
+      params: creditParams,
+      body: { type: 'object', required: ['credit', 'note'], additionalProperties: false, properties: {
+        credit: { type: 'number', minimum: -1_000_000_000, maximum: 1_000_000_000 },
+        note: { type: 'string', minLength: 1, maxLength: 300 },
+      } },
+    },
+  }, async (request, reply) => {
+    if (!database.status().connected) return reply.code(503).send({ error: 'Konsol platform butuh PostgreSQL.' });
+    try {
+      const state = await database.grantCredit(request.params.companyId, {
+        kind: 'adjust', amount: request.body.credit, note: request.body.note,
+        userId: request.agneeSession.userId || null,
+      });
+      await recordPlatformAudit(request, 'platform.credit.adjusted', request.params.companyId, {
+        credit: request.body.credit, note: request.body.note,
+      });
+      return state;
+    } catch (error) {
+      if (error.code === 'NOT_CREDIT_MODE') return reply.code(409).send({ error: error.message });
+      throw error;
+    }
+  });
+
+  app.patch('/v1/superhuman/companies/:companyId/credit-discount', {
+    schema: {
+      params: creditParams,
+      body: { type: 'object', required: ['discountPct'], additionalProperties: false, properties: {
+        discountPct: { type: 'integer', minimum: 0, maximum: creditPlans.MAX_DISCOUNT_PCT },
+      } },
+    },
+  }, async (request, reply) => {
+    if (!database.status().connected) return reply.code(503).send({ error: 'Konsol platform butuh PostgreSQL.' });
+    const before = await database.getCreditState(request.params.companyId);
+    if (!before) return reply.code(404).send({ error: 'Tenant tidak ditemukan.' });
+    const state = await database.setCreditDiscount(request.params.companyId, request.body.discountPct);
+    await recordPlatformAudit(request, 'platform.credit.discount', request.params.companyId, {
+      dari: before.discountPct, ke: request.body.discountPct,
+    });
+    return state;
+  });
+
   /**
    * Pack knowledge yang benar-benar ada di disk. Konsol platform satu-satunya
    * tempat mengubah `knowledge_client`; dulu tidak ada jalan sama sekali selain
@@ -4832,7 +5043,8 @@ ${thread || '(belum ada)'}${hubContext}`,
         companyId: { type: 'string', pattern: UUID_PATTERN },
       } },
       body: { type: 'object', additionalProperties: false, minProperties: 1, properties: {
-        plan: { type: 'string', enum: ['personal', 'company', 'lifetime'] },
+        // Paket credit sebaiknya diterapkan lewat /credit/subscribe (menulis batas + credit); di sini hanya agar form tidak menolak paket yang sedang dipakai.
+        plan: { type: 'string', enum: ['personal', 'company', 'lifetime', ...creditPlans.CREDIT_PLAN_KEYS] },
         planStatus: { type: 'string', enum: ['trial', 'beta', 'active', 'suspended'] },
         status: { type: 'string', enum: ['active', 'suspended', 'closed'] },
         trialEndsAt: { type: ['string', 'null'], maxLength: 40 },

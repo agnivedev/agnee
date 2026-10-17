@@ -298,11 +298,11 @@ function ProofStrip() {
  *   ekspor                     /v1/export/contacts.xlsx dan .csv
  *   broadcast                  src/broadcast.js (variasi AI, filter tahap lead)
  *   jeda, rotasi, SLA, audit   reply-delay.js, rotator.js, sla.js, jejak audit
- * Butir bertanda `segera` BELUM jalan di produksi: mode agent, impor Excel/CSV,
- * laporan performa per human agent, alat MCP untuk laporan, alasan serah-terima
- * terstruktur, mention departemen. Fitur internal chat TIDAK boleh disebut di halaman
- * ini (hanya di playbook Beweix dan pitch deck). Jangan hapus tandanya
- * sebelum fiturnya live. Jangan menyebut merek CRM lain atau persentase cakupan.
+ * Sejak 2026-10-17 semua butir sudah live di produksi dan lolos uji lokal (impor
+ * dengan berkas LibreOffice, MCP stdio, mode agent, serah-terima, credit). Yang belum
+ * pernah dijalankan: WhatsApp asli dan model sungguhan untuk jalur baru. Bendera
+ * `segera` tetap didukung komponen untuk butir baru. Fitur internal chat TIDAK boleh
+ * disebut di halaman ini (hanya di playbook Beweix dan pitch deck).
  */
 const KEMAMPUAN: { judul: string; isi: string; segera?: boolean }[] = [
   {
@@ -311,8 +311,7 @@ const KEMAMPUAN: { judul: string; isi: string; segera?: boolean }[] = [
   },
   {
     judul: 'Satu AI, banyak peran',
-    isi: 'Mode sales. Mode CS. Mode operasi antar-departemen. Semua nomor departemenmu tetap dalam satu paket.',
-    segera: true,
+    isi: 'Mode sales, mode CS, dan mode operasi antar-departemen, dipilih per nomor WhatsApp. Semua nomor departemenmu tetap dalam satu paket.',
   },
   {
     judul: 'AI yang tahu kapan harus bertanya',
@@ -320,11 +319,11 @@ const KEMAMPUAN: { judul: string; isi: string; segera?: boolean }[] = [
   },
   {
     judul: 'Serah-terima tanpa customer mengulang cerita',
-    isi: 'Chat pindah dari AI ke CS dengan catatan alasan dan riwayat siapa yang memegangnya. Alasan terstruktur dan ringkasan otomatis: segera.',
+    isi: 'Chat pindah dari AI ke CS dengan alasan yang dipilih dari daftar, ringkasan, dan janji yang sudah dibuat AI. Customer tidak mengulang cerita.',
   },
   {
     judul: 'Antar-departemen, satu utas',
-    isi: 'Sebut rekan di komentar samping chat, lalu jadikan tugas dengan SLA. Sebut satu departemen sekaligus: segera.',
+    isi: 'Sebut rekan atau satu departemen sekaligus di komentar samping chat, lalu jadikan tugas dengan SLA.',
   },
   {
     judul: 'Kanban yang bergerak duluan',
@@ -352,8 +351,7 @@ const KEMAMPUAN: { judul: string; isi: string; segera?: boolean }[] = [
   },
   {
     judul: 'Impor Excel atau CSV',
-    isi: 'Bawa daftar kontakmu masuk, langsung jadi audiens broadcast.',
-    segera: true,
+    isi: 'Bawa daftar kontakmu dari Excel atau CSV, cek pratinjaunya dulu, lalu langsung jadi audiens broadcast.',
   },
   {
     judul: 'Broadcast satu maksud, beda tiap chat',
@@ -365,8 +363,7 @@ const KEMAMPUAN: { judul: string; isi: string; segera?: boolean }[] = [
   },
   {
     judul: 'Tanya performa tim, minta laporan kilat',
-    isi: 'Siapa yang paling cepat membalas, siapa yang sering diambil alih. Tinggal tanya.',
-    segera: true,
+    isi: 'Berapa balasan tiap agent, berapa chat yang ditangani, siapa yang sering mengambil alih. Lihat di panel, atau tanya lewat MCP.',
   },
 ];
 
@@ -923,7 +920,7 @@ const PLANS = [
       'Tanya supplier dan vendor lewat WhatsApp',
       'MCP dan API',
       'Template playbook siap pasang',
-      'Mode agent antar-departemen (segera)',
+      'Mode agent antar-departemen',
     ],
     href: WA_PRO,
     cta: 'Ambil harga promo',

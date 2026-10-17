@@ -18,15 +18,16 @@ test('biaya tidak dilaporkan atau rusak tidak memotong apa pun', () => {
 });
 
 test('top-up Rp menjadi credit sesuai harga credit', () => {
-  assert.equal(credit.creditsForTopup(100_000), 100_000);
+  assert.equal(credit.creditsForTopup(100_000), 1_000);
+  assert.equal(credit.creditsForTopup(100_000, { creditPriceIdr: 1 }), 100_000);
   assert.equal(credit.creditsForTopup(100_000, { creditPriceIdr: 2 }), 50_000);
   assert.equal(credit.creditsForTopup(-5), 0);
 });
 
 test('konfigurasi dari env: nilai rusak jatuh ke bawaan', () => {
-  assert.equal(credit.loadCreditConfig({}).markup, 3);
+  assert.equal(credit.loadCreditConfig({}).markup, 3.85);
   assert.equal(credit.loadCreditConfig({ CREDIT_MARKUP: '2.5' }).markup, 2.5);
-  assert.equal(credit.loadCreditConfig({ CREDIT_MARKUP: 'abc' }).markup, 3);
+  assert.equal(credit.loadCreditConfig({ CREDIT_MARKUP: 'abc' }).markup, 3.85);
   assert.equal(credit.loadCreditConfig({ CREDIT_GRACE_DAYS: '0' }).graceDays, 0);
   assert.equal(credit.loadCreditConfig({}).graceDays, 3);
 });

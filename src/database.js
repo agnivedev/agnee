@@ -3318,7 +3318,7 @@ class Database {
    * `crossed` ('low' | 'empty') hanya terisi pada panggilan yang MELEWATI
    * ambang, supaya supervisor dikabari sekali, bukan tiap pesan.
    */
-  async debitCredit(companyId, { amount, costUsd = null, purpose = null, lowPercent = 20 }) {
+  async debitCredit(companyId, { amount, costUsd = null, purpose = null, alertPercents = [20, 10, 1] }) {
     if (!this.enabled || !(amount > 0)) return null;
     const client = await this.pool.connect();
     try {
@@ -3338,9 +3338,18 @@ class Database {
       const shortfall = Math.max(0, Math.round(rest * 10_000) / 10_000);
       const total = plan + topup;
 
-      let crossed = null;
-      if (total <= 0) crossed = row.level === 'empty' ? null : 'empty';
-      else if (!row.level && Number(row.lastGrant) > 0 && total <= Number(row.lastGrant) * (lowPercent / 100)) crossed = 'low';
+      // Level terdalam yang sudah dilewati; dikabari hanya bila lebih dalam dari
+      // level yang sudah pernah dikabari (p20 -> p10 -> p1 -> empty).
+      const order = ['p20', 'p10', 'p1', 'empty'];
+      let reached = null;
+      if (total <= 0) reached = 'empty';
+      else if (Number(row.lastGrant) > 0) {
+        const pct = (total / Number(row.lastGrant)) * 100;
+        const hit = [...alertPercents].sort((a, b) => a - b).find((p) => pct <= p);
+        if (hit !== undefined) reached = `p${hit}`;
+      }
+      const rank = (level) => (level ? order.indexOf(level) : -1);
+      const crossed = reached && rank(reached) > rank(row.level) ? reached : null;
 
       await client.query(`
         UPDATE companies SET credit_plan_balance = $2, credit_topup_balance = $3,
@@ -3482,16 +3491,36 @@ class Database {
     return this.getCreditState(companyId);
   }
 
-  /** Notifikasi dalam aplikasi untuk owner/admin/supervisor (tanpa chat). */
-  async notifyCredit(companyId, body) {
+  /**
+   * Penerima kabar credit: owner/admin/supervisor DAN anggota departemen
+   * Management. Satu orang tidak dikabari dua kali.
+   */
+  async listCreditRecipients(companyId) {
     if (!this.enabled) return [];
     const result = await this.pool.query(`
+      SELECT DISTINCT m.user_id AS "userId", m.whatsapp_number AS "whatsappNumber"
+      FROM company_members m
+      WHERE m.company_id = $1 AND m.status = 'active' AND (
+        m.role IN ('owner', 'admin', 'supervisor')
+        OR EXISTS (
+          SELECT 1 FROM department_members dm JOIN departments d ON d.id = dm.department_id
+          WHERE dm.user_id = m.user_id AND d.company_id = m.company_id AND LOWER(d.name) = 'management'
+        )
+      )
+    `, [companyId]);
+    return result.rows;
+  }
+
+  /** Notifikasi dalam aplikasi untuk penerima kabar credit (tanpa chat). Mengembalikan id penerima. */
+  async notifyCredit(companyId, body) {
+    if (!this.enabled) return [];
+    const recipients = await this.listCreditRecipients(companyId);
+    if (!recipients.length) return [];
+    await this.pool.query(`
       INSERT INTO notifications (company_id, user_id, kind, actor_kind, body)
-      SELECT $1, user_id, 'credit', 'ai', $2 FROM company_members
-      WHERE company_id = $1 AND status = 'active' AND role IN ('owner', 'admin', 'supervisor')
-      RETURNING user_id AS "userId"
-    `, [companyId, String(body).slice(0, 500)]);
-    return result.rows.map((row) => row.userId);
+      SELECT $1, x, 'credit', 'ai', $2 FROM unnest($3::uuid[]) AS x
+    `, [companyId, String(body).slice(0, 500), recipients.map((r) => r.userId)]);
+    return recipients.map((r) => r.userId);
   }
 
   async updateTeamMemberRole(userId, role, companyId) {

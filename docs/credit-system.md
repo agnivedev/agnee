@@ -37,9 +37,9 @@
   (sama seperti saat paket berhenti).
 - Rute web yang memakai AI menjawab terus terang: *"Credit AI perusahaan ini
   habis. Top-up credit untuk mengaktifkan AI kembali."* (503).
-- **Kabar ke supervisor**: notifikasi dalam aplikasi ke owner/admin/supervisor
-  dan WhatsApp ke nomor serah-terima company (yang sudah ada) saat saldo
-  turun ke **20%** dari credit terakhir (peringatan) dan saat **habis**. Masing-
+- **Kabar ke supervisor**: notifikasi dalam aplikasi ke owner/admin/supervisor **dan anggota departemen Management**,
+  serta WhatsApp ke nomor serah-terima company dan nomor WhatsApp para penerima itu (tanpa duplikat) saat saldo
+  turun ke **20%**, **10%**, **1%** dari credit terakhir dan saat **habis**. Masing-
   masing sekali per siklus (di-reset oleh isi ulang), bukan tiap pesan.
 - Panggilan yang sedang berjalan saat saldo menyentuh nol tetap dibayar penuh
   oleh platform; saldo dikunci di 0 (tidak minus), selisihnya tercatat di buku

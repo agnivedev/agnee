@@ -54,7 +54,9 @@ function loadCreditConfig(env = process.env) {
     // Harga jual 1 credit (Rp) untuk top-up. Dengan markup 3,85 dan biaya balasan
     // Medium ~Rp 26, 1 credit ≈ 1 balasan AI Medium dan margin kotor ~74%.
     creditPriceIdr: positive(env.CREDIT_PRICE_IDR, 100),
-    lowPercent: Math.min(99, positive(env.CREDIT_LOW_PERCENT, 20)),
+    // Ambang kabar sisa saldo (% dari credit paket terakhir), dari besar ke kecil; habis (0) selalu dikabari.
+    alertPercents: String(env.CREDIT_ALERT_PERCENTS || '20,10,1').split(',').map(Number)
+      .filter((n) => Number.isFinite(n) && n > 0 && n < 100).sort((a, b) => b - a),
     graceDays: Number.isFinite(Number(env.CREDIT_GRACE_DAYS)) && env.CREDIT_GRACE_DAYS !== undefined && env.CREDIT_GRACE_DAYS !== ''
       ? Math.max(0, Number(env.CREDIT_GRACE_DAYS)) : 3,
     minTopupIdr: Number(env.CREDIT_MIN_TOPUP_IDR) > 0 ? Number(env.CREDIT_MIN_TOPUP_IDR) : 0,

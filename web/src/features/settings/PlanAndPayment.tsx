@@ -36,7 +36,7 @@ type CreditInfo = {
   total?: number;
   periodEnd?: string | null;
   lastGrant?: number;
-  lowPercent?: number;
+  alertPercents?: number[];
   ledger?: { id: number; kind: string; amount: number; note: string | null; createdAt: string }[];
 };
 
@@ -54,7 +54,7 @@ function CreditBalance() {
   if (!info?.creditMode) return null;
   const fmt = new Intl.NumberFormat(dateLocale);
   const total = info.total ?? 0;
-  const lowLine = (info.lastGrant ?? 0) * ((info.lowPercent ?? 20) / 100);
+  const lowLine = (info.lastGrant ?? 0) * ((info.alertPercents?.[0] ?? 20) / 100);
   const state = total <= 0 ? 'habis' : total <= lowLine ? 'hampir habis' : null;
   return (
     <div className="mb-5 rounded-app border border-input p-4">

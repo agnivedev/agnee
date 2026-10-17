@@ -15,9 +15,9 @@ ALTER TABLE companies ADD COLUMN IF NOT EXISTS credit_period_end TIMESTAMPTZ;
 ALTER TABLE companies ADD COLUMN IF NOT EXISTS credit_last_grant NUMERIC(16,4) NOT NULL DEFAULT 0;
 ALTER TABLE companies ADD COLUMN IF NOT EXISTS credit_discount_pct SMALLINT NOT NULL DEFAULT 0
   CHECK (credit_discount_pct BETWEEN 0 AND 90);
--- NULL | 'low' | 'empty': supervisor sudah dikabari pada tingkat ini; direset saat diisi ulang.
+-- NULL | 'p20' | 'p10' | 'p1' | 'empty': supervisor sudah dikabari pada tingkat ini; direset saat diisi ulang.
 ALTER TABLE companies ADD COLUMN IF NOT EXISTS credit_alert_level TEXT
-  CHECK (credit_alert_level IN ('low', 'empty'));
+  CHECK (credit_alert_level IN ('p20', 'p10', 'p1', 'empty'));
 
 CREATE TABLE IF NOT EXISTS credit_ledger (
   id BIGSERIAL PRIMARY KEY,

@@ -45,16 +45,26 @@ test('credit: langganan, potong paket lalu top-up, ambang, habis, hangus',
     r = await db.debitCredit(id, { amount: 700, purpose: 'auto_reply' });
     assert.equal(r.planBalance, 0);
     assert.equal(r.topupBalance, 200);
-    assert.equal(r.crossed, 'low');
+    assert.equal(r.crossed, 'p20');
 
     // Peringatan hanya sekali.
     r = await db.debitCredit(id, { amount: 50 });
     assert.equal(r.crossed, null);
 
+    // Sisa 100 (10%): p10 sekali; sisa 5 (0,5%): p1.
+    r = await db.debitCredit(id, { amount: 50 });
+    assert.equal(r.total, 100);
+    assert.equal(r.crossed, 'p10');
+    r = await db.debitCredit(id, { amount: 5 });
+    assert.equal(r.crossed, null);
+    r = await db.debitCredit(id, { amount: 90 });
+    assert.equal(r.total, 5);
+    assert.equal(r.crossed, 'p1');
+
     // Melewati nol: saldo terkunci di 0, selisih tercatat, 'empty' sekali.
     r = await db.debitCredit(id, { amount: 400 });
     assert.equal(r.total, 0);
-    assert.equal(r.shortfall, 250);
+    assert.equal(r.shortfall, 395);
     assert.equal(r.crossed, 'empty');
     r = await db.debitCredit(id, { amount: 10 });
     assert.equal(r.crossed, null);
@@ -87,10 +97,38 @@ test('credit: langganan, potong paket lalu top-up, ambang, habis, hangus',
     assert.ok(new Date(renewed.periodEnd) > new Date(Date.now() + 40 * 86_400_000), 'periode bertambah dua bulan');
 
     const ledger = await db.listCreditLedger(id, 200);
-    assert.ok(ledger.some((l) => l.kind === 'usage' && l.shortfall === 250));
+    assert.ok(ledger.some((l) => l.kind === 'usage' && l.shortfall === 395));
     assert.ok(ledger.some((l) => l.kind === 'expire'));
     assert.ok(ledger.some((l) => l.kind === 'subscription'));
 
     const ids = await db.notifyCredit(id, 'uji');
     assert.ok(Array.isArray(ids));
+  });
+
+test('kabar credit: supervisor DAN anggota departemen Management, tanpa duplikat',
+  { skip: !DB_URL && 'DATABASE_URL tidak diset' }, async (t) => {
+    const db = new Database({ connectionString: DB_URL, logger: { info() {}, warn() {} } });
+    await db.connect();
+    const stamp = Date.now();
+    const { rows: [co] } = await db.pool.query("INSERT INTO companies (slug, name, plan) VALUES ($1, $1, 'personal') RETURNING id", [`kabar-${stamp}`]);
+    const mk = async (tag, role, wa) => {
+      const { rows: [u] } = await db.pool.query("INSERT INTO users (email, display_name, password_hash, status) VALUES ($1, $1, 'x', 'active') RETURNING id", [`${tag}-${stamp}@t.test`]);
+      await db.pool.query("INSERT INTO company_members (company_id, user_id, role, status, whatsapp_number) VALUES ($1, $2, $3, 'active', $4)", [co.id, u.id, role, wa]);
+      return u.id;
+    };
+    const sup = await mk('sup', 'supervisor', '6281100000001');
+    const mgmt = await mk('mgmt', 'agent', '6281100000002');
+    const biasa = await mk('biasa', 'agent', '6281100000003');
+    const { rows: [dep] } = await db.pool.query("INSERT INTO departments (company_id, name) VALUES ($1, 'Management') RETURNING id", [co.id]);
+    await db.pool.query('INSERT INTO department_members (department_id, user_id, company_id) VALUES ($1, $2, $3), ($1, $4, $3)', [dep.id, mgmt, co.id, sup]);
+    t.after(async () => {
+      await db.pool.query('DELETE FROM companies WHERE id = $1', [co.id]);
+      await db.pool.query('DELETE FROM users WHERE id = ANY($1)', [[sup, mgmt, biasa]]);
+      await db.close();
+    });
+
+    const ids = await db.notifyCredit(co.id, 'uji');
+    assert.deepEqual([...ids].sort(), [sup, mgmt].sort(), 'supervisor + Management, bukan agent biasa, tanpa dobel');
+    const recipients = await db.listCreditRecipients(co.id);
+    assert.deepEqual(recipients.map((r) => r.whatsappNumber).sort(), ['6281100000001', '6281100000002']);
   });

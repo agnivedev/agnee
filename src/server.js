@@ -609,7 +609,7 @@ async function buildApp(overrides = {}) {
       });
       if (!(amount > 0)) return;
       const result = await database.debitCredit(companyId, {
-        amount, costUsd, purpose, lowPercent: config.credit.lowPercent,
+        amount, costUsd, purpose, alertPercents: config.credit.alertPercents,
       });
       if (result?.crossed) await notifyCreditLevel(companyId, result.crossed, result.total);
     } catch (error) {
@@ -623,14 +623,21 @@ async function buildApp(overrides = {}) {
   async function notifyCreditLevel(companyId, level, total) {
     const text = level === 'empty'
       ? 'Credit AI habis, jadi AI berhenti membalas customer. Balas customer secara manual, atau top-up credit untuk mengaktifkan AI kembali.'
-      : `Credit AI hampir habis: sisa ${creditNumberFormat.format(Math.round(total))} credit. Top-up sebelum habis supaya AI tidak berhenti membalas customer.`;
+      : `Credit AI tinggal ${level.slice(1)}% (sisa ${creditNumberFormat.format(Math.round(total))} credit). Top-up sebelum habis supaya AI tidak berhenti membalas customer.`;
     const userIds = await database.notifyCredit(companyId, text).catch(() => []);
     notifyUsers(companyId, userIds);
-    if (!canCall('getHandoffNotifyNumbers')) return;
-    const numbers = await database.getHandoffNotifyNumbers(companyId).catch(() => []);
-    for (const raw of numbers) {
+    // WhatsApp: nomor serah-terima company + nomor WhatsApp para penerima
+    // (supervisor, owner/admin, departemen Management), tanpa duplikat.
+    const recipients = typeof database.listCreditRecipients === 'function'
+      ? await database.listCreditRecipients(companyId).catch(() => []) : [];
+    const handoff = canCall('getHandoffNotifyNumbers')
+      ? await database.getHandoffNotifyNumbers(companyId).catch(() => []) : [];
+    const sent = new Set();
+    for (const raw of [...handoff, ...recipients.map((r) => r.whatsappNumber)].filter(Boolean)) {
       try {
         const chatId = normalizeChatId(raw, config.defaultCountryCode);
+        if (sent.has(chatId)) continue;
+        sent.add(chatId);
         await sendOutbound(companyId, chatId, `*Credit Agnee*\n${text}`);
       } catch (error) {
         app.log.warn({ err: error, recipient: `…${String(raw).slice(-4)}` }, 'Kabar credit ke satu penerima gagal');
@@ -4122,7 +4129,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     return {
       ...state,
       planLabel: plan?.label || state.plan,
-      lowPercent: config.credit.lowPercent,
+      alertPercents: config.credit.alertPercents,
       graceDays: config.credit.graceDays,
       ledger,
     };

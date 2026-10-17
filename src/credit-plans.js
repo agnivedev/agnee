@@ -18,15 +18,15 @@ const TIER_RANK = { low: 1, mid: 2, high: 3, top: 4 };
 
 const CREDIT_PLANS = {
   starter: {
-    label: 'Starter', priceIdr: 99_000, monthlyCredit: 99_000,
+    label: 'Starter', priceIdr: 99_000, monthlyCredit: 500,
     maxUsers: 1, maxWhatsapp: 1, maxPlaybooks: 1, maxModelTier: 'mid', broadcast: false,
   },
   growth: {
-    label: 'Growth', priceIdr: 1_900_000, monthlyCredit: 1_900_000,
+    label: 'Growth', priceIdr: 1_900_000, monthlyCredit: 10_000,
     maxUsers: 5, maxWhatsapp: 2, maxPlaybooks: 5, maxModelTier: 'high', broadcast: true,
   },
   pro: {
-    label: 'Pro', priceIdr: 3_900_000, monthlyCredit: 3_900_000,
+    label: 'Pro', priceIdr: 3_900_000, monthlyCredit: 22_000,
     maxUsers: 15, maxWhatsapp: 5, maxPlaybooks: 15, maxModelTier: 'top', broadcast: true,
   },
   // Custom: harga dan credit diatur per kesepakatan dari konsol.
@@ -50,9 +50,10 @@ function positive(value, fallback) {
 
 function loadCreditConfig(env = process.env) {
   return {
-    markup: positive(env.CREDIT_MARKUP, 3),
-    // Rp per 1 credit. 1 = top-up Rp X menjadi X credit.
-    creditPriceIdr: positive(env.CREDIT_PRICE_IDR, 1),
+    markup: positive(env.CREDIT_MARKUP, 3.85),
+    // Harga jual 1 credit (Rp) untuk top-up. Dengan markup 3,85 dan biaya balasan
+    // Medium ~Rp 26, 1 credit ≈ 1 balasan AI Medium dan margin kotor ~74%.
+    creditPriceIdr: positive(env.CREDIT_PRICE_IDR, 100),
     lowPercent: Math.min(99, positive(env.CREDIT_LOW_PERCENT, 20)),
     graceDays: Number.isFinite(Number(env.CREDIT_GRACE_DAYS)) && env.CREDIT_GRACE_DAYS !== undefined && env.CREDIT_GRACE_DAYS !== ''
       ? Math.max(0, Number(env.CREDIT_GRACE_DAYS)) : 3,
@@ -79,7 +80,7 @@ function creditCostOf(costUsd, { usdIdrRate, markup, discountPct = 0, creditPric
   return Math.round((idr / creditPriceIdr) * 10_000) / 10_000;
 }
 
-function creditsForTopup(amountIdr, { creditPriceIdr = 1 } = {}) {
+function creditsForTopup(amountIdr, { creditPriceIdr = 100 } = {}) {
   const n = Number(amountIdr);
   if (!Number.isFinite(n) || n <= 0) return 0;
   return Math.round((n / creditPriceIdr) * 100) / 100;

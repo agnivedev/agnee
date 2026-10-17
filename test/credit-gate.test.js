@@ -117,8 +117,8 @@ test('panggilan AI selesai: credit dipotong dari biaya penyedia, kabar dikirim s
   });
   await new Promise((resolve) => setTimeout(resolve, 50));
   assert.ok(debits.length >= 1, 'ada pemotongan');
-  // 0,002 USD x 16.500 x 3 x (1 - 50%) = 49,5 credit
-  assert.equal(debits[0].amount, 49.5);
+  // 0,002 USD x 16.500 x markup 3,85 x (1 - 50%) / Rp 100 per credit
+  assert.equal(debits[0].amount, Math.round(0.002 * 16_500 * 3.85 * 0.5 / 100 * 10_000) / 10_000);
   assert.equal(debits[0].companyId, COMPANY);
   assert.equal(notified.length, debits.length, 'kabar habis dikirim ke supervisor');
   assert.match(notified[0].body, /Credit AI habis/);

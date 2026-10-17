@@ -8,7 +8,7 @@
 
 ## 1. Prinsip
 
-1. **Credit = satuan tagihan, 1 credit = Rp 1 nilai tagihan.** Biaya AI nyata per
+1. **Credit = satuan pemakaian AI (≈ 1 balasan Medium), dijual Rp 100/credit.** Biaya AI nyata per
    panggilan (`ai_usage_logs.cost_usd`, yang dilaporkan penyedia) dikali kurs
    (`USD_IDR_RATE`) dikali **markup** lalu dikali `(1 - diskon%)` = credit
    yang dipotong. Biaya tidak dihitung ulang: sumbernya tetap satu.
@@ -46,40 +46,38 @@
   besar kolom `shortfall`.
 - Top-up langsung menghidupkan AI lagi (gerbang membaca saldo tiap panggilan).
 
-## 3. Angka usulan (SETUJUI / UBAH)
+## 3. Angka usulan (SETUJUI / UBAH) — direvisi 17 Okt
 
-Dasar biaya nyata (DB `agnee` lokal, 205 panggilan sejak 16 Sep, model tingkat
-Medium): balasan otomatis **US$0,0016 ≈ Rp 26**; simulasi Rp 18; ringkasan Rp 7;
-broadcast personal Rp 3. Tingkat High/Top memakai model lebih mahal otomatis
-karena biaya diambil dari penyedia. **Catatan: data produksi tidak terjangkau
-dari sesi ini; sebelum disetujui, jalankan `scripts/credit-cost-sample.sql`
-di produksi dan cocokkan angkanya.**
+Credit **bukan harga**. Harga paket tetap keputusan pemilik; credit adalah
+satuan pemakaian AI: **1 credit ≈ 1 balasan AI tingkat Medium**.
 
-| Parameter | Usulan | Alasan |
-|---|---|---|
-| Markup credit atas biaya AI | **3,0×** | biaya AI maksimal ⅓ dari credit yang terjual |
-| 1 credit | **Rp 1** | top-up Rp X = X credit; tidak ada tarif baru |
-| Peringatan saldo rendah | **20%** | |
-| Masa tenggang credit paket | **3 hari** | mengantisipasi konfirmasi bayar manual |
-| Top-up minimum | **tidak ada** (diatur env) | pemilik yang menentukan |
+Cara hitung (jalankan `node scripts/credit-simulate.js`):
 
-| | Starter | Growth | Pro | Enterprise |
-|---|---|---|---|---|
-| Harga/bln (keputusan pemilik) | Rp 99.000 | Rp 1.900.000 | Rp 3.900.000 | custom |
-| Credit paket/bln (usulan) | 99.000 | 1.900.000 | 3.900.000 | diatur manual |
-| ≈ balasan AI tingkat Medium* | ±1.250 | ±24.000 | ±49.000 | – |
-| Pengguna | 1 | 5 | 15 | tak terbatas** |
-| Nomor WhatsApp | 1 | 2 | 5 | tak terbatas** |
-| Dokumen playbook | 1 | 5 | 15 | tak terbatas** |
-| Tingkat model tertinggi | Medium | High | Top-end | Top-end |
-| Broadcast | tidak | ya | ya | ya |
+- COGS balasan = biaya penyedia (USD) × kurs. Medium nyata ≈ **Rp 26**
+  (data lokal 205 panggilan; High ≈ Rp 89 dan Top ≈ Rp 267 PERKIRAAN dari harga resmi).
+- Harga jual 1 credit (top-up) = **Rp 100**; markup **3,85×** → 1 balasan Medium = 1 credit.
+- COGS per credit = Rp 100 ÷ 3,85 ≈ **Rp 26**; margin kotor AI = **74%** pada harga penuh.
+- COGS terpakai selalu mengikuti biaya nyata, apa pun modelnya (model mahal
+  hanya menghabiskan credit lebih cepat).
 
-\* credit ÷ (Rp 26 × markup 3 = Rp 79 per balasan), tanpa pemakaian internal.
-\*\* 0 = tanpa batas, konvensi kolom `max_*` yang sudah ada. Enterprise juga
-bisa diubah per company (kolom `max_*`, diskon, credit) dari konsol.
+| | Starter | Growth | Pro |
+|---|---|---|---|
+| Harga/bln (keputusan pemilik) | Rp 99.000 | Rp 1.900.000 | Rp 3.900.000 |
+| Credit diberikan/bln (usulan) | 500 | 10.000 | 22.000 |
+| COGS AI maks. bila habis total | Rp 13rb (13%) | Rp 260rb (14%) | Rp 571rb (15%) |
+| Margin kotor AI | 87% | 86% | 85% |
+| Pengguna / nomor / playbook | 1 / 1 / 1 | 5 / 2 / 5 | 15 / 5 / 15 |
+| Model tertinggi | Medium | High | Top-end |
+| Broadcast | tidak | ya | ya |
 
-Efek usulan 1 credit : Rp 1 dan markup 3×: bila seluruh credit paket terpakai
-habis, biaya AI kita ≈ ⅓ harga paket; sisanya margin dan biaya platform.
+500 credit Starter sama dengan batas 500 pesan AI paket Personal lama.
+Enterprise: credit dan harga custom.
+
+**Peringatan diskon Enterprise 90%:** pada harga credit Rp 100, diskon 74%
+sudah impas (pendapatan Rp 26 = COGS Rp 26); 90% berarti **rugi Rp 16 per
+credit**. Usulan: batasi diskon di 60% (margin 35%), atau naikkan markup
+bila 90% memang harus aman (markup ~10×). Kode masih mengizinkan 90%
+(`MAX_DISCOUNT_PCT`) sampai pemilik memutuskan.
 
 ## 4. Yang dibangun
 

@@ -41,6 +41,8 @@ export function ContextPanel({
   const [selectedMode, setSelectedMode] = useState<'ai' | 'human'>('ai');
   const [assignee, setAssignee] = useState('');
   const [handoverNote, setHandoverNote] = useState('');
+  const [reason, setReason] = useState('');
+  const [aiConstraints, setAiConstraints] = useState('');
   const [sendClosing, setSendClosing] = useState(true);
   const [closingMessage, setClosingMessage] = useState('');
   const [status, setStatus] = useState('');
@@ -136,11 +138,15 @@ export function ContextPanel({
           mode: selectedMode,
           assigneeUserId: selectedMode === 'human' ? assignee || null : null,
           note: handoverNote.trim(),
+          ...(selectedMode === 'human' && reason ? { reason } : {}),
+          ...(selectedMode === 'ai' && aiConstraints.trim() ? { aiConstraints: aiConstraints.trim() } : {}),
           sendClosingMessage: selectedMode === 'ai' && returningToAi && sendClosing,
           closingMessage: closingMessage.trim(),
         },
       });
       setHandoverNote('');
+      setReason('');
+      setAiConstraints('');
       setStatus(selectedMode === 'ai' ? t('routing.savedAi') : t('routing.savedHuman'));
       await onRoutingSaved();
       await loadRouting();
@@ -305,6 +311,33 @@ export function ContextPanel({
           </div>
         ) : null}
 
+        {selectedMode === 'human' ? (
+          <select
+            aria-label={t('handoff.reasonLabel')}
+            value={reason}
+            onChange={(event) => setReason(event.target.value)}
+            className="mt-3 w-full rounded-[10px] border border-border bg-white p-2 text-xs"
+          >
+            <option value="">{t('handoff.reasonNone')}</option>
+            {['customer_requested_human', 'out_of_playbook', 'price_decision', 'emotional_complaint', 'risk_compliance', 'low_confidence'].map((key) => (
+              <option key={key} value={key}>{t(`handoff.reason.${key}`)}</option>
+            ))}
+          </select>
+        ) : null}
+        {selectedMode === 'ai' ? (
+          <div className="mt-3 grid gap-1">
+            <textarea
+              rows={2}
+              maxLength={800}
+              value={aiConstraints}
+              aria-label={t('handoff.constraints')}
+              placeholder={t('handoff.constraintsPlaceholder')}
+              onChange={(event) => setAiConstraints(event.target.value)}
+              className="w-full rounded-[10px] border border-border bg-white p-2 text-xs"
+            />
+            <p className="m-0 text-[11px] text-muted">{t('handoff.constraintsHelp')}</p>
+          </div>
+        ) : null}
         <textarea
           rows={2}
           maxLength={500}
@@ -428,7 +461,26 @@ export function ContextPanel({
                     item.toMode === 'ai' ? t('routing.ai') : item.toName || t('routing.human')
                   }`}
                 </strong>
+                {item.reason ? (
+                  <span className="w-fit rounded-full bg-[#eef5ee] px-1.5 py-px font-mono text-[9px] text-[#285248]">
+                    {t(`handoff.reason.${item.reason}`)}
+                  </span>
+                ) : null}
                 {item.note ? <span className="text-xs text-muted">{item.note}</span> : null}
+                {item.aiConstraints ? (
+                  <span className="text-xs text-muted">{`${t('handoff.constraintsShown')}: ${item.aiConstraints}`}</span>
+                ) : null}
+                {item.card ? (
+                  <div className="grid gap-0.5 rounded-lg bg-ink/4 p-2 text-[11px]">
+                    <strong>{t('handoff.cardTitle')}</strong>
+                    {item.card.summary.map((line, i) => <span key={i}>{`${i + 1}. ${line}`}</span>)}
+                    {item.card.promises.length ? <span>{`${t('handoff.cardPromises')}: ${item.card.promises.join('; ')}`}</span> : null}
+                    {Object.keys(item.card.collected).length ? (
+                      <span>{`${t('handoff.cardCollected')}: ${Object.entries(item.card.collected).map(([k, v]) => `${k} ${v}`).join('; ')}`}</span>
+                    ) : null}
+                    {item.card.suggestedReply ? <span>{`${t('handoff.cardSuggested')}: ${item.card.suggestedReply}`}</span> : null}
+                  </div>
+                ) : null}
                 <time className="font-mono text-[9px] text-muted">
                   {new Date(item.createdAt).toLocaleString(dateLocale)}
                 </time>

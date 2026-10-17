@@ -161,6 +161,18 @@ function buildQuestionNotice({ department, question, customerLabel, askerLabel =
   ].join('\n');
 }
 
+/** Pesan WhatsApp ke anggota departemen yang di-mention di komentar samping chat. */
+function buildMentionNotice({ department, authorName, customerLabel, body }) {
+  const cut = (v, n) => { const t = String(v || '').replace(/\s+/g, ' ').trim(); return t.length > n ? `${t.slice(0, n - 1)}…` : t; };
+  return [
+    `*${authorName || 'Rekan tim'} menyebut tim ${department} di catatan chat*`,
+    `Customer: ${customerLabel}`,
+    `Catatan: "${cut(body, 500)}"`,
+    '',
+    'Buka Agnee untuk membaca dan membalas di catatan. Pesan ini tidak dikirim ke customer.',
+  ].join('\n');
+}
+
 const UNSURE_TOKEN = '[BELUM_PASTI]';
 
 /** Kata yang membuka proses internal. Dipakai sebagai pagar setelah model menulis. */
@@ -190,4 +202,4 @@ function judgeRelay(text) {
   return { kind: 'ok', text: clean };
 }
 
-module.exports = { guideOps, guideThirdPartiesOps, judgeRelay, leaksInternal, UNSURE_TOKEN, guideThirdParties, toolSpecThirdParty, buildThirdPartyMessage, mentionsWaiting, ensureHolding, buildReminderNotice, REMINDER_MINUTES, guide, toolSpec, buildQuestionNotice, relayPrompt, HOLDING_FALLBACK, QUESTION_MAX };
+module.exports = { buildMentionNotice, guideOps, guideThirdPartiesOps, judgeRelay, leaksInternal, UNSURE_TOKEN, guideThirdParties, toolSpecThirdParty, buildThirdPartyMessage, mentionsWaiting, ensureHolding, buildReminderNotice, REMINDER_MINUTES, guide, toolSpec, buildQuestionNotice, relayPrompt, HOLDING_FALLBACK, QUESTION_MAX };

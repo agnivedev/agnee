@@ -207,12 +207,11 @@ function Hero() {
         <span aria-hidden className="inline-block h-0.5 w-7 bg-green-dark dark:bg-[#7fff4f]" />
         AI untuk WhatsApp bisnis kamu
       </p>
-      <h1 className="mt-4 mb-0 max-w-4xl text-[clamp(34px,6vw,68px)] leading-[1.03] font-semibold tracking-[-.05em]">
-        Chatbot lain cuma auto-respon.
-        <br />
-        <span className="text-green-dark dark:text-[#7fff4f]">Agnee kerja kayak satu tim CS.</span>
+      <h1 className="mt-4 mb-0 text-[clamp(32px,5.2vw,60px)] leading-[1.08] font-semibold tracking-[-.045em] text-balance">
+        <span className="block">Chatbot lain cuma auto&#8209;respon.</span>
+        <span className="block text-green-dark dark:text-[#7fff4f]">Agnee kerja kayak satu tim CS.</span>
       </h1>
-      <ul className="m-0 mt-6 grid max-w-3xl list-none gap-2.5 p-0 text-[16px] sm:grid-cols-3">
+      <ul className="m-0 mt-7 flex list-none flex-wrap gap-x-8 gap-y-3 p-0 text-[15px] sm:text-[16px]">
         {[
           [Bot, 'Menjawab dari Knowledge bisnismu'],
           [ArrowLeftRight, 'Minggir saat CS mulai ngetik'],
@@ -220,7 +219,7 @@ function Hero() {
         ].map(([Ikon, teks]) => {
           const Icon = Ikon as LucideIcon;
           return (
-            <li key={teks as string} className="flex items-center gap-2.5 font-medium">
+            <li key={teks as string} className="flex items-center gap-2.5 font-medium whitespace-nowrap">
               <Icon aria-hidden size={20} className="shrink-0 text-green-dark dark:text-[#7fff4f]" />
               {teks as string}
             </li>

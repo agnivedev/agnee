@@ -795,8 +795,11 @@ class Database {
           -- Tenggat dan asal catatan dipertahankan selama chat tetap di manusia
           -- (mengubah prioritas tidak boleh menghapus tenggat); kembali ke AI
           -- menutup tugasnya.
-          due_at = CASE WHEN EXCLUDED.handling_mode = 'human'
-                        THEN COALESCE(EXCLUDED.due_at, conversation_routing.due_at) ELSE NULL END,
+          -- Tugas baru dari catatan lain menggantikan tenggat lama (tanpa tenggat
+          -- berarti tanpa tenggat, bukan mewarisi tenggat tugas sebelumnya).
+          due_at = CASE WHEN EXCLUDED.handling_mode <> 'human' THEN NULL
+                        WHEN EXCLUDED.task_note_id IS NOT NULL THEN EXCLUDED.due_at
+                        ELSE COALESCE(EXCLUDED.due_at, conversation_routing.due_at) END,
           task_note_id = CASE WHEN EXCLUDED.handling_mode = 'human'
                               THEN COALESCE(EXCLUDED.task_note_id, conversation_routing.task_note_id) ELSE NULL END,
           updated_at = NOW()

@@ -89,6 +89,11 @@ test('alasan, kartu, batasan AI, dan tenggat tugas', { skip: !DB_URL && 'DATABAS
   assert.equal(new Date(routing.dueAt).toISOString(), due, 'ubah prioritas tidak menghapus tenggat');
   const tasks = await db.listAssignedChats(co.id, { assigneeUserId: user.id });
   assert.equal(new Date(tasks[0].dueAt).toISOString(), due);
+  // tugas baru dari catatan lain TANPA tenggat tidak mewarisi tenggat tugas lama
+  const { rows: [note2] } = await q("INSERT INTO conversation_notes (company_id, chat_id, author_user_id, body) VALUES ($1, $2, $3, 'kirim brosur') RETURNING id", [co.id, chat, user.id]);
+  routing = await db.saveConversationRouting({ chatId: chat, mode: 'human', assigneeUserId: user.id, actorUserId: user.id, priority: 'normal', taskNoteId: note2.id }, co.id);
+  assert.equal(routing.dueAt, null, 'tugas baru tanpa tenggat tidak mewarisi tenggat lama');
+  assert.equal(String(routing.taskNoteId), String(note2.id));
   routing = await db.saveConversationRouting({ chatId: chat, mode: 'ai', actorUserId: user.id }, co.id);
   assert.equal(routing.dueAt, null);
   assert.equal(routing.taskNoteId, null);

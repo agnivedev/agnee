@@ -64,15 +64,22 @@ function detectDelimiter(text) {
 
 /** RFC 4180: kutip ganda untuk koma/baris baru, `""` = satu kutip. */
 function parseCsv(text) {
-  const delimiter = detectDelimiter(text);
+  // Excel menulis "sep=;" di baris pertama CSV bila pemisahnya bukan koma; baris itu
+  // petunjuk, bukan judul kolom.
+  const hint = /^sep=(.)\r?\n/i.exec(text);
+  if (hint) text = text.slice(hint[0].length);
+  const delimiter = hint ? hint[1] : detectDelimiter(text);
   const rows = [];
+  const rowNumbers = [];
+  let record = hint ? 1 : 0; // nomor baris di spreadsheet = urutan rekaman, termasuk yang kosong
   let row = [];
   let cell = '';
   let inQuotes = false;
   const endCell = () => { row.push(cell); cell = ''; };
   const endRow = () => {
     endCell();
-    if (row.some((value) => value.trim() !== '')) rows.push(row);
+    record += 1;
+    if (row.some((value) => value.trim() !== '')) { rows.push(row); rowNumbers.push(record); }
     row = [];
     if (rows.length > LIMITS.rows + 1) throw new ImportError(`Berkas terlalu besar: maksimal ${LIMITS.rows.toLocaleString('id-ID')} baris data.`, 'too_large');
   };
@@ -88,7 +95,7 @@ function parseCsv(text) {
     else if (ch === '\r') { if (text[i + 1] !== '\n') endRow(); } else cell += ch;
   }
   if (cell !== '' || row.length) endRow();
-  return { rows, formulaCells: 0 };
+  return { rows, rowNumbers, formulaCells: 0 };
 }
 
 // ── Pembaca XLSX ─────────────────────────────────────────────────────────────
@@ -161,10 +168,15 @@ async function parseXlsx(buffer) {
   const shared = sharedXml ? [...sharedXml.matchAll(/<si\b[^>]*>([\s\S]*?)<\/si>/g)].map((m) => textOf(m[1])) : [];
 
   const rows = [];
+  const rowNumbers = [];
   let formulaCells = 0;
-  for (const rowMatch of sheet.matchAll(/<row\b[^>]*?(?:\sr="(\d+)")?[^>]*>([\s\S]*?)<\/row>/g)) {
+  let nextRow = 0;
+  // Baris kosong yang hanya berformat ditulis `<row .../>`; tanpa cabang ini ia
+  // menelan baris sesudahnya.
+  for (const rowMatch of sheet.matchAll(/<row\b([^>]*?)(?:\/>|>([\s\S]*?)<\/row>)/g)) {
+    nextRow = Number(/\sr="(\d+)"/.exec(` ${rowMatch[1]}`)?.[1]) || nextRow + 1;
     const cells = [];
-    for (const cellMatch of rowMatch[2].matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
+    for (const cellMatch of (rowMatch[2] || '').matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
       const attrs = cellMatch[1];
       const inner = cellMatch[2] || '';
       const ref = /\sr="([A-Z]+\d+)"/i.exec(` ${attrs}`)?.[1];
@@ -184,10 +196,13 @@ async function parseXlsx(buffer) {
       }
       cells[col] = value;
     }
-    if (cells.some((value) => String(value ?? '').trim() !== '')) rows.push(Array.from(cells, (value) => value ?? ''));
+    if (cells.some((value) => String(value ?? '').trim() !== '')) {
+      rows.push(Array.from(cells, (value) => value ?? ''));
+      rowNumbers.push(nextRow);
+    }
     if (rows.length > LIMITS.rows + 1) throw new ImportError(`Berkas terlalu besar: maksimal ${LIMITS.rows.toLocaleString('id-ID')} baris data.`, 'too_large');
   }
-  return { rows, formulaCells };
+  return { rows, rowNumbers, formulaCells };
 }
 
 // ── Berkas -> tabel ──────────────────────────────────────────────────────────
@@ -195,8 +210,9 @@ async function parseXlsx(buffer) {
 const isZip = (buffer) => buffer[0] === 0x50 && buffer[1] === 0x4b;
 
 /**
- * @returns {Promise<{headers: string[], rows: string[][], formulaCells: number, format: 'xlsx'|'csv'}>}
- *   Baris pertama berkas dianggap judul kolom.
+ * @returns {Promise<{headers: string[], rows: string[][], rowNumbers: number[], formulaCells: number, format: 'xlsx'|'csv'}>}
+ *   Baris pertama berkas dianggap judul kolom. `rowNumbers` = nomor baris asli tiap baris data
+ *   di spreadsheet (baris kosong ikut terhitung), supaya laporan masalah menunjuk baris yang benar.
  */
 async function parseTable(buffer, filename = '') {
   if (!Buffer.isBuffer(buffer) || buffer.length === 0) throw new ImportError('Berkas kosong.');
@@ -216,7 +232,7 @@ async function parseTable(buffer, filename = '') {
   const clean = (value) => String(value ?? '').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '').trim().slice(0, LIMITS.cellChars);
   const grid = table.rows.map((row) => Array.from({ length: width }, (_, i) => clean(row[i])));
   const headers = grid[0].map((h, i) => h || `Kolom ${i + 1}`);
-  return { headers, rows: grid.slice(1), formulaCells: table.formulaCells, format: looksXlsx ? 'xlsx' : 'csv' };
+  return { headers, rows: grid.slice(1), rowNumbers: table.rowNumbers.slice(1), formulaCells: table.formulaCells, format: looksXlsx ? 'xlsx' : 'csv' };
 }
 
 // ── Nomor HP ─────────────────────────────────────────────────────────────────
@@ -303,15 +319,16 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 /**
  * Nilai tiap baris: siap diimpor / tidak valid / duplikat di berkas / sudah ada di Lead List.
  * @param existingPhones Set nomor (digit) yang sudah ada di Lead List company ini
+ * @param rowNumbers nomor baris asli per baris data (dari parseTable); bila kosong dihitung dari urutan
  * @returns {{leads: object[], summary: object, problems: object[]}} `leads` hanya yang siap diimpor
  */
-function evaluateRows(rows, mapping, existingPhones = new Set()) {
+function evaluateRows(rows, mapping, existingPhones = new Set(), rowNumbers = null) {
   const leads = [];
   const problems = [];
   const seen = new Map();
   const summary = { total: rows.length, ready: 0, invalidPhone: 0, duplicateInFile: 0, alreadyExists: 0, invalidEmail: 0 };
   rows.forEach((row, index) => {
-    const line = index + 2; // baris judul = 1
+    const line = rowNumbers?.[index] ?? index + 2; // tanpa nomor asli: baris judul = 1
     const rawPhone = row[mapping.phone] || '';
     const phone = normalizePhone(rawPhone);
     if (!phone) {

@@ -7917,7 +7917,7 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
       : leadImport.suggestMapping(table.headers, table.rows);
     if (effective.phone === undefined) return { mapping: effective, evaluation: null };
     const existing = new Set(await database.listLeadPhones(companyId));
-    return { mapping: effective, evaluation: leadImport.evaluateRows(table.rows, effective, existing) };
+    return { mapping: effective, evaluation: leadImport.evaluateRows(table.rows, effective, existing, table.rowNumbers) };
   }
 
   app.post('/v1/leads/import/preview', async (request, reply) => {

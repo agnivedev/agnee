@@ -59,8 +59,11 @@ export function MentionInput({
   useEffect(() => { setActive(0); }, [query]);
 
   useEffect(() => {
-    onMentionsChange(picked.map((person) =>
-      (person.id === AI_MENTION_ID ? { kind: 'ai' } : { kind: 'user', id: person.id })));
+    onMentionsChange(picked.map((person): Mention => {
+      if (person.id === AI_MENTION_ID) return { kind: 'ai' };
+      if (person.kind === 'department') return { kind: 'department', id: person.id };
+      return { kind: 'user', id: person.id };
+    }));
   }, [picked, onMentionsChange]);
 
   /** Kata setelah `@` terdekat di kiri kursor, selama belum melewati spasi. */
@@ -158,6 +161,7 @@ export function MentionInput({
                 )}
               >
                 <strong className="text-xs">{person.displayName || person.email}</strong>
+                {person.kind === 'department' ? <span className="font-mono text-[9px] text-muted">{t('mention.department')}</span> : null}
                 {person.role ? <span className="font-mono text-[9px] text-muted">{person.role}</span> : null}
               </button>
             </li>

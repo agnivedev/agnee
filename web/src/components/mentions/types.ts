@@ -4,6 +4,8 @@ export type Mentionable = {
   displayName?: string | null;
   email?: string | null;
   role?: string | null;
+  /** Departemen: memberi tahu semua anggotanya. */
+  kind?: 'department';
 };
 
 /**
@@ -13,7 +15,8 @@ export type Mentionable = {
 export type Mention =
   | { kind: 'user'; id: string }
   | { kind: 'chat'; chatId: string }
-  | { kind: 'ai' };
+  | { kind: 'ai' }
+  | { kind: 'department'; id: string; name?: string };
 
 export type NoteItem = {
   id: number;

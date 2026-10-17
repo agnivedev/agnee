@@ -32,6 +32,12 @@ export function NoteThread({
   const [replyDraft, setReplyDraft] = useState('');
   const [replyMentions, setReplyMentions] = useState<Mention[]>([]);
   const [busy, setBusy] = useState(false);
+  const [owners, setOwners] = useState<Mentionable[]>([]);
+  const [taskFor, setTaskFor] = useState<number | null>(null);
+  const [taskOwner, setTaskOwner] = useState('');
+  const [taskDue, setTaskDue] = useState('');
+  const [taskPriority, setTaskPriority] = useState('normal');
+  const [taskStatus, setTaskStatus] = useState('');
   // Asisten ikut di daftar yang bisa disebut. Jawabannya masuk sebagai catatan
   // di utas ini — tidak pernah terkirim ke customer.
   const aiEntry = useMemo<Mentionable>(
@@ -49,8 +55,12 @@ export function NoteThread({
   useEffect(() => { void load(); }, [load, reloadKey]);
 
   useEffect(() => {
-    api<{ users: Mentionable[] }>('/v1/mentionables')
-      .then((data) => setPeople([aiEntry, ...(data.users || [])]))
+    api<{ users: Mentionable[]; departments?: { id: string; name: string }[] }>('/v1/mentionables')
+      .then((data) => {
+        const departments = (data.departments || []).map((d): Mentionable => ({ id: d.id, displayName: d.name, kind: 'department' }));
+        setOwners(data.users || []);
+        setPeople([aiEntry, ...departments, ...(data.users || [])]);
+      })
       .catch(() => setPeople([aiEntry]));
   }, [aiEntry]);
 
@@ -65,6 +75,27 @@ export function NoteThread({
       if (parentId) { setReplyDraft(''); setReplyMentions([]); setReplyTo(null); }
       else { setDraft(''); setMentions([]); }
       await load();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function makeTask(noteId: number) {
+    if (!chatId || busy) return;
+    setBusy(true);
+    try {
+      await api(`/v1/chats/${encodeURIComponent(chatId)}/notes/${noteId}/task`, {
+        method: 'POST',
+        body: {
+          ...(taskOwner ? { assigneeUserId: taskOwner } : {}),
+          ...(taskDue ? { dueAt: new Date(taskDue).toISOString() } : {}),
+          priority: taskPriority,
+        },
+      });
+      setTaskFor(null);
+      setTaskStatus(t('task.created'));
+    } catch {
+      setTaskStatus(t('task.failed'));
     } finally {
       setBusy(false);
     }
@@ -86,6 +117,41 @@ export function NoteThread({
               </div>
             ))}
 
+            {taskFor === note.id ? (
+              <div className="mt-1 grid gap-1.5 rounded-lg bg-ink/4 p-2 text-[11px]">
+                <label className="grid gap-0.5">
+                  <span>{t('task.owner')}</span>
+                  <select value={taskOwner} onChange={(event) => setTaskOwner(event.target.value)} className="rounded-lg border border-border bg-white p-1.5 text-xs">
+                    <option value="">—</option>
+                    {owners.map((person) => (
+                      <option key={person.id} value={person.id}>{person.displayName || person.email}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="grid gap-0.5">
+                  <span>{t('task.due')}</span>
+                  <input type="datetime-local" value={taskDue} onChange={(event) => setTaskDue(event.target.value)} className="rounded-lg border border-border bg-white p-1.5 text-xs" />
+                </label>
+                <label className="grid gap-0.5">
+                  <span>{t('task.priority')}</span>
+                  <select value={taskPriority} onChange={(event) => setTaskPriority(event.target.value)} className="rounded-lg border border-border bg-white p-1.5 text-xs">
+                    {['low', 'normal', 'high', 'urgent'].map((p) => <option key={p} value={p}>{t(`task.p.${p}`)}</option>)}
+                  </select>
+                </label>
+                <div className="flex gap-1.5">
+                  <Button type="button" size="sm" disabled={busy} onClick={() => void makeTask(note.id)}>{t('task.create')}</Button>
+                  <Button type="button" size="sm" variant="outline" onClick={() => setTaskFor(null)}>{t('common.cancel')}</Button>
+                </div>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => { setTaskFor(note.id); setTaskOwner(''); setTaskDue(''); setTaskPriority('normal'); setTaskStatus(''); }}
+                className="w-fit cursor-pointer border-0 bg-transparent p-0 text-[10px] text-muted underline"
+              >
+                {t('task.make')}
+              </button>
+            )}
             {replyTo === note.id ? (
               <div className="mt-1.5 grid gap-1.5">
                 <MentionInput
@@ -126,6 +192,7 @@ export function NoteThread({
         <p className="m-0 text-[11px] text-muted">{t('notes.empty')}</p>
       )}
 
+      {taskStatus ? <p role="status" className="m-0 text-[11px] text-muted">{taskStatus}</p> : null}
       <div className="mt-1 grid gap-2">
         <MentionInput
           value={draft}

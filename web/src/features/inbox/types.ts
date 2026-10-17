@@ -62,6 +62,14 @@ export type WhatsappStatus = {
 export type Routing = {
   mode: 'ai' | 'human';
   assigneeUserId: string | null;
+  dueAt?: string | null;
+};
+
+export type HandoffCard = {
+  summary: string[];
+  promises: string[];
+  collected: Record<string, string>;
+  suggestedReply: string;
 };
 
 export type Handoff = {
@@ -70,6 +78,9 @@ export type Handoff = {
   fromName?: string | null;
   createdByName?: string | null;
   note?: string | null;
+  reason?: string | null;
+  card?: HandoffCard | null;
+  aiConstraints?: string | null;
   createdAt: string;
 };
 

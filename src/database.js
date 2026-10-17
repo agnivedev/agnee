@@ -745,6 +745,7 @@ class Database {
     const result = await this.pool.query(`
       SELECT cr.chat_id AS "chatId", cr.status, cr.priority,
              cr.assigned_at AS "assignedAt", cr.updated_at AS "updatedAt",
+             cr.due_at AS "dueAt", cr.task_note_id AS "taskNoteId",
              u.id AS "assigneeUserId", u.display_name AS "assigneeName",
              cn.name AS "contactName"
       FROM conversation_routing cr
@@ -763,6 +764,7 @@ class Database {
     const result = await this.pool.query(`
       SELECT cr.chat_id AS "chatId", cr.handling_mode AS "mode", cr.assignee_user_id AS "assigneeUserId",
              cr.status, cr.priority, cr.assigned_at AS "assignedAt", cr.updated_at AS "updatedAt",
+             cr.due_at AS "dueAt", cr.task_note_id AS "taskNoteId",
              u.display_name AS "assigneeName", u.email AS "assigneeEmail"
       FROM conversation_routing cr
       LEFT JOIN users u ON u.id = cr.assignee_user_id
@@ -771,7 +773,7 @@ class Database {
     return result.rows[0] || null;
   }
 
-  async saveConversationRouting({ chatId, mode, assigneeUserId, status = 'open', priority = 'normal', actorUserId, note }, companyId) {
+  async saveConversationRouting({ chatId, mode, assigneeUserId, status = 'open', priority = 'normal', actorUserId, note, reason = null, aiConstraints = null, dueAt = null, taskNoteId = null }, companyId) {
     if (!this.enabled) return null;
     const client = await this.pool.connect();
     try {
@@ -781,24 +783,33 @@ class Database {
         FROM conversation_routing WHERE company_id = $1 AND chat_id = $2
       `, [companyId, chatId]);
       const result = await client.query(`
-        INSERT INTO conversation_routing (company_id, chat_id, handling_mode, assignee_user_id, status, priority, assigned_at)
-        VALUES ($1, $2, $3, $4, $5, $6, CASE WHEN $3 = 'human' THEN NOW() ELSE NULL END)
+        INSERT INTO conversation_routing (company_id, chat_id, handling_mode, assignee_user_id, status, priority, assigned_at, due_at, task_note_id)
+        VALUES ($1, $2, $3, $4, $5, $6, CASE WHEN $3 = 'human' THEN NOW() ELSE NULL END,
+                CASE WHEN $3 = 'human' THEN $7::timestamptz ELSE NULL END, CASE WHEN $3 = 'human' THEN $8::bigint ELSE NULL END)
         ON CONFLICT (company_id, chat_id) DO UPDATE SET
           handling_mode = EXCLUDED.handling_mode,
           assignee_user_id = EXCLUDED.assignee_user_id,
           status = EXCLUDED.status,
           priority = EXCLUDED.priority,
           assigned_at = CASE WHEN EXCLUDED.handling_mode = 'human' THEN NOW() ELSE NULL END,
+          -- Tenggat dan asal catatan dipertahankan selama chat tetap di manusia
+          -- (mengubah prioritas tidak boleh menghapus tenggat); kembali ke AI
+          -- menutup tugasnya.
+          due_at = CASE WHEN EXCLUDED.handling_mode = 'human'
+                        THEN COALESCE(EXCLUDED.due_at, conversation_routing.due_at) ELSE NULL END,
+          task_note_id = CASE WHEN EXCLUDED.handling_mode = 'human'
+                              THEN COALESCE(EXCLUDED.task_note_id, conversation_routing.task_note_id) ELSE NULL END,
           updated_at = NOW()
         RETURNING chat_id AS "chatId", handling_mode AS mode, assignee_user_id AS "assigneeUserId",
                   status, priority, assigned_at AS "assignedAt", updated_at AS "updatedAt"
-      `, [companyId, chatId, mode, assigneeUserId || null, status, priority]);
+      `, [companyId, chatId, mode, assigneeUserId || null, status, priority, dueAt || null, taskNoteId || null]);
       const before = previous.rows[0] || { mode: null, assigneeUserId: null };
       await client.query(`
         INSERT INTO conversation_handoffs
-          (company_id, chat_id, from_mode, to_mode, from_user_id, to_user_id, note, created_by)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-      `, [companyId, chatId, before.mode, mode, before.assigneeUserId, assigneeUserId || null, note || null, actorUserId || null]);
+          (company_id, chat_id, from_mode, to_mode, from_user_id, to_user_id, note, created_by, reason, ai_constraints)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      `, [companyId, chatId, before.mode, mode, before.assigneeUserId, assigneeUserId || null, note || null, actorUserId || null,
+        reason || null, mode === 'ai' ? (String(aiConstraints || '').trim().slice(0, 800) || null) : null]);
       await client.query('COMMIT');
       return this.getConversationRouting(chatId, companyId);
     } catch (error) {
@@ -813,6 +824,7 @@ class Database {
     if (!this.enabled) return [];
     const result = await this.pool.query(`
       SELECT h.id, h.from_mode AS "fromMode", h.to_mode AS "toMode", h.note,
+             h.reason, h.card, h.ai_constraints AS "aiConstraints",
              fu.display_name AS "fromName", tu.display_name AS "toName", cu.display_name AS "createdByName",
              h.created_at AS "createdAt"
       FROM conversation_handoffs h
@@ -823,6 +835,68 @@ class Database {
       ORDER BY h.created_at DESC LIMIT $3
     `, [companyId, chatId, limit]);
     return result.rows;
+  }
+
+  /**
+   * Batasan manusia yang masih berlaku untuk AI: hanya bila serah-terima
+   * TERAKHIR chat ini adalah kembali ke AI dan memuat batasan. Chat yang sudah
+   * pindah lagi ke manusia lalu kembali tanpa batasan tidak mewarisi yang lama.
+   */
+  async getAiConstraints(chatId, companyId) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      SELECT to_mode AS "toMode", ai_constraints AS "text"
+      FROM conversation_handoffs
+      WHERE company_id = $1 AND chat_id = $2
+      ORDER BY id DESC LIMIT 1
+    `, [companyId, chatId]);
+    const row = result.rows[0];
+    return row && row.toMode === 'ai' && row.text ? row.text : null;
+  }
+
+  /**
+   * Menempelkan kartu serah-terima ke baris serah-terima ke-manusia terakhir
+   * chat ini. Hanya bila belum punya kartu, supaya pembuatan ganda tidak
+   * menimpa. Mengembalikan id baris, atau null bila tidak ada yang cocok.
+   */
+  async setLatestHandoffCard(chatId, { card, reason = null }, companyId) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      UPDATE conversation_handoffs SET card = $3::jsonb, reason = COALESCE(reason, $4)
+      WHERE id = (
+        SELECT id FROM conversation_handoffs
+        WHERE company_id = $1 AND chat_id = $2 AND to_mode = 'human'
+        ORDER BY id DESC LIMIT 1
+      ) AND card IS NULL
+      RETURNING id
+    `, [companyId, chatId, JSON.stringify(card), reason]);
+    return result.rows[0]?.id || null;
+  }
+
+  /** Pertukaran pesan terakhir (masuk + keluar) dari log database, tertua dulu. */
+  async listRecentExchange(chatId, companyId, limit = 20) {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(`
+      SELECT who, text FROM (
+        SELECT 'Customer' AS who, COALESCE(body, '') AS text, created_at FROM inbound_messages
+          WHERE company_id = $1 AND chat_id = $2
+        UNION ALL
+        SELECT CASE author WHEN 'ai' THEN 'AI' ELSE 'Agent' END, body, created_at FROM outbound_replies
+          WHERE company_id = $1 AND chat_id = $2
+      ) x WHERE text <> '' ORDER BY created_at DESC LIMIT $3
+    `, [companyId, chatId, limit]);
+    return result.rows.reverse();
+  }
+
+  /** Satu catatan milik chat ini (untuk dijadikan tugas). */
+  async getConversationNote(noteId, chatId, companyId) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      SELECT n.id, n.body, n.author_user_id AS "authorUserId", n.parent_id AS "parentId", n.kind
+      FROM conversation_notes n
+      WHERE n.id = $1 AND n.company_id = $2 AND n.chat_id = $3
+    `, [noteId, companyId, chatId]);
+    return result.rows[0] || null;
   }
 
   /**

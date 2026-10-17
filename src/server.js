@@ -42,6 +42,7 @@ const mayarSync = require('./mayar-sync.js');
 const { createReplyPacer } = require('./reply-delay.js');
 const handoffNotice = require('./handoff-notice.js');
 const departmentAsk = require('./department-ask.js');
+const handoffCard = require('./handoff-card.js');
 const supervisorReport = require('./supervisor-report.js');
 const reportChats = require('./report-chats.js');
 const { createTypingHooks } = require('./typing-indicator.js');
@@ -1109,6 +1110,8 @@ async function buildApp(overrides = {}) {
           if (kind === 'ai' || kind === 'handoff') await armFollowUp(companyId, message.from);
           if ((kind === 'ai' || kind === 'handoff') && handoffNotice.claimsForward(text)) {
             notifyHandoff(companyId, message, text).catch((error) => app.log.warn({ err: error }, 'Pemberitahuan serah-terima gagal'));
+            createHandoffCard({ companyId, chatId: message.from, customerText: message.body, aiText: text, attach: false })
+              .catch((error) => app.log.warn({ err: error }, 'Kartu serah-terima gagal dibuat'));
           }
         }
       },
@@ -1121,6 +1124,36 @@ async function buildApp(overrides = {}) {
    * Gagal ke semua penerima melepas pembatas, supaya balasan berikutnya mencoba lagi.
    */
   const handoffCooldown = handoffNotice.createCooldown();
+  const cardCooldown = handoffNotice.createCooldown();
+
+  /**
+   * Kartu serah-terima otomatis: ringkasan tiga baris, janji AI, data
+   * terkumpul, dan saran balasan pertama. Disimpan di baris riwayat serah-terima
+   * (bila `attach`) dan sebagai catatan internal di lini masa. Ringkasannya
+   * dibuat dengan purpose sendiri ('handoff_card') supaya biayanya terpisah
+   * di catatan pemakaian. Tidak pernah dikirim ke customer; bila model gagal
+   * atau membocorkan proses internal, kartu cadangan tanpa saran dipakai.
+   */
+  async function createHandoffCard({ companyId, chatId, customerText = '', aiText = '', requestedHuman = false, attach = true }) {
+    if (!database.enabled || !database.connected || chatId.endsWith('@g.us')) return null;
+    if (!canCall('addConversationNote') || !cardCooldown.take(`${companyId}:${chatId}`)) return null;
+    try {
+      const [lead, summary, companyAi] = await Promise.all([
+        getLeadState(chatId, companyId).catch(() => null),
+        canCall('getConversationSummary') ? database.getConversationSummary(chatId, 'id', companyId).catch(() => null) : null,
+        getCompanyAi(companyId).catch(() => ({ enabled: false })),
+      ]);
+      const out = await handoffCard.createAndStoreCard({
+        database, llm: llmService, companyAi, companyId, chatId, customerText, aiText, requestedHuman,
+        attach: attach && canCall('setLatestHandoffCard'), lead, summary,
+      });
+      if (out.note) broadcastEvent(companyId, 'note', { chatId, note: out.note });
+      return out;
+    } catch (error) {
+      cardCooldown.release(`${companyId}:${chatId}`);
+      throw error;
+    }
+  }
   async function notifyHandoff(companyId, message, aiText) {
     if (!canCall('getHandoffNotifyNumbers') || message.from.endsWith('@g.us')) return;
     const numbers = await database.getHandoffNotifyNumbers(companyId);
@@ -1587,6 +1620,11 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
         departmentGuide = [ops ? departmentAsk.guideOps(departments) : departmentAsk.guide(departments), departmentGuide].filter(Boolean).join('\n\n');
       }
     }
+    // Batasan yang ditulis manusia saat mengembalikan chat ke AI. Instruksi
+    // internal: dibaca AI, tidak pernah disebut ke customer.
+    const constraintText = !ops && chatId && dbLive && canCall('getAiConstraints')
+      ? await database.getAiConstraints(chatId, companyId).catch(() => null)
+      : null;
     let modeBlock = '';
     if (mode !== 'standard') {
       const custom = dbLive && typeof database.getAgentModeInstructions === 'function'
@@ -1608,6 +1646,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       modeBlock,
       ops ? agentModes.senderLine(sender) : '',
       departmentGuide,
+      handoffCard.constraintsBlock(constraintText),
       // Bentuk percakapannya milik Agnee dan sama untuk semua tenant; isinya
       // milik playbook di atas. Ditaruh paling akhir supaya paling dekat dengan
       // pesan customer — instruksi di ujung prompt lebih konsisten dipatuhi
@@ -1679,7 +1718,10 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
           actorUserId: null,
           note: 'Pelanggan meminta bantuan manusia.',
           priority: 'high',
+          reason: handoffCard.classifyReason({ customerText: message.body, requestedHuman: true }),
         }, companyId);
+        createHandoffCard({ companyId, chatId: message.from, customerText: message.body, requestedHuman: true, attach: true })
+          .catch((error) => app.log.warn({ err: error }, 'Kartu serah-terima gagal dibuat'));
         const looksEnglish = /\b(?:human|person|talk|speak|connect|agent)\b/i.test(message.body)
           && !/\b(?:mau|ingin|boleh|bisa|tolong|hubungkan|bicara|manusia)\b/i.test(message.body);
         return looksEnglish
@@ -4413,6 +4455,10 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
         status: { type: 'string', enum: ['open', 'pending', 'closed'] },
         sendClosingMessage: { type: 'boolean', default: false },
         closingMessage: { type: 'string', maxLength: 500 },
+        // Alasan serah-terima (pilihan tetap) dan batasan untuk AI saat chat
+        // kembali ke AI. Catatan teks bebas `note` tetap ada.
+        reason: { type: 'string', enum: Object.keys(handoffCard.REASONS) },
+        aiConstraints: { type: 'string', maxLength: 800 },
       } },
     },
   }, async (request, reply) => {
@@ -4457,6 +4503,8 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       actorUserId: session.userId,
       note: request.body.note,
       priority: request.body.priority || 'normal',
+      reason: request.body.mode === 'human' ? request.body.reason : undefined,
+      aiConstraints: request.body.mode === 'ai' ? request.body.aiConstraints : undefined,
     }, companyId);
     if (previous.mode === 'human' && request.body.mode === 'ai') {
       try {
@@ -4627,8 +4675,13 @@ ${thread || '(belum ada)'}${hubContext}`,
 
   app.get('/v1/mentionables', async (request) => {
     const companyId = request.agneeSession.companyId;
-    if (!canCall('listMentionableUsers')) return { users: [] };
-    return { users: await database.listMentionableUsers(companyId).catch(() => []) };
+    if (!canCall('listMentionableUsers')) return { users: [], departments: [] };
+    // Departemen hanya nama: anggotanya dan nomornya tidak ikut keluar.
+    const departments = canCall('listDepartments')
+      ? (await database.listDepartments(companyId).catch(() => []))
+        .filter((d) => d.members.length > 0).map((d) => ({ id: d.id, name: d.name }))
+      : [];
+    return { users: await database.listMentionableUsers(companyId).catch(() => []), departments };
   });
 
   /**
@@ -4648,10 +4701,20 @@ ${thread || '(belum ada)'}${hubContext}`,
       const memberIds = new Set(members.map((m) => m.id));
       allowed = new Set(userIds.filter((id) => memberIds.has(id)));
     }
+    // Mention departemen: id diperiksa terhadap departemen company ini dan
+    // nama diambil dari database, bukan dari klien.
+    const deptById = new Map();
+    if (list.some((m) => m?.kind === 'department') && canCall('listDepartments')) {
+      for (const d of await database.listDepartments(companyId).catch(() => [])) deptById.set(d.id, d);
+    }
     const out = [];
     const seen = new Set();
     for (const mention of list) {
-      if (mention?.kind === 'user' && allowed.has(String(mention.id))) {
+      if (mention?.kind === 'department') {
+        const dept = deptById.get(String(mention.id));
+        const key = `d:${mention.id}`;
+        if (dept && !seen.has(key)) { seen.add(key); out.push({ kind: 'department', id: dept.id, name: dept.name }); }
+      } else if (mention?.kind === 'user' && allowed.has(String(mention.id))) {
         const key = `u:${mention.id}`;
         if (!seen.has(key)) { seen.add(key); out.push({ kind: 'user', id: String(mention.id) }); }
       } else if (mention?.kind === 'ai') {
@@ -4667,6 +4730,104 @@ ${thread || '(belum ada)'}${hubContext}`,
     return out;
   }
 
+  /**
+   * @Departemen di komentar samping chat: SEMUA anggota departemen diberi
+   * tahu (lonceng di Agnee, dan WhatsApp bila nomornya diisi) — pola yang sama
+   * dengan ask_department. Yang menulis tidak diberi tahu tentang tulisannya
+   * sendiri, dan anggota yang juga di-mention sebagai orang tidak mendapat dua
+   * lonceng. Penerimanya selalu staf; tidak ada jalur ke customer.
+   */
+  async function notifyDepartmentMentions({ companyId, chatId, note, mentions, actorUserId, actorName, body, kind }) {
+    if (!canCall('listDepartments') || !canCall('createMentionNotifications')) return;
+    const depts = await database.listDepartments(companyId);
+    const named = new Set(mentions.filter((m) => m.kind === 'user').map((m) => m.id));
+    const seen = new Set();
+    for (const mention of mentions.filter((m) => m.kind === 'department')) {
+      const dept = depts.find((d) => d.id === mention.id);
+      if (!dept) continue;
+      const members = dept.members.filter((m) => m.userId !== actorUserId).slice(0, 50);
+      const fresh = members.filter((m) => !named.has(m.userId) && !seen.has(m.userId));
+      fresh.forEach((m) => seen.add(m.userId));
+      if (fresh.length) {
+        const notified = await database.createMentionNotifications({
+          chatId, noteId: note.id,
+          mentions: fresh.map((m) => ({ kind: 'user', id: m.userId })),
+          actorUserId, actorKind: 'human',
+          body: `@${dept.name}: ${body}`, kind,
+        }, companyId).catch(() => []);
+        notifyUsers(companyId, notified);
+      }
+      const notice = departmentAsk.buildMentionNotice({
+        department: dept.name, authorName: actorName,
+        customerLabel: handoffNotice.describeCustomer({ chatId }), body,
+      });
+      for (const member of members) {
+        if (!member.whatsappNumber) continue;
+        try {
+          const target = normalizeChatId(member.whatsappNumber, config.defaultCountryCode);
+          const sent = await sendOutbound(companyId, target, notice);
+          await database.recordOutboundReply({ chatId: target, messageId: sent?.messageId || null, author: 'ai', body: notice }, companyId).catch(() => {});
+        } catch (error) {
+          app.log.warn({ err: error, recipient: `…${String(member.whatsappNumber).slice(-4)}` }, 'Mention departemen via WhatsApp ke satu anggota gagal');
+        }
+      }
+    }
+  }
+
+  /**
+   * Catatan jadi tugas satu klik: chat dipegang pemilik yang dipilih (default
+   * yang mengklik), dengan prioritas dan tenggat. Tugas di Agnee adalah baris
+   * routing yang dipegang manusia, jadi SLA yang sudah ada (src/sla.js,
+   * ambang per prioritas) dan notifikasi penugasan berlaku apa adanya.
+   */
+  app.post('/v1/chats/:chatId/notes/:noteId/task', {
+    schema: {
+      params: { type: 'object', required: ['chatId', 'noteId'], properties: {
+        chatId: { type: 'string', minLength: 1, maxLength: 128 },
+        noteId: { type: 'integer', minimum: 1 },
+      } },
+      body: { type: 'object', additionalProperties: false, properties: {
+        assigneeUserId: { type: 'string', maxLength: 100 },
+        dueAt: { type: ['string', 'null'], maxLength: 40 },
+        priority: { type: 'string', enum: ['low', 'normal', 'high', 'urgent'] },
+      } },
+    },
+  }, async (request, reply) => {
+    const session = request.agneeSession;
+    const companyId = session.companyId;
+    if (!canCall('getConversationNote') || !database.status().connected) return reply.code(503).send({ error: 'Tidak tersedia.' });
+    const { chatId, noteId } = request.params;
+    const noteRow = await database.getConversationNote(noteId, chatId, companyId);
+    if (!noteRow) return reply.code(404).send({ error: 'Catatan tidak ditemukan.' });
+    const previous = await getRouting(chatId, companyId);
+    if (!isSupervisor(session) && heldByOtherAgent(previous, session.userId)) {
+      return reply.code(403).send({ error: 'Chat ini dipegang agent lain.' });
+    }
+    const assigneeUserId = request.body.assigneeUserId || session.userId;
+    if (!isSupervisor(session) && assigneeUserId !== session.userId) {
+      return reply.code(403).send({ error: 'Agent hanya dapat membuat tugas untuk dirinya sendiri.' });
+    }
+    const members = await getTeamMembers(companyId);
+    if (!members.find((m) => m.id === assigneeUserId && m.status === 'active')) {
+      return reply.code(400).send({ error: 'Pilih agent yang aktif.' });
+    }
+    let dueAt = null;
+    if (request.body.dueAt) {
+      const ms = Date.parse(request.body.dueAt);
+      if (!Number.isFinite(ms)) return reply.code(400).send({ error: 'Tenggat tidak valid.' });
+      if (ms < Date.now() - 60_000) return reply.code(400).send({ error: 'Tenggat sudah lewat.' });
+      dueAt = new Date(ms).toISOString();
+    }
+    const text = String(noteRow.body).replace(/\s+/g, ' ').trim();
+    const routing = await saveRouting({
+      chatId, mode: 'human', assigneeUserId, actorUserId: session.userId,
+      note: `Tugas dari catatan: ${text}`.slice(0, 500),
+      priority: request.body.priority || previous.priority || 'normal',
+      status: 'open', dueAt, taskNoteId: noteRow.id,
+    }, companyId);
+    return reply.code(201).send({ routing });
+  });
+
   app.post('/v1/chats/:chatId/notes', {
     schema: { body: { type: 'object', additionalProperties: false, required: ['body'], properties: {
       body: { type: 'string', minLength: 1, maxLength: 2000 },
@@ -4676,7 +4837,7 @@ ${thread || '(belum ada)'}${hubContext}`,
         items: {
           type: 'object', additionalProperties: false,
           properties: {
-            kind: { type: 'string', enum: ['user', 'chat', 'ai'] },
+            kind: { type: 'string', enum: ['user', 'chat', 'ai', 'department'] },
             id: { type: 'string', maxLength: 64 },
             chatId: { type: 'string', maxLength: 128 },
           },
@@ -4703,6 +4864,14 @@ ${thread || '(belum ada)'}${hubContext}`,
           companyId: noteCompanyId,
           askerUserId: request.agneeSession?.userId || null,
         }).catch((err) => app.log.warn({ err }, 'Could not answer note mention'));
+      }
+      if (mentions.some((m) => m.kind === 'department')) {
+        notifyDepartmentMentions({
+          companyId: noteCompanyId, chatId: request.params.chatId, note, mentions,
+          actorUserId: request.agneeSession?.userId || null,
+          actorName: request.agneeSession?.displayName || null,
+          body: request.body.body.trim(), kind: request.body.parentId ? 'reply' : 'mention',
+        }).catch((err) => app.log.warn({ err }, 'Could not notify department mention'));
       }
       if (mentions.length && typeof database.createMentionNotifications === 'function') {
         const notified = await database.createMentionNotifications({

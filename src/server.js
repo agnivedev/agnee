@@ -12,6 +12,7 @@ const QRCode = require('qrcode');
 const { WhatsappManager, normalizePairingPhone } = require('./whatsapp-manager.js');
 const { putaranSla } = require('./sla');
 const broadcast = require('./broadcast');
+const leadImport = require('./lead-import');
 const { compileKsPrompt, validateSpecific, specificHash } = require('./ks-package');
 const { registerTrainAssistant } = require('./train-assistant');
 const { registerCompanyTemplates } = require('./company-templates');
@@ -3407,6 +3408,9 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     'GET /v1/chats',
     'GET /v1/chats/:chatId/messages',
     'POST /v1/messages/send',
+    // Laporan performa untuk alat MCP; handlernya hanya melayani supervisor.
+    'GET /v1/reports/summary',
+    'GET /v1/reports/agents',
     // Agnive Hub (9c): the public listing feed, and — for supervisors only, the
     // handlers check — the copies of Hub conversations and a reply draft.
     'GET /v1/hub/listings',
@@ -6192,8 +6196,14 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     const section = wantsChats ? await reportChatSection(row.companyId, week.from, week.to) : { chats: [], waiting: 0, followUpTotal: 0 };
     const weekStats = overview.find((o) => o.key === '7d').stats;
     const highlights = weekStats?.inboundMessages ? await summarizeInboundForReport(row.companyId, week.from, week.to) : [];
+    const agents = canCall('getAgentPerformance') && String(template || supervisorReport.DEFAULT_TEMPLATE).includes('{agents}')
+      ? await database.getAgentPerformance(row.companyId, week.from, week.to).catch((error) => {
+        app.log.warn({ err: error, companyId: row.companyId }, 'Kinerja agent tidak masuk laporan');
+        return [];
+      })
+      : [];
     const messages = supervisorReport.buildReportMessages({
-      companyName: row.companyName, frequency: row.frequency, tz: row.timezone, now, overview, waiting: section.waiting,
+      agents, companyName: row.companyName, frequency: row.frequency, tz: row.timezone, now, overview, waiting: section.waiting,
       highlights, sample, template, recipientName: row.displayName, chats: section.chats, followUpTotal: section.followUpTotal,
     });
     // Berurutan, bukan paralel: urutan pesan di ponsel harus sama dengan urutan baca.
@@ -6201,6 +6211,67 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     const chatId = normalizeChatId(row.whatsappNumber, config.defaultCountryCode);
     for (const text of messages) await sendLeadMessage(row.companyId, chatId, text);
   }
+
+  // ── Laporan performa (JSON): ringkasan chat dan kinerja per agent ───────────
+  //
+  // Dipakai layar Laporan dan alat MCP. Hanya supervisor: kinerja sesama agent
+  // bukan untuk dilihat semua orang. Lewat jalur layanan (MCP), peran yang
+  // berlaku tetap peran anggota yang tersambung.
+  function reportGuard(request, reply) {
+    if (!isSupervisor(request.agneeSession)) {
+      reply.code(403).send({ error: 'Hanya supervisor yang dapat melihat laporan.' });
+      return false;
+    }
+    if (!canCall('getAgentPerformance') || !canCall('getChatReportStats')) {
+      reply.code(503).send({ error: 'Database belum tersedia.' });
+      return false;
+    }
+    return true;
+  }
+
+  const REPORT_MAX_DAYS = 90;
+
+  app.get('/v1/reports/summary', async (request, reply) => {
+    if (!reportGuard(request, reply)) return reply;
+    const companyId = request.agneeSession.companyId;
+    const companyConfig = canCall('getCompanyConfig') ? await database.getCompanyConfig(companyId).catch(() => null) : null;
+    const tz = companyConfig?.timezone || 'Asia/Jakarta';
+    const now = new Date();
+    const windows = supervisorReport.reportWindows(now, tz);
+    const periods = await Promise.all(windows.map(async (w) => {
+      const [stats, previous] = await Promise.all([
+        database.getChatReportStats(companyId, w.from, w.to),
+        database.getChatReportStats(companyId, w.prevFrom, w.prevTo),
+      ]);
+      return { key: w.key, label: w.label, versus: w.versus, from: w.from.toISOString(), to: w.to.toISOString(), stats, previous };
+    }));
+    const week = windows.find((w) => w.key === '7d');
+    const { waiting, followUpTotal } = await database.getChatReportChats(companyId, week.from, week.to, 1)
+      .catch(() => ({ waiting: null, followUpTotal: null }));
+    return { generatedAt: now.toISOString(), timezone: tz, periods, waitingNow: waiting, followUpTotal };
+  });
+
+  app.get('/v1/reports/agents', {
+    schema: { querystring: { type: 'object', additionalProperties: false, properties: {
+      days: { type: 'integer', minimum: 1, maximum: REPORT_MAX_DAYS, default: 7 },
+    } } },
+  }, async (request, reply) => {
+    if (!reportGuard(request, reply)) return reply;
+    const to = new Date();
+    const from = new Date(to.getTime() - request.query.days * 24 * 60 * 60 * 1000);
+    const agents = await database.getAgentPerformance(request.agneeSession.companyId, from, to);
+    return {
+      days: request.query.days,
+      from: from.toISOString(),
+      to: to.toISOString(),
+      agents,
+      notes: [
+        'Hanya balasan yang dikirim lewat Agnee; balasan dari aplikasi WhatsApp di ponsel tidak tercatat per agent.',
+        'Waktu respons = dari pesan customer pertama yang menunggu sampai balasan human pertama, dalam jam dinding (bukan jam kerja). Balasan tanpa customer yang menunggu tidak diukur.',
+        'Kepuasan customer dan hasil closing per agent tidak dicatat, jadi tidak ada di laporan ini.',
+      ],
+    };
+  });
 
   app.get('/v1/reports/supervisors', async (request, reply) => {
     if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengatur laporan.' });
@@ -6304,6 +6375,10 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
       highlights: ['Harga dan paket', 'Cara pembayaran', 'Jadwal pengiriman'],
       template: request.body.template, recipientName: request.agneeSession.displayName,
       chats: previewChats(),
+      agents: [
+        { name: 'Dewi (contoh)', humanReplies: 42, chatsReplied: 17, responseSamples: 15, medianResponseSeconds: 190, takeovers: 3 },
+        { name: 'Raka (contoh)', humanReplies: 19, chatsReplied: 8, responseSamples: 0, medianResponseSeconds: null, takeovers: 1 },
+      ],
     });
     return { text };
   });
@@ -6999,6 +7074,8 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     ['relation', 'Hubungan'],
     ['activity', 'Keaktifan'],
     ['waLabels', 'Label WhatsApp'],
+    ['email', 'Email'],
+    ['importNote', 'Catatan impor'],
     ['mayarProducts', 'Produk Mayar'],
     ['servedByNumber', 'Dilayani nomor'],
     ['firstSeenAt', 'Masuk pertama'],
@@ -7288,6 +7365,125 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     })();
 
     return reply.code(202).send({ run: importState.get(companyId) });
+  });
+
+  // ── Impor Lead List dari Excel/CSV ──────────────────────────────────────────
+  //
+  // Dua langkah tanpa keadaan di server: pratinjau (membaca berkas, menebak
+  // pemetaan kolom, menghitung baris siap/tidak valid/duplikat) lalu simpan
+  // (berkas dikirim ulang bersama pemetaan yang dikonfirmasi). Parser dan
+  // penilaian baris ada di src/lead-import.js; kontak yang masuk memakai tabel
+  // imported_contacts sehingga langsung tampil di Lead List dan Broadcast.
+  const LEAD_IMPORT_SAMPLE_ROWS = 5;
+  const LEAD_IMPORT_PROBLEM_ROWS = 50;
+
+  function leadImportGuard(request, reply) {
+    if (!isSupervisor(request.agneeSession)) {
+      reply.code(403).send({ error: 'Hanya supervisor yang dapat mengimpor Lead List.' });
+      return false;
+    }
+    if (!canCall('importLeadsFromFile')) {
+      reply.code(503).send({ error: 'Database tidak tersedia.' });
+      return false;
+    }
+    return true;
+  }
+
+  /** Berkas + pemetaan dari form multipart. Kolom `mapping` harus dikirim SEBELUM berkas. */
+  async function readLeadImportUpload(request, reply) {
+    const upload = await request.file().catch(() => null);
+    if (!upload) { reply.code(400).send({ error: 'Tidak ada berkas yang diunggah.' }); return null; }
+    const buffer = await upload.toBuffer().catch(() => null);
+    if (!buffer || upload.file.truncated) { reply.code(413).send({ error: 'Berkas maksimal 5 MB.' }); return null; }
+    let mapping = null;
+    const rawMapping = upload.fields?.mapping?.value;
+    if (rawMapping) {
+      try { mapping = JSON.parse(rawMapping); } catch { reply.code(400).send({ error: 'Pemetaan kolom tidak valid.' }); return null; }
+    }
+    try {
+      const table = await leadImport.parseTable(buffer, upload.filename);
+      return { table, mapping, filename: upload.filename || 'impor' };
+    } catch (error) {
+      if (error instanceof leadImport.ImportError) {
+        reply.code(error.code === 'too_large' ? 413 : error.code === 'unsupported' ? 415 : 422).send({ error: error.message });
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  async function assessLeadImport(companyId, { table, mapping }) {
+    const effective = mapping
+      ? leadImport.validateMapping(mapping, table.headers.length)
+      : leadImport.suggestMapping(table.headers, table.rows);
+    if (effective.phone === undefined) return { mapping: effective, evaluation: null };
+    const existing = new Set(await database.listLeadPhones(companyId));
+    return { mapping: effective, evaluation: leadImport.evaluateRows(table.rows, effective, existing) };
+  }
+
+  app.post('/v1/leads/import/preview', async (request, reply) => {
+    if (!leadImportGuard(request, reply)) return reply;
+    const upload = await readLeadImportUpload(request, reply);
+    if (!upload) return reply;
+    let assessed;
+    try {
+      assessed = await assessLeadImport(request.agneeSession.companyId, upload);
+    } catch (error) {
+      if (error instanceof leadImport.ImportError) return reply.code(422).send({ error: error.message });
+      throw error;
+    }
+    const { table } = upload;
+    return {
+      format: table.format,
+      headers: table.headers,
+      sampleRows: table.rows.slice(0, LEAD_IMPORT_SAMPLE_ROWS),
+      totalRows: table.rows.length,
+      formulaCells: table.formulaCells,
+      mapping: assessed.mapping,
+      summary: assessed.evaluation?.summary || null,
+      problems: assessed.evaluation ? assessed.evaluation.problems.slice(0, LEAD_IMPORT_PROBLEM_ROWS) : [],
+      readyPreview: assessed.evaluation ? assessed.evaluation.leads.slice(0, LEAD_IMPORT_SAMPLE_ROWS).map(({ phone, name, email }) => ({ phone, name, email })) : [],
+      limits: { maxFileMb: leadImport.LIMITS.fileBytes / 1024 / 1024, maxRows: leadImport.LIMITS.rows },
+    };
+  });
+
+  app.post('/v1/leads/import', async (request, reply) => {
+    if (!leadImportGuard(request, reply)) return reply;
+    const upload = await readLeadImportUpload(request, reply);
+    if (!upload) return reply;
+    if (!upload.mapping) return reply.code(400).send({ error: 'Pemetaan kolom wajib dikirim.' });
+    const companyId = request.agneeSession.companyId;
+    let assessed;
+    try {
+      assessed = await assessLeadImport(companyId, upload);
+    } catch (error) {
+      if (error instanceof leadImport.ImportError) return reply.code(422).send({ error: error.message });
+      throw error;
+    }
+    const { summary, leads } = assessed.evaluation;
+    if (!leads.length) {
+      return reply.code(422).send({ error: 'Tidak ada baris yang bisa diimpor.', summary });
+    }
+    const skipped = { invalidPhone: summary.invalidPhone, duplicateInFile: summary.duplicateInFile, alreadyExists: summary.alreadyExists };
+    const saved = await database.importLeadsFromFile(companyId, {
+      filename: upload.filename,
+      format: upload.table.format,
+      createdBy: request.agneeSession.userId || null,
+      totalRows: summary.total,
+      skipped,
+      leads: leads.map((lead) => ({ ...lead, chatId: leadImport.chatIdFor(lead.phone) })),
+    });
+    // Daftar customer masuk dari berkas luar dan menjadi calon penerima broadcast.
+    await catatAudit(request, 'contacts.file_imported', {
+      entityType: 'contacts', entityId: saved.importId,
+      metadata: { format: upload.table.format, rows: summary.total, imported: saved.imported, skipped },
+    });
+    return reply.code(201).send({
+      imported: saved.imported,
+      skipped: { ...skipped, raced: saved.raced },
+      totalRows: summary.total,
+      importId: saved.importId,
+    });
   });
 
   app.get('/v1/export/contacts', async (request) => {
@@ -9356,7 +9552,7 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
         productId: row.productId || null,
         productName: row.productName || null,
         relation: row.relation === 'unproven' ? 'unproven' : 'replied',
-        origin: ['chat', 'outbound', 'import', 'mayar'].includes(row.origin) ? row.origin : 'chat',
+        origin: ['chat', 'outbound', 'import', 'file', 'mayar'].includes(row.origin) ? row.origin : 'chat',
         waLabels: Array.isArray(row.waLabels) ? row.waLabels : [],
         // null = tidak diketahui (nomor terputus / Cloud API), bukan "sudah dibaca".
         unreadCount: unread ? (unread.get(row.chatId) || 0) : null,

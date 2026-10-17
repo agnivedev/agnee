@@ -15,6 +15,7 @@
  */
 
 const chatDetails = require('./report-chats');
+const agentPerformance = require('./agent-performance');
 
 const FREQUENCIES = ['off', 'daily', 'weekly', 'monthly'];
 const SEND_HOUR = 8;
@@ -156,6 +157,8 @@ const DEFAULT_TEMPLATE = [
   '',
   '{topics}',
   '',
+  '{agents}',
+  '',
   '{chat_details}',
 ].join('\n');
 
@@ -177,6 +180,7 @@ const PLACEHOLDERS = [
   { key: 'hot_leads', label: 'Lead panas/closing (7 hari terakhir)', example: '4' },
   { key: 'stats', label: 'Angka 7 hari terakhir di atas sebagai daftar', example: null },
   { key: 'topics', label: 'Topik terbanyak 7 hari terakhir (judul + daftar, kosong kalau tidak ada)', example: null },
+  { key: 'agents', label: 'Kinerja tiap agent 7 hari terakhir: balasan, chat, waktu respons tengah, chat diambil alih (kosong kalau tidak ada agent yang membalas lewat Agnee)', example: null },
   { key: 'waiting', label: 'Chat yang menunggu balasan kita sekarang', example: '5' },
   { key: 'chat_details', label: 'Chat yang perlu di-follow up: isi, status, dan tindakan oleh siapa (kosong kalau tidak ada; bila panjang dikirim sebagai pesan terpisah)', example: null },
 ];
@@ -232,7 +236,7 @@ function formatOverview(overview, waiting = 0) {
 }
 
 /** Nilai tiap penanda untuk satu laporan. `stats` = angka 7 hari terakhir. */
-function placeholderValues({ recipientName, companyName, frequency, tz, now, stats, overviewText, highlights, chatText }) {
+function placeholderValues({ recipientName, companyName, frequency, tz, now, stats, overviewText, highlights, chatText, agentText }) {
   const statLines = quietStats(stats) ? [EMPTY_PERIOD] : [
     `• Pesan masuk dari customer: ${num(stats.inboundMessages)}`,
     `• Customer yang chat: ${num(stats.activeChats)} (${num(stats.newChats)} baru)`,
@@ -261,6 +265,7 @@ function placeholderValues({ recipientName, companyName, frequency, tz, now, sta
     stats: statLines.join('\n'),
     topics: points.length ? [TOPICS_HEADING, ...points.map((p) => `– ${p}`)].join('\n') : '',
     waiting: num(stats.waiting),
+    agents: agentText,
     chat_details: chatText,
   };
 }
@@ -280,14 +285,15 @@ function placeholderValues({ recipientName, companyName, frequency, tz, now, sta
  */
 function buildReportMessages({
   companyName, frequency, tz, now = new Date(), overview, waiting = 0, highlights = [], template = null, recipientName = '',
-  sample = false, chats = [], followUpTotal = chats.length,
+  sample = false, chats = [], followUpTotal = chats.length, agents = [],
 }) {
   const weekly = overview.find((entry) => entry.key === '7d') || overview[overview.length - 1];
   const stats = { ...weekly.stats, waiting };
   const overviewText = formatOverview(overview, waiting);
+  const agentText = agentPerformance.formatAgentSection(agents);
   const source = String(template || DEFAULT_TEMPLATE);
   const render = (chatText) => {
-    const values = placeholderValues({ recipientName, companyName, frequency, tz, now, stats, overviewText, highlights, chatText });
+    const values = placeholderValues({ recipientName, companyName, frequency, tz, now, stats, overviewText, highlights, chatText, agentText });
     // Satu lintasan, jadi isi nilai (nama company yang memuat "{name}") tidak ikut diganti lagi.
     let text = source.replace(/\{([a-z_]+)\}/g, (match, key) => (Object.hasOwn(values, key) ? values[key] : match));
     // Penanda kosong (mis. {topics}) meninggalkan baris kosong berlipat.

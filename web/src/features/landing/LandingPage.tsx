@@ -213,7 +213,7 @@ function Hero() {
       </h1>
       <ul className="m-0 mt-6 grid max-w-3xl list-none gap-2.5 p-0 text-[16px] sm:grid-cols-3">
         {[
-          [Bot, 'Menjawab dari playbook-mu'],
+          [Bot, 'Menjawab dari panduan bisnismu'],
           [ArrowLeftRight, 'Minggir saat CS mulai ngetik'],
           [Megaphone, 'Menyusul lead yang diam'],
         ].map(([Ikon, teks]) => {
@@ -290,7 +290,7 @@ function Hero() {
  */
 const BUKTI: [LucideIcon, string, string][] = [
   [Clock, '30 menit', 'CS diam, chat balik ke AI'],
-  [BookOpen, '8 dokumen', 'Playbook, diisi lewat ngobrol'],
+  [BookOpen, '8 bagian panduan', 'Satu sumber jawaban, diisi lewat ngobrol'],
   [Timer, '5 sampai 60 detik', 'Jeda balasan seperti manusia'],
   [ShieldCheck, '3 pengaman', 'Follow-up: jam, jumlah, jarak'],
 ];
@@ -431,7 +431,7 @@ function BandKemampuan() {
             <Gelembung dari="customer">Jam berapa toko buka?</Gelembung>
             <Gelembung dari="kamu">Jam 9 pagi sampai 9 malam, tiap hari.</Gelembung>
           </div>
-          <span className="mt-2 inline-block text-[11px] opacity-60">Contoh: Agnee bertanya, kamu menjawab, jadi playbook</span>
+          <span className="mt-2 inline-block text-[11px] opacity-60">Contoh: Agnee bertanya, kamu menjawab, jadi panduan bisnis</span>
         </div>
 
         <div className={TILE_HIJAU}>
@@ -531,7 +531,7 @@ const TAMPILAN: Tampilan[] = [
   {
     judul: 'AI yang bertanya, bukan menebak',
     poin: [
-      'Soal di luar playbook diteruskan ke departemen terkait',
+      'Soal di luar panduan bisnis diteruskan ke departemen terkait',
       'Supplier dan vendor ditanya lewat WhatsApp',
       'Jawaban pihak luar ditinjau staf sebelum sampai ke customer',
       'Sebut rekan atau departemen di komentar, lalu jadikan tugas dengan SLA',
@@ -543,10 +543,10 @@ const TAMPILAN: Tampilan[] = [
     poin: [
       'Agnee bertanya, kamu menjawab seperti ke karyawan baru',
       'Atau unggah dokumen perusahaan',
-      'Delapan dokumen playbook tersusun sendiri',
+      'Delapan bagian panduan bisnis tersusun sendiri',
       'Uji AI dulu sebelum dipakai ke customer',
     ],
-    gambar: [{ src: 'train', lebar: 1400, tinggi: 875, alt: 'Halaman Latih AI dengan playbook' }],
+    gambar: [{ src: 'train', lebar: 1400, tinggi: 875, alt: 'Halaman Latih AI dengan panduan bisnis' }],
   },
   {
     judul: 'Datamu bukan sandera',
@@ -624,7 +624,7 @@ function BandTampilan() {
  * Isi kartu serah-terima = migrasi 066 (alasan terstruktur, ringkasan, janji, data, saran).
  */
 const ALUR_SERAH: [LucideIcon, string, string][] = [
-  [Bot, 'AI menjawab', 'Dari playbook dan riwayat chat'],
+  [Bot, 'AI menjawab', 'Dari panduan bisnis dan riwayat chat'],
   [Users, 'CS mulai mengetik', 'Chat jadi milik CS, AI minggir'],
   [Hourglass, 'CS diam 30 menit', 'Chat kembali ke AI, customer tidak menunggu'],
 ];
@@ -881,7 +881,7 @@ function UmpanWebinar() {
 const STEPS: [string, string][] = [
   ['Hubungkan WhatsApp', 'Scan QR dari dashboard Agnee. Ga perlu coding, ga perlu API berbayar, ga perlu nunggu approval.'],
   ['Undang tim CS', 'Tambahkan CS lewat email dan atur perannya. Semuanya langsung dapat inbox yang sama.'],
-  ['Isi playbook lewat ngobrol', 'Agnee yang nanya, kamu yang jawab. Delapan dokumen playbook tersusun dari jawabanmu.'],
+  ['Isi panduan bisnis lewat ngobrol', 'Agnee yang nanya, kamu yang jawab. Delapan bagian panduan tersusun dari jawabanmu.'],
 ];
 
 function HowItWorks() {
@@ -950,7 +950,7 @@ const PLANS = [
     features: [
       'Semua di Starter',
       'Tim CS dengan peran masing-masing',
-      'Delapan dokumen playbook, semuanya',
+      'Delapan bagian panduan bisnis, semuanya',
       'Follow-up berjadwal dengan pengaman',
       'Broadcast pintar',
       'Laporan otomatis ke supervisor',
@@ -970,7 +970,7 @@ const PLANS = [
       'Rotasi banyak nomor',
       'Tanya supplier dan vendor lewat WhatsApp',
       'MCP dan API',
-      'Template playbook siap pasang',
+      'Template panduan siap pasang',
       'Mode agent antar-departemen',
     ],
     href: WA_PRO,
@@ -1117,7 +1117,7 @@ const FAQ_ITEMS: [string, string][] = [
   ],
   [
     'Apakah AI-nya bisa disesuaikan dengan bisnis saya?',
-    'Bisa. Ada delapan dokumen playbook yang mengatur cara AI menjawab: persona, batasan, tanya-jawab, penggalian kebutuhan, penanganan keberatan, penutupan, follow-up, dan serah terima ke manusia. Kamu ga perlu nulisnya. Agnee yang nanya, kamu jawab, lalu dokumennya tersusun dari jawabanmu.',
+    'Bisa. Panduan bisnis (di app disebut Playbook) adalah satu sumber jawaban untuk seluruh tim, berisi delapan bagian yang mengatur cara AI menjawab: persona, batasan, tanya-jawab, penggalian kebutuhan, penanganan keberatan, penutupan, follow-up, dan serah terima ke manusia. Kamu ga perlu nulisnya. Agnee yang nanya, kamu jawab, lalu dokumennya tersusun dari jawabanmu.',
   ],
   [
     'Apakah data percakapan pelanggan saya aman?',
@@ -1145,7 +1145,7 @@ const FAQ_ITEMS: [string, string][] = [
   ],
   [
     'Berapa lama setup-nya?',
-    'Hubungin WhatsApp cukup sekali scan QR. Undang tim cuma beberapa menit. Yang paling makan waktu itu ngisi playbook, karena isinya cara bisnismu ngomong ke pelanggan. Tapi kamu ngisinya sambil ngobrol, dan boleh dicicil.',
+    'Hubungin WhatsApp cukup sekali scan QR. Undang tim cuma beberapa menit. Yang paling makan waktu itu ngisi panduan bisnis, karena isinya cara bisnismu ngomong ke pelanggan. Tapi kamu ngisinya sambil ngobrol, dan boleh dicicil.',
   ],
 ];
 

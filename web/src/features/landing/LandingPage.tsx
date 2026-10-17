@@ -316,44 +316,189 @@ function ProofStrip() {
 }
 
 /**
- * Daftar kemampuan. Tiap baris menunjuk fitur yang ada di kode (lihat komentar
- * di riwayat git). Jangan menambah klaim hasil, persentase cakupan, merek CRM lain,
- * atau fitur chat internal (hanya di playbook Beweix dan pitch deck).
+ * Bento kemampuan. Tiap tile menunjuk fitur yang ada di kode. Cuplikan mini (chat,
+ * kolom kanban, tingkatan model) adalah ILUSTRASI yang dilabeli "contoh", bukan data.
+ * Nama tingkatan model memakai label publik Low/Medium/High/Top-end saja
+ * (src/model-tiers.js), tanpa vendor dan tanpa harga. Jangan menambah klaim hasil,
+ * persentase cakupan, merek CRM lain, atau fitur chat internal.
  */
-const KEMAMPUAN: [LucideIcon, string, string][] = [
-  [Target, 'Niat beli terbaca', 'Skor minat dengan alasan, dari kalimat customer'],
-  [Blocks, 'Banyak peran', 'Mode sales, CS, dan operasi antar-departemen'],
-  [MessageCircleQuestion, 'Bertanya, bukan menebak', 'Ke departemen, supplier, dan vendor'],
-  [ArrowLeftRight, 'Serah-terima mulus', 'Alasan, ringkasan, dan janji AI ikut pindah'],
-  [Columns3, 'Kanban CRM', 'AI mengusulkan tahap, kamu menyeret'],
-  [Plug, 'Nyambung ke mana saja', 'Mayar, API, dan MCP'],
-  [GraduationCap, 'Dilatih lewat chat', 'Atau unggah dokumen perusahaan'],
-  [Coins, 'Hemat', 'Model berlapis, credit tidak habis percuma'],
-  [FileText, 'Laporan otomatis', 'Harian, mingguan, bulanan ke WhatsApp supervisor'],
-  [Table2, 'Lead List', 'Ekspor dan impor XLSX atau CSV'],
-  [Megaphone, 'Broadcast pintar', 'Satu maksud, bunyi beda tiap penerima'],
-  [Bot, 'MCP', 'Tanya laporan dan performa agent dari asisten AI'],
-];
+const TILE = 'rounded-panel p-5 transition hover:-translate-y-0.5 sm:p-6';
+const TILE_TERANG = `${TILE} border border-[#c6dcc0] bg-white dark:border-[#24403a] dark:bg-[#14241f]`;
+const TILE_HIJAU = `${TILE} bg-[#dff0d6] dark:bg-[#1b3028]`;
+const TILE_AKSEN = `${TILE} bg-green-dark text-white dark:bg-[#7fff4f] dark:text-[#0c1912]`;
+const IKON = 'grid size-10 place-items-center rounded-app';
+const JUDUL = 'mt-3 mb-1 text-[18px] leading-snug font-semibold tracking-[-.02em]';
+const ISI = 'm-0 text-[14px] leading-[1.55] opacity-75';
+
+function Gelembung({ dari, children }: { dari: 'customer' | 'ai' | 'kamu'; children: ReactNode }) {
+  const gaya =
+    dari === 'customer'
+      ? 'bg-white text-ink dark:bg-[#0c1912] dark:text-[#f4f9f0]'
+      : dari === 'ai'
+        ? 'ml-auto bg-[#7fff4f] text-[#0c1912]'
+        : 'bg-[#dff0d6] text-[#0c1912]';
+  return <p className={`m-0 w-fit max-w-[85%] rounded-2xl px-3.5 py-2 text-[13px] leading-[1.4] ${gaya}`}>{children}</p>;
+}
 
 function BandKemampuan() {
   return (
     <Section id="semua" className="py-16 sm:py-20">
       <Eyebrow>Kenalan sama Agnee</Eyebrow>
-      <SectionTitle>Chatbot lain berhenti di balasan pertama. Agnee baru mulai.</SectionTitle>
-      <ul className="m-0 mt-8 grid list-none gap-3 p-0 sm:grid-cols-2 lg:grid-cols-4">
-        {KEMAMPUAN.map(([Icon, judul, isi]) => (
-          <li
-            key={judul}
-            className="rounded-panel border border-[#c6dcc0] bg-white p-5 dark:border-[#24403a] dark:bg-[#14241f]"
-          >
-            <span className="grid size-10 place-items-center rounded-app bg-[#dff0d6] text-green-dark dark:bg-[#1b3028] dark:text-[#7fff4f]">
-              <Icon aria-hidden size={20} />
-            </span>
-            <h3 className="mt-3 mb-1 text-[16px] leading-snug font-semibold">{judul}</h3>
-            <p className="m-0 text-[13px] leading-[1.55] text-[#4e6e5e] dark:text-[#7aaa8a]">{isi}</p>
-          </li>
-        ))}
-      </ul>
+      <SectionTitle>
+        <span className="text-balance">Chatbot lain berhenti di balasan pertama. Agnee baru mulai.</span>
+      </SectionTitle>
+
+      <div className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-4 lg:[grid-auto-flow:dense]">
+        <div className={`${TILE_AKSEN} sm:col-span-2 lg:row-span-2`}>
+          <span className={`${IKON} bg-white/20 dark:bg-[#0c1912]/15`}>
+            <Target aria-hidden size={20} />
+          </span>
+          <h3 className={JUDUL}>Tahu siapa yang siap beli, dan kenapa</h3>
+          <p className={ISI}>Skor minat di tiap chat, dengan alasan dari kalimat customer sendiri. Kamu setujui atau tolak sarannya.</p>
+          <img
+            src="/assets/landing/intent.webp"
+            width={500}
+            height={365}
+            alt="Panel lead: skor minat 95 dengan alasan"
+            loading="lazy"
+            className="mt-4 block h-auto w-full max-w-[340px] rounded-app"
+          />
+        </div>
+
+        <div className={`${TILE_HIJAU} sm:col-span-2`}>
+          <span className={`${IKON} bg-white text-green-dark dark:bg-[#0c1912] dark:text-[#7fff4f]`}>
+            <MessageCircleQuestion aria-hidden size={20} />
+          </span>
+          <h3 className={JUDUL}>AI yang bertanya, bukan menebak</h3>
+          <p className={ISI}>Ke departemen, supplier, dan vendor lewat WhatsApp.</p>
+          <div className="mt-4 grid gap-1.5">
+            <Gelembung dari="customer">Stok biji Gayo 12 kg ada, Kak?</Gelembung>
+            <Gelembung dari="ai">Saya cek ke gudang dulu ya, Kak.</Gelembung>
+          </div>
+          <span className="mt-2 inline-block text-[11px] opacity-60">Contoh percakapan</span>
+        </div>
+
+        <div className={`${TILE_TERANG} lg:row-span-2`}>
+          <span className={`${IKON} bg-[#dff0d6] text-green-dark dark:bg-[#1b3028] dark:text-[#7fff4f]`}>
+            <Columns3 aria-hidden size={20} />
+          </span>
+          <h3 className={JUDUL}>Kanban CRM</h3>
+          <p className={ISI}>AI mengusulkan tahap, kamu menyeret kartunya.</p>
+          <ul className="m-0 mt-4 grid list-none gap-2 p-0 text-[13px] font-medium">
+            {[
+              ['Cold', 'bg-[#9db99a]'],
+              ['Warm', 'bg-[#e8c547]'],
+              ['Hot', 'bg-[#f08a3c]'],
+              ['Closing', 'bg-green-dark dark:bg-[#7fff4f]'],
+            ].map(([nama, warna]) => (
+              <li key={nama} className="flex items-center gap-2 rounded-app border border-[#c6dcc0] px-3 py-2 dark:border-[#24403a]">
+                <span aria-hidden className={`size-2.5 rounded-full ${warna}`} />
+                {nama}
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        <div className={TILE_TERANG}>
+          <span className={`${IKON} bg-[#dff0d6] text-green-dark dark:bg-[#1b3028] dark:text-[#7fff4f]`}>
+            <ArrowLeftRight aria-hidden size={20} />
+          </span>
+          <h3 className={JUDUL}>Serah-terima mulus</h3>
+          <p className={ISI}>Alasan, ringkasan, dan janji AI ikut pindah ke CS.</p>
+        </div>
+
+        <div className={TILE_TERANG}>
+          <span className={`${IKON} bg-[#dff0d6] text-green-dark dark:bg-[#1b3028] dark:text-[#7fff4f]`}>
+            <Blocks aria-hidden size={20} />
+          </span>
+          <h3 className={JUDUL}>Banyak peran</h3>
+          <div className="mt-2 flex flex-wrap gap-1.5 text-[12px] font-semibold">
+            {['Sales', 'CS', 'Operasi antar-departemen'].map((r) => (
+              <span key={r} className="rounded-full bg-[#dff0d6] px-2.5 py-1 text-[#205a38] dark:bg-[#1b3028] dark:text-[#7fff4f]">
+                {r}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        <div className={`${TILE_TERANG} sm:col-span-2`}>
+          <span className={`${IKON} bg-[#dff0d6] text-green-dark dark:bg-[#1b3028] dark:text-[#7fff4f]`}>
+            <GraduationCap aria-hidden size={20} />
+          </span>
+          <h3 className={JUDUL}>Dilatih kayak karyawan baru</h3>
+          <p className={ISI}>Ngobrol sama Agnee, atau unggah dokumen perusahaan. Tanpa nulis prompt.</p>
+          <div className="mt-4 grid gap-1.5">
+            <Gelembung dari="customer">Jam berapa toko buka?</Gelembung>
+            <Gelembung dari="kamu">Jam 9 pagi sampai 9 malam, tiap hari.</Gelembung>
+          </div>
+          <span className="mt-2 inline-block text-[11px] opacity-60">Contoh: Agnee bertanya, kamu menjawab, jadi playbook</span>
+        </div>
+
+        <div className={TILE_HIJAU}>
+          <span className={`${IKON} bg-white text-green-dark dark:bg-[#0c1912] dark:text-[#7fff4f]`}>
+            <Coins aria-hidden size={20} />
+          </span>
+          <h3 className={JUDUL}>Hemat</h3>
+          <p className={ISI}>Model berlapis, credit ga habis percuma.</p>
+          <div aria-hidden className="mt-3 flex items-end gap-1.5">
+            {['Low', 'Medium', 'High', 'Top'].map((t, i) => (
+              <span
+                key={t}
+                style={{ height: 14 + i * 9 }}
+                className="flex-1 rounded-t-[4px] bg-green-dark/70 text-center text-[9px] leading-[1.9] font-semibold text-white dark:bg-[#7fff4f]/80 dark:text-[#0c1912]"
+              >
+                {t}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        <div className={TILE_TERANG}>
+          <span className={`${IKON} bg-[#dff0d6] text-green-dark dark:bg-[#1b3028] dark:text-[#7fff4f]`}>
+            <FileText aria-hidden size={20} />
+          </span>
+          <h3 className={JUDUL}>Laporan otomatis</h3>
+          <div className="mt-2 flex flex-wrap gap-1.5 text-[12px] font-semibold">
+            {['Harian', 'Mingguan', 'Bulanan'].map((r) => (
+              <span key={r} className="rounded-full bg-[#dff0d6] px-2.5 py-1 text-[#205a38] dark:bg-[#1b3028] dark:text-[#7fff4f]">
+                {r}
+              </span>
+            ))}
+          </div>
+          <p className={`${ISI} mt-2`}>Langsung ke WhatsApp supervisor.</p>
+        </div>
+
+        <div className={`${TILE_TERANG} sm:col-span-2`}>
+          <span className={`${IKON} bg-[#dff0d6] text-green-dark dark:bg-[#1b3028] dark:text-[#7fff4f]`}>
+            <Megaphone aria-hidden size={20} />
+          </span>
+          <h3 className={JUDUL}>Broadcast pintar</h3>
+          <p className={ISI}>Satu maksud, bunyi beda tiap penerima.</p>
+        </div>
+
+        <div className={`${TILE_TERANG} sm:col-span-2`}>
+          <span className={`${IKON} bg-[#dff0d6] text-green-dark dark:bg-[#1b3028] dark:text-[#7fff4f]`}>
+            <Table2 aria-hidden size={20} />
+          </span>
+          <h3 className={JUDUL}>Lead List</h3>
+          <p className={ISI}>Ekspor dan impor XLSX atau CSV.</p>
+        </div>
+
+        <div className={`${TILE_TERANG} sm:col-span-2`}>
+          <span className={`${IKON} bg-[#dff0d6] text-green-dark dark:bg-[#1b3028] dark:text-[#7fff4f]`}>
+            <Plug aria-hidden size={20} />
+          </span>
+          <h3 className={JUDUL}>Nyambung ke mana saja</h3>
+          <div className="mt-2 flex flex-wrap gap-1.5 text-[12px] font-semibold">
+            {['Mayar', 'API', 'MCP'].map((r) => (
+              <span key={r} className="rounded-full bg-[#dff0d6] px-2.5 py-1 text-[#205a38] dark:bg-[#1b3028] dark:text-[#7fff4f]">
+                {r}
+              </span>
+            ))}
+          </div>
+          <p className={`${ISI} mt-2`}>Lewat MCP, tanya laporan dan performa agent dari asisten AI favoritmu.</p>
+        </div>
+      </div>
     </Section>
   );
 }

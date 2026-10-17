@@ -70,7 +70,7 @@ function BroadcastList({ onOpen, onNew, heading }: { onOpen: (id: string) => voi
     <>
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <p className="eyebrow">{t('broadcast.eyebrow')}</p>
+          <p className="eyebrow max-md:hidden">{t('broadcast.eyebrow')}</p>
           <h1 className="m-0 text-[28px] tracking-[-.03em]">{heading}</h1>
           <p className="mt-1.5 max-w-2xl text-sm text-muted">
             {pace

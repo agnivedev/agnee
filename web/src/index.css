@@ -70,6 +70,13 @@
     color-scheme: light;
   }
 
+  /* Penanda fokus untuk keyboard di seluruh app; tanpa ini outline bawaan
+     hilang di latar gelap (bar bawah, rail). */
+  :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+    outline: 2px solid var(--color-green);
+    outline-offset: 2px;
+  }
+
   button:disabled {
     cursor: not-allowed;
     opacity: 0.42;
@@ -83,9 +90,12 @@
   }
 }
 
+/* Penanda bagian, bukan hiasan: sans semibold dengan jarak huruf tipis.
+   Dulu mono kapital berjarak lebar (0.14em), bentuk "HOW IT WORKS" yang
+   terbaca sebagai tulisan mesin dan diulang di hampir tiap kartu. */
 @utility eyebrow {
-  margin: 0 0 8px;
-  font: 500 11px/1.2 var(--font-mono);
-  letter-spacing: 0.14em;
+  margin: 0 0 6px;
+  font: 600 11px/1.3 var(--font-sans);
+  letter-spacing: 0.06em;
   color: var(--color-green-dark);
 }

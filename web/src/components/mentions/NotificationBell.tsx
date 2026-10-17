@@ -80,7 +80,7 @@ export function NotificationBell({ className }: { className?: string }) {
         onClick={toggleOpen}
         aria-label={t('notif.title')}
         aria-expanded={open}
-        className="relative flex cursor-pointer items-center justify-center rounded-full border-0 bg-transparent p-2"
+        className="relative flex cursor-pointer items-center justify-center rounded-full border-0 bg-transparent p-2 max-md:size-11"
       >
         <Bell className="size-[18px]" />
         {unread ? (

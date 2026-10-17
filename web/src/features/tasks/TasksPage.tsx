@@ -101,13 +101,13 @@ export function TasksPage() {
       <main className="min-w-0 flex-1 px-6 py-8 sm:px-10">
         <header className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <p className="eyebrow">{t('tasks.eyebrow')}</p>
+            <p className="eyebrow max-md:hidden">{t('tasks.eyebrow')}</p>
             <h1 className="m-0 text-[28px] tracking-[-.03em]">{t('tasks.heading')}</h1>
             <p className="mt-1.5 max-w-2xl text-sm text-muted">
               {isSupervisor ? t('tasks.subtitleSupervisor') : t('tasks.subtitleAgent')}
             </p>
           </div>
-          <a href="/" className="text-sm font-semibold text-green-dark no-underline hover:underline">
+          <a href="/" className="max-md:hidden text-sm font-semibold text-green-dark no-underline hover:underline">
             ← {t('conversation.back')}
           </a>
         </header>

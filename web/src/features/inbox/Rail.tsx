@@ -20,7 +20,7 @@ export function Rail({ active, onAction }: { active: RailAction; onAction: (acti
       <div className="hidden w-full md:block">
         <CompanySwitcher compact />
       </div>
-      <nav aria-label={t('nav.main')} className="flex min-w-0 gap-0.5 md:grid md:gap-1">
+      <nav aria-label={t('nav.main')} className="flex min-w-0 flex-1 gap-0.5 md:flex-none md:grid md:gap-1">
         {NAV_ENTRIES.filter((entry) => entry.id !== 'logout' && canSeeEntry(entry, session)).map((entry) => (
           <RailButton
             key={entry.id}
@@ -37,6 +37,7 @@ export function Rail({ active, onAction }: { active: RailAction; onAction: (acti
         icon={LogOut}
         label={t('nav.labelLogout')}
         ariaLabel={t('nav.logout')}
+        className="max-md:hidden"
         onClick={() => onAction('logout')}
       />
     </aside>
@@ -64,7 +65,7 @@ function RailButton({
       aria-label={ariaLabel}
       onClick={onClick}
       className={cn(
-        'flex min-h-[44px] w-9 shrink-0 cursor-pointer flex-col items-center justify-center gap-[5px] rounded-[14px] px-1 py-1.5 transition-colors duration-200 md:min-h-[52px] md:w-[72px] md:pt-2 md:pb-[7px]',
+        'flex min-h-[48px] min-w-11 flex-1 cursor-pointer flex-col items-center justify-center gap-[3px] rounded-[14px] px-1 py-1 transition-colors duration-200 md:min-h-[52px] md:w-[72px] md:flex-none md:gap-[5px] md:pt-2 md:pb-[7px]',
         active ? 'bg-white/9 text-lime' : 'text-white/55 hover:bg-white/9 hover:text-lime',
         className,
       )}

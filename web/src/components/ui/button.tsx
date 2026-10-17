@@ -15,10 +15,10 @@ const buttonVariants = cva(
         link: 'font-bold text-green-dark underline underline-offset-2 hover:text-ink',
       },
       size: {
-        sm: 'h-9 rounded-[10px] px-3 text-[13px]',
+        sm: 'h-9 rounded-[10px] px-3 text-[13px] max-md:h-11',
         md: 'h-11 rounded-app px-4 text-sm',
         lg: 'h-[52px] rounded-app px-5 text-[15px]',
-        icon: 'size-9 rounded-[10px]',
+        icon: 'size-9 rounded-[10px] max-md:size-11',
       },
     },
     defaultVariants: { variant: 'primary', size: 'md' },

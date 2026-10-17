@@ -240,11 +240,11 @@ export function LeadsPage() {
       <main className="min-w-0 flex-1 px-6 py-8 sm:px-10">
         <header className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <p className="eyebrow">{t('leads.eyebrow')}</p>
+            <p className="eyebrow max-md:hidden">{t('leads.eyebrow')}</p>
             <h1 className="m-0 text-[28px] tracking-[-.03em]">{t('leads.heading')}</h1>
             <p className="mt-1.5 max-w-2xl text-sm text-muted">{t('leads.subtitle')}</p>
           </div>
-          <a href="/" className="text-sm font-semibold text-green-dark no-underline hover:underline">
+          <a href="/" className="max-md:hidden text-sm font-semibold text-green-dark no-underline hover:underline">
             ← {t('conversation.back')}
           </a>
         </header>
@@ -257,8 +257,9 @@ export function LeadsPage() {
               onChange={(event) => setQuery(event.target.value)}
               placeholder={t('leads.searchPlaceholder')}
               aria-label={t('leads.searchPlaceholder')}
-              className="min-h-[38px] flex-[1_1_240px] rounded-[10px] bg-white px-3 py-1.5"
+              className="min-h-11 flex-[1_1_100%] rounded-[10px] bg-white px-3 py-1.5 md:min-h-[38px] md:flex-[1_1_240px]"
             />
+            <div className="grid w-full grid-cols-2 gap-2 md:contents">
             <Select value={stage} onChange={setStage} aria-label={t('leads.filterStage')}>
               <option value="">{t('leads.allStages')}</option>
               {stages.map((option) => (
@@ -290,12 +291,14 @@ export function LeadsPage() {
                 {waLabels.map((option) => <option key={option} value={option}>{option}</option>)}
               </Select>
             ) : null}
+            </div>
             <span className="font-mono text-xs font-semibold whitespace-nowrap text-muted">
               {visibleRows.length === rows.length
                 ? t('leads.count', { count: rows.length })
                 : t('leads.countFiltered', { shown: visibleRows.length, total: rows.length })}
             </span>
             <span className="flex-1" />
+            <div className="grid w-full grid-cols-2 gap-2 max-md:[&>button]:h-auto max-md:[&>button]:min-h-11 max-md:[&>button]:py-2 max-md:[&>button]:leading-tight max-md:[&>button]:whitespace-normal md:contents">
             {/* Downloads ride the same session cookie as every other request here.
                 Hanya supervisor: satu berkas berisi seluruh daftar customer
                 adalah hal yang berbeda dari melihat percakapan sendiri, dan
@@ -319,6 +322,7 @@ export function LeadsPage() {
             <Button size="sm" variant="outline" onClick={() => void load()}>
               {t('common.refresh')}
             </Button>
+            </div>
           </div>
 
           {status ? <p className="mt-2 mb-0 text-[13px] text-muted">{status}</p> : null}
@@ -531,7 +535,7 @@ function Select({
     <select
       value={value}
       onChange={(event) => onChange(event.target.value)}
-      className="min-h-[38px] rounded-[10px] border border-border bg-white px-2.5 py-1.5 font-mono text-xs font-semibold text-[#285248]"
+      className="min-h-11 min-w-0 rounded-[10px] border border-border bg-white px-2.5 py-1.5 text-[13px] font-semibold text-[#285248] md:min-h-[38px]"
       {...props}
     >
       {children}

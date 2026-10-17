@@ -391,7 +391,7 @@ export function KnowledgePage() {
     <div className="flex min-h-dvh flex-col bg-background md:flex-row">
       <AppSidebar />
       <main className="min-w-0 flex-1 px-4 py-7 sm:px-8">
-        <p className="eyebrow">{t('knowledge.eyebrow')}</p>
+        <p className="eyebrow max-md:hidden">{t('knowledge.eyebrow')}</p>
         <h1 className="mt-1 mb-1 text-[26px] tracking-[-.03em]">{t('knowledge.title')}</h1>
         <p className="mt-1.5 mb-5 max-w-2xl text-sm text-muted">{t('knowledge.intro')}</p>
 

@@ -98,7 +98,7 @@ export function AppSidebar() {
           <CompanySwitcher compact={collapsed} />
         </div>
 
-        <nav aria-label={t('nav.main')} className="flex min-w-0 flex-1 justify-between gap-0.5 md:grid md:flex-none md:gap-1">
+        <nav aria-label={t('nav.main')} className="flex min-w-0 flex-1 gap-0.5 md:grid md:flex-none md:gap-1">
           {visible.map((entry) =>
             entry.kind === 'logout' ? (
               <SidebarItem
@@ -160,7 +160,7 @@ export function AppSidebar() {
 
 function itemClass(active: boolean) {
   return cn(
-    'flex min-h-[44px] w-9 shrink-0 items-center justify-center rounded-[14px] text-[13px] whitespace-nowrap no-underline transition-colors md:min-h-0 md:w-auto md:justify-start md:gap-3 md:rounded-xl md:px-3 md:py-2.5 md:text-sm',
+    'flex min-h-[48px] min-w-11 flex-1 items-center justify-center rounded-[14px] px-1 text-[13px] whitespace-nowrap no-underline transition-colors md:min-h-0 md:w-auto md:flex-none md:flex-row md:justify-start md:gap-3 md:rounded-xl md:px-3 md:py-2.5 md:text-sm',
     active ? 'bg-white/9 text-lime md:bg-white/12 md:text-white' : 'text-white/60 hover:bg-white/6 hover:text-white',
   );
 }
@@ -220,7 +220,7 @@ function SidebarItem({
       onClick={onClick}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
-      className={cn(itemClass(false), 'cursor-pointer border-0 bg-transparent md:w-full md:text-left')}
+      className={cn(itemClass(false), 'cursor-pointer border-0 bg-transparent max-md:hidden md:w-full md:text-left')}
     >
       <Icon aria-hidden className="size-[18px] shrink-0" strokeWidth={2} />
       <b className={cn('font-semibold', collapsed ? 'hidden' : 'hidden md:inline')}>{label}</b>

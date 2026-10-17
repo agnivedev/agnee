@@ -128,11 +128,14 @@ export function NotificationBell({ className }: { className?: string }) {
                       item.readAt ? 'bg-transparent' : 'bg-[#eef5ee]',
                     )}
                   >
-                    <span className="text-[13px] leading-snug">
-                      <strong>{item.kind === 'hub' ? 'Agnive Hub' : item.actorName || t('routing.system')}</strong>{' '}
-                      {t(notificationVerbKey(item.kind))}
-                      {item.chatName ? ` · ${item.chatName}` : ''}
+                    <span className={cn('text-[13px] leading-snug', item.kind === 'sla' && 'font-semibold')}>
+                      {/* Pengingat SLA dikirim sistem; "System" di depannya cuma bising. */}
+                      {item.kind === 'sla' ? null : (
+                        <strong>{item.kind === 'hub' ? 'Agnive Hub' : item.actorName || t('routing.system')}</strong>
+                      )}{' '}
+                      {t(notificationVerbKey(item.kind)).replace(/^—\s*/, '')}
                     </span>
+                    {item.chatName ? <span className="text-[13px] leading-snug font-semibold">{item.chatName}</span> : null}
                     {item.body ? (
                       <span className="line-clamp-2 text-[13px] leading-snug text-muted">{item.body}</span>
                     ) : null}

@@ -45,6 +45,7 @@ const APP_URL = 'https://app.agnee.agnive.co';
 const WA_LINK = 'https://wa.me/6281218700276';
 const waLink = (pesan: string) => `${WA_LINK}?text=${encodeURIComponent(pesan)}`;
 
+const WA_LIFETIME = waLink('Halo, saya mau tanya paket Agnee Lifetime');
 const WA_GROWTH = waLink('Halo, saya mau langganan Agnee Growth');
 const WA_PRO = waLink('Halo, saya mau langganan Agnee Pro');
 const WA_ENTERPRISE = waLink('Halo, saya mau tanya Agnee Enterprise');
@@ -64,13 +65,17 @@ const MAYAR_EBOOK = '';
 const MAYAR_WEBINAR = '';
 
 /**
- * Kuota promo pembukaan.
+ * Kuota promo: 50 perusahaan BARU per bulan (keputusan pemilik 2026-10-17, sebelumnya
+ * 100 total). Halaman belum menampilkan sisa kuota; kalau nanti ditampilkan, hitungannya
+ * harus dari tabel companies bulan berjalan.
+ *
+ * Kuota promo pembukaan (naskah lama).
  *
  * Angka ini janji ke pembaca, bukan hiasan. Kalau perusahaan ke-101 mendaftar,
  * harga promonya memang harus berhenti — atau angkanya yang diubah di sini
  * sebelum itu terjadi.
  */
-const KUOTA_PROMO = 100;
+const KUOTA_PROMO = 50;
 
 /**
  * Kebijakan kunci harga, diputuskan pemilik 2026-10-07 ("kamu decide aja"):
@@ -240,7 +245,7 @@ function Hero() {
             </a>
           </div>
           <p className="mt-4 mb-0 text-[13px] text-[#4e6e5e] dark:text-[#7aaa8a]">
-            Promo beta untuk {KUOTA_PROMO} perusahaan pertama.
+            Promo dibuka untuk {KUOTA_PROMO} perusahaan baru tiap bulan.
           </p>
         </div>
         <img src="/assets/hero-team.png" alt="Tim CS Agnee" className="w-full rounded-panel" />
@@ -965,13 +970,13 @@ function Pricing() {
         <h3 className="m-0 mb-2 text-lg font-semibold">Sulit menolaknya, karena kamu ga menanggung risikonya.</h3>
         <ul className="m-0 grid list-none gap-1.5 p-0 text-[14px]">
           <li>7 hari gratis, tanpa kartu kredit. Ga terasa bedanya? Tutup akunnya, ga ada yang ditagih.</li>
-          <li>Harga promo terkunci selama langgananmu jalan tanpa putus, untuk {KUOTA_PROMO} perusahaan pertama.</li>
+          <li>Harga promo terkunci selama langgananmu jalan tanpa putus. Dibuka untuk {KUOTA_PROMO} perusahaan baru tiap bulan.</li>
           <li>Ebook CS gratis tetap jadi milikmu, mau lanjut berlangganan atau tidak.</li>
         </ul>
       </div>
 
       <p className="mt-10 mb-0 max-w-2xl text-[14px] leading-[1.65] text-[#4e6e5e] dark:text-[#7aaa8a]">
-        Setelah {KUOTA_PROMO} perusahaan terdaftar, harga promo ditutup dan harga naik. Kuotanya yang habis, bukan jamnya: ga ada hitung mundur palsu dan ga ada perpanjangan kuota.
+        Tiap bulan hanya {KUOTA_PROMO} perusahaan baru yang dapat harga promo. Kalau kuota bulan itu penuh, promo ditutup sampai bulan berikutnya dan harga naik. Kuotanya yang habis, bukan jamnya: ga ada hitung mundur palsu dan ga ada perpanjangan kuota.
       </p>
 
       <div className="mt-6 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -1015,6 +1020,27 @@ function Pricing() {
             </a>
           </div>
         ))}
+      </div>
+
+      <div className="mt-4 grid gap-4 rounded-panel border border-[#c6dcc0] bg-white p-6 md:grid-cols-[1fr_auto] md:items-center dark:border-[#24403a] dark:bg-[#14241f]">
+        <div>
+          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+            <h3 className="m-0 text-xl font-semibold">Lifetime</h3>
+            <span className="text-2xl font-semibold tracking-[-.03em]">Rp 8.900.000</span>
+            <span className="text-[13px] text-[#4e6e5e] dark:text-[#7aaa8a]">sekali bayar</span>
+          </div>
+          <p className="m-0 mt-2 max-w-2xl text-[13px] leading-[1.6] text-[#4e6e5e] dark:text-[#7aaa8a]">
+            Fitur setara Starter seumur hidup, tanpa tagihan bulanan. Credit awal diberikan sekali, dan top-up credit berikutnya dihitung dengan harga paket Lifetime.
+          </p>
+        </div>
+        <a
+          href={WA_LIFETIME}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={`block rounded-app bg-[#25d366] px-5 py-3 text-center text-[15px] font-semibold text-[#0c1912] no-underline transition hover:bg-[#1dbd5e] md:w-max ${FOKUS}`}
+        >
+          Tanya paket Lifetime
+        </a>
       </div>
 
       <p className="mt-5 mb-0 max-w-3xl text-[12px] leading-[1.6] text-[#4e6e5e] dark:text-[#7aaa8a]">
@@ -1063,7 +1089,7 @@ const FAQ_ITEMS: [string, string][] = [
   ],
   [
     'Harga promonya naik bulan depan?',
-    'Ga. Kalau kamu daftar sebelum kuota promo penuh, harga promo berlaku selama langgananmu jalan tanpa putus. Syaratnya cuma satu: kalau langgananmu berhenti lalu kamu mulai lagi setelah kuotanya penuh, yang berlaku harga normal.',
+    'Ga. Kalau kamu daftar sebelum kuota promo bulan itu penuh, harga promo berlaku selama langgananmu jalan tanpa putus. Syaratnya cuma satu: kalau langgananmu berhenti lalu kamu mulai lagi saat kuota bulan itu sudah penuh, yang berlaku harga normal.',
   ],
   [
     'Ada masa percobaan?',
@@ -1210,10 +1236,10 @@ function FunnelPenutup() {
               Batas promo
             </p>
             <h2 className="m-0 mb-3 text-[clamp(24px,3.4vw,34px)] leading-[1.15] font-semibold tracking-[-.035em]">
-              Harga promo berhenti di perusahaan ke-{KUOTA_PROMO}.
+              Promo tiap bulan berhenti di perusahaan ke-{KUOTA_PROMO}.
             </h2>
             <p className="m-0 text-[15px] leading-[1.65] text-white/70">
-              Setelah kuotanya penuh, harga naik. Yang daftar sebelum itu tetap bayar harga promo selama
+              Kalau kuota bulan itu penuh, harga naik sampai bulan berikutnya. Yang daftar sebelum itu tetap bayar harga promo selama
               langganannya jalan tanpa putus. Ga ada hitung mundur palsu di halaman ini: kuotanya yang habis,
               bukan jamnya.
             </p>

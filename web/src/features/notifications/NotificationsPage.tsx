@@ -34,7 +34,7 @@ export function NotificationsPage() {
           </a>
         </header>
 
-        <section className="mt-8 rounded-panel border border-border bg-card p-5">
+        <section className="mt-6 md:mt-8 md:rounded-panel md:border md:border-border md:bg-card md:p-5">
           <div className="flex flex-wrap items-center gap-3">
             <span className="font-mono text-xs font-semibold text-muted">
               {t('notif.count', { count: items.length })}

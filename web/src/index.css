@@ -77,6 +77,12 @@
     outline-offset: 2px;
   }
 
+  /* Preflight membiarkan judul mewarisi line-height 1.5, jadi judul dua baris
+     di ponsel terbaca renggang. */
+  h1, h2, h3 {
+    line-height: 1.15;
+  }
+
   button:disabled {
     cursor: not-allowed;
     opacity: 0.42;

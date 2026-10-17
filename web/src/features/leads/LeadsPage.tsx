@@ -49,6 +49,9 @@ export function LeadsPage() {
   usePageTitle('leads.title');
 
   const [columns, setColumns] = useState<Column[]>([]);
+  // Ponsel: filter dan aksi sekunder tersimpan di balik satu tombol masing-masing.
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
   const [rows, setRows] = useState<Row[]>([]);
   const [status, setStatus] = useState(t('common.loading'));
   const [query, setQuery] = useState('');
@@ -249,7 +252,7 @@ export function LeadsPage() {
           </a>
         </header>
 
-        <section className="mt-8 rounded-panel border border-border bg-card p-5">
+        <section className="mt-6 md:mt-8 md:rounded-panel md:border md:border-border md:bg-card md:p-5">
           <div className="flex flex-wrap items-center gap-2">
             <Input
               type="search"
@@ -257,9 +260,12 @@ export function LeadsPage() {
               onChange={(event) => setQuery(event.target.value)}
               placeholder={t('leads.searchPlaceholder')}
               aria-label={t('leads.searchPlaceholder')}
-              className="min-h-11 flex-[1_1_100%] rounded-[10px] bg-white px-3 py-1.5 md:min-h-[38px] md:flex-[1_1_240px]"
+              className="min-h-11 min-w-0 flex-1 rounded-[10px] bg-white px-3 py-1.5 md:min-h-[38px] md:flex-[1_1_240px]"
             />
-            <div className="grid w-full grid-cols-2 gap-2 md:contents">
+            <Button size="sm" variant="outline" className="md:hidden" aria-expanded={filtersOpen} onClick={() => setFiltersOpen((open) => !open)}>
+              {t('leads.filters')}{[stage, handling, relation, activity, waLabel].filter(Boolean).length ? ` · ${[stage, handling, relation, activity, waLabel].filter(Boolean).length}` : ''}
+            </Button>
+            <div className={cn('w-full grid-cols-2 gap-2 max-md:order-3 md:contents', filtersOpen ? 'grid' : 'hidden')}>
             <Select value={stage} onChange={setStage} aria-label={t('leads.filterStage')}>
               <option value="">{t('leads.allStages')}</option>
               {stages.map((option) => (
@@ -292,14 +298,17 @@ export function LeadsPage() {
               </Select>
             ) : null}
             </div>
-            <span className="font-mono text-xs font-semibold whitespace-nowrap text-muted">
+            <span className="font-mono text-xs font-semibold whitespace-nowrap text-muted max-md:order-4 max-md:flex-1">
               {visibleRows.length === rows.length
                 ? t('leads.count', { count: rows.length })
                 : t('leads.countFiltered', { shown: visibleRows.length, total: rows.length })}
             </span>
-            <span className="flex-1" />
-            <div className="grid w-full grid-cols-2 gap-2 max-md:[&>button]:h-auto max-md:[&>button]:min-h-11 max-md:[&>button]:py-2 max-md:[&>button]:leading-tight max-md:[&>button]:whitespace-normal md:contents">
-            {/* Downloads ride the same session cookie as every other request here.
+            <span className="flex-1 max-md:hidden" />
+            <Button size="sm" variant="outline" className="max-md:order-5 md:hidden" aria-expanded={moreOpen} onClick={() => setMoreOpen((open) => !open)}>
+              {t('leads.more')}
+            </Button>
+            <div className={cn('w-full gap-2 max-md:order-6 max-md:[&>button]:h-auto max-md:[&>button]:min-h-11 max-md:[&>button]:justify-start max-md:[&>button]:py-2 max-md:[&>button]:whitespace-normal md:contents', moreOpen ? 'grid' : 'hidden md:contents')}>
+{/* Downloads ride the same session cookie as every other request here.
                 Hanya supervisor: satu berkas berisi seluruh daftar customer
                 adalah hal yang berbeda dari melihat percakapan sendiri, dan
                 server menolak agent di kedua rute itu. */}
@@ -355,7 +364,33 @@ export function LeadsPage() {
 
           {/* 23 columns will not fit on any screen, so the table scrolls itself.
               The page outside it must never shift sideways. */}
-          <div className="mt-3 max-h-[68vh] overflow-auto rounded-xl border border-border">
+          {/* Ponsel: satu baris per percakapan, bukan tabel 29 kolom yang harus digeser. */}
+          <ul className="m-0 mt-2 list-none divide-y divide-border p-0 md:hidden">
+            {visibleRows.map((row, index) => {
+              const clickable = Boolean(row.chatId || row.phone);
+              const title = row.name || row.phone || (row.isGroup ? t('leads.groupRow') : t('leads.noName'));
+              const preview = row.summary || row.lastInboundBody || '';
+              return (
+                <li key={row.chatId || index}>
+                  <button
+                    type="button"
+                    disabled={!clickable}
+                    onClick={() => setChoiceRow(row)}
+                    className="grid min-h-11 w-full cursor-pointer gap-1 border-0 bg-transparent px-0 py-3.5 text-left"
+                  >
+                    <span className="flex items-baseline justify-between gap-3">
+                      <strong className="min-w-0 truncate text-[15px] text-ink">{title}</strong>
+                      {row.leadStage ? <span className="shrink-0 text-xs font-semibold text-green-dark">{row.leadStage}</span> : null}
+                    </span>
+                    {row.name && row.phone ? <span className="text-[13px] text-muted">{row.phone}</span> : null}
+                    {preview ? <span className="line-clamp-2 text-[13px] leading-snug text-[#3d5a50]">{preview}</span> : null}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+
+          <div className="mt-3 max-h-[68vh] overflow-auto rounded-xl border border-border max-md:hidden">
             <table className="w-max min-w-full border-separate border-spacing-0 text-[13px]">
               <thead>
                 <tr>

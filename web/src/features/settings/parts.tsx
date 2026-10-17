@@ -25,7 +25,7 @@ export function SettingCard({
   return (
     <section
       id={id}
-      className="mt-6 rounded-panel border border-border bg-card p-6 shadow-[0_10px_30px_rgba(24,48,39,.05)]"
+      className="mt-6 rounded-panel border border-border bg-card p-6 shadow-[0_10px_30px_rgba(24,48,39,.05)] max-md:mt-0 max-md:rounded-none max-md:border-0 max-md:border-t max-md:bg-transparent max-md:px-0 max-md:shadow-none"
     >
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div>

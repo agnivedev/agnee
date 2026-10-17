@@ -85,7 +85,7 @@ function BroadcastList({ onOpen, onNew, heading }: { onOpen: (id: string) => voi
         <Button onClick={onNew}>{t('broadcast.new')}</Button>
       </header>
 
-      <section className="mt-8 rounded-panel border border-border bg-card p-5">
+      <section className="mt-6 md:mt-8 md:rounded-panel md:border md:border-border md:bg-card md:p-5">
         {status ? <p className="m-0 text-[13px] text-muted">{status}</p> : null}
 
         {!status && !broadcasts.length ? (
@@ -179,7 +179,7 @@ function OptOutList() {
 
   if (!rows) return null;
   return (
-    <section className="mt-5 rounded-panel border border-border bg-card p-5">
+    <section className="mt-5 md:rounded-panel md:border md:border-border md:bg-card md:p-5">
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}

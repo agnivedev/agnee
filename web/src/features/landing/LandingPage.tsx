@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import {
-  ArrowLeftRight, BookOpen, Blocks, Bot, Check, Clock, Coins, Columns3, FileText, Gauge, GraduationCap,
+  ArrowDown, ArrowLeftRight, ArrowRight, BarChart3, BookOpen, ClipboardPaste, Copy, Eye, LogIn, MessagesSquare, Send, Wifi, Blocks, Bot, Check, Clock, Coins, Columns3, FileText, Gauge, GraduationCap,
   Hourglass, Megaphone, MessageCircleQuestion, Plug, ShieldCheck, Table2, Target, Timer, Users,
   type LucideIcon,
 } from 'lucide-react';
@@ -122,6 +122,7 @@ export function LandingPage() {
       <ProofStrip />
       <BandKemampuan />
       <BandTampilan />
+      <BandMcp />
       <BandSerahTerima />
       <BandBroadcastVisual />
       <UmpanEbook />
@@ -553,12 +554,8 @@ const TAMPILAN: Tampilan[] = [
     poin: [
       'Ekspor Lead List ke XLSX atau CSV kapan saja',
       'Impor Excel atau CSV dengan pratinjau dulu',
-      'MCP: tanya laporan dan performa agent dari asisten AI',
     ],
-    gambar: [
-      { src: 'leads', lebar: 1400, tinggi: 753, alt: 'Lead List dengan tombol unduh XLSX dan CSV' },
-      { src: 'mcp', lebar: 1200, tinggi: 643, alt: 'Kartu MCP di pengaturan' },
-    ],
+    gambar: [{ src: 'leads', lebar: 1400, tinggi: 753, alt: 'Lead List dengan tombol unduh XLSX dan CSV' }],
   },
 ];
 
@@ -615,6 +612,133 @@ function BandTampilan() {
         })}
       </div>
       <p className="mt-10 mb-0 text-[12px] text-[#4e6e5e] dark:text-[#7aaa8a]">Semua tangkapan layar berasal dari app asli dengan data contoh.</p>
+    </Section>
+  );
+}
+
+/**
+ * Bagian MCP. Alat yang benar-benar ada di src/mcp-server.mjs:
+ *   report_summary, agent_performance (khusus supervisor), whatsapp_status,
+ *   list_conversations, read_conversation, send_whatsapp_message.
+ * Alat Agnive Hub (hub_*) khusus staf Agnive dan TIDAK boleh disebut di halaman ini.
+ * Akses mengikuti akun Agnee yang login, jadi alat khusus supervisor hanya jalan
+ * untuk supervisor. Waktu respons agent hanya ada bila terukur (lihat panel kinerja).
+ * Langkah sambung dan nama ChatGPT atau Claude mengikuti kartu MCP di Setting
+ * (web/src/features/settings). Jangan menyebut klien lain tanpa mengujinya.
+ */
+const CONTOH_MCP: [LucideIcon, string, string][] = [
+  [BarChart3, 'Bandingkan chat hari ini dengan kemarin', 'Laporan ringkas'],
+  [Users, 'Siapa agent yang paling cepat membalas 7 hari terakhir?', 'Kinerja agent'],
+  [MessagesSquare, 'Tampilkan percakapan terbaru', 'Daftar chat'],
+  [Eye, 'Baca chat Dewi, lalu siapkan balasannya', 'Baca chat'],
+  [Send, 'Kirim pesan ini ke chat Budi', 'Kirim pesan'],
+  [Wifi, 'WhatsApp kita masih tersambung?', 'Status nomor'],
+];
+
+const LANGKAH_MCP: [LucideIcon, string][] = [
+  [Copy, 'Salin alamat server MCP di Setting'],
+  [ClipboardPaste, 'Tempel di ChatGPT atau Claude'],
+  [LogIn, 'Login pakai akun Agnee'],
+];
+
+function BandMcp() {
+  return (
+    <Section id="mcp" className="py-16 sm:py-20">
+      <div className="rounded-panel border-2 border-green-dark p-5 sm:p-8 dark:border-[#7fff4f]">
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-green-dark px-3 py-1 text-[12px] font-semibold text-white dark:bg-[#7fff4f] dark:text-[#0c1912]">
+          <Plug aria-hidden size={14} />
+          Siap MCP
+        </span>
+        <h2 className="mt-4 mb-3 max-w-3xl text-[clamp(28px,4vw,42px)] leading-[1.15] font-semibold tracking-[-.035em] text-balance">
+          Ajak Agnee ngobrol dari asisten AI favoritmu.
+        </h2>
+        <p className="m-0 max-w-2xl text-[16px] leading-[1.7] text-[#4e6e5e] dark:text-[#7aaa8a]">
+          MCP itu colokan standar yang menghubungkan asisten AI ke aplikasi lain. Dengan MCP, ChatGPT atau Claude bisa membaca chat WhatsApp-mu, menarik laporan, dan menyiapkan balasan, tanpa kamu buka dashboard.
+        </p>
+
+        <div className="mt-8 grid items-center gap-3 md:grid-cols-[1fr_auto_1fr_auto_1fr]">
+          {[
+            [Bot, 'Asisten AI', 'ChatGPT atau Claude'],
+            [Plug, 'MCP', 'Colokan standar'],
+            [MessagesSquare, 'Agnee', 'Chat, laporan, kinerja tim'],
+          ].map(([Ikon, judul, isi], i) => {
+            const Icon = Ikon as LucideIcon;
+            return (
+              <div key={judul as string} className="contents">
+                {i > 0 ? (
+                  <span aria-hidden className="grid place-items-center text-green-dark dark:text-[#7fff4f]">
+                    <ArrowRight size={22} className="hidden md:block" />
+                    <ArrowDown size={22} className="md:hidden" />
+                  </span>
+                ) : null}
+                <div
+                  className={`flex items-center gap-3 rounded-panel p-4 ${
+                    i === 1
+                      ? 'bg-green-dark text-white dark:bg-[#7fff4f] dark:text-[#0c1912]'
+                      : 'border border-[#c6dcc0] bg-white dark:border-[#24403a] dark:bg-[#14241f]'
+                  }`}
+                >
+                  <Icon aria-hidden size={24} className="shrink-0" />
+                  <div>
+                    <p className="m-0 text-[16px] font-semibold">{judul as string}</p>
+                    <p className="m-0 text-[13px] opacity-75">{isi as string}</p>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <h3 className="mt-10 mb-4 text-[18px] font-semibold tracking-[-.02em]">Yang bisa kamu minta</h3>
+        <ul className="m-0 grid list-none gap-3 p-0 sm:grid-cols-2 lg:grid-cols-3">
+          {CONTOH_MCP.map(([Icon, tanya, alat]) => (
+            <li
+              key={tanya}
+              className="rounded-panel border border-[#c6dcc0] bg-white p-4 dark:border-[#24403a] dark:bg-[#14241f]"
+            >
+              <span className="flex items-center gap-2 text-[12px] font-semibold text-green-dark dark:text-[#7fff4f]">
+                <Icon aria-hidden size={16} />
+                {alat}
+              </span>
+              <p className="m-0 mt-2.5 w-fit max-w-full rounded-2xl rounded-bl-md bg-[#dff0d6] px-3.5 py-2 text-[14px] leading-[1.45] text-[#0c1912] dark:bg-[#1b3028] dark:text-[#f4f9f0]">
+                {tanya}
+              </p>
+            </li>
+          ))}
+        </ul>
+        <p className="mt-3 mb-0 text-[12px] leading-[1.6] text-[#4e6e5e] dark:text-[#7aaa8a]">
+          Contoh permintaan. Laporan dan kinerja agent hanya untuk supervisor, dan akses asisten AI sama dengan akses akun Agnee-mu. Waktu respons agent muncul bila memang terukur.
+        </p>
+
+        <div className="mt-10 grid items-start gap-6 md:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)] md:gap-10">
+          <div>
+            <h3 className="m-0 mb-4 text-[18px] font-semibold tracking-[-.02em]">Tersambung dalam tiga langkah</h3>
+            <ol className="m-0 grid list-none gap-3 p-0">
+              {LANGKAH_MCP.map(([Icon, teks], i) => (
+                <li key={teks} className="flex items-center gap-3 text-[15px]">
+                  <span className="grid size-10 shrink-0 place-items-center rounded-app bg-[#dff0d6] text-green-dark dark:bg-[#1b3028] dark:text-[#7fff4f]">
+                    <Icon aria-hidden size={18} />
+                  </span>
+                  <span>
+                    <span className="mr-1.5 font-mono text-[12px] text-green-dark dark:text-[#7fff4f]">{i + 1}</span>
+                    {teks}
+                  </span>
+                </li>
+              ))}
+            </ol>
+          </div>
+          <figure className="m-0 overflow-hidden rounded-panel border border-[#c6dcc0] bg-white dark:border-[#24403a] dark:bg-[#14241f]">
+            <img
+              src="/assets/landing/mcp.webp"
+              width={1200}
+              height={643}
+              alt="Kartu MCP di pengaturan Agnee: alamat server dan langkah menghubungkan ke ChatGPT atau Claude"
+              loading="lazy"
+              className="block h-auto w-full"
+            />
+          </figure>
+        </div>
+      </div>
     </Section>
   );
 }

@@ -24,8 +24,7 @@
    dikonfirmasi, tercatat di buku besar (`credit_ledger`) dan jejak audit.
    **Credit tidak pernah diisi otomatis tanpa pembayaran.** Menyambung gateway
    (Mayar) kelak hanya perlu memanggil dua fungsi yang sama.
-5. Diskon Enterprise sampai 90% = `credit_discount_pct` per company (0–90):
-   credit yang dipotong per panggilan dikurangi sebesar itu.
+5. Diskon Enterprise (`credit_discount_pct`) maksimal 60%: mengurangi credit yang dipotong per panggilan.
 
 ## 2. Perilaku saat credit habis (jujur, tidak diam)
 
@@ -54,7 +53,8 @@ satuan pemakaian AI: **1 credit ≈ 1 balasan AI tingkat Medium**.
 Cara hitung (jalankan `node scripts/credit-simulate.js`):
 
 - COGS balasan = biaya penyedia (USD) × kurs. Medium nyata ≈ **Rp 26**
-  (data lokal 205 panggilan; High ≈ Rp 89 dan Top ≈ Rp 267 PERKIRAAN dari harga resmi).
+  (data lokal 205 panggilan).
+  **Diukur ulang lewat OpenRouter sungguhan 17 Okt** (`scripts/credit-real-cost.js`, prompt playbook Beweix 5–11rb token): Low Rp 2–9, Medium Rp 10–43 (gemini-flash Rp 28,7), **High Rp 142**, **Top-end Rp 424** per balasan. High menghabiskan ±5 credit/balasan dan Top ±16.
 - Harga jual 1 credit (top-up) = **Rp 100**; markup **3,85×** → 1 balasan Medium = 1 credit.
 - COGS per credit = Rp 100 ÷ 3,85 ≈ **Rp 26**; margin kotor AI = **74%** pada harga penuh.
 - COGS terpakai selalu mengikuti biaya nyata, apa pun modelnya (model mahal
@@ -73,11 +73,34 @@ Cara hitung (jalankan `node scripts/credit-simulate.js`):
 500 credit Starter sama dengan batas 500 pesan AI paket Personal lama.
 Enterprise: credit dan harga custom.
 
-**Peringatan diskon Enterprise 90%:** pada harga credit Rp 100, diskon 74%
-sudah impas (pendapatan Rp 26 = COGS Rp 26); 90% berarti **rugi Rp 16 per
-credit**. Usulan: batasi diskon di 60% (margin 35%), atau naikkan markup
-bila 90% memang harus aman (markup ~10×). Kode masih mengizinkan 90%
-(`MAX_DISCOUNT_PCT`) sampai pemilik memutuskan.
+**Keputusan pemilik 17 Okt (sudah disetujui):**
+
+1. **Diskon Enterprise maksimal 60%** (`credit_discount_pct`, `MAX_DISCOUNT_PCT = 60`). Pada
+   60%, margin per credit tetap positif (lihat hitungan di bawah).
+2. **Paket Lifetime Rp 8.900.000 sekali bayar**, fitur setara Starter (1 pengguna, 1 nomor,
+   1 playbook, model Medium, tanpa broadcast). Credit awal **sekali saja** (tanpa credit
+   bulanan), masuk kantong yang tidak hangus. Sesudah itu top-up. Menerapkan lifetime
+   kedua kali ditolak (409).
+3. **Kuota promo 50 perusahaan BARU per bulan**: `GET /v1/public/promo-quota` (tanpa login)
+   mengembalikan `{limit, used, remaining, open, resetsAt}`. `used` = jumlah baris
+   `companies` bulan berjalan (zona Asia/Jakarta) dengan `promo_signup = true`; tanda itu
+   diberikan di transaksi pendaftaran publik selama kuota masih ada (dikunci agar dua
+   pendaftar serentak tidak melewati batas). Akun buatan staf tidak ditandai.
+   Ubah batas lewat `PROMO_MONTHLY_QUOTA`.
+
+**USULAN (belum disetujui): credit awal Lifetime dan harga top-up.**
+
+- Harga efektif per credit paket bulanan: Starter 99.000/500 = Rp 198, Growth Rp 190, Pro Rp 177.
+  Top-up harus lebih mahal dari itu, kalau tidak langganan tidak masuk akal.
+- Usulan harga top-up: **Rp 200/credit** untuk semua paket, **Rp 250/credit** untuk Lifetime
+  (`CREDIT_TOPUP_PRICE_IDR`, `topupPriceIdr` di paket). Margin kotor: 87% dan 90%
+  (COGS Rp 26/credit). Ini terpisah dari skala potongan credit (Rp 100/credit) sehingga
+  "1 credit ≈ 1 balasan" tidak berubah.
+- Usulan credit awal Lifetime: **15.000 credit** (setara 30 bulan jatah Starter), COGS AI
+  maksimal Rp 390rb = 4,4% dari Rp 8,9jt. Habis lebih cepat bila memakai pemakaian ramai;
+  tidak ada credit bulanan, jadi sesudahnya pelanggan membeli top-up (Rp 250/credit).
+- Diskon 60% di Enterprise: pendapatan per balasan = 1,1 credit × 40% × harga top-up
+  Rp 200 = Rp 88 vs COGS Rp 28,7 → margin ±67%.
 
 ## 4. Yang dibangun
 

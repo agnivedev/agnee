@@ -3522,6 +3522,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
         displayName: request.body.displayName.trim(),
         email: request.body.email.trim(),
         password: request.body.password,
+        promoQuota: config.credit.promoMonthlyQuota,
       });
     } catch (error) {
       if (error.code === 'EMAIL_TAKEN') return reply.code(409).send({ error: error.message });
@@ -3541,6 +3542,20 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     reply.header('set-cookie', `agnee_session=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=43200${config.cookieSecure ? '; Secure' : ''}`);
     if (typeof database.setPresence === 'function') await database.setPresence(signup.userId, 'online', signup.companyId);
     return reply.code(201).send({ ok: true, user: sessionUser, trialEndsAt: signup.trialEndsAt });
+  });
+
+  // Penghitung kuota promo untuk halaman landing. Publik, tanpa data sensitif:
+  // hanya jumlah terpakai dan sisa bulan ini, dibaca dari tabel companies.
+  let promoQuotaCache = { at: 0, value: null };
+  app.get('/v1/public/promo-quota', async (_request, reply) => {
+    if (!database.status().connected) return reply.code(503).send({ error: 'Tidak tersedia.' });
+    if (!promoQuotaCache.value || Date.now() - promoQuotaCache.at > 15_000) {
+      const quota = await database.getPromoQuota({ limit: config.credit.promoMonthlyQuota });
+      promoQuotaCache = { at: Date.now(), value: quota };
+    }
+    const { limit, used, remaining, resetsAt } = promoQuotaCache.value;
+    reply.header('cache-control', 'public, max-age=15');
+    return { limit, used, remaining, open: remaining > 0, resetsAt };
   });
 
   // Cache DB session checks: userId:companyId → expiry timestamp (60s TTL)
@@ -3611,7 +3626,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
   }
 
   app.addHook('onRequest', async (request, reply) => {
-    if (!request.url.startsWith('/v1/') || request.url.startsWith('/v1/auth/login') || request.url.startsWith('/v1/auth/signup')) return;
+    if (!request.url.startsWith('/v1/') || request.url.startsWith('/v1/auth/login') || request.url.startsWith('/v1/auth/signup') || request.url.startsWith('/v1/public/')) return;
     const suppliedKey = request.headers['x-api-key'];
     const session = verifySession(getCookie(request.headers.cookie, 'agnee_session'), config.sessionSecret);
     if (suppliedKey !== undefined && safeEqual(suppliedKey, config.apiKey)) {
@@ -4914,16 +4929,22 @@ ${thread || '(belum ada)'}${hubContext}`,
     if (!database.status().connected) return reply.code(503).send({ error: 'Konsol platform butuh PostgreSQL.' });
     const { plan, note } = request.body;
     const def = creditPlans.CREDIT_PLANS[plan];
-    const monthlyCredit = request.body.monthlyCredit ?? def.monthlyCredit;
+    const monthlyCredit = request.body.monthlyCredit ?? (def.oneTime ? def.initialCredit : def.monthlyCredit);
     if (!(monthlyCredit > 0)) {
       return reply.code(400).send({ error: 'Paket ini butuh jumlah credit bulanan (monthlyCredit).' });
     }
     const before = await database.getCreditState(request.params.companyId);
     if (!before) return reply.code(404).send({ error: 'Tenant tidak ditemukan.' });
-    const state = await database.subscribeCreditPlan(request.params.companyId, {
-      plan, monthlyCredit, limits: creditPlans.limitsOfPlan(plan),
-      userId: request.agneeSession.userId || null, note,
-    });
+    let state;
+    try {
+      state = await database.subscribeCreditPlan(request.params.companyId, {
+        plan, monthlyCredit, limits: creditPlans.limitsOfPlan(plan), oneTime: def.oneTime === true,
+        userId: request.agneeSession.userId || null, note,
+      });
+    } catch (error) {
+      if (error.code === 'ONE_TIME_ALREADY') return reply.code(409).send({ error: error.message });
+      throw error;
+    }
     await recordPlatformAudit(request, 'platform.credit.subscribed', request.params.companyId, {
       dari: before.plan, ke: plan, monthlyCredit,
     });
@@ -4944,13 +4965,15 @@ ${thread || '(belum ada)'}${hubContext}`,
     if (config.credit.minTopupIdr && amountIdr < config.credit.minTopupIdr) {
       return reply.code(400).send({ error: `Top-up minimum Rp ${creditNumberFormat.format(config.credit.minTopupIdr)}.` });
     }
-    const amount = creditPlans.creditsForTopup(amountIdr, config.credit);
+    const planState = await database.getCreditState(request.params.companyId);
+    const topupPrice = creditPlans.topupPriceFor(planState?.plan, config.credit);
+    const amount = creditPlans.creditsForTopup(amountIdr, { creditPriceIdr: topupPrice });
     try {
       const state = await database.grantCredit(request.params.companyId, {
         kind: 'topup', amount, note: note || `Top-up Rp ${creditNumberFormat.format(amountIdr)}`,
         userId: request.agneeSession.userId || null,
       });
-      await recordPlatformAudit(request, 'platform.credit.topup', request.params.companyId, { amountIdr, credit: amount });
+      await recordPlatformAudit(request, 'platform.credit.topup', request.params.companyId, { amountIdr, credit: amount, hargaPerCredit: topupPrice });
       return state;
     } catch (error) {
       if (error.code === 'NOT_CREDIT_MODE') return reply.code(409).send({ error: error.message });
@@ -5044,7 +5067,7 @@ ${thread || '(belum ada)'}${hubContext}`,
       } },
       body: { type: 'object', additionalProperties: false, minProperties: 1, properties: {
         // Paket credit sebaiknya diterapkan lewat /credit/subscribe (menulis batas + credit); di sini hanya agar form tidak menolak paket yang sedang dipakai.
-        plan: { type: 'string', enum: ['personal', 'company', 'lifetime', ...creditPlans.CREDIT_PLAN_KEYS] },
+        plan: { type: 'string', enum: [...new Set(['personal', 'company', 'lifetime', ...creditPlans.CREDIT_PLAN_KEYS])] },
         planStatus: { type: 'string', enum: ['trial', 'beta', 'active', 'suspended'] },
         status: { type: 'string', enum: ['active', 'suspended', 'closed'] },
         trialEndsAt: { type: ['string', 'null'], maxLength: 40 },

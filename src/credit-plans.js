@@ -29,6 +29,15 @@ const CREDIT_PLANS = {
     label: 'Pro', priceIdr: 3_900_000, monthlyCredit: 22_000,
     maxUsers: 15, maxWhatsapp: 5, maxPlaybooks: 15, maxModelTier: 'top', broadcast: true,
   },
+  // Dibayar sekali (keputusan pemilik 17 Okt). Fitur setara Starter. Credit awal
+  // diberikan SEKALI (tanpa credit bulanan) dan tidak hangus; sesudah itu top-up
+  // dengan harga credit lebih tinggi daripada paket bulanan. initialCredit dan
+  // topupPriceIdr adalah USULAN yang belum disetujui pemilik.
+  lifetime: {
+    label: 'Lifetime', priceIdr: 8_900_000, oneTime: true, monthlyCredit: 0, initialCredit: 15_000,
+    topupPriceIdr: 250,
+    maxUsers: 1, maxWhatsapp: 1, maxPlaybooks: 1, maxModelTier: 'mid', broadcast: false,
+  },
   // Custom: harga dan credit diatur per kesepakatan dari konsol.
   enterprise: {
     label: 'Enterprise', priceIdr: null, monthlyCredit: 0,
@@ -41,7 +50,7 @@ const CREDIT_PLAN_KEYS = Object.keys(CREDIT_PLANS);
 /** Tujuan panggilan yang tidak memotong credit. Kosong = semuanya memotong. */
 const FREE_PURPOSES = new Set([]);
 
-const MAX_DISCOUNT_PCT = 90;
+const MAX_DISCOUNT_PCT = 60; // keputusan pemilik 17 Okt; di atas ini margin credit habis
 
 function positive(value, fallback) {
   const n = Number(value);
@@ -54,6 +63,10 @@ function loadCreditConfig(env = process.env) {
     // Harga jual 1 credit (Rp) untuk top-up. Dengan markup 3,85 dan biaya balasan
     // Medium ~Rp 26, 1 credit ≈ 1 balasan AI Medium dan margin kotor ~74%.
     creditPriceIdr: positive(env.CREDIT_PRICE_IDR, 100),
+    // Harga jual top-up per credit (Rp). USULAN 200: di atas harga efektif per credit
+    // paket bulanan (Rp 177-198), supaya top-up tidak mengalahkan langganan.
+    topupPriceIdr: positive(env.CREDIT_TOPUP_PRICE_IDR, 200),
+    promoMonthlyQuota: positive(env.PROMO_MONTHLY_QUOTA, 50),
     // Ambang kabar sisa saldo (% dari credit paket terakhir), dari besar ke kecil; habis (0) selalu dikabari.
     alertPercents: String(env.CREDIT_ALERT_PERCENTS || '20,10,1').split(',').map(Number)
       .filter((n) => Number.isFinite(n) && n > 0 && n < 100).sort((a, b) => b - a),
@@ -80,6 +93,11 @@ function creditCostOf(costUsd, { usdIdrRate, markup, discountPct = 0, creditPric
   if (!Number.isFinite(usd) || usd <= 0) return 0;
   const idr = usd * usdIdrRate * markup * (1 - clampDiscount(discountPct) / 100);
   return Math.round((idr / creditPriceIdr) * 10_000) / 10_000;
+}
+
+/** Harga top-up per credit untuk sebuah paket: override paket, kalau tidak yang global. */
+function topupPriceFor(plan, cfg) {
+  return CREDIT_PLANS[plan]?.topupPriceIdr || cfg.topupPriceIdr;
 }
 
 function creditsForTopup(amountIdr, { creditPriceIdr = 100 } = {}) {
@@ -115,6 +133,6 @@ function planAllows(plan, feature) {
 
 module.exports = {
   CREDIT_PLANS, CREDIT_PLAN_KEYS, TIER_RANK, FREE_PURPOSES, MAX_DISCOUNT_PCT,
-  loadCreditConfig, isCreditPlan, clampDiscount, creditCostOf, creditsForTopup,
+  loadCreditConfig, topupPriceFor, isCreditPlan, clampDiscount, creditCostOf, creditsForTopup,
   rankOfModelId, filterChainForPlan, limitsOfPlan, planAllows,
 };

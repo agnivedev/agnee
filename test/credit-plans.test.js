@@ -8,9 +8,9 @@ const base = { usdIdrRate: 16_500, markup: 3, creditPriceIdr: 1 };
 
 test('biaya AI menjadi credit: kurs x markup, diskon mengurangi', () => {
   assert.equal(credit.creditCostOf(0.0016, base), 79.2);
-  assert.equal(credit.creditCostOf(0.0016, { ...base, discountPct: 90 }), 7.92);
-  // diskon di atas batas dipotong ke 90
-  assert.equal(credit.creditCostOf(0.0016, { ...base, discountPct: 150 }), 7.92);
+  assert.equal(credit.creditCostOf(0.0016, { ...base, discountPct: 60 }), 31.68);
+  // diskon di atas batas (60) dipotong ke 60
+  assert.equal(credit.creditCostOf(0.0016, { ...base, discountPct: 150 }), 31.68);
 });
 
 test('biaya tidak dilaporkan atau rusak tidak memotong apa pun', () => {
@@ -30,6 +30,19 @@ test('konfigurasi dari env: nilai rusak jatuh ke bawaan', () => {
   assert.equal(credit.loadCreditConfig({ CREDIT_MARKUP: 'abc' }).markup, 3.85);
   assert.equal(credit.loadCreditConfig({ CREDIT_GRACE_DAYS: '0' }).graceDays, 0);
   assert.equal(credit.loadCreditConfig({}).graceDays, 3);
+});
+
+test('diskon dibatasi 60 dan top-up lifetime lebih mahal dari paket bulanan', () => {
+  assert.equal(credit.creditCostOf(0.0016, { ...base, discountPct: 90 }), credit.creditCostOf(0.0016, { ...base, discountPct: 60 }));
+  assert.equal(credit.creditCostOf(0.0016, { ...base, discountPct: 60 }), 31.68);
+  const cfg = credit.loadCreditConfig({});
+  // harga efektif per credit paket bulanan: Rp 177-198
+  const efektif = ['starter', 'growth', 'pro'].map((k) => credit.CREDIT_PLANS[k].priceIdr / credit.CREDIT_PLANS[k].monthlyCredit);
+  assert.ok(Math.max(...efektif) < credit.topupPriceFor('lifetime', cfg));
+  assert.ok(Math.max(...efektif) < credit.topupPriceFor('starter', cfg));
+  assert.equal(credit.CREDIT_PLANS.lifetime.priceIdr, 8_900_000);
+  assert.equal(credit.CREDIT_PLANS.lifetime.monthlyCredit, 0);
+  assert.equal(credit.CREDIT_PLANS.lifetime.maxUsers, credit.CREDIT_PLANS.starter.maxUsers);
 });
 
 test('rantai model dibatasi tingkatan paket', () => {

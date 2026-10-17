@@ -1154,7 +1154,7 @@ class Database {
   }
 
   /** Self-serve signup: creates company + owner user + WA connection slot in one transaction. */
-  async createCompanySignup({ companyName, plan, displayName, email, password }) {
+  async createCompanySignup({ companyName, plan, displayName, email, password, promoQuota = 0 }) {
     if (!this.enabled) return null;
     const client = await this.pool.connect();
     try {
@@ -1175,15 +1175,24 @@ class Database {
         slug = `${baseSlug}-${suffix}`;
       }
 
+      // Tanda promo diputuskan di transaksi yang sama dengan pembuatan company,
+      // di bawah kunci, supaya dua pendaftaran serentak tidak melewati kuota.
+      let promo = false;
+      if (promoQuota > 0) {
+        await client.query("SELECT pg_advisory_xact_lock(hashtext('promo-signup-quota'))");
+        const quota = await this.getPromoQuota({ limit: promoQuota }, client);
+        promo = quota.remaining > 0;
+      }
+
       const limits = plan === 'company'
         ? { maxUsers: 5, maxPlaybooks: 0, maxWhatsapp: 0, aiMessageLimit: 0 }
         : { maxUsers: 1, maxPlaybooks: 1, maxWhatsapp: 1, aiMessageLimit: 500 };
 
       const companyResult = await client.query(`
-        INSERT INTO companies (slug, name, plan, plan_status, knowledge_client, ai_message_limit, max_users, max_playbooks, max_whatsapp, trial_ends_at)
-        VALUES ($1, $2, $3, 'trial', 'agnee', $4, $5, $6, $7, NOW() + INTERVAL '7 days')
+        INSERT INTO companies (slug, name, plan, plan_status, knowledge_client, ai_message_limit, max_users, max_playbooks, max_whatsapp, trial_ends_at, promo_signup)
+        VALUES ($1, $2, $3, 'trial', 'agnee', $4, $5, $6, $7, NOW() + INTERVAL '7 days', $8)
         RETURNING id, slug, name, trial_ends_at AS "trialEndsAt"
-      `, [slug, companyName, plan, limits.aiMessageLimit, limits.maxUsers, limits.maxPlaybooks, limits.maxWhatsapp]);
+      `, [slug, companyName, plan, limits.aiMessageLimit, limits.maxUsers, limits.maxPlaybooks, limits.maxWhatsapp, promo]);
       const company = companyResult.rows[0];
 
       const userResult = await client.query(`
@@ -3510,7 +3519,7 @@ class Database {
    * (sisa lama hangus dan dicatat), dan memajukan periode satu bulan.
    * Perpanjangan tepat waktu menyambung dari akhir periode, bukan dari hari ini.
    */
-  async subscribeCreditPlan(companyId, { plan, monthlyCredit, limits, userId = null, note = null }) {
+  async subscribeCreditPlan(companyId, { plan, monthlyCredit, limits, oneTime = false, userId = null, note = null }) {
     if (!this.enabled) return null;
     const client = await this.pool.connect();
     try {
@@ -3521,6 +3530,32 @@ class Database {
         FROM companies WHERE id = $1 FOR UPDATE
       `, [companyId])).rows[0];
       if (!row) { await client.query('ROLLBACK'); return null; }
+
+      if (oneTime) {
+        // Lifetime: credit awal masuk ke kantong yang tidak hangus, sekali saja.
+        const was = (await client.query('SELECT plan FROM companies WHERE id = $1', [companyId])).rows[0];
+        if (row.mode && was.plan === plan) {
+          await client.query('ROLLBACK');
+          const error = new Error('Paket ini dibayar sekali dan credit awalnya sudah diberikan. Gunakan top-up.');
+          error.code = 'ONE_TIME_ALREADY';
+          throw error;
+        }
+        await client.query(`
+          UPDATE companies SET
+            plan = $2, plan_status = 'active', credit_mode = TRUE,
+            credit_topup_balance = credit_topup_balance + $3, credit_last_grant = $3, credit_alert_level = NULL,
+            credit_period_end = NULL,
+            max_users = $4, max_whatsapp = $5, max_playbooks = $6,
+            ai_message_limit = 0, updated_at = NOW()
+          WHERE id = $1
+        `, [companyId, plan, monthlyCredit, limits.maxUsers, limits.maxWhatsapp, limits.maxPlaybooks]);
+        await client.query(`
+          INSERT INTO credit_ledger (company_id, kind, amount, plan_after, topup_after, note, created_by)
+          VALUES ($1, 'subscription', $2, $3, $4, $5, $6)
+        `, [companyId, monthlyCredit, row.plan, Number(row.topup) + monthlyCredit, note || `Credit awal ${plan} (sekali)`, userId]);
+        await client.query('COMMIT');
+        return this.getCreditState(companyId);
+      }
 
       if (row.mode && Number(row.plan) > 0) {
         await client.query(`
@@ -3553,6 +3588,38 @@ class Database {
     }
   }
 
+  /**
+   * Kuota promo bulan berjalan (zona Asia/Jakarta): jumlah perusahaan BARU yang
+   * mendaftar lewat jalur publik dengan tanda promo, dibaca dari tabel
+   * companies. Tidak ada angka lain. `executor` boleh klien transaksi.
+   */
+  async getPromoQuota({ limit, timezone = 'Asia/Jakarta' }, executor = null) {
+    if (!this.enabled) return null;
+    const result = await (executor || this.pool).query(`
+      WITH bounds AS (
+        SELECT (date_trunc('month', NOW() AT TIME ZONE $1) AT TIME ZONE $1) AS start_at
+      )
+      SELECT (SELECT COUNT(*) FROM companies c, bounds b
+              WHERE c.promo_signup AND c.created_at >= b.start_at)::int AS used,
+             (SELECT start_at FROM bounds) AS "monthStart",
+             ((SELECT start_at FROM bounds) + INTERVAL '1 month') AS "resetsAt"
+    `, [timezone]);
+    const row = result.rows[0];
+    return {
+      limit,
+      used: row.used,
+      remaining: Math.max(0, limit - row.used),
+      monthStart: row.monthStart,
+      resetsAt: row.resetsAt,
+    };
+  }
+
+  async setCreditDiscount(companyId, pct) {
+    if (!this.enabled) return null;
+    await this.pool.query('UPDATE companies SET credit_discount_pct = $2, updated_at = NOW() WHERE id = $1', [companyId, pct]);
+    return this.getCreditState(companyId);
+  }
+
   async getCreditState(companyId) {
     if (!this.enabled) return null;
     const result = await this.pool.query(`
@@ -3575,12 +3642,6 @@ class Database {
       FROM credit_ledger WHERE company_id = $1 ORDER BY id DESC LIMIT $2
     `, [companyId, Math.min(200, Math.max(1, limit))]);
     return result.rows;
-  }
-
-  async setCreditDiscount(companyId, pct) {
-    if (!this.enabled) return null;
-    await this.pool.query('UPDATE companies SET credit_discount_pct = $2, updated_at = NOW() WHERE id = $1', [companyId, pct]);
-    return this.getCreditState(companyId);
   }
 
   /**

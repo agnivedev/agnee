@@ -104,7 +104,7 @@ type Overview = {
 };
 
 const PLANS = ['personal', 'company', 'lifetime', 'starter', 'growth', 'pro', 'enterprise'];
-const CREDIT_PLAN_OPTIONS = ['starter', 'growth', 'pro', 'enterprise'];
+const CREDIT_PLAN_OPTIONS = ['starter', 'growth', 'pro', 'lifetime', 'enterprise'];
 const PLAN_STATUSES = ['trial', 'beta', 'active', 'suspended'];
 const STATUSES = ['active', 'suspended', 'closed'];
 
@@ -936,8 +936,8 @@ function CreditCard({ companyId }: { companyId: string }) {
       <div className="mt-5 grid items-end gap-4 md:grid-cols-3">
         <SelectField label="Terapkan / perpanjang paket" value={plan} onChange={setPlan} options={CREDIT_PLAN_OPTIONS} />
         <NumberField
-          label="Credit bulanan (wajib untuk enterprise)"
-          hint="Kosongkan untuk memakai credit bawaan paket."
+          label="Credit bulanan / awal (wajib untuk enterprise)"
+          hint="Kosongkan untuk memakai credit bawaan paket. Lifetime: credit awal, sekali saja."
           value={monthlyCredit}
           onChange={setMonthlyCredit}
         />
@@ -980,7 +980,7 @@ function CreditCard({ companyId }: { companyId: string }) {
       </div>
 
       <div className="mt-4 grid items-end gap-4 md:grid-cols-3">
-        <NumberField label="Diskon credit % (maks. 90)" value={discount} onChange={setDiscount} hint="Mengurangi credit yang dipotong per panggilan AI." />
+        <NumberField label="Diskon credit % (maks. 60)" value={discount} onChange={setDiscount} hint="Mengurangi credit yang dipotong per panggilan AI." />
         <div>
           <Button
             type="button" size="sm" variant="outline"

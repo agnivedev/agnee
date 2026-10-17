@@ -123,3 +123,20 @@ test('panggilan AI selesai: credit dipotong dari biaya penyedia, kabar dikirim s
   assert.equal(notified.length, debits.length, 'kabar habis dikirim ke supervisor');
   assert.match(notified[0].body, /Credit AI habis/);
 });
+
+test('rute publik promo-quota: tanpa login, hanya angka terpakai dan sisa', async (t) => {
+  const database = {
+    ...fakeDatabase({}),
+    async getPromoQuota({ limit }) {
+      return { limit, used: 12, remaining: limit - 12, monthStart: '2026-10-01T00:00:00Z', resetsAt: '2026-11-01T00:00:00Z' };
+    },
+  };
+  const app = await buildApp({
+    logger: false, startupEnabled: false, demoMode: true, database,
+    llmEnabled: false, sessionSecret: 'credit-3',
+  });
+  t.after(() => app.close());
+  const res = await app.inject({ method: 'GET', url: '/v1/public/promo-quota' });
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.json(), { limit: 50, used: 12, remaining: 38, open: true, resetsAt: '2026-11-01T00:00:00Z' });
+});

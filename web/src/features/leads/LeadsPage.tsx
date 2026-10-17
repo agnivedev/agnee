@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Dialog, DialogClose } from '@/components/ui/dialog';
 import { useConfirm } from '@/components/ui/confirm';
 import { LeadDetailDialog } from './LeadDetailDialog';
+import { LeadFileImportDialog } from './LeadFileImportDialog';
 import { cn } from '@/lib/utils';
 import { saveLeadHandoff } from '@/features/broadcast/handoff';
 
@@ -59,6 +60,7 @@ export function LeadsPage() {
   const [relation, setRelation] = useState('');
   const [activity, setActivity] = useState('');
   const [waLabel, setWaLabel] = useState('');
+  const [fileImportOpen, setFileImportOpen] = useState(false);
   const [importRun, setImportRun] = useState<ImportRun | null>(null);
   const [importBusyElsewhere, setImportBusyElsewhere] = useState(false);
   const [choiceRow, setChoiceRow] = useState<Row | null>(null);
@@ -305,6 +307,9 @@ export function LeadsPage() {
                 <Button size="sm" variant="outline" onClick={broadcastVisible} disabled={!broadcastIds.length}>
                   {t('leads.broadcastVisible', { count: broadcastIds.length })}
                 </Button>
+                <Button size="sm" variant="outline" onClick={() => setFileImportOpen(true)}>
+                  {t('leadFile.button')}
+                </Button>
                 <Button size="sm" variant="outline" onClick={() => void startImport()} disabled={importing || importBusyElsewhere}>
                   {t('leads.importButton')}
                 </Button>
@@ -498,6 +503,7 @@ export function LeadsPage() {
       </Dialog>
 
       <LeadDetailDialog row={editRow} onClose={() => setEditRow(null)} onSaved={() => void load()} />
+      <LeadFileImportDialog open={fileImportOpen} onClose={() => setFileImportOpen(false)} onImported={() => void load()} />
     </div>
   );
 }

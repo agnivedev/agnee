@@ -1927,6 +1927,98 @@ class Database {
   }
 
   /**
+   * Kinerja tiap human agent untuk [from, to). Hanya yang tercatat:
+   *   humanReplies / chatsReplied  dari outbound_replies (author = 'human', author_user_id terisi)
+   *   waiting-time                 pesan customer pertama yang menunggu sampai balasan human pertama
+   *   takeovers / handBacks        dari conversation_handoffs (to_user_id / from_user_id)
+   *   openAssigned                 chat yang SEKARANG dipegang (bukan per periode)
+   * Chat grup tidak dihitung. Anggota aktif berperan agent selalu ikut (nol
+   * adalah informasi); anggota lain hanya bila ada aktivitas.
+   */
+  async getAgentPerformance(companyId, from, to) {
+    if (!this.enabled) return [];
+    const replies = await this.pool.query(`
+      WITH h AS (
+        SELECT chat_id, author_user_id AS user_id, created_at AS t
+        FROM outbound_replies
+        WHERE company_id = $1 AND author = 'human' AND author_user_id IS NOT NULL
+          AND created_at >= $2 AND created_at < $3 AND chat_id NOT LIKE '%@g.us'
+      ), waited AS (
+        SELECT h.user_id, h.chat_id,
+          (SELECT MIN(i.timestamp) FROM inbound_messages i
+            WHERE i.company_id = $1 AND i.chat_id = h.chat_id
+              AND i.timestamp < extract(epoch FROM h.t)
+              AND i.timestamp > COALESCE((
+                SELECT extract(epoch FROM MAX(p.created_at)) FROM outbound_replies p
+                WHERE p.company_id = $1 AND p.chat_id = h.chat_id AND p.created_at < h.t), 0)
+          ) AS waiting_since,
+          extract(epoch FROM h.t) AS answered_at
+        FROM h
+      ), measured AS (
+        SELECT user_id, GREATEST(0, answered_at - waiting_since) AS seconds FROM waited WHERE waiting_since IS NOT NULL
+      )
+      SELECT u.user_id AS "userId", u.replies, u.chats,
+             m.samples, m.median, m.average
+      FROM (SELECT user_id, COUNT(*)::int AS replies, COUNT(DISTINCT chat_id)::int AS chats FROM h GROUP BY user_id) u
+      LEFT JOIN (
+        SELECT user_id, COUNT(*)::int AS samples,
+               percentile_cont(0.5) WITHIN GROUP (ORDER BY seconds) AS median, AVG(seconds) AS average
+        FROM measured GROUP BY user_id
+      ) m ON m.user_id = u.user_id
+    `, [companyId, from, to]);
+    const handoffs = await this.pool.query(`
+      SELECT user_id AS "userId", SUM(taken)::int AS takeovers, SUM(returned)::int AS "handBacks" FROM (
+        SELECT to_user_id AS user_id, 1 AS taken, 0 AS returned FROM conversation_handoffs
+          WHERE company_id = $1 AND to_mode = 'human' AND to_user_id IS NOT NULL AND created_at >= $2 AND created_at < $3
+        UNION ALL
+        SELECT from_user_id, 0, 1 FROM conversation_handoffs
+          WHERE company_id = $1 AND to_mode = 'ai' AND from_mode = 'human' AND from_user_id IS NOT NULL
+            AND created_at >= $2 AND created_at < $3
+      ) x GROUP BY user_id
+    `, [companyId, from, to]);
+    const open = await this.pool.query(`
+      SELECT assignee_user_id AS "userId", COUNT(*)::int AS n FROM conversation_routing
+      WHERE company_id = $1 AND handling_mode = 'human' AND status <> 'closed' AND assignee_user_id IS NOT NULL
+        AND chat_id NOT LIKE '%@g.us'
+      GROUP BY assignee_user_id
+    `, [companyId]);
+    const members = await this.pool.query(`
+      SELECT u.id AS "userId", COALESCE(NULLIF(u.display_name, ''), u.email) AS name, u.email, cm.role,
+             cm.status = 'active' AS active
+      FROM company_members cm JOIN users u ON u.id = cm.user_id
+      WHERE cm.company_id = $1
+    `, [companyId]);
+    const by = (rows) => new Map(rows.map((row) => [row.userId, row]));
+    const repliesBy = by(replies.rows);
+    const handoffsBy = by(handoffs.rows);
+    const openBy = by(open.rows);
+    const result = [];
+    for (const member of members.rows) {
+      const r = repliesBy.get(member.userId);
+      const hand = handoffsBy.get(member.userId);
+      const openAssigned = openBy.get(member.userId)?.n || 0;
+      const involved = r || hand || openAssigned;
+      if (!involved && !(member.active && member.role === 'agent')) continue;
+      result.push({
+        userId: member.userId,
+        name: member.name,
+        email: member.email,
+        role: member.role,
+        active: member.active,
+        humanReplies: r?.replies || 0,
+        chatsReplied: r?.chats || 0,
+        responseSamples: r?.samples || 0,
+        medianResponseSeconds: r?.median === null || r?.median === undefined ? null : Math.round(Number(r.median)),
+        averageResponseSeconds: r?.average === null || r?.average === undefined ? null : Math.round(Number(r.average)),
+        takeovers: hand?.takeovers || 0,
+        handBacks: hand?.handBacks || 0,
+        openAssigned,
+      });
+    }
+    return result.sort((a, b) => b.humanReplies - a.humanReplies || b.takeovers - a.takeovers || a.name.localeCompare(b.name));
+  }
+
+  /**
    * Chat yang perlu di-follow up untuk [from, to), paling penting dulu. Perlu
    * tindakan kalau: customer menunggu balasan manusia (dipegang agent, atau dipegang
    * AI tetapi sudah `silentHours` jam tanpa balasan), atau lead panas/closing, atau
@@ -4197,6 +4289,8 @@ class Database {
                ELSE 'unproven' END AS "relation",
           GREATEST(inbound.timestamp, extract(epoch FROM outbound.created_at)::bigint, imp.last_message_at) AS "lastActivityAt",
           COALESCE(imp.wa_labels, '[]'::jsonb) AS "waLabels",
+          imp.email AS "email",
+          imp.note AS "importNote",
           COALESCE(GREATEST(inbound.timestamp, imp.last_message_at), 0) AS "sortAt"
         FROM chats c
         JOIN chat_phones cp ON cp.chat_id = c.chat_id
@@ -4284,6 +4378,8 @@ class Database {
           NULL::text AS "relation",
           NULL::bigint AS "lastActivityAt",
           NULL::jsonb AS "waLabels",
+          NULL::text AS "email",
+          NULL::text AS "importNote",
           COALESCE(extract(epoch FROM ml.last_transaction_at)::bigint, 0) AS "sortAt"
         FROM mayar_leads ml
         WHERE ml.company_id = $1
@@ -4436,6 +4532,88 @@ class Database {
         updated_at = NOW()
     `, [companyId, JSON.stringify(payload)]);
     return result.rowCount;
+  }
+
+
+  /**
+   * Nomor (digit) yang sudah ada di Lead List company ini, untuk mendeteksi
+   * duplikat saat impor berkas. Sumbernya sama dengan Lead List: chat WhatsApp
+   * (termasuk '@lid' yang sudah terpetakan ke nomor) dan lead Mayar.
+   */
+  async listLeadPhones(companyId) {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(`
+      WITH chats AS (
+        SELECT chat_id FROM inbound_messages WHERE company_id = $1
+        UNION SELECT chat_id FROM outbound_replies WHERE company_id = $1
+        UNION SELECT chat_id FROM lead_states WHERE company_id = $1
+        UNION SELECT chat_id FROM conversation_routing WHERE company_id = $1
+        UNION SELECT chat_id FROM imported_contacts WHERE company_id = $1
+      )
+      SELECT DISTINCT phone FROM (
+        SELECT CASE WHEN c.chat_id LIKE '%@lid' THEN lpm.phone
+                    ELSE regexp_replace(c.chat_id, '@.*$', '') END AS phone
+        FROM chats c
+        LEFT JOIN lid_phone_map lpm ON lpm.company_id = $1 AND lpm.lid = c.chat_id
+        WHERE c.chat_id NOT LIKE '%@g.us' AND c.chat_id NOT LIKE '%@broadcast' AND c.chat_id NOT LIKE '%@newsletter'
+        UNION ALL
+        SELECT phone FROM mayar_leads WHERE company_id = $1
+      ) p WHERE phone ~ '^[0-9]{8,15}$'
+    `, [companyId]);
+    return result.rows.map((row) => row.phone);
+  }
+
+  /**
+   * Menyimpan hasil impor berkas dalam satu transaksi. Tidak pernah menimpa
+   * kontak yang sudah ada (ON CONFLICT DO NOTHING): nomor yang muncul di
+   * Lead List antara pratinjau dan simpan (race) cukup dilewati. Nama hanya
+   * ditulis untuk kontak yang benar-benar baru, supaya nama dari pesan asli
+   * customer tidak tergantikan oleh isi spreadsheet.
+   * @returns {{importId: string, imported: number, raced: number}}
+   */
+  async importLeadsFromFile(companyId, { filename, format, createdBy = null, totalRows, skipped = {}, leads }) {
+    if (!this.enabled) return { importId: null, imported: 0, raced: 0 };
+    // Dicek ulang di sini, bukan hanya di pratinjau: nomor bisa saja sudah jadi
+    // chat atau lead Mayar sejak berkas dinilai.
+    const existing = new Set(await this.listLeadPhones(companyId));
+    const requested = leads.length;
+    leads = leads.filter((lead) => !existing.has(String(lead.chatId).replace(/@.*$/, '')));
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const batch = await client.query(
+        `INSERT INTO lead_file_imports (company_id, filename, format, total_rows, imported, skipped, created_by)
+         VALUES ($1, $2, $3, $4, 0, $5, $6) RETURNING id`,
+        [companyId, String(filename).slice(0, 200), format, totalRows, JSON.stringify(skipped), createdBy],
+      );
+      const importId = batch.rows[0].id;
+      const payload = leads.map((lead) => ({ chat_id: lead.chatId, name: lead.name || null, email: lead.email || null, note: lead.note || null }));
+      const inserted = payload.length ? await client.query(`
+        INSERT INTO imported_contacts (company_id, chat_id, relation, source, file_import_id, email, note)
+        SELECT $1, r.chat_id, 'unproven', 'file', $2, r.email, r.note
+        FROM jsonb_to_recordset($3::jsonb) AS r(chat_id text, name text, email text, note text)
+        ON CONFLICT (company_id, chat_id) DO NOTHING
+        RETURNING chat_id
+      `, [companyId, importId, JSON.stringify(payload)]) : { rows: [] };
+      const fresh = new Set(inserted.rows.map((row) => row.chat_id));
+      const named = payload.filter((row) => fresh.has(row.chat_id) && row.name && !/^[+\d\s()-]+$/.test(row.name));
+      if (named.length) {
+        await client.query(`
+          INSERT INTO contact_names (company_id, chat_id, name)
+          SELECT $1, r.chat_id, left(r.name, 200)
+          FROM jsonb_to_recordset($2::jsonb) AS r(chat_id text, name text)
+          ON CONFLICT (company_id, chat_id) DO NOTHING
+        `, [companyId, JSON.stringify(named)]);
+      }
+      await client.query('UPDATE lead_file_imports SET imported = $2 WHERE id = $1', [importId, fresh.size]);
+      await client.query('COMMIT');
+      return { importId, imported: fresh.size, raced: requested - fresh.size };
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   /** Chat yang sudah pernah diimpor; proses berikutnya melewatinya. */
@@ -4946,7 +5124,7 @@ class Database {
    * Calon penerima broadcast: seluruh isi Lead List yang bernomor WhatsApp
    * (keputusan Hanny 15 Okt 2026; dulu hanya yang pernah chat). Yang bukan
    * 'replied' berstatus 'unproven': POST /v1/broadcasts membuangnya kecuali
-   * pemilik mengakui risikonya. `origin` = chat | outbound | import | mayar.
+   * pemilik mengakui risikonya. `origin` = chat | outbound | import | file | mayar.
    */
   async listBroadcastAudience(companyId, limit = null) {
     if (!this.enabled) return [];
@@ -4974,6 +5152,7 @@ class Database {
                          OR rt.chat_id IS NOT NULL OR imp.relation = 'replied' THEN 'chat'
                     WHEN EXISTS (SELECT 1 FROM outbound_replies o
                                  WHERE o.company_id = $1 AND o.chat_id = c.chat_id) THEN 'outbound'
+                    WHEN imp.source = 'file' THEN 'file'
                     ELSE 'import' END AS "origin",
                COALESCE(imp.wa_labels, '[]'::jsonb) AS "waLabels",
                lead.stage AS "leadStage",

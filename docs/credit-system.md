@@ -83,7 +83,7 @@ bila 90% memang harus aman (markup ~10×). Kode masih mengizinkan 90%
 
 - `src/credit-plans.js`: konfigurasi paket + fungsi murni (biaya→credit,
   batas tingkat model, top-up→credit). Diuji.
-- `db/migrations/063_credits.sql`: kolom credit di `companies`, tabel
+- `db/migrations/065_credits.sql`: kolom credit di `companies`, tabel
   `credit_ledger`, paket baru di CHECK, jenis notifikasi `credit`.
 - `src/database.js`: `debitCredit`, `grantCredit`, `subscribePlan`,
   `getCreditState`, `listCreditLedger`, kedaluwarsa lazy (tanpa cron).

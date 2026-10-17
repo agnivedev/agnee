@@ -48,6 +48,7 @@ const BROADCAST_COLUMNS = `
 
 class Database {
   constructor(options = {}) {
+    this.creditGraceDays = 3;
     this.logger = options.logger || console;
     // `null` HARUS berarti "matikan DB" — itu satu-satunya cara mematikannya,
     // dan hanya caller yang memang meminta instance nonaktif (mis. test yang
@@ -1095,6 +1096,7 @@ class Database {
       UPDATE companies SET plan_status = 'suspended'
       WHERE id = $1 AND plan_status = 'trial' AND trial_ends_at < NOW()
     `, [companyId]);
+    await this.expireCreditIfDue(companyId, this.creditGraceDays).catch(() => {});
     const result = await this.pool.query(`
       SELECT plan, plan_status AS "planStatus", status, knowledge_client AS "knowledgeClient",
              ai_message_limit AS "aiMessageLimit", ai_message_count AS "aiMessageCount",
@@ -1110,7 +1112,9 @@ class Database {
              bank_holder AS "bankHolder", payment_notes AS "paymentNotes",
              whatsapp_provider AS "whatsappProvider",
              ai_enabled AS "aiEnabled", ai_model_chain AS "aiModelChain",
-             hub_tools_enabled AS "hubToolsEnabled"
+             hub_tools_enabled AS "hubToolsEnabled",
+             credit_mode AS "creditMode",
+             (credit_plan_balance + credit_topup_balance)::float8 AS "creditTotal"
       FROM companies WHERE id = $1
     `, [companyId]);
     return result.rows[0] || null;
@@ -2114,6 +2118,11 @@ class Database {
         c.max_whatsapp       AS "maxWhatsapp",
         c.knowledge_client   AS "knowledgeClient",
         c.hub_tools_enabled  AS "hubToolsEnabled",
+        c.credit_mode        AS "creditMode",
+        c.credit_plan_balance::float8  AS "creditPlanBalance",
+        c.credit_topup_balance::float8 AS "creditTopupBalance",
+        c.credit_period_end  AS "creditPeriodEnd",
+        c.credit_discount_pct AS "creditDiscountPct",
         (SELECT COUNT(*) FROM company_members m
           WHERE m.company_id = c.id AND m.status = 'active')::int  AS "activeUsers",
         (SELECT MAX(i.created_at) FROM inbound_messages i
@@ -3264,6 +3273,225 @@ class Database {
     `, [companyId]);
     const { count, limit } = result.rows[0] || { count: 0, limit: 0 };
     return { count, limit, exceeded: limit > 0 && count > limit };
+  }
+
+  // ── Credit (docs/credit-system.md) ────────────────────────────────────────
+
+  /**
+   * Credit paket yang sudah lewat periode + masa tenggang hangus. Dikerjakan
+   * lazy di jalur baca (seperti masa percobaan), bukan lewat cron: tidak ada
+   * proses yang harus hidup supaya saldo benar.
+   */
+  async expireCreditIfDue(companyId, graceDays = 3) {
+    if (!this.enabled) return null;
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const row = (await client.query(`
+        SELECT credit_plan_balance AS plan, credit_topup_balance AS topup FROM companies
+        WHERE id = $1 AND credit_mode AND credit_plan_balance > 0
+          AND credit_period_end IS NOT NULL
+          AND credit_period_end + ($2 || ' days')::interval < NOW()
+        FOR UPDATE
+      `, [companyId, String(graceDays)])).rows[0];
+      if (!row) { await client.query('ROLLBACK'); return null; }
+      await client.query('UPDATE companies SET credit_plan_balance = 0 WHERE id = $1', [companyId]);
+      await client.query(`
+        INSERT INTO credit_ledger (company_id, kind, amount, plan_after, topup_after, note)
+        VALUES ($1, 'expire', $2, 0, $3, 'Credit paket hangus: periode berakhir dan belum diperpanjang')
+      `, [companyId, -Number(row.plan), row.topup]);
+      await client.query('COMMIT');
+      return { expired: Number(row.plan) };
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * Potong credit untuk satu panggilan AI: kantong paket lebih dulu, lalu
+   * top-up. Saldo dikunci di 0; yang tak tertutup dicatat di `shortfall`.
+   * Mengembalikan null untuk company yang tidak memakai credit.
+   *
+   * `crossed` ('low' | 'empty') hanya terisi pada panggilan yang MELEWATI
+   * ambang, supaya supervisor dikabari sekali, bukan tiap pesan.
+   */
+  async debitCredit(companyId, { amount, costUsd = null, purpose = null, lowPercent = 20 }) {
+    if (!this.enabled || !(amount > 0)) return null;
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const row = (await client.query(`
+        SELECT credit_plan_balance AS plan, credit_topup_balance AS topup,
+               credit_last_grant AS "lastGrant", credit_alert_level AS level
+        FROM companies WHERE id = $1 AND credit_mode FOR UPDATE
+      `, [companyId])).rows[0];
+      if (!row) { await client.query('ROLLBACK'); return null; }
+
+      let plan = Number(row.plan);
+      let topup = Number(row.topup);
+      let rest = amount;
+      const fromPlan = Math.min(plan, rest); plan -= fromPlan; rest -= fromPlan;
+      const fromTopup = Math.min(topup, rest); topup -= fromTopup; rest -= fromTopup;
+      const shortfall = Math.max(0, Math.round(rest * 10_000) / 10_000);
+      const total = plan + topup;
+
+      let crossed = null;
+      if (total <= 0) crossed = row.level === 'empty' ? null : 'empty';
+      else if (!row.level && Number(row.lastGrant) > 0 && total <= Number(row.lastGrant) * (lowPercent / 100)) crossed = 'low';
+
+      await client.query(`
+        UPDATE companies SET credit_plan_balance = $2, credit_topup_balance = $3,
+          credit_alert_level = COALESCE($4, credit_alert_level)
+        WHERE id = $1
+      `, [companyId, plan, topup, crossed]);
+      await client.query(`
+        INSERT INTO credit_ledger (company_id, kind, amount, shortfall, plan_after, topup_after, cost_usd, purpose)
+        VALUES ($1, 'usage', $2, $3, $4, $5, $6, $7)
+      `, [companyId, -(amount - shortfall), shortfall, plan, topup, costUsd, purpose]);
+      await client.query('COMMIT');
+      return { planBalance: plan, topupBalance: topup, total, crossed, shortfall };
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * Menambah credit: 'topup' (kantong top-up), 'adjust' (koreksi staf, boleh
+   * negatif, di kantong top-up), atau berlangganan lewat subscribeCreditPlan.
+   */
+  async grantCredit(companyId, { kind, amount, note = null, userId = null }) {
+    if (!this.enabled) return null;
+    if (!['topup', 'adjust'].includes(kind)) throw new Error('Jenis credit tidak dikenal');
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const row = (await client.query(
+        'SELECT credit_plan_balance AS plan, credit_topup_balance AS topup FROM companies WHERE id = $1 AND credit_mode FOR UPDATE',
+        [companyId],
+      )).rows[0];
+      if (!row) {
+        await client.query('ROLLBACK');
+        const error = new Error('Company ini belum memakai credit. Terapkan paket credit lebih dulu.');
+        error.code = 'NOT_CREDIT_MODE';
+        throw error;
+      }
+      const topup = Math.max(0, Number(row.topup) + amount);
+      const applied = topup - Number(row.topup);
+      await client.query(
+        `UPDATE companies SET credit_topup_balance = $2,
+           credit_alert_level = CASE WHEN $3::numeric > 0 AND ($2::numeric + credit_plan_balance) > 0 THEN NULL ELSE credit_alert_level END
+         WHERE id = $1`,
+        [companyId, topup, applied],
+      );
+      await client.query(`
+        INSERT INTO credit_ledger (company_id, kind, amount, plan_after, topup_after, note, created_by)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+      `, [companyId, kind, applied, row.plan, topup, note, userId]);
+      await client.query('COMMIT');
+      return { planBalance: Number(row.plan), topupBalance: topup };
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * Menerapkan atau memperpanjang paket credit setelah pembayaran dikonfirmasi
+   * staf: menulis batas paket, mengganti kantong paket dengan credit bulanan
+   * (sisa lama hangus dan dicatat), dan memajukan periode satu bulan.
+   * Perpanjangan tepat waktu menyambung dari akhir periode, bukan dari hari ini.
+   */
+  async subscribeCreditPlan(companyId, { plan, monthlyCredit, limits, userId = null, note = null }) {
+    if (!this.enabled) return null;
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const row = (await client.query(`
+        SELECT credit_mode AS mode, credit_plan_balance AS plan, credit_topup_balance AS topup,
+               credit_period_end AS "periodEnd"
+        FROM companies WHERE id = $1 FOR UPDATE
+      `, [companyId])).rows[0];
+      if (!row) { await client.query('ROLLBACK'); return null; }
+
+      if (row.mode && Number(row.plan) > 0) {
+        await client.query(`
+          INSERT INTO credit_ledger (company_id, kind, amount, plan_after, topup_after, note, created_by)
+          VALUES ($1, 'expire', $2, 0, $3, 'Sisa credit paket diganti credit periode baru', $4)
+        `, [companyId, -Number(row.plan), row.topup, userId]);
+      }
+      await client.query(`
+        UPDATE companies SET
+          plan = $2, plan_status = 'active', credit_mode = TRUE,
+          credit_plan_balance = $3, credit_last_grant = $3, credit_alert_level = NULL,
+          credit_period_end = CASE
+            WHEN credit_period_end IS NOT NULL AND credit_period_end > NOW() THEN credit_period_end + INTERVAL '1 month'
+            ELSE NOW() + INTERVAL '1 month' END,
+          max_users = $4, max_whatsapp = $5, max_playbooks = $6,
+          ai_message_limit = 0, updated_at = NOW()
+        WHERE id = $1
+      `, [companyId, plan, monthlyCredit, limits.maxUsers, limits.maxWhatsapp, limits.maxPlaybooks]);
+      await client.query(`
+        INSERT INTO credit_ledger (company_id, kind, amount, plan_after, topup_after, note, created_by)
+        VALUES ($1, 'subscription', $2, $2, $3, $4, $5)
+      `, [companyId, monthlyCredit, row.topup, note || `Langganan ${plan}`, userId]);
+      await client.query('COMMIT');
+      return this.getCreditState(companyId);
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async getCreditState(companyId) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      SELECT plan, credit_mode AS "creditMode",
+             credit_plan_balance::float8 AS "planBalance", credit_topup_balance::float8 AS "topupBalance",
+             (credit_plan_balance + credit_topup_balance)::float8 AS total,
+             credit_period_end AS "periodEnd", credit_last_grant::float8 AS "lastGrant",
+             credit_discount_pct AS "discountPct", credit_alert_level AS "alertLevel"
+      FROM companies WHERE id = $1
+    `, [companyId]);
+    return result.rows[0] || null;
+  }
+
+  async listCreditLedger(companyId, limit = 50) {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(`
+      SELECT id, kind, amount::float8 AS amount, shortfall::float8 AS shortfall,
+             plan_after::float8 AS "planAfter", topup_after::float8 AS "topupAfter",
+             purpose, note, created_at AS "createdAt"
+      FROM credit_ledger WHERE company_id = $1 ORDER BY id DESC LIMIT $2
+    `, [companyId, Math.min(200, Math.max(1, limit))]);
+    return result.rows;
+  }
+
+  async setCreditDiscount(companyId, pct) {
+    if (!this.enabled) return null;
+    await this.pool.query('UPDATE companies SET credit_discount_pct = $2, updated_at = NOW() WHERE id = $1', [companyId, pct]);
+    return this.getCreditState(companyId);
+  }
+
+  /** Notifikasi dalam aplikasi untuk owner/admin/supervisor (tanpa chat). */
+  async notifyCredit(companyId, body) {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(`
+      INSERT INTO notifications (company_id, user_id, kind, actor_kind, body)
+      SELECT $1, user_id, 'credit', 'ai', $2 FROM company_members
+      WHERE company_id = $1 AND status = 'active' AND role IN ('owner', 'admin', 'supervisor')
+      RETURNING user_id AS "userId"
+    `, [companyId, String(body).slice(0, 500)]);
+    return result.rows.map((row) => row.userId);
   }
 
   async updateTeamMemberRole(userId, role, companyId) {

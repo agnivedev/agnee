@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import { McpServer } from '@modelcontextprotocol/server';
 import * as z from 'zod/v4';
-import { mcpContext, WRITE_SCOPE } from './mcp-context.mjs';
+import { currentIdentity, WRITE_SCOPE } from './mcp-context.mjs';
 
 const apiBaseUrl = (process.env.MCP_API_BASE_URL || 'http://127.0.0.1:4100').replace(/\/$/, '');
 const apiKey = process.env.API_KEY || 'dev-api-key';
@@ -18,7 +18,7 @@ if (process.env.NODE_ENV === 'production' && apiKey === 'dev-api-key') {
  * agent here hits the same claim rules as in the inbox.
  */
 async function agneeApi(path, options = {}) {
-  const identity = mcpContext.getStore();
+  const identity = currentIdentity();
   if (!identity?.userId || !identity?.companyId) {
     throw new Error('No Agnee account is attached to this connection. Reconnect and sign in with your Agnee account.');
   }
@@ -45,7 +45,7 @@ function result(data) {
   };
 }
 
-const canWrite = () => Boolean(mcpContext.getStore()?.scopes?.includes(WRITE_SCOPE));
+const canWrite = () => Boolean(currentIdentity()?.scopes?.includes(WRITE_SCOPE));
 
 // Klien (ChatGPT, Claude) mengambil ikon aplikasi dari sini; tanpa ini mereka
 // menampilkan ikon acak. File-nya disajikan mcp-http.mjs dari origin MCP_PUBLIC_URL.

@@ -178,9 +178,10 @@ export function formatFileSize(bytes: number) {
  * menyalin angka yang tidak bisa dihubungi.
  */
 export function phoneFromChatId(chatId?: string | null) {
-  if (!chatId || chatId.endsWith('@g.us')) return null;
+  // Id @lid dan id grup bukan nomor telepon; angkanya hanya menyesatkan.
+  if (!chatId || chatId.endsWith('@g.us') || chatId.endsWith('@lid')) return null;
   const digits = chatId.replace(/@.*$/, '').replace(/[^\d]/g, '');
-  return digits || null;
+  return digits.length >= 7 ? digits : null;
 }
 
 /** `628123456789` → `+62 812 3456 789`, supaya terbaca dan mudah dicocokkan. */

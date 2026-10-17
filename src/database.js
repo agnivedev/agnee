@@ -173,6 +173,15 @@ class Database {
     return Object.fromEntries(result.rows.map((row) => [row.lid, row.phone]));
   }
 
+  /** Nama yang pernah direkam dari pesan masuk (nama profil WhatsApp), per chat. */
+  async getContactNamesFor(companyId, chatIds) {
+    if (!this.enabled || !chatIds?.length) return {};
+    const result = await this.pool.query(`
+      SELECT chat_id, name FROM contact_names WHERE company_id = $1 AND chat_id = ANY($2::text[])
+    `, [companyId, chatIds]);
+    return Object.fromEntries(result.rows.filter((row) => row.name).map((row) => [row.chat_id, row.name]));
+  }
+
   async savePhoneForLid(companyId, lid, phone) {
     if (!this.enabled) return;
     await this.pool.query(`
@@ -428,7 +437,7 @@ class Database {
       FROM lead_states ls
       LEFT JOIN contact_names cn ON cn.company_id = ls.company_id AND cn.chat_id = ls.chat_id
       LEFT JOIN lid_phone_map lp ON lp.company_id = ls.company_id AND ls.chat_id LIKE '%@lid'
-        AND lp.lid = split_part(ls.chat_id, '@', 1)
+        AND lp.lid = ls.chat_id
       WHERE ls.company_id = $1
       ORDER BY ls.pipeline_stage, ls.updated_at DESC
       LIMIT $2
@@ -1954,7 +1963,7 @@ class Database {
         LEFT JOIN conversation_routing r ON r.company_id = $1 AND r.chat_id = a.chat_id
         LEFT JOIN users u ON u.id = r.assignee_user_id
         LEFT JOIN contact_names cn ON cn.company_id = $1 AND cn.chat_id = a.chat_id
-        LEFT JOIN lid_phone_map lp ON lp.company_id = $1 AND a.chat_id LIKE '%@lid' AND lp.lid = split_part(a.chat_id, '@', 1)
+        LEFT JOIN lid_phone_map lp ON lp.company_id = $1 AND a.chat_id LIKE '%@lid' AND lp.lid = a.chat_id
         LEFT JOIN conversation_summaries cs ON cs.company_id = $1 AND cs.chat_id = a.chat_id AND cs.locale = 'id'
       ), scored AS (
         SELECT *, (last_in IS NOT NULL AND (last_out IS NULL OR last_in > last_out)) AS waiting

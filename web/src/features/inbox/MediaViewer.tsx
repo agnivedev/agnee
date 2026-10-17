@@ -24,6 +24,11 @@ export function MediaViewer({ target, onClose }: { target: MediaTarget | null; o
   const [zoomLabel, setZoomLabel] = useState('100%');
   const [downloading, setDownloading] = useState(false);
   const [failed, setFailed] = useState(false);
+  // File asli tidak bisa diunduh lagi (kedaluwarsa di WhatsApp, nomor terputus):
+  // tampilkan pratinjau yang sudah ada, dengan catatan, bukan layar kosong.
+  const [usingPreview, setUsingPreview] = useState(false);
+  // iframe tidak melaporkan 404, jadi dokumen dicek dulu sebelum dibingkai.
+  const [docState, setDocState] = useState<'checking' | 'ok' | 'failed'>('checking');
 
   const isImage = target?.kind === 'image';
 
@@ -55,8 +60,27 @@ export function MediaViewer({ target, onClose }: { target: MediaTarget | null; o
 
   useEffect(() => {
     setFailed(false);
+    setUsingPreview(false);
     if (target) reset();
   }, [target, reset]);
+
+  useEffect(() => {
+    if (target?.kind !== 'document') return;
+    let cancelled = false;
+    setDocState('checking');
+    void fetch(target.src, { credentials: 'same-origin' })
+      .then((response) => { if (!cancelled) setDocState(response.ok ? 'ok' : 'failed'); })
+      .catch(() => { if (!cancelled) setDocState('failed'); });
+    return () => { cancelled = true; };
+  }, [target]);
+
+  function onMediaError() {
+    if (target?.fallbackSrc && !usingPreview && target.kind !== 'audio' && target.kind !== 'document') {
+      setUsingPreview(true);
+      return;
+    }
+    setFailed(true);
+  }
 
   useEffect(() => {
     if (!target) return;
@@ -175,18 +199,27 @@ export function MediaViewer({ target, onClose }: { target: MediaTarget | null; o
         }}
         className={cn('grid min-h-0 place-items-center overflow-hidden px-4', isImage && 'cursor-grab')}
       >
-        {failed ? (
+        {failed || (target.kind === 'document' && docState === 'failed') ? (
           <p role="alert" className="m-0 max-w-[420px] text-center text-sm leading-[1.5] text-white/75">
             {t('media.loadFailed')}
           </p>
+        ) : usingPreview ? (
+          <div className="grid max-h-full min-h-0 justify-items-center gap-3">
+            <img src={target.fallbackSrc || ''} alt={target.title} className="max-h-[calc(100%-3rem)] max-w-full rounded-lg object-contain" />
+            <p role="status" className="m-0 max-w-[420px] text-center text-xs leading-[1.5] text-white/70">
+              {t('media.previewOnly')}
+            </p>
+          </div>
         ) : target.kind === 'image' ? (
-          <img ref={image} src={target.src} alt={target.title} onError={() => setFailed(true)} className="max-h-full max-w-full origin-center" />
+          <img ref={image} src={target.src} alt={target.title} onError={onMediaError} className="max-h-full max-w-full origin-center" />
         ) : target.kind === 'video' ? (
           // eslint-disable-next-line jsx-a11y/media-has-caption
-          <video src={target.src} controls playsInline preload="metadata" autoPlay onError={() => setFailed(true)} className="max-h-full max-w-full" />
+          <video src={target.src} controls playsInline preload="metadata" autoPlay onError={onMediaError} className="max-h-full max-w-full" />
         ) : target.kind === 'audio' ? (
           // eslint-disable-next-line jsx-a11y/media-has-caption
           <audio src={target.src} controls preload="metadata" onError={() => setFailed(true)} className="w-[min(100%,480px)]" />
+        ) : docState === 'checking' ? (
+          <p className="m-0 text-sm text-white/60">…</p>
         ) : (
           <iframe src={target.src} title={target.title} className="size-full border-0 bg-white" />
         )}

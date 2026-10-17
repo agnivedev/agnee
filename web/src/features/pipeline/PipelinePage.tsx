@@ -16,6 +16,12 @@ import type { Lead, PipelineLead, PipelineStage } from '@/features/inbox/types';
  * 'unsafe-inline') — lihat SENDER_TEXT_CLASSES di features/inbox/format.ts
  * untuk alasan yang sama. API native tidak butuh style inline sama sekali.
  */
+/** Nomor telepon yang masuk akal; id samaran atau sisa tes ('0') bukan nomor. */
+function realPhone(phone?: string | null) {
+  const digits = String(phone || '').replace(/\D/g, '');
+  return digits.length >= 7 ? digits : null;
+}
+
 export function PipelinePage() {
   const { t } = useI18n();
   const navigate = useNavigate();
@@ -131,22 +137,19 @@ export function PipelinePage() {
                       onClick={() =>
                         navigate(
                           `/?chat=${encodeURIComponent(lead.chatId)}` +
-                            (lead.contactName || lead.phone
-              ? `&title=${encodeURIComponent(lead.contactName || `+${lead.phone}`)}`
-              : ''),
+                            (lead.contactName || realPhone(lead.phone)
+              ? `&title=${encodeURIComponent(lead.contactName || `+${realPhone(lead.phone)}`)}`
+              : '') +
+            (realPhone(lead.phone) ? `&phone=${encodeURIComponent(realPhone(lead.phone) || '')}` : ''),
                         )
                       }
                       className="grid cursor-grab gap-1.5 rounded-xl border border-border bg-white/80 p-2.5 text-left active:cursor-grabbing"
                     >
                       <strong className="text-[13px]">
-                        {lead.contactName || (lead.phone ? `+${lead.phone}` : lead.title) || t('pipeline.unnamed')}
+                        {lead.contactName || (realPhone(lead.phone) ? `+${realPhone(lead.phone)}` : t('pipeline.unnamed'))}
                       </strong>
-                      {lead.contactName && lead.title && lead.title !== lead.contactName ? (
-                        <span className="text-[12px]">{lead.title}</span>
-                      ) : null}
-                      {lead.phone ? <span className="text-[11px] text-muted">+{lead.phone}</span> : null}
-                      {lead.detail ? (
-                        <span className="line-clamp-2 text-[11px] text-muted">{lead.detail}</span>
+                      {lead.contactName && realPhone(lead.phone) ? (
+                        <span className="text-[11px] text-muted">+{realPhone(lead.phone)}</span>
                       ) : null}
                       {lead.pipelineStageSuggested && lead.pipelineStageSuggested !== lead.pipelineStage ? (
                         <div

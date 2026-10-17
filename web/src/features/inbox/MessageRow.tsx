@@ -238,6 +238,7 @@ export function MessageRow({
               onOpenMedia({
                 kind: 'video',
                 src: mediaUrl(message.id, chatId),
+                fallbackSrc: message.inlineImage || null,
                 title: message.body || t('media.video'),
                 filename: `video-${String(message.id).replace(/[^a-z0-9_-]/gi, '_')}.mp4`,
               })
@@ -406,6 +407,7 @@ function BubbleImage({
       // The inline base64 WhatsApp carries is a tiny preview. Always request the
       // decrypted original for the full-screen viewer when there is a message id.
       src: message.id ? mediaUrl(message.id, chatId) : message.inlineImage || '',
+      fallbackSrc: message.inlineImage || null,
       title: alt,
       filename: `${message.type}-${String(message.id).replace(/[^a-z0-9_-]/gi, '_')}.${
         message.inlineImageExtension || (message.type === 'sticker' ? 'webp' : 'jpg')

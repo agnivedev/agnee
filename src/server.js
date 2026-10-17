@@ -8416,6 +8416,7 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     chats.sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) || Number(b.timestamp || 0) - Number(a.timestamp || 0));
     const page = chats.slice(offset, offset + limit);
     if (provider !== 'cloud_api' && !config.demoMode) await fillEmptyPreviews(page);
+    await attachPhonesAndNames(companyId, page).catch(() => {});
     return {
       chats: page,
       hasMore: offset + limit < chats.length,
@@ -8984,6 +8985,28 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
         return null;
       }
     }, lidChatId);
+  }
+
+  /**
+   * Nomor HP asli dan nama yang layak tampil untuk tiap chat di halaman.
+   * Id @lid bukan nomor telepon: nomornya hanya dari peta yang sudah tersimpan,
+   * dan kalau belum ada, kosong (UI tidak menampilkan angka samaran).
+   * Nama bernomor ("+62 823…", yang WhatsApp pakai saat kontak belum disimpan)
+   * diganti nama profil yang pernah terekam dari pesan masuk.
+   */
+  async function attachPhonesAndNames(companyId, page) {
+    if (!database.status().connected) return;
+    const people = page.filter((chat) => !chat.isGroup && !String(chat.id || '').endsWith('@g.us'));
+    const lids = people.filter((chat) => chat.id.endsWith('@lid')).map((chat) => chat.id);
+    const needName = people.filter((chat) => /^[+\d\s().-]*$/.test(String(chat.name || '').trim())).map((chat) => chat.id);
+    const [phones, names] = await Promise.all([
+      lids.length ? database.getPhonesForLids(companyId, lids).catch(() => ({})) : {},
+      needName.length ? database.getContactNamesFor(companyId, needName).catch(() => ({})) : {},
+    ]);
+    for (const chat of people) {
+      chat.phone = chat.id.endsWith('@lid') ? (phones[chat.id] || null) : chat.id.replace(/@.*$/, '').replace(/\D/g, '') || null;
+      if (names[chat.id]) chat.name = names[chat.id];
+    }
   }
 
   /**

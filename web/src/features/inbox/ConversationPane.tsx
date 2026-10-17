@@ -81,7 +81,7 @@ export function ConversationPane({
   // Nomor customer menggantikan label "lead aktif" yang tidak memberi
   // informasi apa pun. Agent sering perlu nomornya untuk mencocokkan lead
   // dengan catatan atau data di luar Agnee.
-  const headerPhone = formatPhone(phoneFromChatId(chat?.id));
+  const headerPhone = formatPhone(chat?.phone || phoneFromChatId(chat?.id));
   const [highlighted, setHighlighted] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);

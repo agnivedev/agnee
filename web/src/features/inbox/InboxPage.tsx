@@ -184,10 +184,12 @@ export function InboxPage() {
     const requestedChatId = params.get('chat');
     if (!requestedChatId) return;
     const title = params.get('title');
+    const phone = params.get('phone');
     window.history.replaceState({}, '', window.location.pathname);
     void inbox.openChat({
       id: requestedChatId,
-      name: title || requestedChatId.replace(/@.*$/, ''),
+      name: title || phone || 'WhatsApp',
+      phone: phone || null,
       preview: '',
       timestamp: 0,
       unreadCount: 0,

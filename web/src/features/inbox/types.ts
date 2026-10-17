@@ -3,6 +3,8 @@ export type Chat = {
   name: string;
   preview: string;
   lastSenderName?: string | null;
+  /** Nomor HP asli (digit); kosong untuk grup dan @lid yang nomornya belum terbaca. */
+  phone?: string | null;
   timestamp: number;
   unreadCount: number;
   isGroup: boolean;
@@ -124,4 +126,6 @@ export type MediaTarget = {
   title: string;
   filename: string;
   kind: 'image' | 'video' | 'audio' | 'document';
+  /** Pratinjau kecil yang sudah ada di browser; dipakai bila file aslinya tidak bisa diunduh lagi. */
+  fallbackSrc?: string | null;
 };

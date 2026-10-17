@@ -105,6 +105,194 @@ const FOKUS =
   'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#087d4c] dark:focus-visible:outline-[#7fff4f]';
 const FOKUS_GELAP = 'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#7fff4f]';
 
+
+/**
+ * Warna per bagian (keputusan pemilik 2026-10-17: halaman terlalu hijau tua dan
+ * neon). Hijau tetap warna merek dan dipakai untuk CTA. Tiga warna pendamping
+ * hanya dipakai sebagai penanda bagian, satu warna per bagian, supaya pembaca
+ * tahu sedang di topik mana: biru = inbox dan serah-terima, kuning = jadwal dan
+ * batas jam, koral = broadcast. Kuning juga satu-satunya warna blok promo.
+ */
+const TEMA = {
+  hijau: {
+    teks: 'text-green-dark dark:text-[#7fff4f]',
+    garis: 'bg-green-dark dark:bg-[#7fff4f]',
+    isi: 'bg-[#19c666]',
+    band: '',
+    kartu: 'border-[#c6dcc0] dark:border-[#24403a]',
+  },
+  biru: {
+    teks: 'text-[#1d5f8f] dark:text-[#7cc4f5]',
+    garis: 'bg-[#1d5f8f] dark:bg-[#7cc4f5]',
+    isi: 'bg-[#3a9ad9]',
+    band: 'bg-[#e3f1fc] dark:bg-[#10222e]',
+    kartu: 'border-[#b9d7ee] dark:border-[#244a63]',
+  },
+  kuning: {
+    teks: 'text-[#8a5a00] dark:text-[#f5c451]',
+    garis: 'bg-[#8a5a00] dark:bg-[#f5c451]',
+    isi: 'bg-[#e0a526]',
+    band: 'bg-[#fdf3dc] dark:bg-[#2a2412]',
+    kartu: 'border-[#ecd49a] dark:border-[#6b5620]',
+  },
+  koral: {
+    teks: 'text-[#a8400f] dark:text-[#ff9b7a]',
+    garis: 'bg-[#a8400f] dark:bg-[#ff9b7a]',
+    isi: 'bg-[#e0587a]',
+    band: 'bg-[#fde8df] dark:bg-[#2b1a16]',
+    kartu: 'border-[#f0c4b3] dark:border-[#6a3a2c]',
+  },
+} as const;
+type NamaTema = keyof typeof TEMA;
+const URUTAN_TEMA: NamaTema[] = ['hijau', 'biru', 'kuning', 'koral'];
+
+/** Panel putih untuk grafik atau diagram di dalam band berwarna. */
+function PanelGrafik({ judul, tema, children, catatan }: { judul: string; tema: NamaTema; children: ReactNode; catatan: string }) {
+  return (
+    <figure className={`m-0 mt-8 rounded-panel border bg-white p-5 sm:p-6 dark:bg-[#0c1912]/70 ${TEMA[tema].kartu}`}>
+      <figcaption className={`mb-4 text-[13px] font-semibold ${TEMA[tema].teks}`}>{judul}</figcaption>
+      {children}
+      <p className="mt-4 mb-0 text-[12px] leading-[1.55] text-[#4e6e5e] dark:text-[#9fc4ae]">{catatan}</p>
+    </figure>
+  );
+}
+
+/**
+ * Diagram serah-terima. Aturannya dari kode: AI berhenti saat CS mulai ngetik,
+ * dan chat kembali ke AI setelah CS diam 30 menit (AUTO_ASSIGN_IDLE_MINUTES).
+ */
+function DiagramSerahTerima() {
+  const langkah: [string, string, string][] = [
+    ['AI membalas', 'Customer chat, AI menjawab dari playbook.', 'bg-[#19c666]'],
+    ['CS mulai ngetik', 'Chat jadi milik CS. AI berhenti membalas.', 'bg-[#3a9ad9]'],
+    ['CS diam 30 menit', 'Tidak ada balasan manusia selama 30 menit.', 'bg-[#e0a526]'],
+    ['AI lanjut jaga', 'Customer tidak menunggu orang yang sudah pulang.', 'bg-[#19c666]'],
+  ];
+  return (
+    <PanelGrafik
+      judul="Siapa yang memegang chat, dari waktu ke waktu"
+      tema="biru"
+      catatan="Chat yang ditugaskan supervisor lewat panel tidak ikut kembali ke AI."
+    >
+      <ol className="m-0 grid list-none gap-4 p-0 sm:grid-cols-4">
+        {langkah.map(([judul, isi, warna], i) => (
+          <li key={judul} className="relative">
+            <div className="flex items-center gap-2">
+              <span className={`size-3.5 shrink-0 rounded-full ${warna}`} aria-hidden />
+              <span aria-hidden className={`hidden h-0.5 flex-1 sm:block ${i === langkah.length - 1 ? 'opacity-0' : 'bg-[#b9d7ee] dark:bg-[#244a63]'}`} />
+            </div>
+            <p className="mt-2 mb-1 text-[14px] font-semibold">{judul}</p>
+            <p className="m-0 text-[12px] leading-[1.55] text-[#4e6e5e] dark:text-[#9fc4ae]">{isi}</p>
+          </li>
+        ))}
+      </ol>
+    </PanelGrafik>
+  );
+}
+
+/**
+ * Jendela kirim 24 jam. 08.00 sampai 20.00 adalah JAM_KIRIM bawaan broadcast
+ * (src/broadcast.js). Follow-up memakai jendela yang diatur perusahaan, jadi
+ * grafik ini diberi label "contoh bawaan broadcast", bukan angka follow-up.
+ */
+function GrafikJamKirim() {
+  const tanda = [0, 6, 12, 18, 24];
+  return (
+    <PanelGrafik
+      judul="Jendela jam kirim dalam satu hari (bawaan broadcast)"
+      tema="kuning"
+      catatan="Di luar jendela, pesan menunggu sampai jam kirim berikutnya. Jendela follow-up diatur sesuai perusahaanmu."
+    >
+      <svg viewBox="0 0 480 64" role="img" aria-label="Bagan 24 jam. Pesan hanya keluar antara pukul 08.00 dan 20.00." className="w-full">
+        <rect x="0" y="14" width="480" height="22" rx="6" className="fill-[#f3e6c4] dark:fill-[#3a3216]" />
+        <rect x={(8 / 24) * 480} y="14" width={(12 / 24) * 480} height="22" rx="6" className="fill-[#e0a526]" />
+        {tanda.map((jam) => (
+          <g key={jam}>
+            <line x1={(jam / 24) * 480} x2={(jam / 24) * 480} y1="36" y2="42" className="stroke-[#8a5a00] dark:stroke-[#f5c451]" strokeWidth="1.5" />
+            <text
+              x={(jam / 24) * 480}
+              y="58"
+              textAnchor={jam === 0 ? 'start' : jam === 24 ? 'end' : 'middle'}
+              className="fill-[#4e6e5e] text-[11px] dark:fill-[#d9c48a]"
+            >
+              {String(jam).padStart(2, '0')}.00
+            </text>
+          </g>
+        ))}
+        <text x={(14 / 24) * 480} y="29" textAnchor="middle" className="fill-[#14241f] text-[11px] font-semibold">
+          Pesan boleh keluar
+        </text>
+      </svg>
+    </PanelGrafik>
+  );
+}
+
+/**
+ * Rem broadcast (src/broadcast.js, TEMPO.whatsapp_web): jeda acak 20 sampai 45
+ * detik, maksimal 300 pesan per hari. Skala jeda 0 sampai 60 detik hanya untuk
+ * menggambar, bukan angka produk.
+ */
+function GrafikRem() {
+  return (
+    <PanelGrafik
+      judul="Dua batas yang dipasang di tiap broadcast"
+      tema="koral"
+      catatan="Ini rem yang dipasang Agnee. Risiko diblokir WhatsApp tetap ada dan tidak bisa dihilangkan."
+    >
+      <div className="grid gap-6 sm:grid-cols-2">
+        <div>
+          <p className="m-0 mb-2 text-[13px] font-semibold">Jeda antar pesan: 20 sampai 45 detik, acak</p>
+          <div className="relative h-5 rounded-md bg-[#f6d5c8] dark:bg-[#47261c]" role="img" aria-label="Skala 0 sampai 60 detik, jeda jatuh di 20 sampai 45 detik">
+            <div className="absolute inset-y-0 rounded-md bg-[#e0587a]" style={{ left: `${(20 / 60) * 100}%`, width: `${(25 / 60) * 100}%` }} />
+          </div>
+          <div className="mt-1 flex justify-between font-mono text-[11px] text-[#4e6e5e] dark:text-[#e8b5a3]">
+            <span>0 dtk</span>
+            <span>60 dtk</span>
+          </div>
+        </div>
+        <div>
+          <p className="m-0 mb-2 text-[13px] font-semibold">Jumlah pesan: maksimal 300 per hari</p>
+          <div className="grid grid-cols-[repeat(30,minmax(0,1fr))] gap-[3px]" role="img" aria-label="Batas 300 pesan per hari">
+            {Array.from({ length: 30 }, (_, i) => (
+              <span key={i} className="aspect-square rounded-[3px] bg-[#e0587a]" />
+            ))}
+          </div>
+          <p className="mt-1 mb-0 font-mono text-[11px] text-[#4e6e5e] dark:text-[#e8b5a3]">satu kotak = 10 pesan</p>
+        </div>
+      </div>
+    </PanelGrafik>
+  );
+}
+
+/** Tangga harga dari TANGGA_HARGA. Panjang batang proporsional, label angka tetap tertulis. */
+function GrafikTangga() {
+  const nilai = [100_000_000, 25_000_000, 9_000_000, 299_000, 99_000];
+  const label = [...TANGGA_HARGA, 'Rp 99.000'];
+  const nama = ['Harga pantas versi kami', 'Harga pantas versi kami', 'Harga pantas versi kami', 'Harga pantas versi kami', 'Starter, harga promo'];
+  const warna = ['bg-[#c9d8cf]', 'bg-[#c9d8cf]', 'bg-[#c9d8cf]', 'bg-[#c9d8cf]', 'bg-[#19c666]'];
+  return (
+    <figure className="m-0 mt-8 rounded-panel border border-[#c6dcc0] bg-white p-5 sm:p-6 dark:border-[#24403a] dark:bg-[#14241f]">
+      <figcaption className="mb-4 text-[13px] font-semibold text-green-dark dark:text-[#7fff4f]">
+        Harga pantas versi kami dibanding Starter, per bulan
+      </figcaption>
+      <div className="grid gap-3">
+        {nilai.map((n, i) => (
+          <div key={label[i]} className="grid grid-cols-[1fr_auto] items-center gap-x-3 gap-y-1 sm:grid-cols-[170px_1fr_auto]">
+            <span className="text-[12px] text-[#4e6e5e] dark:text-[#9fc4ae]">{nama[i]}</span>
+            <span className="col-span-2 row-start-2 h-3 rounded-sm bg-[#eef5eb] sm:col-span-1 sm:row-start-auto dark:bg-[#0c1912]">
+              <span className={`block h-3 rounded-sm ${warna[i]}`} style={{ width: `${Math.max((n / nilai[0]) * 100, 1.5)}%` }} />
+            </span>
+            <span className="text-right font-mono text-[12px] font-semibold">{label[i]}</span>
+          </div>
+        ))}
+      </div>
+      <p className="mt-4 mb-0 text-[12px] leading-[1.55] text-[#4e6e5e] dark:text-[#9fc4ae]">
+        Empat angka pertama adalah perkiraan kami sendiri dan tidak pernah ditagihkan. Panjang batang mengikuti angkanya.
+      </p>
+    </figure>
+  );
+}
+
 export function LandingPage() {
   useEffect(() => {
     document.title = 'Agnee: bukan auto-respon, satu tim CS lengkap';
@@ -142,10 +330,10 @@ function Section({ children, className, id }: { children: ReactNode; className?:
   );
 }
 
-function Eyebrow({ children }: { children: ReactNode }) {
+function Eyebrow({ children, tema = 'hijau' }: { children: ReactNode; tema?: NamaTema }) {
   return (
-    <p className="m-0 mb-2.5 flex items-center gap-2 text-[12px] font-semibold text-green-dark dark:text-[#7fff4f]">
-      <span aria-hidden className="inline-block h-px w-5 bg-green-dark dark:bg-[#7fff4f]" />
+    <p className={`m-0 mb-2.5 flex items-center gap-2 text-[12px] font-semibold ${TEMA[tema].teks}`}>
+      <span aria-hidden className={`inline-block h-px w-5 ${TEMA[tema].garis}`} />
       {children}
     </p>
   );
@@ -225,7 +413,7 @@ function Hero() {
           <h1 className="mt-4 mb-0 text-[clamp(34px,5.6vw,62px)] leading-[1.04] font-semibold tracking-[-.05em]">
             Chatbot lain cuma auto-respon.
             <br />
-            <span className="text-green-dark dark:text-[#7fff4f]">Agnee kerja kayak satu tim CS.</span>
+            <span className="text-green-dark dark:text-[#7fff4f]">Agnee kerja kayak satu company sales.</span>
           </h1>
           <p className="mt-5 mb-0 max-w-xl text-[17px] leading-[1.6] text-[#4e6e5e] dark:text-[#7aaa8a]">
             Auto-respon membalas kata kunci. Agnee membaca riwayat chat, menjawab dari playbook-mu, minggir saat CS mulai ngetik, menyusul lead yang diam, mengirim broadcast, mencatat tugas, dan melapor ke supervisor. Semuanya dari satu nomor WhatsApp yang sudah kamu pakai.
@@ -245,7 +433,7 @@ function Hero() {
             </a>
           </div>
           <p className="mt-4 mb-0 text-[13px] text-[#4e6e5e] dark:text-[#7aaa8a]">
-            Promo dibuka untuk {KUOTA_PROMO} perusahaan baru tiap bulan.
+            7 hari gratis, tanpa kartu kredit, berhenti kapan aja.
           </p>
         </div>
         <img src="/assets/hero-team.png" alt="Tim CS Agnee" className="w-full rounded-panel" />
@@ -261,20 +449,21 @@ function Hero() {
  *   AI atau CS — kolom author ('ai' | 'human') di migrasi 014
  *   3 pengaman — jendela jam, plafon harian, jarak minimum di src/follow-up.js
  */
-const BUKTI: [string, string][] = [
-  ['30 menit', 'CS diam 30 menit, chat otomatis balik ke AI'],
-  ['8 dokumen', 'Playbook yang mengatur cara AI menjawab, diisi lewat ngobrol'],
-  ['AI atau kamu', 'Tiap balasan ketahuan siapa yang nulis'],
-  ['3 pengaman', 'Follow-up cuma jalan di jam, jumlah, dan jarak yang kamu atur'],
+const BUKTI: [string, string, NamaTema][] = [
+  ['30 menit', 'CS diam 30 menit, chat otomatis balik ke AI', 'biru'],
+  ['8 dokumen', 'Playbook yang mengatur cara AI menjawab, diisi lewat ngobrol', 'hijau'],
+  ['AI atau kamu', 'Tiap balasan ketahuan siapa yang nulis', 'koral'],
+  ['3 pengaman', 'Follow-up cuma jalan di jam, jumlah, dan jarak yang kamu atur', 'kuning'],
 ];
 
 function ProofStrip() {
   return (
     <Section className="border-y border-[#c6dcc0] py-8 dark:border-[#24403a]">
       <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
-        {BUKTI.map(([nilai, label]) => (
+        {BUKTI.map(([nilai, label, tema]) => (
           <div key={nilai} className="text-center">
-            <span className="block text-[22px] leading-tight font-semibold tracking-[-.03em]">{nilai}</span>
+            <span aria-hidden className={`mx-auto mb-3 block h-1 w-10 rounded-full ${TEMA[tema].isi}`} />
+            <span className={`block text-[24px] leading-tight font-semibold tracking-[-.03em] ${TEMA[tema].teks}`}>{nilai}</span>
             <span className="mt-1.5 block text-[13px] leading-[1.5] text-[#4e6e5e] dark:text-[#7aaa8a]">{label}</span>
           </div>
         ))}
@@ -379,6 +568,15 @@ const DETAIL_KECIL = [
   'Data tiap perusahaan terpisah',
 ];
 
+const WARNA_KARTU = [
+  'border-[#b5e3c4] bg-[#e4f7ea] dark:border-[#24523a] dark:bg-[#12281d]',
+  'border-[#f2d9a0] bg-[#fdf3dc] dark:border-[#5a4a1e] dark:bg-[#2a2412]',
+  'border-[#b9d9f2] bg-[#e3f1fc] dark:border-[#244a66] dark:bg-[#12222e]',
+  'border-[#d6c9f2] bg-[#efe9fc] dark:border-[#443468] dark:bg-[#1e1830]',
+  'border-[#f2c3cf] bg-[#fce6ec] dark:border-[#662a3a] dark:bg-[#2c1219]',
+  'border-[#f2cfb3] bg-[#fcebdc] dark:border-[#66402a] dark:bg-[#2c1c12]',
+];
+
 function BandKemampuan() {
   return (
     <Section id="semua" className="py-16 sm:py-20">
@@ -391,9 +589,10 @@ function BandKemampuan() {
         {KEMAMPUAN.map(({ judul, isi, segera }, index) => (
           <li
             key={judul}
-            className="flex flex-col rounded-panel border border-[#c6dcc0] bg-white p-5 dark:border-[#24403a] dark:bg-[#14241f]"
+            className={`flex flex-col rounded-panel border p-5 ${WARNA_KARTU[index % WARNA_KARTU.length]}`}
           >
-            <span className="flex items-center justify-between font-mono text-[11px] font-semibold text-green-dark dark:text-[#7fff4f]">
+            <span aria-hidden className={`mb-3 block h-1 w-8 rounded-full ${TEMA[URUTAN_TEMA[index % 4]].isi}`} />
+            <span className={`flex items-center justify-between font-mono text-[11px] font-semibold ${TEMA[URUTAN_TEMA[index % 4]].teks}`}>
               {String(index + 1).padStart(2, '0')}
               {segera ? (
                 <span className="rounded-full bg-[#dff0d6] px-2.5 py-0.5 text-[11px] text-[#205a38] dark:bg-[#1b3028] dark:text-[#7fff4f]">
@@ -426,8 +625,8 @@ function BandKemampuan() {
 
 function BandSiapaBicara() {
   return (
-    <Section id="fitur" className="py-16 sm:py-20">
-      <Eyebrow>AI dan CS kamu, satu inbox</Eyebrow>
+    <Section id="fitur" className={`py-16 sm:py-20 ${TEMA.biru.band}`}>
+      <Eyebrow tema="biru">AI dan CS kamu, satu inbox</Eyebrow>
       <SectionTitle>Satu inbox buat semua tim, tanpa tabrakan.</SectionTitle>
       <Lead>
         Kalau kamu mulai ngetik di chat yang lagi dipegang AI, chat itu langsung jadi milikmu dan AI berhenti balas. Kalau kamu pergi dan chat diam 30 menit, AI lanjut jaga. Tiap balasan ketahuan siapa yang nulis: AI, atau nama CS-nya.
@@ -436,6 +635,7 @@ function BandSiapaBicara() {
         perusahaan="Satu nomor WhatsApp dipakai seluruh tim, dan riwayat siapa yang janji apa tinggal dicek."
         cs="Ga ada lagi AI yang kirim link checkout padahal kamu baru janji mau telepon jam 3."
       />
+      <DiagramSerahTerima />
       <img
         src="/assets/hero-dashboard.png"
         alt="Inbox Agnee"
@@ -448,29 +648,27 @@ function BandSiapaBicara() {
 
 function BandFollowUp() {
   return (
-    <Section className="bg-ink py-16 text-white sm:py-20 dark:bg-[#14241f]">
-      <p className="m-0 mb-2.5 flex items-center gap-2 text-[12px] font-semibold text-[#7fff4f]">
-        <span aria-hidden className="inline-block h-px w-5 bg-[#7fff4f]" />
-        Follow-up otomatis
-      </p>
+    <Section className={`py-16 sm:py-20 ${TEMA.kuning.band}`}>
+      <Eyebrow tema="kuning">Follow-up otomatis</Eyebrow>
       <SectionTitle>Follow-up ke lead yang diam, tanpa bikin pelanggan risih.</SectionTitle>
-      <p className="m-0 max-w-2xl text-[16px] leading-[1.7] text-white/65">
+      <Lead>
         Agnee kirim follow-up ke lead yang belum balas, tapi tiap pesan harus lolos tiga pengecekan dulu: masih dalam jam kirim yang kamu atur, belum lewat batas jumlah per hari, dan jaraknya dari pesan sebelumnya sudah cukup. Supervisor tetap bisa kirim manual di luar jadwal, dengan jarak yang dipersingkat. Rangkaian yang sudah selesai bisa dimulai lagi dengan jeda yang kamu tentukan.
-      </p>
+      </Lead>
+      <GrafikJamKirim />
       <div className="mt-8 grid gap-4 sm:grid-cols-2">
-        <div className="rounded-panel border border-white/15 p-5">
-          <p className="m-0 mb-1.5 font-mono text-[11px] font-semibold tracking-[.12em] text-white/50 uppercase">
+        <div className="rounded-panel border border-[#ecd49a] bg-white p-5 dark:border-[#6b5620] dark:bg-[#0c1912]/60">
+          <p className="m-0 mb-1.5 font-mono text-[11px] font-semibold tracking-[.12em] text-[#4e6e5e] uppercase dark:text-[#d9c48a]">
             Buat perusahaan
           </p>
-          <p className="m-0 text-[14px] leading-[1.65] text-white/80">
+          <p className="m-0 text-[14px] leading-[1.65]">
             Lead yang belum balas tetap dihubungi, dengan batas jumlah dan jarak kirim supaya ga kelihatan spam.
           </p>
         </div>
-        <div className="rounded-panel border-2 border-[#7fff4f] bg-[#7fff4f]/10 p-5">
-          <p className="m-0 mb-1.5 font-mono text-[11px] font-semibold tracking-[.12em] text-[#7fff4f] uppercase">
+        <div className="rounded-panel border-2 border-[#8a5a00] bg-[#fff8e6] p-5 dark:border-[#f5c451] dark:bg-[#3a3216]">
+          <p className="m-0 mb-1.5 font-mono text-[11px] font-semibold tracking-[.12em] text-[#8a5a00] uppercase dark:text-[#f5c451]">
             Buat tim CS
           </p>
-          <p className="m-0 text-[14px] leading-[1.65] text-white">
+          <p className="m-0 text-[14px] leading-[1.65] text-[#14241f] dark:text-[#f4f9f0]">
             Daftar "nanti dikabarin lagi" ga perlu kamu hafalin sampai jam 11 malam.
           </p>
         </div>
@@ -578,7 +776,7 @@ function BandKnowledge() {
         ].map(([nama, guna]) => (
           <span
             key={nama}
-            className="rounded-app border border-[#c6dcc0] bg-white px-3.5 py-2 text-[13px] dark:border-[#24403a] dark:bg-[#14241f]"
+            className={`rounded-app border px-3.5 py-2 text-[13px] ${WARNA_KARTU[nama.length % WARNA_KARTU.length]}`}
           >
             <b className="font-semibold">{nama}</b>
             <span className="text-[#4e6e5e] dark:text-[#7aaa8a]">: {guna}</span>
@@ -588,6 +786,12 @@ function BandKnowledge() {
       <DuaSisi
         perusahaan="Playbook tumbuh dari percakapan yang beneran terjadi, bukan dokumen yang ditulis sekali terus dilupain."
         cs="Jawaban terbaikmu ga hilang bareng satu chat. Besok AI ikut jawab kayak kamu."
+      />
+      <img
+        src="/assets/hero-team.png"
+        alt="Tim CS bekerja bersama AI"
+        loading="lazy"
+        className="mt-10 w-full rounded-panel border border-[#d6c9f2] dark:border-[#443468]"
       />
     </Section>
   );
@@ -604,6 +808,12 @@ function BandRingkasan() {
       <DuaSisi
         perusahaan="Ringkasan yang bisa dipercaya, karena ada orang yang bisa mengoreksinya."
         cs="Ga perlu baca ulang chat panjang dari atas, dan kalau AI salah kamu bisa langsung benerin."
+      />
+      <img
+        src="/assets/hero-dashboard.png"
+        alt="Ringkasan dan label percakapan di dashboard Agnee"
+        loading="lazy"
+        className="mt-10 w-full rounded-panel border border-[#b9d9f2] dark:border-[#244a66]"
       />
     </Section>
   );
@@ -658,8 +868,8 @@ const ATURAN_BROADCAST: [string, string][] = [
 
 function BandBroadcast() {
   return (
-    <Section className="py-16 sm:py-20">
-      <Eyebrow>Broadcast</Eyebrow>
+    <Section className={`py-16 sm:py-20 ${TEMA.koral.band}`}>
+      <Eyebrow tema="koral">Broadcast</Eyebrow>
       <SectionTitle>Kirim kabar ke customer lama, dengan rem yang dipasang dari awal.</SectionTitle>
       <Lead>
         Pilih customer dari daftar chat kamu, saring berdasarkan hubungan, label WhatsApp, tahap lead, topik, atau kapan terakhir mereka bales,
@@ -685,6 +895,8 @@ function BandBroadcast() {
           </li>
         ))}
       </ol>
+
+      <GrafikRem />
 
       <DuaSisi
         perusahaan="Kabar promo atau pengingat sampai ke customer lama tanpa disalin satu per satu, dan cuma supervisor yang bisa memicunya."
@@ -782,20 +994,20 @@ function GridYangBerubah() {
 function UmpanWebinar() {
   return (
     <Section id="webinar" className="py-16 sm:py-20">
-      <div className="rounded-panel bg-ink p-7 text-white sm:p-10 dark:bg-[#14241f]">
+      <div className="rounded-panel bg-[#12304a] p-7 text-white sm:p-10 dark:bg-[#10222e]">
         <div className="grid gap-8 lg:grid-cols-[1.15fr_.85fr]">
           <div>
-            <p className="m-0 mb-2.5 flex items-center gap-2 text-[12px] font-semibold text-[#7fff4f]">
-              <span aria-hidden className="inline-block h-px w-5 bg-[#7fff4f]" />
-              Kelas gratis, kuota terbatas
+            <p className="m-0 mb-2.5 flex items-center gap-2 text-[12px] font-semibold text-[#9bd3f7]">
+              <span aria-hidden className="inline-block h-px w-5 bg-[#9bd3f7]" />
+              Kelas gratis, 15 menit
             </p>
             <h2 className="m-0 mb-4 text-[clamp(26px,3.6vw,38px)] leading-[1.15] font-semibold tracking-[-.035em]">
               Jualan Apa Pun dalam 15 Menit Chat
             </h2>
-            <p className="m-0 max-w-xl text-[16px] leading-[1.7] text-white/65">
+            <p className="m-0 max-w-xl text-[16px] leading-[1.7] text-white/75">
               Kerangka lima tahap buat ngebawa pelanggan dari "nanya doang" ke "transfer ke mana ya", tanpa terkesan jualan. Kerangka yang sama kami tanam di Agnee.
             </p>
-            <p className="mt-3 mb-0 text-[14px] leading-[1.65] text-white/50">
+            <p className="mt-3 mb-0 text-[14px] leading-[1.65] text-white/70">
               Gratis. Rekamannya dikirim ke yang daftar.
             </p>
             <TombolUmpan
@@ -814,12 +1026,12 @@ function UmpanWebinar() {
               ['Tutup', 'Minta keputusan tanpa kedengeran maksa'],
             ].map(([tahap, isi], index) => (
               <li key={tahap} className="flex gap-3">
-                <span className="grid size-6 shrink-0 place-items-center rounded-full bg-[#7fff4f] font-mono text-[11px] font-bold text-[#0c1912]">
+                <span className="grid size-6 shrink-0 place-items-center rounded-full bg-[#9bd3f7] font-mono text-[11px] font-bold text-[#0c1912]">
                   {index + 1}
                 </span>
                 <span className="text-[13px] leading-[1.5]">
                   <b className="font-semibold">{tahap}</b>
-                  <span className="text-white/55">: {isi}</span>
+                  <span className="text-white/70">: {isi}</span>
                 </span>
               </li>
             ))}
@@ -909,7 +1121,7 @@ const PLANS = [
       'Departemen internal',
     ],
     href: WA_GROWTH,
-    cta: 'Ambil harga promo',
+    cta: 'Tanya paket Growth',
     highlight: false,
   },
   {
@@ -926,7 +1138,7 @@ const PLANS = [
       'Mode agent antar-departemen (segera)',
     ],
     href: WA_PRO,
-    cta: 'Ambil harga promo',
+    cta: 'Tanya paket Pro',
     highlight: false,
   },
   {
@@ -966,17 +1178,19 @@ function Pricing() {
         <span className="text-[13px] text-[#4e6e5e] dark:text-[#7aaa8a]">per bulan, mulai dari sini</span>
       </div>
 
-      <div className="mt-6 rounded-panel border-2 border-green-dark bg-[#dff0d6] p-6 dark:border-[#7fff4f] dark:bg-[#1b3028]">
-        <h3 className="m-0 mb-2 text-lg font-semibold">Sulit menolaknya, karena kamu ga menanggung risikonya.</h3>
+      <GrafikTangga />
+
+      <div className="mt-6 rounded-panel border border-[#c6dcc0] bg-[#dff0d6] p-6 dark:border-[#24403a] dark:bg-[#1b3028]">
+        <h3 className="m-0 mb-2 text-lg font-semibold">Risikonya kecil, dan kamu yang pegang kendali.</h3>
         <ul className="m-0 grid list-none gap-1.5 p-0 text-[14px]">
           <li>7 hari gratis, tanpa kartu kredit. Ga terasa bedanya? Tutup akunnya, ga ada yang ditagih.</li>
-          <li>Harga promo terkunci selama langgananmu jalan tanpa putus. Dibuka untuk {KUOTA_PROMO} perusahaan baru tiap bulan.</li>
+          <li>Harga promo terkunci selama langgananmu jalan tanpa putus.</li>
           <li>Ebook CS gratis tetap jadi milikmu, mau lanjut berlangganan atau tidak.</li>
         </ul>
       </div>
 
       <p className="mt-10 mb-0 max-w-2xl text-[14px] leading-[1.65] text-[#4e6e5e] dark:text-[#7aaa8a]">
-        Tiap bulan hanya {KUOTA_PROMO} perusahaan baru yang dapat harga promo. Kalau kuota bulan itu penuh, promo ditutup sampai bulan berikutnya dan harga naik. Kuotanya yang habis, bukan jamnya: ga ada hitung mundur palsu dan ga ada perpanjangan kuota.
+        Harga di bawah adalah harga promo. Penjelasan batas kuotanya ada di bagian paling bawah halaman ini.
       </p>
 
       <div className="mt-6 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -1142,40 +1356,30 @@ function Faq() {
 }
 
 /**
- * Blok penutup: tiga pintu, lalu alasan untuk tidak menunda.
+ * Blok penutup: tiga cara kenalan, disusun menaik menurut komitmen.
  *
- * Menggantikan banner CTA lama, yang cuma menawarkan satu jalan (coba gratis)
- * ke semua orang. Pembaca yang belum siap beli tidak punya apa-apa selain
- * pergi, padahal tiga pintunya sudah ada, cuma tersebar di tengah halaman.
- *
- * Disusun MENAIK menurut komitmen, sebagai baris bertumpuk, bukan tiga kolom
- * sejajar: tiga kolom membuat ketiganya terlihat setara, padahal yang kita mau
- * justru menunjukkan tangga. Penekanan visualnya ikut naik (garis tipis, garis
- * biasa, garis aksen) supaya tangganya terbaca tanpa perlu dijelaskan.
- *
- * Soal FOMO: tidak ada angka selisih harga sejak 2026-10-17, karena harga normal
- * sesudah kuota belum ditetapkan. Tidak ada hitung mundur, tidak ada sisa kuota
- * karangan. Kalau nanti sisa kuota mau ditampilkan, dia harus datang dari hitungan nyata
- * tabel companies, bukan dari konstanta yang gampang basi.
+ * Nadanya tenang (keputusan pemilik 2026-10-17): tidak ada desakan, tidak ada
+ * hitung mundur, tidak ada angka selisih harga. Ketiganya sama besar, supaya
+ * pembaca yang belum siap bayar tidak merasa dikejar. Satu-satunya penekanan di
+ * halaman ini adalah PromoKuota di bawahnya, dan itu karena batasnya nyata.
  */
-const PINTU = [
+const PINTU: { kondisi: string; isi: string; aksi: string; href: string; eksternal: boolean; tema: NamaTema; tombol: string }[] = [
   {
     kondisi: 'Belum butuh sekarang',
-    isi: 'Ambil ebook buat tim CS-mu dulu. Gratis, ga perlu bikin akun, dan tetap kepakai walaupun kantormu ga pakai Agnee.',
-    aksi: 'Ambil ebook gratis',
+    isi: 'Baca ebook buat tim CS-mu dulu. Gratis, ga perlu bikin akun, dan tetap kepakai walaupun kantormu ga pakai Agnee.',
+    aksi: 'Baca ebook gratis',
     href: '#ebook',
     eksternal: false,
-    gaya: 'border border-[#c6dcc0] p-5 sm:p-6 dark:border-[#24403a]',
-    tombol:
-      'border border-[#c6dcc0] bg-transparent text-ink hover:bg-[#dff0d6] dark:border-[#24403a] dark:text-[#f4f9f0] dark:hover:bg-[#1b3028]',
+    tema: 'koral',
+    tombol: 'border border-[#c6dcc0] bg-transparent text-ink hover:bg-[#fde8df] dark:border-[#24403a] dark:text-[#f4f9f0] dark:hover:bg-[#2b1a16]',
   },
   {
     kondisi: 'Masih menimbang',
     isi: 'Ikut kelas 15 menit soal cara menutup penjualan lewat chat. Kerangka yang sama yang kami tanam di Agnee, jadi kamu sekalian lihat cara kerjanya.',
-    aksi: 'Ambil kursi webinar',
+    aksi: 'Daftar kelas webinar',
     href: WA_WEBINAR,
     eksternal: true,
-    gaya: 'border border-[#9db99a] bg-white p-6 sm:p-7 dark:border-[#3a5a4c] dark:bg-[#14241f]',
+    tema: 'biru',
     tombol: 'bg-[#25d366] text-[#0c1912] hover:bg-[#1dbd5e]',
   },
   {
@@ -1184,34 +1388,159 @@ const PINTU = [
     aksi: 'Coba Gratis 7 Hari',
     href: APP_URL + '/?signup=1',
     eksternal: false,
-    gaya: 'border-2 border-green-dark bg-white p-7 sm:p-8 dark:border-[#7fff4f] dark:bg-[#14241f]',
+    tema: 'hijau',
     tombol: 'bg-ink text-white hover:-translate-y-0.5 dark:bg-[#7fff4f] dark:text-[#0c1912]',
   },
 ];
 
+type StatusKuota = { tahap: 'memuat' } | { tahap: 'gagal' } | { tahap: 'ada'; used: number; limit: number; month: string };
+
+const NAMA_BULAN = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+
+/**
+ * Terisi bulan ini, dari GET /public/promo-quota (src/server.js): jumlah baris
+ * companies yang dibuat di bulan kalender berjalan, zona Asia/Jakarta. Angka itu
+ * mencakup SEMUA perusahaan, termasuk akun uji internal, jadi pemilik perlu
+ * memutuskan apakah akun uji dikecualikan sebelum halaman ini dipasang live.
+ * Kalau data gagal dimuat, halaman tidak menampilkan angka sama sekali.
+ */
+function useKuotaPromo(): StatusKuota {
+  const [status, setStatus] = useState<StatusKuota>({ tahap: 'memuat' });
+  useEffect(() => {
+    const kontrol = new AbortController();
+    fetch('/public/promo-quota', { signal: kontrol.signal })
+      .then((res) => (res.ok ? res.json() : Promise.reject(new Error(String(res.status)))))
+      .then((data: { used?: unknown; limit?: unknown; month?: unknown }) => {
+        if (typeof data.used !== 'number' || typeof data.limit !== 'number' || typeof data.month !== 'string') {
+          throw new Error('format');
+        }
+        setStatus({ tahap: 'ada', used: data.used, limit: data.limit, month: data.month });
+      })
+      .catch((err: unknown) => {
+        if ((err as { name?: string })?.name !== 'AbortError') setStatus({ tahap: 'gagal' });
+      });
+    return () => kontrol.abort();
+  }, []);
+  return status;
+}
+
+/**
+ * Satu-satunya blok "terbatas" di halaman ini, dan satu-satunya yang boleh
+ * ditekankan. Grafiknya bagan satuan: satu titik = satu kursi promo bulan ini.
+ * Titik terisi = perusahaan yang sudah dibuat bulan ini (data nyata, lihat
+ * useKuotaPromo). Yang habis adalah kuotanya, bukan jamnya: tidak ada hitung
+ * mundur dan kuota tidak diperpanjang.
+ */
+function PromoKuota() {
+  const kuota = useKuotaPromo();
+  const used = kuota.tahap === 'ada' ? Math.min(kuota.used, kuota.limit) : 0;
+  const limit = kuota.tahap === 'ada' ? kuota.limit : KUOTA_PROMO;
+  const penuh = kuota.tahap === 'ada' && kuota.used >= kuota.limit;
+  const [tahun, bulanAngka] = kuota.tahap === 'ada' ? kuota.month.split('-').map(Number) : [0, 0];
+  const namaBulan = kuota.tahap === 'ada' ? `${NAMA_BULAN[(bulanAngka ?? 1) - 1] ?? ''} ${tahun}` : '';
+
+  return (
+    <div
+      id="promo"
+      className="mt-10 rounded-panel border-2 border-[#8a5a00] bg-[#fdf3dc] p-6 sm:p-10 dark:border-[#f5c451] dark:bg-[#2a2412]"
+    >
+      <div className="grid gap-8 lg:grid-cols-[1fr_1fr] lg:items-center">
+        <div>
+          <p className="m-0 mb-2.5 flex items-center gap-2 text-[12px] font-semibold text-[#8a5a00] dark:text-[#f5c451]">
+            <span aria-hidden className="inline-block h-px w-5 bg-[#8a5a00] dark:bg-[#f5c451]" />
+            Batas promo
+          </p>
+          <h2 className="m-0 mb-3 text-[clamp(26px,3.6vw,40px)] leading-[1.12] font-semibold tracking-[-.035em]">
+            Harga promo untuk {KUOTA_PROMO} perusahaan baru tiap bulan.
+          </h2>
+          <p className="m-0 text-[15px] leading-[1.65] text-[#3d4a3f] dark:text-[#e6d9b4]">
+            Kuotanya dihitung per bulan kalender. Yang daftar sebelum kuota bulan itu penuh tetap bayar harga promo selama langganannya jalan tanpa putus. Kalau penuh, promo berhenti sampai bulan berikutnya. Tidak ada hitung mundur, dan kuotanya tidak ditambah.
+          </p>
+          <div className="mt-6 flex flex-wrap items-center gap-3">
+            <a
+              href="#pricing"
+              className="inline-block rounded-app bg-ink px-6 py-3 text-[15px] font-semibold text-white no-underline transition hover:-translate-y-0.5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#8a5a00] dark:bg-[#f5c451] dark:text-[#2a2412] dark:focus-visible:outline-[#f5c451]"
+            >
+              Lihat paket dan harga
+            </a>
+            <span className="text-[13px] text-[#4a4a3c] dark:text-[#d9c48a]">Coba 7 hari dulu, tanpa kartu kredit.</span>
+          </div>
+        </div>
+
+        <figure className="m-0 rounded-panel border border-[#ecd49a] bg-white p-5 dark:border-[#6b5620] dark:bg-[#0c1912]/60">
+          <figcaption className="mb-3 text-[13px] font-semibold text-[#14241f] dark:text-[#f4f9f0]">
+            {kuota.tahap === 'ada' ? (
+              <>
+                <span className="text-[clamp(28px,4vw,40px)] leading-none tracking-[-.04em] text-[#8a5a00] dark:text-[#f5c451]">
+                  {kuota.used}
+                </span>{' '}
+                dari {kuota.limit} kursi terisi, {namaBulan}
+              </>
+            ) : kuota.tahap === 'memuat' ? (
+              <span role="status">Memuat data kuota bulan ini</span>
+            ) : (
+              <span role="status">Data kuota belum bisa dimuat. Tanyakan sisa kursi lewat WhatsApp.</span>
+            )}
+          </figcaption>
+          <div
+            role="img"
+            aria-label={
+              kuota.tahap === 'ada' ? `${used} dari ${limit} kursi promo terisi` : `${limit} kursi promo per bulan, jumlah terisi belum tersedia`
+            }
+            className="grid grid-cols-10 gap-1.5"
+          >
+            {Array.from({ length: limit }, (_, i) => (
+              <span
+                key={i}
+                className={`aspect-square rounded-full border-2 ${
+                  i < used
+                    ? 'border-[#8a5a00] bg-[#e0a526] dark:border-[#f5c451] dark:bg-[#f5c451]'
+                    : 'border-[#d8c48c] bg-transparent dark:border-[#6b5620]'
+                } ${kuota.tahap === 'memuat' ? 'animate-pulse' : ''}`}
+              />
+            ))}
+          </div>
+          <p className="mt-4 mb-0 text-[12px] leading-[1.55] text-[#4a4a3c] dark:text-[#d9c48a]">
+            {penuh
+              ? 'Kuota bulan ini penuh. Promo dibuka lagi di awal bulan berikutnya.'
+              : 'Satu titik satu kursi. Titik berwarna adalah perusahaan yang sudah terdaftar bulan ini, dihitung langsung dari data Agnee.'}
+          </p>
+          {kuota.tahap === 'gagal' ? (
+            <a
+              href={waLink('Halo, saya mau tanya sisa kursi promo Agnee bulan ini')}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={`mt-3 inline-block rounded-app bg-[#25d366] px-4 py-3 text-[13px] font-semibold text-[#0c1912] no-underline hover:bg-[#1dbd5e] ${FOKUS}`}
+            >
+              Tanya sisa kursi via WhatsApp
+            </a>
+          ) : null}
+        </figure>
+      </div>
+    </div>
+  );
+}
+
 function FunnelPenutup() {
   return (
     <Section id="mulai" className="py-16 sm:py-20">
-      <SectionTitle>Tiga pintu. Pilih yang paling pas buat kamu hari ini.</SectionTitle>
+      <SectionTitle>Mulai dari yang paling pas buat kamu hari ini</SectionTitle>
       <Lead>
-        Ga semua orang yang baca halaman ini lagi siap bayar, dan itu wajar. Jadi pintunya ada tiga, dari yang paling
-        ringan sampai yang paling serius.
+        Ga semua orang yang baca halaman ini lagi siap bayar, dan itu wajar. Ada tiga cara kenalan dengan Agnee, dari yang paling ringan sampai yang langsung dipakai.
       </Lead>
 
       <div className="mt-8 grid gap-3">
         {PINTU.map((pintu, index) => (
           <div
             key={pintu.kondisi}
-            className={`flex flex-col gap-4 rounded-panel sm:flex-row sm:items-center sm:gap-6 ${pintu.gaya}`}
+            className={`flex flex-col gap-4 rounded-panel border bg-white p-5 sm:flex-row sm:items-center sm:gap-6 sm:p-6 dark:bg-[#14241f] ${TEMA[pintu.tema].kartu}`}
           >
-            <span className="shrink-0 font-mono text-[11px] font-semibold text-green-dark dark:text-[#7fff4f]">
-              {String(index + 1).padStart(2, '0')}
+            <span aria-hidden className={`grid size-8 shrink-0 place-items-center rounded-full font-mono text-[12px] font-bold text-white dark:text-[#0c1912] ${TEMA[pintu.tema].isi}`}>
+              {index + 1}
             </span>
             <div className="min-w-0 flex-1">
               <h3 className="mt-0 mb-1 text-base font-semibold sm:text-lg">{pintu.kondisi}</h3>
-              <p className="m-0 text-[13px] leading-[1.6] text-[#4e6e5e] sm:text-[14px] dark:text-[#7aaa8a]">
-                {pintu.isi}
-              </p>
+              <p className="m-0 text-[13px] leading-[1.6] text-[#4e6e5e] sm:text-[14px] dark:text-[#9fc4ae]">{pintu.isi}</p>
             </div>
             <a
               href={pintu.href}
@@ -1224,39 +1553,7 @@ function FunnelPenutup() {
         ))}
       </div>
 
-      <div className="mt-8 rounded-panel bg-ink p-7 text-white sm:p-10 dark:bg-[#14241f]">
-        <div className="grid gap-6 lg:grid-cols-[1.2fr_.8fr] lg:items-center">
-          <div>
-            {/* "Batas promo", bukan "Sisa kuota": halaman ini tidak menampilkan
-                angka sisa, jadi eyebrow-nya tidak boleh menjanjikan angka. Kalau
-                nanti sisa kuota ditampilkan, dia harus dihitung dari tabel
-                companies, bukan dari konstanta yang gampang basi. */}
-            <p className="m-0 mb-2.5 flex items-center gap-2 text-[12px] font-semibold text-[#7fff4f]">
-        <span aria-hidden className="inline-block h-px w-5 bg-[#7fff4f]" />
-              Batas promo
-            </p>
-            <h2 className="m-0 mb-3 text-[clamp(24px,3.4vw,34px)] leading-[1.15] font-semibold tracking-[-.035em]">
-              Promo tiap bulan berhenti di perusahaan ke-{KUOTA_PROMO}.
-            </h2>
-            <p className="m-0 text-[15px] leading-[1.65] text-white/70">
-              Kalau kuota bulan itu penuh, harga naik sampai bulan berikutnya. Yang daftar sebelum itu tetap bayar harga promo selama
-              langganannya jalan tanpa putus. Ga ada hitung mundur palsu di halaman ini: kuotanya yang habis,
-              bukan jamnya.
-            </p>
-          </div>
-          <div className="lg:text-right">
-            <a
-              href="#pricing"
-              className={`inline-block rounded-app bg-[#7fff4f] px-6 py-3 text-[15px] font-semibold text-[#0c1912] no-underline ${FOKUS_GELAP}`}
-            >
-              Lihat harga promo
-            </a>
-            <p className="mt-3 mb-0 text-[13px] leading-[1.6] text-white/55">
-              Masih ragu? Coba 7 hari dulu, tanpa kartu kredit.
-            </p>
-          </div>
-        </div>
-      </div>
+      <PromoKuota />
     </Section>
   );
 }

@@ -599,6 +599,21 @@ class Database {
   }
 
   /** Company aktif tempat `userId` menjadi anggota aktif — untuk pemilih company. */
+  /**
+   * Jumlah perusahaan yang dibuat bulan kalender berjalan (zona Asia/Jakarta).
+   * Dibaca halaman /landing untuk grafik kuota promo. Hanya satu angka: tidak
+   * ada nama atau id perusahaan yang keluar dari sini.
+   */
+  async countCompaniesCreatedThisMonth() {
+    const { rows } = await this.pool.query(`
+      SELECT COUNT(*)::int AS used,
+             to_char(NOW() AT TIME ZONE 'Asia/Jakarta', 'YYYY-MM') AS month
+      FROM companies
+      WHERE (created_at AT TIME ZONE 'Asia/Jakarta') >= date_trunc('month', NOW() AT TIME ZONE 'Asia/Jakarta')
+    `);
+    return rows[0];
+  }
+
   async listCompaniesForUser(userId) {
     if (!this.enabled) return [];
     const result = await this.pool.query(`

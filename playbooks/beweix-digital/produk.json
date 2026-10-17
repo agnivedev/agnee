@@ -11,6 +11,11 @@
       "name": "Bewei Express",
       "file": "bewei-express.md",
       "description": "Peninjauan performa iklan Meta dan Google: creative, penawaran, halaman tujuan, tracking, kualitas lead dan follow-up penjualan."
+    },
+    {
+      "name": "Agnee",
+      "file": "agnee.md",
+      "description": "AI untuk WhatsApp bisnis: menjawab customer dari playbook, serah-terima ke CS, follow-up, broadcast, pipeline kanban, laporan ke supervisor, integrasi Mayar, API dan MCP. Customer bertanya soal chatbot WhatsApp, harga paket, coba gratis, atau cara kerja Agnee."
     }
   ]
 }

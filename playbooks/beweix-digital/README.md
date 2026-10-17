@@ -9,6 +9,7 @@ Disusun 7 Oktober 2026 dari dua dokumen pemilik: `BeweiExpress_Agnee_Chatbot_Pla
 | `umum.md` | Berlaku untuk dua layanan: persona, larangan, tanya jawab bersama, kapan menyerahkan ke manusia |
 | `beweix-ai-cgi.md` | Produk BeweiX AI CGI, semua delapan jenis dokumen |
 | `bewei-express.md` | Produk Bewei Express, semua delapan jenis dokumen |
+| `agnee.md` | Produk Agnee sendiri (topik jualan 17 Okt 2026), semua delapan jenis dokumen |
 | `produk.json` | Nama dan deskripsi produk, dan berkas mana milik siapa |
 
 Judul `##` di tiap berkas menentukan jenis dokumen (persona, compliance, qna, discovery, objection, closing, followup, handoff), sama seperti impor di Train AI.
@@ -75,3 +76,7 @@ dengan aturan bawaan nomor 13, dan playbook BeweiX AI CGI sekarang meminta nama
 produk lewat tulisan, dengan foto atau link sebagai tambahan. Foto yang dikirim
 tanpa teks apa pun tetap tidak memicu balasan.
 
+
+## Catatan 17 Oktober: topik Agnee
+
+`agnee.md` menjual Agnee lewat nomor Beweix. Harga memakai empat paket keputusan pemilik (Starter 99rb, Growth 1,9jt, Pro 3,9jt, Enterprise custom, ditagih credit) yang BELUM ditegakkan server: sistem credit masih dibangun di sesi lain. Jumlah pengguna, nomor, dan credit per paket sengaja tidak ditulis. Fitur bertanda segera (mode agent, impor Excel/CSV, laporan per agent, MCP laporan) tidak boleh ditawarkan sebagai sudah ada sampai live; sunting larangan kedua di `agnee.md` saat fiturnya rilis. Belum dimuat ke company dan belum diuji dengan model sungguhan.

@@ -27,11 +27,12 @@ import { useEffect, useState, type ReactNode } from 'react';
  * Blok testimoni boleh dipasang lagi HANYA dengan kutipan asli yang orangnya
  * sudah menyetujui namanya ditampilkan.
  *
- * SUARA HALAMAN = SUARA APP. Hero dan band "siapa bicara" memakai kata-kata
- * halaman masuk app (login.eyebrow, login.headline, login.description di
- * web/src/lib/messages.ts): bicara langsung ke pembaca ("kamu"), bukan
- * membingkai CS sebagai pihak ketiga. Kalau salah satunya diubah, ubah
- * keduanya. Em dash di app ditulis titik dua di sini (aturan antislop halaman).
+ * SUARA HALAMAN. Bicara langsung ke pembaca ("kamu"), bukan membingkai CS
+ * sebagai pihak ketiga. Hero (2026-10-17) sengaja TIDAK lagi memakai kata-kata
+ * halaman masuk app: pesannya sekarang "bukan sekadar auto-respon", dan daftar
+ * kemampuan di KEMAMPUAN hanya memuat fitur yang sudah jalan di produksi.
+ * Jangan menulis persentase cakupan ("menjawab 95% kebutuhan") tanpa sumber
+ * hitungnya. Em dash ditulis titik dua di sini (aturan antislop halaman).
  *
  * JANGAN menulis "24x7", "24 jam", atau "nonstop", dan jangan memakai "Ga ada
  * yang kelewat" dari app. AI hanya membalas selama nomor WhatsApp tersambung
@@ -44,10 +45,9 @@ const APP_URL = 'https://app.agnee.agnive.co';
 const WA_LINK = 'https://wa.me/6281218700276';
 const waLink = (pesan: string) => `${WA_LINK}?text=${encodeURIComponent(pesan)}`;
 
-const WA_PERSONAL = waLink('Halo, saya mau langganan Agnee Personal');
-const WA_COMPANY = waLink('Halo, saya mau langganan Agnee Company');
-const WA_LIFETIME = waLink('Halo, saya mau tanya paket Agnee Lifetime');
-const WA_WHITELABEL = waLink('Halo, saya mau tanya Agnee white label');
+const WA_GROWTH = waLink('Halo, saya mau langganan Agnee Growth');
+const WA_PRO = waLink('Halo, saya mau langganan Agnee Pro');
+const WA_ENTERPRISE = waLink('Halo, saya mau tanya Agnee Enterprise');
 const WA_EBOOK = waLink('EBOOK CS - halo, saya mau ebook "Balas Chat Seharian Tanpa Kena Mental"');
 const WA_WEBINAR = waLink('WEBINAR - halo, saya mau daftar kelas "Jualan Apa Pun dalam 15 Menit Chat"');
 
@@ -102,7 +102,7 @@ const FOKUS_GELAP = 'focus-visible:outline-2 focus-visible:outline-offset-2 focu
 
 export function LandingPage() {
   useEffect(() => {
-    document.title = 'Agnee: kamu offline, AI tetap online';
+    document.title = 'Agnee: bukan auto-respon, satu tim CS lengkap';
   }, []);
 
   return (
@@ -110,6 +110,7 @@ export function LandingPage() {
       <Nav />
       <Hero />
       <ProofStrip />
+      <BandKemampuan />
       <BandSiapaBicara />
       <BandFollowUp />
       <UmpanEbook />
@@ -181,7 +182,8 @@ function Nav() {
       </a>
       <nav className="hidden gap-6 md:flex">
         {[
-          ['#fitur', 'Fitur'],
+          ['#semua', 'Semua fitur'],
+          ['#fitur', 'Inbox'],
           ['#ebook', 'Ebook gratis'],
           ['#webinar', 'Webinar'],
           ['#pricing', 'Harga'],
@@ -213,15 +215,15 @@ function Hero() {
         <div>
           <p className="m-0 flex items-center gap-2.5 text-[13px] font-semibold text-green-dark dark:text-[#7fff4f]">
             <span aria-hidden className="inline-block h-0.5 w-7 bg-green-dark dark:bg-[#7fff4f]" />
-            AI dan CS kamu, satu inbox
+            AI untuk WhatsApp bisnis kamu
           </p>
-          <h1 className="mt-4 mb-0 text-[clamp(36px,6vw,66px)] leading-[1.03] font-semibold tracking-[-.05em]">
-            Kamu offline.
+          <h1 className="mt-4 mb-0 text-[clamp(34px,5.6vw,62px)] leading-[1.04] font-semibold tracking-[-.05em]">
+            Chatbot lain cuma auto-respon.
             <br />
-            <span className="text-green-dark dark:text-[#7fff4f]">AI tetap online.</span>
+            <span className="text-green-dark dark:text-[#7fff4f]">Agnee kerja kayak satu tim CS.</span>
           </h1>
           <p className="mt-5 mb-0 max-w-xl text-[17px] leading-[1.6] text-[#4e6e5e] dark:text-[#7aaa8a]">
-            Satu inbox WhatsApp buat semua tim. Kamu mulai ngetik, AI minggir. Kamu pergi, AI lanjut jaga chat. Tiap balasan ketahuan siapa yang nulis: AI atau kamu. Ga ada chat yang dibiarin nganggur.
+            Auto-respon membalas kata kunci. Agnee membaca riwayat chat, menjawab dari playbook-mu, minggir saat CS mulai ngetik, menyusul lead yang diam, mengirim broadcast, mencatat tugas, dan melapor ke supervisor. Semuanya dari satu nomor WhatsApp yang sudah kamu pakai.
           </p>
           <div className="mt-7 flex flex-wrap gap-3">
             <a
@@ -231,10 +233,10 @@ function Hero() {
               Coba Gratis 7 Hari
             </a>
             <a
-              href="#ebook"
+              href="#semua"
               className={`rounded-app border border-[#c6dcc0] px-5 py-3 text-[15px] font-semibold no-underline dark:border-[#24403a] ${FOKUS}`}
             >
-              Ambil Ebook Gratis
+              Lihat Semua yang Dikerjakan
             </a>
           </div>
           <p className="mt-4 mb-0 text-[13px] text-[#4e6e5e] dark:text-[#7aaa8a]">
@@ -271,6 +273,147 @@ function ProofStrip() {
             <span className="mt-1.5 block text-[13px] leading-[1.5] text-[#4e6e5e] dark:text-[#7aaa8a]">{label}</span>
           </div>
         ))}
+      </div>
+    </Section>
+  );
+}
+
+/**
+ * Teaser kemampuan. Sengaja pendek dan memancing: halaman ini tidak membongkar
+ * semuanya, sisanya dilihat orang di dalam app (7 hari gratis).
+ * Setiap baris menunjuk fitur yang ada di kode:
+ *   intent + alasan            pipelineStageSuggested + pipelineStageSuggestedReason (PipelinePage)
+ *   tanya departemen/supplier  src/department-ask.js (ask_department, ask_third_party)
+ *   serah-terima, antar-dept   conversation_handoffs (migrasi 003), notes + mentions (migrasi 030), tugas + sla.js
+ *   kanban                     web/src/features/pipeline
+ *   Mayar, API, MCP            src/mayar-sync.js, header x-api-key, src/mcp-server.mjs
+ *   dilatih lewat chat/dokumen src/train-assistant.js, src/playbook-import.js
+ *   rantai model               src/llm-service.js (fallback), src/model-tiers.js
+ *   laporan                    src/supervisor-report.js (harian/mingguan/bulanan)
+ *   ekspor                     /v1/export/contacts.xlsx dan .csv
+ *   broadcast                  src/broadcast.js (variasi AI, filter tahap lead)
+ *   jeda, rotasi, SLA, audit   reply-delay.js, rotator.js, sla.js, jejak audit
+ * Butir bertanda `segera` BELUM jalan di produksi: mode agent, impor Excel/CSV,
+ * laporan performa per human agent, alat MCP untuk laporan, alasan serah-terima
+ * terstruktur, mention departemen. Fitur internal chat TIDAK boleh disebut di halaman
+ * ini (hanya di playbook Beweix dan pitch deck). Jangan hapus tandanya
+ * sebelum fiturnya live. Jangan menyebut merek CRM lain atau persentase cakupan.
+ */
+const KEMAMPUAN: { judul: string; isi: string; segera?: boolean }[] = [
+  {
+    judul: 'Tahu siapa yang siap beli, dan kenapa',
+    isi: 'Agnee menandai lead yang niat belinya tinggi dan menulis alasannya dari kalimat customer sendiri. Kamu tinggal setujui atau tolak.',
+  },
+  {
+    judul: 'Satu AI, banyak peran',
+    isi: 'Mode sales. Mode CS. Mode operasi antar-departemen. Semua nomor departemenmu tetap dalam satu paket.',
+    segera: true,
+  },
+  {
+    judul: 'AI yang tahu kapan harus bertanya',
+    isi: 'Kena soal yang jawabannya tidak ada, AI tidak menebak. Dia tanya departemen terkait, atau supplier dan vendor lewat WhatsApp, lalu balik ke customer dengan jawaban yang pasti.',
+  },
+  {
+    judul: 'Serah-terima tanpa customer mengulang cerita',
+    isi: 'Chat pindah dari AI ke CS dengan catatan alasan dan riwayat siapa yang memegangnya. Alasan terstruktur dan ringkasan otomatis: segera.',
+  },
+  {
+    judul: 'Antar-departemen, satu utas',
+    isi: 'Sebut rekan di komentar samping chat, lalu jadikan tugas dengan SLA. Sebut satu departemen sekaligus: segera.',
+  },
+  {
+    judul: 'Kanban yang bergerak duluan',
+    isi: 'Pipeline gaya CRM modern. AI menyarankan kartu pindah tahap, kamu tinggal seret.',
+  },
+  {
+    judul: 'Nyambung ke apa yang sudah kamu pakai',
+    isi: 'Lead dari landing page dan Mayar masuk sendiri. Sisanya lewat API dan MCP, termasuk integrasi yang kamu rancang sendiri.',
+  },
+  {
+    judul: 'Dilatih kayak melatih karyawan baru',
+    isi: 'Ngobrol dengan Agnee, atau unggah dokumen perusahaanmu. Tanpa nulis prompt.',
+  },
+  {
+    judul: 'Hemat, tanpa jawaban asal',
+    isi: 'Agnee memilih model yang pas dari beberapa tingkatan, jadi credit ga habis di tugas yang ga butuh model termahal. Model apa saja: rahasia dapur kami.',
+  },
+  {
+    judul: 'Laporan sampai ke atasan sendiri',
+    isi: 'Harian, mingguan, atau bulanan, langsung ke WhatsApp tiap supervisor. Kamu ga perlu minta rekap.',
+  },
+  {
+    judul: 'Lead List yang rapi',
+    isi: 'Tabel yang enak dibaca, diekspor ke XLSX atau CSV kapan saja.',
+  },
+  {
+    judul: 'Impor Excel atau CSV',
+    isi: 'Bawa daftar kontakmu masuk, langsung jadi audiens broadcast.',
+    segera: true,
+  },
+  {
+    judul: 'Broadcast satu maksud, beda tiap chat',
+    isi: 'Satu pesan inti, bunyi disesuaikan per penerima. Pilih audiens warm, cold, hot, atau saring sendiri.',
+  },
+  {
+    judul: 'Tanya Agnee dari mana saja',
+    isi: 'Lewat MCP kamu bisa membaca percakapan dan menyuruh Agnee mengirim pesan dari asisten AI favoritmu.',
+  },
+  {
+    judul: 'Tanya performa tim, minta laporan kilat',
+    isi: 'Siapa yang paling cepat membalas, siapa yang sering diambil alih. Tinggal tanya.',
+    segera: true,
+  },
+];
+
+const DETAIL_KECIL = [
+  'Jeda balasan seperti manusia',
+  'Rotasi banyak nomor',
+  'SLA tugas jam kerja',
+  'Jejak audit',
+  'Uji AI sebelum live',
+  'Data tiap perusahaan terpisah',
+];
+
+function BandKemampuan() {
+  return (
+    <Section id="semua" className="py-16 sm:py-20">
+      <Eyebrow>Kenalan sama Agnee</Eyebrow>
+      <SectionTitle>Chatbot lain berhenti di balasan pertama. Agnee baru mulai.</SectionTitle>
+      <Lead>
+        Kebutuhan CS dan sales harian itu panjang: jawab, tahu kapan bertanya, mengejar yang diam, melapor ke atasan. Ini sebagian yang Agnee kerjakan. Sisanya kelihatan begitu kamu pakai.
+      </Lead>
+      <ol className="m-0 mt-10 grid list-none gap-3 p-0 sm:grid-cols-2 lg:grid-cols-3">
+        {KEMAMPUAN.map(({ judul, isi, segera }, index) => (
+          <li
+            key={judul}
+            className="flex flex-col rounded-panel border border-[#c6dcc0] bg-white p-5 dark:border-[#24403a] dark:bg-[#14241f]"
+          >
+            <span className="flex items-center justify-between font-mono text-[11px] font-semibold text-green-dark dark:text-[#7fff4f]">
+              {String(index + 1).padStart(2, '0')}
+              {segera ? (
+                <span className="rounded-full bg-[#dff0d6] px-2.5 py-0.5 text-[11px] text-[#205a38] dark:bg-[#1b3028] dark:text-[#7fff4f]">
+                  Segera
+                </span>
+              ) : null}
+            </span>
+            <h3 className="mt-2 mb-1.5 text-[16px] leading-snug font-semibold">{judul}</h3>
+            <p className="m-0 text-[13px] leading-[1.6] text-[#4e6e5e] dark:text-[#7aaa8a]">{isi}</p>
+          </li>
+        ))}
+      </ol>
+      <div className="mt-8 flex flex-wrap items-center gap-x-5 gap-y-2 text-[13px] text-[#4e6e5e] dark:text-[#7aaa8a]">
+        <span className="font-semibold text-ink dark:text-[#f4f9f0]">Dan yang jarang dipikirkan chatbot lain:</span>
+        {DETAIL_KECIL.map((d) => (
+          <span key={d}>{d}</span>
+        ))}
+      </div>
+      <div className="mt-8">
+        <a
+          href={`${APP_URL}/?signup=1`}
+          className={`inline-block rounded-app bg-ink px-6 py-3 text-[15px] font-semibold text-white no-underline transition hover:-translate-y-0.5 dark:bg-[#7fff4f] dark:text-[#0c1912] ${FOKUS}`}
+        >
+          Lihat sisanya di dalam, 7 hari gratis
+        </a>
       </div>
     </Section>
   );
@@ -715,98 +858,141 @@ function HowItWorks() {
 }
 
 /**
- * Plafon di tiap paket harus sama dengan yang benar-benar diberlakukan server
- * (lihat batas paket di src/database.js): personal = 1 pengguna, 1 nomor,
- * 1 playbook, 500 pesan AI per bulan; company = 5 pengguna, dan sisanya tanpa
- * plafon angka. Jangan menulis "unlimited" tanpa catatan pemakaian wajar.
+ * Empat paket (keputusan pemilik 2026-10-17): Starter Rp99rb, Growth Rp1,9jt,
+ * Pro Rp3,9jt, Enterprise custom. Ditagih dalam credit: langganan bulanan mengisi
+ * credit, plus top-up pay as you go. SISTEM CREDIT BELUM ADA di kode saat ini
+ * (server masih membatasi per jumlah pesan AI dan jumlah pengguna), jadi halaman
+ * tidak menulis angka credit, jumlah pengguna, atau jumlah nomor per paket. Isi
+ * angka itu hanya setelah sesi "Credit, langganan, dan 4 paket" selesai dan batasnya
+ * sama dengan yang ditegakkan server.
+ *
+ * TANGGA_HARGA bukan harga yang pernah ditagihkan. Ia ditulis sebagai "harga pantas
+ * versi kami" dan jangan pernah diberi label diskon dari harga sebelumnya.
  */
+const TANGGA_HARGA = ['Rp 100.000.000', 'Rp 25.000.000', 'Rp 9.000.000', 'Rp 299.000'];
+
 const PLANS = [
   {
-    badge: 'Perorangan',
-    name: 'Personal',
-    oldPrice: 'Rp 899.000',
+    badge: 'Mulai di sini',
+    name: 'Starter',
     price: 'Rp 99.000',
     period: '/bulan',
     features: [
-      '1 pengguna',
-      '1 nomor WhatsApp',
-      '1 dokumen playbook',
-      '500 pesan AI per bulan',
-      'Riwayat percakapan penuh',
-      'Broadcast dengan tempo dan batas harian',
-      'Bantuan via WhatsApp',
+      '1 pengguna dan 1 nomor WhatsApp',
+      'Inbox, ringkasan, dan label AI',
+      'Pipeline kanban dan Lead List',
+      'Ekspor XLSX dan CSV',
+      'Latih AI lewat chat',
+      'Coba gratis 7 hari',
     ],
-    href: WA_PERSONAL,
-    cta: 'Ambil harga promo',
-    highlight: false,
-    note: '',
+    href: `${APP_URL}/?signup=1`,
+    cta: 'Coba Gratis 7 Hari',
+    highlight: true,
   },
   {
     badge: 'Buat tim CS',
-    name: 'Company',
-    oldPrice: 'Rp 8.900.000',
+    name: 'Growth',
+    price: 'Rp 1.900.000',
+    period: '/bulan',
+    features: [
+      'Semua di Starter',
+      'Tim CS dengan peran masing-masing',
+      'Delapan dokumen playbook, semuanya',
+      'Follow-up berjadwal dengan pengaman',
+      'Broadcast pintar',
+      'Laporan otomatis ke supervisor',
+      'Departemen internal',
+    ],
+    href: WA_GROWTH,
+    cta: 'Ambil harga promo',
+    highlight: false,
+  },
+  {
+    badge: 'Operasi penuh',
+    name: 'Pro',
     price: 'Rp 3.900.000',
     period: '/bulan',
     features: [
-      '5 pengguna (agent CS)',
-      'Nomor WhatsApp tanpa batas',
-      'Delapan dokumen playbook, semuanya',
-      'Pesan AI tanpa batas',
-      'Follow-up berjadwal + pengaman',
-      'Lead List + ekspor XLSX/CSV',
-      'Broadcast dengan tempo dan batas harian',
-      'Biaya AI dicatat per perusahaan',
+      'Semua di Growth',
+      'Rotasi banyak nomor',
+      'Tanya supplier dan vendor lewat WhatsApp',
+      'MCP dan API',
+      'Template playbook siap pasang',
+      'Mode agent antar-departemen (segera)',
     ],
-    href: WA_COMPANY,
+    href: WA_PRO,
     cta: 'Ambil harga promo',
-    highlight: true,
-    note: 'Pemakaian wajar: kalau pemakaianmu jauh di atas rata-rata, kami hubungin dulu. Layananmu ga akan kami putus tiba-tiba.',
+    highlight: false,
   },
   {
-    badge: '',
-    name: 'Lifetime',
-    oldPrice: 'Rp 39.900.000',
-    price: 'Rp 29.900.000',
-    period: 'sekali bayar',
+    badge: 'Skala besar',
+    name: 'Enterprise',
+    price: 'Custom',
+    period: '',
     features: [
-      'Semua yang ada di Company',
-      'Bayar sekali, ga kedaluwarsa',
-      'Ga ada tagihan bulanan, selamanya',
+      'Diskon credit sampai 90%',
+      'White label dengan namamu sendiri',
+      'Integrasi kustom',
+      'Dibahas satu per satu',
     ],
-    href: WA_LIFETIME,
-    cta: 'Tanya paket Lifetime',
+    href: WA_ENTERPRISE,
+    cta: 'Bahas kebutuhanmu',
     highlight: false,
-    note: '',
   },
 ];
 
 function Pricing() {
   return (
     <Section id="pricing" className="py-16 sm:py-20">
-      <SectionTitle>Harga promo untuk {KUOTA_PROMO} perusahaan pertama.</SectionTitle>
+      <Eyebrow>Harga</Eyebrow>
+      <SectionTitle>Seharusnya berapa? Kami sendiri bingung.</SectionTitle>
       <Lead>
-        Kuotanya beneran terbatas. Setelah {KUOTA_PROMO} perusahaan terdaftar, harga promo ditutup dan kembali ke harga normal. Yang udah daftar sebelum itu tetap bayar harga promo selama langganannya jalan tanpa putus. Ga ada hitung mundur palsu dan ga ada perpanjangan kuota.
+        Hitung sendiri: satu tim CS yang menjawab, menyusul lead, mengirim broadcast, menyusun laporan, dan tidak pernah lupa janji. Berapa sebulan buat itu semua? Ini harga pantas versi kami, bukan harga yang kamu bayar:
       </Lead>
-      <div className="mt-10 grid gap-4 md:grid-cols-2">
-        {PLANS.filter((plan) => plan.period === '/bulan').map((plan) => (
+      <div className="mt-8 flex flex-wrap items-baseline gap-x-5 gap-y-2">
+        {TANGGA_HARGA.map((nilai) => (
+          <s key={nilai} className="text-[clamp(18px,3vw,28px)] font-semibold text-[#4e6e5e] decoration-2 dark:text-[#7aaa8a]">
+            {nilai}
+          </s>
+        ))}
+        <span className="text-[clamp(28px,5vw,48px)] leading-none font-semibold tracking-[-.04em] text-green-dark dark:text-[#7fff4f]">
+          Rp 99.000
+        </span>
+        <span className="text-[13px] text-[#4e6e5e] dark:text-[#7aaa8a]">per bulan, mulai dari sini</span>
+      </div>
+
+      <div className="mt-6 rounded-panel border-2 border-green-dark bg-[#dff0d6] p-6 dark:border-[#7fff4f] dark:bg-[#1b3028]">
+        <h3 className="m-0 mb-2 text-lg font-semibold">Sulit menolaknya, karena kamu ga menanggung risikonya.</h3>
+        <ul className="m-0 grid list-none gap-1.5 p-0 text-[14px]">
+          <li>7 hari gratis, tanpa kartu kredit. Ga terasa bedanya? Tutup akunnya, ga ada yang ditagih.</li>
+          <li>Harga promo terkunci selama langgananmu jalan tanpa putus, untuk {KUOTA_PROMO} perusahaan pertama.</li>
+          <li>Ebook CS gratis tetap jadi milikmu, mau lanjut berlangganan atau tidak.</li>
+        </ul>
+      </div>
+
+      <p className="mt-10 mb-0 max-w-2xl text-[14px] leading-[1.65] text-[#4e6e5e] dark:text-[#7aaa8a]">
+        Setelah {KUOTA_PROMO} perusahaan terdaftar, harga promo ditutup dan harga naik. Kuotanya yang habis, bukan jamnya: ga ada hitung mundur palsu dan ga ada perpanjangan kuota.
+      </p>
+
+      <div className="mt-6 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        {PLANS.map((plan) => (
           <div
             key={plan.name}
             className={
               plan.highlight
-                ? 'flex flex-col rounded-panel border-2 border-ink bg-white p-7 dark:border-[#7fff4f] dark:bg-[#14241f]'
-                : 'flex flex-col rounded-panel border border-[#c6dcc0] bg-white p-7 dark:border-[#24403a] dark:bg-[#14241f]'
+                ? 'flex flex-col rounded-panel border-2 border-ink bg-white p-6 dark:border-[#7fff4f] dark:bg-[#14241f]'
+                : 'flex flex-col rounded-panel border border-[#c6dcc0] bg-white p-6 dark:border-[#24403a] dark:bg-[#14241f]'
             }
           >
             <span className="inline-block self-start rounded-full bg-[#dff0d6] px-3 py-1 font-mono text-[11px] font-semibold text-[#205a38] dark:bg-[#1b3028] dark:text-[#7fff4f]">
               {plan.badge}
             </span>
-            <h3 className="mt-3 mb-2 text-xl font-semibold">{plan.name}</h3>
-            <s className="text-[13px] text-[#4e6e5e] dark:text-[#7aaa8a]">{plan.oldPrice}</s>
-            <div className="mt-1 flex flex-wrap items-baseline gap-1.5">
-              <span className="text-3xl font-semibold tracking-[-.03em]">{plan.price}</span>
+            <h3 className="mt-3 mb-1 text-xl font-semibold">{plan.name}</h3>
+            <div className="flex flex-wrap items-baseline gap-1.5">
+              <span className="text-2xl font-semibold tracking-[-.03em]">{plan.price}</span>
               <span className="text-[13px] text-[#4e6e5e] dark:text-[#7aaa8a]">{plan.period}</span>
             </div>
-            <ul className="mt-5 mb-6 grid list-none gap-2 p-0 text-[13px]">
+            <ul className="mt-4 mb-6 grid list-none gap-2 p-0 text-[13px]">
               {plan.features.map((feature) => (
                 <li key={feature} className="flex items-start gap-2">
                   <span aria-hidden className="text-green-dark dark:text-[#7fff4f]">
@@ -816,18 +1002,14 @@ function Pricing() {
                 </li>
               ))}
             </ul>
-            {plan.note ? (
-              <p className="mt-auto mb-5 text-[12px] leading-[1.55] text-[#4e6e5e] dark:text-[#7aaa8a]">{plan.note}</p>
-            ) : null}
             <a
               href={plan.href}
-              target="_blank"
-              rel="noopener noreferrer"
-              className={
-                plan.note
-                  ? `block rounded-app bg-[#25d366] text-[#0c1912] px-5 py-3 text-center text-[15px] font-semibold no-underline transition hover:bg-[#1dbd5e] ${FOKUS}`
-                  : `mt-auto block rounded-app bg-[#25d366] text-[#0c1912] px-5 py-3 text-center text-[15px] font-semibold no-underline transition hover:bg-[#1dbd5e] ${FOKUS}`
-              }
+              {...(plan.href.startsWith(APP_URL) ? {} : { target: '_blank', rel: 'noopener noreferrer' })}
+              className={`mt-auto block rounded-app px-5 py-3 text-center text-[15px] font-semibold no-underline transition ${
+                plan.highlight
+                  ? 'bg-ink text-white hover:-translate-y-0.5 dark:bg-[#7fff4f] dark:text-[#0c1912]'
+                  : 'bg-[#25d366] text-[#0c1912] hover:bg-[#1dbd5e]'
+              } ${FOKUS}`}
             >
               {plan.cta}
             </a>
@@ -835,56 +1017,9 @@ function Pricing() {
         ))}
       </div>
 
-      {PLANS.filter((plan) => plan.period === 'sekali bayar').map((plan) => (
-        <div
-          key={plan.name}
-          className="mt-4 grid gap-5 rounded-panel border border-[#c6dcc0] bg-white p-7 md:grid-cols-[1fr_auto] md:items-center dark:border-[#24403a] dark:bg-[#14241f]"
-        >
-          <div>
-            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-              <h3 className="m-0 text-xl font-semibold">{plan.name}</h3>
-              <s className="text-[13px] text-[#4e6e5e] dark:text-[#7aaa8a]">{plan.oldPrice}</s>
-              <span className="text-2xl font-semibold tracking-[-.03em]">{plan.price}</span>
-              <span className="text-[13px] text-[#4e6e5e] dark:text-[#7aaa8a]">{plan.period}</span>
-            </div>
-            <ul className="m-0 mt-3 flex list-none flex-wrap gap-x-5 gap-y-1.5 p-0 text-[13px]">
-              {plan.features.map((feature) => (
-                <li key={feature} className="flex items-start gap-2">
-                  <span aria-hidden className="text-green-dark dark:text-[#7fff4f]">
-                    ✓
-                  </span>
-                  {feature}
-                </li>
-              ))}
-            </ul>
-          </div>
-          <a
-            href={plan.href}
-            target="_blank"
-            rel="noopener noreferrer"
-            className={`block rounded-app bg-[#25d366] text-[#0c1912] px-5 py-3 text-center text-[15px] font-semibold no-underline transition hover:bg-[#1dbd5e] md:w-max ${FOKUS}`}
-          >
-            {plan.cta}
-          </a>
-        </div>
-      ))}
-
-      <div className="mt-4 flex flex-wrap items-center justify-between gap-4 rounded-panel border border-[#c6dcc0] bg-white p-6 dark:border-[#24403a] dark:bg-[#14241f]">
-        <div>
-          <h3 className="mt-0 mb-1 text-base font-semibold">Mau Agnee tampil dengan namamu sendiri?</h3>
-          <p className="m-0 text-[13px] leading-[1.6] text-[#4e6e5e] dark:text-[#7aaa8a]">
-            White label dibahas satu per satu, ruang lingkup dan harganya menyesuaikan kebutuhanmu.
-          </p>
-        </div>
-        <a
-          href={WA_WHITELABEL}
-          target="_blank"
-          rel="noopener noreferrer"
-          className={`rounded-app border border-[#c6dcc0] px-5 py-3 text-[15px] font-semibold no-underline dark:border-[#24403a] ${FOKUS}`}
-        >
-          Minta penawaran white label
-        </a>
-      </div>
+      <p className="mt-5 mb-0 max-w-3xl text-[12px] leading-[1.6] text-[#4e6e5e] dark:text-[#7aaa8a]">
+        Pemakaian AI ditagih lewat credit: langganan bulanan mengisi credit, dan kamu bisa top-up kapan saja. Sistem credit sedang dipasang. Selama masa beta, langganan dan jumlah pengguna serta nomor tiap paket dikonfirmasi lewat WhatsApp sebelum kamu membayar.
+      </p>
     </Section>
   );
 }
@@ -900,11 +1035,11 @@ const FAQ_ITEMS: [string, string][] = [
   ],
   [
     'Berapa CS yang bisa ditambahkan?',
-    'Personal untuk 1 pengguna, Company untuk 5 CS aktif. Butuh lebih banyak? Chat kami lewat WhatsApp, batasnya memang diatur per perusahaan.',
+    'Starter untuk 1 pengguna. Growth dan Pro untuk tim CS. Jumlah persisnya dikonfirmasi lewat WhatsApp selama beta, karena batasnya diatur per perusahaan.',
   ],
   [
-    '"Pesan AI tanpa batas" beneran tanpa batas?',
-    'Ga ada angka yang bikin AI-mu berhenti di tengah jalan, dan memang begitu cara sistemnya jalan. Tapi pemakaian AI itu ada biayanya buat kami. Kalau pemakaianmu jauh di atas rata-rata, kami hubungin dulu buat ngobrol. Layananmu ga akan kami matikan tiba-tiba.',
+    'Credit habis di tengah bulan, AI langsung mati?',
+    'Pemakaian AI ditagih lewat credit, dan kamu bisa top-up kapan saja. Sistem credit sedang dipasang, jadi selama beta kami hubungi kamu lewat WhatsApp sebelum pemakaianmu menyentuh batas. Layananmu ga akan kami matikan tiba-tiba.',
   ],
   [
     'Apakah AI-nya bisa disesuaikan dengan bisnis saya?',
@@ -928,7 +1063,7 @@ const FAQ_ITEMS: [string, string][] = [
   ],
   [
     'Harga promonya naik bulan depan?',
-    'Ga. Kalau kamu daftar sebelum kuota promo penuh, harga promo berlaku selama langgananmu jalan tanpa putus. Syaratnya cuma satu: kalau langgananmu berhenti lalu kamu mulai lagi setelah kuotanya penuh, yang berlaku harga normal. Paket Lifetime dibayar sekali dan ga ada tagihan lagi.',
+    'Ga. Kalau kamu daftar sebelum kuota promo penuh, harga promo berlaku selama langgananmu jalan tanpa putus. Syaratnya cuma satu: kalau langgananmu berhenti lalu kamu mulai lagi setelah kuotanya penuh, yang berlaku harga normal.',
   ],
   [
     'Ada masa percobaan?',
@@ -992,9 +1127,9 @@ function Faq() {
  * justru menunjukkan tangga. Penekanan visualnya ikut naik (garis tipis, garis
  * biasa, garis aksen) supaya tangganya terbaca tanpa perlu dijelaskan.
  *
- * Soal FOMO: angkanya aritmetika dari harga yang sudah tertulis di halaman ini
- * (8.900.000 - 3.900.000), bukan hitung mundur, bukan sisa kuota karangan.
- * Kalau nanti sisa kuota mau ditampilkan, dia harus datang dari hitungan nyata
+ * Soal FOMO: tidak ada angka selisih harga sejak 2026-10-17, karena harga normal
+ * sesudah kuota belum ditetapkan. Tidak ada hitung mundur, tidak ada sisa kuota
+ * karangan. Kalau nanti sisa kuota mau ditampilkan, dia harus datang dari hitungan nyata
  * tabel companies, bukan dari konstanta yang gampang basi.
  */
 const PINTU = [
@@ -1078,9 +1213,8 @@ function FunnelPenutup() {
               Harga promo berhenti di perusahaan ke-{KUOTA_PROMO}.
             </h2>
             <p className="m-0 text-[15px] leading-[1.65] text-white/70">
-              Setelah kuotanya penuh, Company balik ke Rp 8.900.000 per bulan. Selisihnya Rp 5.000.000 tiap bulan, dan
-              Personal naik dari Rp 99.000 ke Rp 899.000. Yang daftar sebelum kuota penuh tetap bayar harga promo
-              selama langganannya jalan tanpa putus. Ga ada hitung mundur palsu di halaman ini: kuotanya yang habis,
+              Setelah kuotanya penuh, harga naik. Yang daftar sebelum itu tetap bayar harga promo selama
+              langganannya jalan tanpa putus. Ga ada hitung mundur palsu di halaman ini: kuotanya yang habis,
               bukan jamnya.
             </p>
           </div>

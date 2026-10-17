@@ -71,7 +71,7 @@ function parseCsv(text) {
   const delimiter = hint ? hint[1] : detectDelimiter(text);
   const rows = [];
   const rowNumbers = [];
-  let record = hint ? 1 : 0; // nomor baris di spreadsheet = urutan rekaman, termasuk yang kosong
+  let record = 0; // nomor baris di spreadsheet = urutan rekaman, termasuk yang kosong (Excel tidak menampilkan baris sep=)
   let row = [];
   let cell = '';
   let inQuotes = false;

@@ -2017,7 +2017,8 @@ class Database {
    * Kinerja tiap human agent untuk [from, to). Hanya yang tercatat:
    *   humanReplies / chatsReplied  dari outbound_replies (author = 'human', author_user_id terisi)
    *   waiting-time                 pesan customer pertama yang menunggu sampai balasan human pertama
-   *   takeovers / handBacks        dari conversation_handoffs (to_user_id / from_user_id)
+   *   takeovers / handBacks        dari conversation_handoffs, hanya yang dilakukan agent itu sendiri
+   *                                (created_by = pelaku) dan benar-benar mengganti pemegang chat
    *   openAssigned                 chat yang SEKARANG dipegang (bukan per periode)
    * Chat grup tidak dihitung. Anggota aktif berperan agent selalu ikut (nol
    * adalah informasi); anggota lain hanya bila ada aktivitas.
@@ -2055,11 +2056,18 @@ class Database {
     `, [companyId, from, to]);
     const handoffs = await this.pool.query(`
       SELECT user_id AS "userId", SUM(taken)::int AS takeovers, SUM(returned)::int AS "handBacks" FROM (
+        -- Setiap simpan routing (ganti prioritas, tandai selesai, tugas) menulis baris
+        -- serah-terima baru. Yang dihitung hanya perpindahan pemegang chat yang
+        -- dilakukan agent itu sendiri: bukan simpan ulang oleh agent yang sama yang
+        -- sudah memegangnya, dan bukan penugasan oleh supervisor/sistem.
         SELECT to_user_id AS user_id, 1 AS taken, 0 AS returned FROM conversation_handoffs
-          WHERE company_id = $1 AND to_mode = 'human' AND to_user_id IS NOT NULL AND created_at >= $2 AND created_at < $3
+          WHERE company_id = $1 AND to_mode = 'human' AND to_user_id IS NOT NULL AND created_by = to_user_id
+            AND NOT (from_mode = 'human' AND from_user_id IS NOT DISTINCT FROM to_user_id)
+            AND created_at >= $2 AND created_at < $3
         UNION ALL
         SELECT from_user_id, 0, 1 FROM conversation_handoffs
           WHERE company_id = $1 AND to_mode = 'ai' AND from_mode = 'human' AND from_user_id IS NOT NULL
+            AND created_by = from_user_id
             AND created_at >= $2 AND created_at < $3
       ) x GROUP BY user_id
     `, [companyId, from, to]);

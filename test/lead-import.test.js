@@ -167,7 +167,7 @@ test('CSV: baris "sep=;" dari Excel dibuang dan dipakai sebagai pemisah', async 
   const table = await li.parseTable(Buffer.from('sep=;\r\nNama;HP\r\nJaka;081211110011\r\n'), 'a.csv');
   assert.deepEqual(table.headers, ['Nama', 'HP']);
   assert.deepEqual(table.rows, [['Jaka', '081211110011']]);
-  assert.deepEqual(table.rowNumbers, [3]);
+  assert.deepEqual(table.rowNumbers, [2]); // Excel tidak menampilkan baris sep=
 });
 
 test('CSV: nomor baris masalah mengikuti berkas, termasuk baris kosong dan sel berbaris-baru', async () => {

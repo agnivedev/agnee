@@ -104,7 +104,7 @@ type Overview = {
 };
 
 const PLANS = ['personal', 'company', 'lifetime', 'starter', 'growth', 'pro', 'enterprise'];
-const CREDIT_PLAN_OPTIONS = ['starter', 'growth', 'pro', 'enterprise'];
+const CREDIT_PLAN_OPTIONS = ['starter', 'growth', 'pro', 'lifetime', 'enterprise'];
 const PLAN_STATUSES = ['trial', 'beta', 'active', 'suspended'];
 const STATUSES = ['active', 'suspended', 'closed'];
 
@@ -864,6 +864,7 @@ type CreditState = {
   total: number;
   periodEnd: string | null;
   lastGrant: number;
+  discountPct: number;
   alertLevel: 'low' | 'empty' | null;
   ledger?: { id: number; kind: string; amount: number; shortfall: number; note: string | null; purpose: string | null; createdAt: string }[];
 };
@@ -885,6 +886,7 @@ function CreditCard({ companyId }: { companyId: string }) {
   const [topup, setTopup] = useState('');
   const [adjust, setAdjust] = useState('');
   const [adjustNote, setAdjustNote] = useState('');
+  const [discount, setDiscount] = useState('0');
   const [message, setMessage] = useState('');
   const [failed, setFailed] = useState(false);
 
@@ -892,6 +894,7 @@ function CreditCard({ companyId }: { companyId: string }) {
     try {
       const next = await api<CreditState>(`${base}/credit`);
       setState(next);
+      setDiscount(String(next.discountPct));
     } catch (caught) {
       setFailed(true);
       setMessage(messageFromError(caught, 'Gagal memuat credit.'));
@@ -933,8 +936,8 @@ function CreditCard({ companyId }: { companyId: string }) {
       <div className="mt-5 grid items-end gap-4 md:grid-cols-3">
         <SelectField label="Terapkan / perpanjang paket" value={plan} onChange={setPlan} options={CREDIT_PLAN_OPTIONS} />
         <NumberField
-          label="Credit bulanan (wajib untuk enterprise)"
-          hint="Kosongkan untuk memakai credit bawaan paket."
+          label="Credit bulanan / awal (wajib untuk enterprise)"
+          hint="Kosongkan untuk memakai credit bawaan paket. Lifetime: credit awal, sekali saja."
           value={monthlyCredit}
           onChange={setMonthlyCredit}
         />
@@ -972,6 +975,18 @@ function CreditCard({ companyId }: { companyId: string }) {
             onClick={() => void run('/credit/adjust', 'POST', { credit: Number(adjust), note: adjustNote.trim() }, 'Koreksi dicatat ✓')}
           >
             Koreksi
+          </Button>
+        </div>
+      </div>
+
+      <div className="mt-4 grid items-end gap-4 md:grid-cols-3">
+        <NumberField label="Diskon credit % (maks. 60)" value={discount} onChange={setDiscount} hint="Mengurangi credit yang dipotong per panggilan AI." />
+        <div>
+          <Button
+            type="button" size="sm" variant="outline"
+            onClick={() => void run('/credit-discount', 'PATCH', { discountPct: Number(discount) }, 'Diskon disimpan ✓')}
+          >
+            Simpan diskon
           </Button>
         </div>
       </div>

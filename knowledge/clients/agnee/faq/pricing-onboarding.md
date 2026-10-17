@@ -61,7 +61,8 @@ tags: [harga, paket, demo, onboarding, implementasi]
   WhatsApp, 1 playbook, 500 credit per bulan, tanpa broadcast. Growth
   Rp1.900.000: 5 pengguna, 2 nomor, 5 playbook, 10.000 credit, dengan broadcast.
   Pro Rp3.900.000: 15 pengguna, 5 nomor, 15 playbook, 22.000 credit, dengan
-  broadcast. Enterprise dibuat custom sesuai kebutuhan. Pemakaian AI dihitung
+  broadcast. Ada juga paket Lifetime Rp8.900.000 sekali bayar dengan fitur setara Starter
+  dan credit awal sekali saja. Enterprise dibuat custom sesuai kebutuhan. Pemakaian AI dihitung
   dalam credit: 1 credit kira-kira satu balasan AI. Credit paket diisi tiap
   bulan dan tidak dibawa ke bulan berikutnya. Kalau kurang, bisa top-up (pay as
   you go) dan credit top-up tidak hangus. Saat credit hampir habis, supervisor

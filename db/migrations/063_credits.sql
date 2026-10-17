@@ -14,7 +14,7 @@ ALTER TABLE companies ADD COLUMN IF NOT EXISTS credit_period_end TIMESTAMPTZ;
 -- Credit paket terakhir yang diisi; dasar ambang "saldo rendah".
 ALTER TABLE companies ADD COLUMN IF NOT EXISTS credit_last_grant NUMERIC(16,4) NOT NULL DEFAULT 0;
 ALTER TABLE companies ADD COLUMN IF NOT EXISTS credit_discount_pct SMALLINT NOT NULL DEFAULT 0
-  CHECK (credit_discount_pct BETWEEN 0 AND 90);
+  CHECK (credit_discount_pct BETWEEN 0 AND 60);
 -- NULL | 'p20' | 'p10' | 'p1' | 'empty': supervisor sudah dikabari pada tingkat ini; direset saat diisi ulang.
 ALTER TABLE companies ADD COLUMN IF NOT EXISTS credit_alert_level TEXT
   CHECK (credit_alert_level IN ('p20', 'p10', 'p1', 'empty'));
@@ -38,3 +38,11 @@ CREATE INDEX IF NOT EXISTS credit_ledger_company_idx ON credit_ledger (company_i
 ALTER TABLE notifications DROP CONSTRAINT IF EXISTS notifications_kind_check;
 ALTER TABLE notifications ADD CONSTRAINT notifications_kind_check
   CHECK (kind IN ('mention', 'reply', 'task', 'sla', 'hub', 'department_question', 'credit'));
+
+-- Kuota promo: perusahaan yang mendaftar sendiri (jalur publik) sementara kuota
+-- bulan itu masih ada ditandai; penghitungnya membaca kolom ini, bukan angka
+-- karangan. Akun yang dibuat staf tidak ditandai.
+ALTER TABLE companies ADD COLUMN IF NOT EXISTS promo_signup BOOLEAN NOT NULL DEFAULT FALSE;
+CREATE INDEX IF NOT EXISTS companies_promo_idx ON companies (created_at) WHERE promo_signup;
+
+-- Paket Lifetime berbasis credit: dibayar sekali, credit awal sekali saja.

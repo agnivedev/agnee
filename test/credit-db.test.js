@@ -132,3 +132,47 @@ test('kabar credit: supervisor DAN anggota departemen Management, tanpa duplikat
     const recipients = await db.listCreditRecipients(co.id);
     assert.deepEqual(recipients.map((r) => r.whatsappNumber).sort(), ['6281100000001', '6281100000002']);
   });
+
+test('lifetime: credit awal sekali saja ke kantong yang tidak hangus; kuota promo dihitung dari tabel companies',
+  { skip: !DB_URL && 'DATABASE_URL tidak diset' }, async (t) => {
+    const db = new Database({ connectionString: DB_URL, logger: { info() {}, warn() {} } });
+    await db.connect();
+    const stamp = Date.now();
+    const { rows: [co] } = await db.pool.query("INSERT INTO companies (slug, name, plan) VALUES ($1, $1, 'personal') RETURNING id", [`life-${stamp}`]);
+    const created = [co.id];
+    t.after(async () => {
+      await db.pool.query('DELETE FROM companies WHERE id = ANY($1)', [created]);
+      await db.pool.query("DELETE FROM users WHERE email LIKE $1", [`promo-${stamp}-%`]);
+      await db.close();
+    });
+
+    const limits = credit.limitsOfPlan('lifetime');
+    const state = await db.subscribeCreditPlan(co.id, { plan: 'lifetime', monthlyCredit: 15000, limits, oneTime: true });
+    assert.equal(state.plan, 'lifetime');
+    assert.equal(state.planBalance, 0);
+    assert.equal(state.topupBalance, 15000);
+    assert.equal(state.periodEnd, null);
+    await assert.rejects(
+      db.subscribeCreditPlan(co.id, { plan: 'lifetime', monthlyCredit: 15000, limits, oneTime: true }),
+      { code: 'ONE_TIME_ALREADY' },
+    );
+    // tidak hangus walau tanggal apa pun
+    await db.getCompanyConfig(co.id);
+    assert.equal((await db.getCreditState(co.id)).topupBalance, 15000);
+
+    // Kuota promo: hanya pendaftaran publik yang ditandai, dan berhenti di batas.
+    const before = await db.getPromoQuota({ limit: 1_000_000 });
+    const limit = before.used + 2;
+    const signup = (n) => db.createCompanySignup({
+      companyName: `Promo ${stamp} ${n}`, plan: 'personal', displayName: 'Uji Promo',
+      email: `promo-${stamp}-${n}@t.test`, password: 'password-123', promoQuota: limit,
+    });
+    for (const n of [1, 2, 3]) created.push((await signup(n)).companyId);
+    const quota = await db.getPromoQuota({ limit });
+    assert.equal(quota.used, limit, 'ketiga pendaftar masuk tetapi hanya dua yang ditandai promo');
+    assert.equal(quota.remaining, 0);
+    const flags = (await db.pool.query('SELECT promo_signup FROM companies WHERE id = ANY($1) ORDER BY created_at', [created.slice(1)])).rows.map((r) => r.promo_signup);
+    assert.deepEqual(flags, [true, true, false]);
+    // company buatan staf (bukan jalur signup) tidak ikut terhitung
+    assert.equal((await db.pool.query('SELECT promo_signup FROM companies WHERE id = $1', [co.id])).rows[0].promo_signup, false);
+  });

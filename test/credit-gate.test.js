@@ -95,7 +95,7 @@ test('panggilan AI selesai: credit dipotong dari biaya penyedia, kabar dikirim s
   const database = {
     ...fakeDatabase({ plan: 'growth', creditMode: true, creditTotal: 100 }),
     async recordAiUsage() {},
-    async getCreditState() { return { creditMode: true, plan: 'growth', }; },
+    async getCreditState() { return { creditMode: true, plan: 'growth', discountPct: 50 }; },
     async debitCredit(companyId, args) { debits.push({ companyId, ...args }); return { total: 0, crossed: 'empty' }; },
     async notifyCredit(companyId, body) { notified.push({ companyId, body }); return []; },
   };
@@ -117,9 +117,26 @@ test('panggilan AI selesai: credit dipotong dari biaya penyedia, kabar dikirim s
   });
   await new Promise((resolve) => setTimeout(resolve, 50));
   assert.ok(debits.length >= 1, 'ada pemotongan');
-  // 0,002 USD x 16.500 x markup 3,85 / Rp 100 per credit
-  assert.equal(debits[0].amount, Math.round(0.002 * 16_500 * 3.85 / 100 * 10_000) / 10_000);
+  // 0,002 USD x 16.500 x markup 3,85 x (1 - 50%) / Rp 100 per credit
+  assert.equal(debits[0].amount, Math.round(0.002 * 16_500 * 3.85 * 0.5 / 100 * 10_000) / 10_000);
   assert.equal(debits[0].companyId, COMPANY);
   assert.equal(notified.length, debits.length, 'kabar habis dikirim ke supervisor');
   assert.match(notified[0].body, /Credit AI habis/);
+});
+
+test('rute publik promo-quota: tanpa login, hanya angka terpakai dan sisa', async (t) => {
+  const database = {
+    ...fakeDatabase({}),
+    async getPromoQuota({ limit }) {
+      return { limit, used: 12, remaining: limit - 12, monthStart: '2026-10-01T00:00:00Z', resetsAt: '2026-11-01T00:00:00Z' };
+    },
+  };
+  const app = await buildApp({
+    logger: false, startupEnabled: false, demoMode: true, database,
+    llmEnabled: false, sessionSecret: 'credit-3',
+  });
+  t.after(() => app.close());
+  const res = await app.inject({ method: 'GET', url: '/v1/public/promo-quota' });
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.json(), { limit: 50, used: 12, remaining: 38, open: true, resetsAt: '2026-11-01T00:00:00Z' });
 });

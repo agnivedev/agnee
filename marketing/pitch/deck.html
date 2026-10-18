@@ -1,0 +1,408 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<title>Agnee: bukan auto-respon, satu tim CS lengkap (Pitch)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,700;1,9..40,400&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#14241f; --soft:#46605a; --wash:#f2f7f0; --line:#d8e4d5;
+    --deep:#0c1912; --deep2:#14241f; --lime:#7fff4f; --green:#1f7a4d;
+  }
+  @page { size: 254mm 143mm; margin: 0; }   /* 16:9 */
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    font-family:"DM Sans",-apple-system,"Helvetica Neue",Arial,sans-serif;
+    color:var(--ink); -webkit-font-smoothing:antialiased;
+  }
+  .s{
+    width:254mm; height:143mm; padding:16mm 18mm;
+    page-break-after:always; break-after:page;
+    position:relative; overflow:hidden; background:#fff;
+    display:flex; flex-direction:column;
+  }
+  .s:last-child{page-break-after:auto;break-after:auto}
+  .s.dark{background:var(--deep); color:#f4f9f0}
+  .s.wash{background:var(--wash)}
+
+  .kicker{
+    font-family:"IBM Plex Mono",monospace; font-size:9pt; letter-spacing:.2em;
+    text-transform:uppercase; color:var(--green); margin:0 0 6mm;
+  }
+  .dark .kicker{color:var(--lime)}
+  h1{font-size:34pt;line-height:1.06;letter-spacing:-.035em;margin:0 0 6mm;font-weight:700;max-width:180mm}
+  h2{font-size:24pt;line-height:1.12;letter-spacing:-.03em;margin:0 0 6mm;font-weight:700;max-width:190mm}
+  h3{font-size:13pt;margin:0 0 2.5mm;font-weight:700}
+  p{font-size:12pt;line-height:1.55;margin:0 0 4mm;max-width:175mm}
+  .sub{font-size:14pt;color:var(--soft);line-height:1.5;max-width:165mm}
+  .dark .sub{color:rgba(244,249,240,.7)}
+  .small{font-size:10.5pt;line-height:1.5}
+  .mono{font-family:"IBM Plex Mono",monospace}
+
+  .fill{margin-top:auto}
+  .foot{
+    position:absolute; left:18mm; right:18mm; bottom:9mm;
+    display:flex; justify-content:space-between;
+    font-family:"IBM Plex Mono",monospace; font-size:8pt; letter-spacing:.12em;
+    text-transform:uppercase; color:var(--soft);
+  }
+  .dark .foot{color:rgba(244,249,240,.4)}
+
+  .cols{display:flex;gap:7mm}
+  .cols>*{flex:1}
+
+  .card{border:1px solid var(--line);border-radius:4mm;padding:6mm;background:#fff}
+  .dark .card{border-color:#24403a;background:#14241f}
+  .card .n{font-family:"IBM Plex Mono",monospace;font-size:9pt;color:var(--green);font-weight:600;margin:0 0 2.5mm}
+  .dark .card .n{color:var(--lime)}
+  .card p{font-size:10.5pt;margin:0;line-height:1.5}
+
+  .stage{display:flex;gap:5mm;align-items:stretch;margin:2mm 0 0}
+  .stage>div{flex:1;border-radius:4mm;padding:5mm;border:1px solid var(--line);background:#fff}
+  .stage .t{font-size:11.5pt;font-weight:700;margin:0 0 1.5mm}
+  .stage .m{font-family:"IBM Plex Mono",monospace;font-size:8.5pt;color:var(--green);margin:0 0 2.5mm;letter-spacing:.06em}
+  .stage p{font-size:9.6pt;line-height:1.45;margin:0}
+  .stage .on{border:2px solid var(--green);background:var(--wash)}
+
+  .say{background:var(--wash);border-left:3px solid var(--green);border-radius:0 3mm 3mm 0;padding:4mm 5mm;margin:0 0 3.5mm}
+  .say p{margin:0;font-size:11.5pt;line-height:1.5}
+  .dark .say{background:#14241f;border-left-color:var(--lime)}
+
+  .vs{display:flex;gap:6mm;margin:3mm 0}
+  .vs>div{flex:1;border-radius:4mm;padding:5mm}
+  .vs .x{background:#fdf4f3;border:1px solid #f0d9d6}
+  .vs .v{background:var(--wash);border:1px solid var(--line)}
+  .vs .hd{font-family:"IBM Plex Mono",monospace;font-size:8.5pt;letter-spacing:.14em;text-transform:uppercase;margin:0 0 2.5mm;font-weight:600}
+  .vs .x .hd{color:#9b3228}
+  .vs .v .hd{color:var(--green)}
+  .vs p{font-size:10.5pt;margin:0;line-height:1.5}
+
+  ul,ol{margin:0 0 4mm;padding-left:6mm}
+  li{font-size:11.5pt;line-height:1.5;margin-bottom:2.5mm}
+
+  .big{font-size:52pt;line-height:1;font-weight:700;letter-spacing:-.045em;color:var(--lime)}
+  .rule{height:2px;background:var(--lime);width:30mm;margin:0 0 6mm}
+
+  .tx{border:1px solid var(--line);border-radius:4mm;overflow:hidden}
+  .tx .row{display:flex;gap:5mm;padding:2.6mm 5mm;border-bottom:1px solid var(--line)}
+  .tx .row:last-child{border-bottom:none}
+  .tx .who{font-family:"IBM Plex Mono",monospace;font-size:8pt;color:var(--soft);width:24mm;flex-shrink:0;padding-top:.8mm;letter-spacing:.04em;white-space:nowrap}
+  .tx .msg{font-size:10pt;line-height:1.45;margin:0}
+  .tx .cs{background:var(--wash)}
+
+  .pg{display:grid;grid-template-columns:repeat(3,1fr);gap:4mm}
+  .pg .c{border:1px solid var(--line);border-radius:3.5mm;padding:4mm 4.5mm;background:#fff;display:flex;flex-direction:column}
+  .wash .pg .c{background:#fff}
+  .pg .c .n{font-family:"IBM Plex Mono",monospace;font-size:8pt;color:var(--green);font-weight:600;margin:0 0 1.5mm;display:flex;justify-content:space-between}
+  .pg .c .p{font-size:9.4pt;line-height:1.4;margin:0 0 1.5mm;color:var(--soft);text-decoration:line-through;text-decoration-color:#b7ccb4;max-width:none}
+  .pg .c .g{font-size:10.8pt;line-height:1.4;margin:0;font-weight:700;max-width:none}
+  .tag{background:#dff0d6;color:#205a38;border-radius:99px;padding:.3mm 2.4mm;font-size:7.5pt;letter-spacing:0}
+  .nums{display:flex;gap:6mm;margin-top:auto}
+  .nums>div{flex:1}
+  .nums .v{font-size:30pt;font-weight:700;letter-spacing:-.04em;color:var(--lime);line-height:1;margin:0 0 2mm}
+  .nums .l{font-size:9.5pt;line-height:1.4;margin:0;color:rgba(244,249,240,.7)}
+  .plans{display:flex;gap:4mm}
+  .plans>div{flex:1;border:1px solid var(--line);border-radius:4mm;padding:5mm;background:#fff}
+  .plans .on{border:2px solid var(--ink)}
+  .plans .b{font-family:"IBM Plex Mono",monospace;font-size:8pt;color:var(--green);margin:0 0 1.5mm}
+  .plans .nm{font-size:14pt;font-weight:700;margin:0}
+  .plans .pr{font-size:15pt;font-weight:700;letter-spacing:-.03em;margin:0 0 3mm}
+  .plans .pr span{font-size:9pt;font-weight:400;color:var(--soft)}
+  .plans ul{padding-left:4mm;margin:0}
+  .plans li{font-size:9.6pt;line-height:1.4;margin-bottom:1.8mm}
+  .qa{display:grid;grid-template-columns:1fr 1fr;gap:4mm 6mm}
+  .qa h3{font-size:10.5pt;margin:0 0 1mm}
+  .qa p{font-size:9.2pt;line-height:1.42;margin:0;max-width:none}
+  .ladder{display:grid;gap:2.2mm;margin:2mm 0 0}
+  .ladder .r{display:grid;grid-template-columns:42mm 1fr 30mm;gap:4mm;align-items:center;font-size:9.5pt}
+  .ladder .bar{height:4.5mm;border-radius:1mm;background:#c9d8cf}
+  .ladder .r.me .bar{background:#19c666}
+  .ladder .val{font-family:"IBM Plex Mono",monospace;font-weight:600;text-align:right;font-size:9pt}
+
+  /* Pitch lebih padat dari deck webinar: satu slide memuat lebih banyak butir. */
+  .s{padding:12mm 16mm 16mm}
+  .kicker{margin:0 0 3.5mm}
+  h2{font-size:21pt;margin:0 0 4mm}
+  p{font-size:10.8pt;line-height:1.5;margin:0 0 3mm}
+  .small{font-size:9.6pt}
+  .vs{margin:2mm 0}
+  .vs>div{padding:3.5mm 4.5mm}
+  .vs p{font-size:9.6pt}
+  .card{padding:4mm 4.5mm}
+  .card p{font-size:9.4pt}
+  .card h3{font-size:11pt;margin:0 0 1.5mm}
+  .stage>div{padding:3.5mm}
+  .stage p{font-size:9pt}
+  .say{padding:3mm 4.5mm;margin:0 0 2.5mm}
+  .say p{font-size:10.2pt}
+  .foot{bottom:6mm}
+</style>
+</head>
+<body>
+
+<!-- 1 -->
+<div class="s dark">
+  <p class="kicker">Agnee · AI untuk WhatsApp bisnis kamu</p>
+  <div class="rule"></div>
+  <h1>Chatbot lain cuma auto-respon.<br>Agnee kerja kayak satu company sales.</h1>
+  <p class="sub">Agnee membaca riwayat chat, menjawab dari playbook-mu, minggir saat CS mulai ngetik, menyusul lead yang diam, mengirim broadcast, mencatat tugas, dan melapor ke supervisor. Semuanya dari satu nomor WhatsApp yang sudah kamu pakai.</p>
+  <div class="fill"></div>
+  <p class="sub small">Coba gratis 7 hari, tanpa kartu kredit. app.agnee.agnive.co</p>
+  <div class="foot"><span>Pitch</span><span>Agnee</span></div>
+</div>
+
+<!-- 2 -->
+<div class="s">
+  <p class="kicker">Kenapa Agnee</p>
+  <h2>Chatbot lain berhenti di balasan pertama. Agnee baru mulai.</h2>
+  <div class="vs">
+    <div class="x"><p class="hd">Auto-respon</p><p>Membalas kata kunci. Selesai di satu jawaban. Kalau pertanyaannya di luar daftar, pelanggan menunggu manusia yang entah kapan datang.</p></div>
+    <div class="v"><p class="hd">Agnee</p><p>Menjawab dari playbook, tahu kapan harus bertanya, menyerahkan chat ke CS dengan riwayat lengkap, mengejar lead yang diam, dan melapor ke atasan tanpa diminta.</p></div>
+  </div>
+  <p class="small">Kebutuhan CS dan sales harian itu panjang: jawab, tahu kapan bertanya, mengejar yang diam, melapor. Halaman berikut menuliskan pegal-pegal hariannya, dan apa yang berubah.</p>
+  <div class="foot"><span>Kenapa Agnee</span><span>Agnee</span></div>
+</div>
+
+<!-- 3 -->
+<div class="s wash">
+  <p class="kicker">Yang bikin pegal, dan yang berubah (1 dari 3)</p>
+  <div class="pg"><div class="c"><p class="n"><span>01</span></p><p class="p">Lead yang siap beli lewat begitu saja</p><p class="g">Ditandai lengkap dengan alasannya, kamu tinggal setuju</p></div><div class="c"><p class="n"><span>02</span><span class="tag">Segera</span></p><p class="p">Tool beda untuk sales, CS, dan operasi</p><p class="g">Satu AI untuk semua peran, satu paket</p></div><div class="c"><p class="n"><span>03</span></p><p class="p">Bot ngarang jawaban, kamu yang minta maaf</p><p class="g">Kalau ga tahu, dia tanya tim atau supplier, lalu balik dengan jawaban pasti</p></div><div class="c"><p class="n"><span>04</span></p><p class="p">Customer disuruh cerita ulang</p><p class="g">Chat pindah ke CS lengkap dengan riwayat dan alasannya</p></div><div class="c"><p class="n"><span>05</span></p><p class="p">Urusan antar-divisi nyangkut di grup chat</p><p class="g">Sebut rekan, jadi tugas ber-SLA</p></div><div class="c"><p class="n"><span>06</span></p><p class="p">Pipeline lupa diupdate</p><p class="g">AI menyarankan kartu pindah tahap, kamu cukup seret</p></div></div>
+  
+  <div class="foot"><span>Pain dan gain</span><span>Agnee</span></div>
+</div>
+
+<!-- 4 -->
+<div class="s wash">
+  <p class="kicker">Yang bikin pegal, dan yang berubah (2 dari 3)</p>
+  <div class="pg"><div class="c"><p class="n"><span>07</span></p><p class="p">Lead dari form dan Mayar dicatat manual</p><p class="g">Masuk sendiri, sisanya lewat API dan MCP</p></div><div class="c"><p class="n"><span>08</span></p><p class="p">Nulis prompt panjang, hasilnya tetap melenceng</p><p class="g">Ngobrol atau unggah dokumen, AI belajar kayak karyawan baru</p></div><div class="c"><p class="n"><span>09</span></p><p class="p">Credit habis di tugas sepele</p><p class="g">Model dipilih sesuai tugasnya, tagihan wajar</p></div><div class="c"><p class="n"><span>10</span></p><p class="p">Minta rekap tiap minggu</p><p class="g">Laporan masuk ke WhatsApp supervisor sendiri</p></div><div class="c"><p class="n"><span>11</span></p><p class="p">Data kontak berserakan</p><p class="g">Satu tabel, ekspor XLSX atau CSV kapan saja</p></div><div class="c"><p class="n"><span>12</span><span class="tag">Segera</span></p><p class="p">Daftar kontak lama nganggur di Excel</p><p class="g">Impor, langsung jadi audiens broadcast</p></div></div>
+  
+  <div class="foot"><span>Pain dan gain</span><span>Agnee</span></div>
+</div>
+
+<!-- 5 -->
+<div class="s wash">
+  <p class="kicker">Yang bikin pegal, dan yang berubah (3 dari 3)</p>
+  <div class="pg"><div class="c"><p class="n"><span>13</span></p><p class="p">Broadcast sama rata, dianggap spam</p><p class="g">Satu maksud, bunyinya beda tiap penerima</p></div><div class="c"><p class="n"><span>14</span></p><p class="p">Buka dashboard cuma buat cek chat</p><p class="g">Tanya dari asisten AI favoritmu</p></div><div class="c"><p class="n"><span>15</span><span class="tag">Segera</span></p><p class="p">Ga tahu siapa di tim yang paling lambat</p><p class="g">Tinggal tanya</p></div><div class="c"><p class="n"><span>16</span></p><p class="p">Lead diam, lupa dikejar</p><p class="g">Follow-up jalan sendiri, dibatasi jam, jumlah, dan jarak kirim</p></div><div class="c"><p class="n"><span>17</span></p><p class="p">AI dan CS bales di chat yang sama</p><p class="g">Kamu mulai ngetik, AI minggir. CS diam 30 menit, AI jaga lagi</p></div></div>
+  <div class="card" style="margin-top:4mm"><p class="n">Dan yang jarang dipikirkan chatbot lain</p><p>Jeda balasan seperti manusia · Rotasi banyak nomor · SLA tugas jam kerja · Jejak audit · Uji AI sebelum live · Data tiap perusahaan terpisah</p></div><p class="small" style="margin-top:4mm">Butir bertanda Segera belum jalan di produksi.</p>
+  <div class="foot"><span>Pain dan gain</span><span>Agnee</span></div>
+</div>
+
+<!-- 6 -->
+<div class="s">
+  <p class="kicker">AI dan CS kamu, satu inbox</p>
+  <h2>Satu inbox buat semua tim, tanpa tabrakan.</h2>
+  <p>Kalau kamu mulai ngetik di chat yang lagi dipegang AI, chat itu langsung jadi milikmu dan AI berhenti balas. Kalau kamu pergi dan chat diam 30 menit, AI lanjut jaga. Tiap balasan ketahuan siapa yang nulis: AI, atau nama CS-nya.</p>
+  <div class="stage">
+    <div><p class="m">1</p><p class="t">AI membalas</p><p>Customer chat, AI menjawab dari playbook.</p></div>
+    <div class="on"><p class="m">2</p><p class="t">CS mulai ngetik</p><p>Chat jadi milik CS. AI berhenti membalas.</p></div>
+    <div><p class="m">3</p><p class="t">CS diam 30 menit</p><p>Tidak ada balasan manusia selama 30 menit.</p></div>
+    <div><p class="m">4</p><p class="t">AI lanjut jaga</p><p>Customer tidak menunggu orang yang sudah pulang.</p></div>
+  </div>
+  <div class="vs">
+    <div class="x"><p class="hd">Buat perusahaan</p><p>Satu nomor WhatsApp dipakai seluruh tim, dan riwayat siapa yang janji apa tinggal dicek.</p></div>
+    <div class="v"><p class="hd">Buat tim CS</p><p>Ga ada lagi AI yang kirim link checkout padahal kamu baru janji mau telepon jam 3.</p></div>
+  </div>
+  <p class="small">Chat yang ditugaskan supervisor lewat panel tidak ikut kembali ke AI.</p>
+  <div class="foot"><span>Inbox</span><span>Agnee</span></div>
+</div>
+
+<!-- 7 -->
+<div class="s wash">
+  <p class="kicker">Follow-up otomatis</p>
+  <h2>Follow-up ke lead yang diam, tanpa bikin pelanggan risih.</h2>
+  <p>Agnee kirim follow-up ke lead yang belum balas, tapi tiap pesan harus lolos tiga pengecekan dulu.</p>
+  <div class="cols">
+    <div class="card"><p class="n">01</p><h3>Jam kirim</h3><p>Masih dalam jam kirim yang kamu atur.</p></div>
+    <div class="card"><p class="n">02</p><h3>Jumlah</h3><p>Belum lewat batas jumlah per hari.</p></div>
+    <div class="card"><p class="n">03</p><h3>Jarak</h3><p>Jaraknya dari pesan sebelumnya sudah cukup.</p></div>
+  </div>
+  <div class="vs">
+    <div class="x"><p class="hd">Buat perusahaan</p><p>Lead yang belum balas tetap dihubungi, dengan batas jumlah dan jarak kirim supaya ga kelihatan spam.</p></div>
+    <div class="v"><p class="hd">Buat tim CS</p><p>Daftar "nanti dikabarin lagi" ga perlu kamu hafalin sampai jam 11 malam.</p></div>
+  </div>
+  <p class="small">Supervisor tetap bisa kirim manual di luar jadwal, dengan jarak yang dipersingkat. Rangkaian yang sudah selesai bisa dimulai lagi dengan jeda yang kamu tentukan.</p>
+  <div class="foot"><span>Follow-up</span><span>Agnee</span></div>
+</div>
+
+<!-- 8 -->
+<div class="s">
+  <p class="kicker">Playbook AI</p>
+  <h2>Ajari AI-mu lewat ngobrol, bukan nulis prompt.</h2>
+  <p>Cara AI menjawab diatur lewat 8 dokumen playbook. Agnee yang nanya, kamu jawab kayak lagi jelasin ke karyawan baru, lalu dokumennya tersusun otomatis.</p>
+  <div class="qa" style="grid-template-columns:repeat(4,1fr)">
+    <div class="card"><h3>Persona</h3><p>Gaya bicara dan identitas AI</p></div>
+    <div class="card"><h3>Compliance</h3><p>Hal yang ga boleh disebut</p></div>
+    <div class="card"><h3>Tanya-jawab</h3><p>Pertanyaan yang sering muncul</p></div>
+    <div class="card"><h3>Discovery</h3><p>Cara menggali kebutuhan</p></div>
+    <div class="card"><h3>Objection</h3><p>Cara jawab keberatan</p></div>
+    <div class="card"><h3>Closing</h3><p>Cara ajak ambil keputusan</p></div>
+    <div class="card"><h3>Follow-up</h3><p>Cara menyusul pelanggan</p></div>
+    <div class="card"><h3>Handoff</h3><p>Kapan AI serahkan ke manusia</p></div>
+  </div>
+  <div class="vs">
+    <div class="x"><p class="hd">Buat perusahaan</p><p>Playbook tumbuh dari percakapan yang beneran terjadi, bukan dokumen yang ditulis sekali terus dilupain.</p></div>
+    <div class="v"><p class="hd">Buat tim CS</p><p>Jawaban terbaikmu ga hilang bareng satu chat. Besok AI ikut jawab kayak kamu.</p></div>
+  </div>
+  <div class="foot"><span>Playbook</span><span>Agnee</span></div>
+</div>
+
+<!-- 9 -->
+<div class="s wash">
+  <p class="kicker">Ringkasan dan label</p>
+  <h2>Ringkasan chat dibuat AI, tetap bisa kamu koreksi.</h2>
+  <p>Tiap percakapan punya ringkasan dan label otomatis. Kalau salah, tinggal edit. Editanmu tercatat dengan nama dan jam, dan AI tetap bisa memperbarui ringkasannya, tapi dia tahu ada manusia yang pernah mengoreksi.</p>
+  <div class="vs">
+    <div class="x"><p class="hd">Buat perusahaan</p><p>Ringkasan yang bisa dipercaya, karena ada orang yang bisa mengoreksinya.</p></div>
+    <div class="v"><p class="hd">Buat tim CS</p><p>Ga perlu baca ulang chat panjang dari atas, dan kalau AI salah kamu bisa langsung benerin.</p></div>
+  </div>
+  <div class="foot"><span>Ringkasan</span><span>Agnee</span></div>
+</div>
+
+<!-- 10 -->
+<div class="s">
+  <p class="kicker">Broadcast</p>
+  <h2>Kirim kabar ke customer lama, dengan rem yang dipasang dari awal.</h2>
+  <p class="small">Pilih customer dari daftar chat, saring berdasarkan hubungan, label, tahap lead, topik, atau kapan terakhir mereka bales, lalu kirim sekarang atau jadwalkan. Kamu bisa lihat siapa yang terkirim, gagal, atau dilewati.</p>
+  <div class="qa" style="gap:3mm 5mm">
+    <div class="card"><p class="n">01</p><h3>Bawaannya cuma ke yang pernah membalas</h3><p>Kontak yang belum terlihat membalas ga ikut, kecuali kamu memilihnya sendiri dan menyetujui risikonya dulu.</p></div>
+    <div class="card"><p class="n">02</p><h3>Pelan, dan di jam yang wajar</h3><p>Jeda acak 20 sampai 45 detik, jam 08.00 sampai 20.00 waktu perusahaanmu, maksimal 300 pesan per hari.</p></div>
+    <div class="card"><p class="n">03</p><h3>STOP dihormati</h3><p>Tiap pesan ditutup kalimat cara berhenti. Yang balas STOP otomatis masuk daftar keluar.</p></div>
+    <div class="card"><p class="n">04</p><h3>Bunyi tiap pesan bisa beda</h3><p>Opsional: AI mengubah dua sampai empat kata per penerima. Angka, harga, dan link dijaga di kode.</p></div>
+  </div>
+  <p class="small" style="margin-top:1mm">Risiko diblokir WhatsApp tetap ada. Ini rem yang dipasang Agnee, dan hanya supervisor yang bisa memicunya.</p>
+  <div class="foot"><span>Broadcast</span><span>Agnee</span></div>
+</div>
+
+<!-- 11 -->
+<div class="s wash">
+  <p class="kicker">Ikut di semua paket</p>
+  <h2>Yang juga kamu dapat</h2>
+  <div class="qa">
+    <div class="card" style="grid-column:1/-1;border:2px solid var(--green)"><h3>Data tiap perusahaan terpisah</h3><p>Pemisahannya diterapkan di level database, bukan cuma disembunyikan di tampilan. Kami sudah menguji dengan permintaan lintas perusahaan yang sengaja dibuat buat nembus, dan ditolak.</p></div>
+    <div class="card"><h3>Pakai nomor WhatsApp yang udah ada</h3><p>Scan QR, langsung jalan. Ga perlu nunggu approval Meta dan ga ada biaya per pesan.</p></div>
+    <div class="card"><h3>Lead List bisa diekspor</h3><p>Download datanya kapan aja dalam format XLSX atau CSV.</p></div>
+    <div class="card" style="grid-column:1/-1"><h3>Biaya AI tercatat per perusahaan</h3><p>Tiap panggilan AI dicatat: token masuk, token keluar, model yang dipakai, dan biayanya.</p></div>
+  </div>
+  <div class="foot"><span>Pendukung</span><span>Agnee</span></div>
+</div>
+
+<!-- 12 -->
+<div class="s dark">
+  <p class="kicker">Empat angka yang bisa ditunjuk barisnya</p>
+  <h2>Bukan janji. Cara kerjanya.</h2>
+  <div class="nums">
+    <div><p class="v">30 menit</p><p class="l">CS diam 30 menit, chat otomatis balik ke AI</p></div>
+    <div><p class="v">8 dokumen</p><p class="l">Playbook yang mengatur cara AI menjawab, diisi lewat ngobrol</p></div>
+    <div><p class="v">AI atau kamu</p><p class="l">Tiap balasan ketahuan siapa yang nulis</p></div>
+    <div><p class="v">3 pengaman</p><p class="l">Follow-up cuma jalan di jam, jumlah, dan jarak yang kamu atur</p></div>
+  </div>
+  <div class="fill"></div>
+  <div class="foot"><span>Bukti</span><span>Agnee</span></div>
+</div>
+
+<!-- 13 -->
+<div class="s dark">
+  <p class="kicker">Ebook gratis</p>
+  <h1 style="font-size:40pt">Cara Mengejar <span style="color:var(--lime)">20x ROAS</span></h1>
+  <p class="sub">Iklan, AI, dan tim closing bekerja bersama.</p>
+  <ul style="max-width:170mm">
+    <li>Tim iklan manusia mengejar 10x ROAS.</li>
+    <li>AI membalas saat kamu offline dan menyusul lead yang diam, menambah 2 sampai 3 kali lipat.</li>
+    <li>Di ebook: cara menyambungkan keduanya.</li>
+  </ul>
+  <div class="nums">
+    <div><p class="v">Rp 1,5 M</p><p class="l">penjualan dari digital, ritel otomotif nomor 1</p></div>
+    <div><p class="v">4,34%</p><p class="l">engagement, jaringan toko bangunan lokal</p></div>
+    <div><p class="v">3,34%</p><p class="l">engagement, supermarket bahan bangunan</p></div>
+    <div><p class="v">2,45%</p><p class="l">engagement, jaringan restoran lokal</p></div>
+  </div>
+  <div class="foot"><span>Ebook</span><span>Agnee</span></div>
+</div>
+
+<!-- 14 -->
+<div class="s">
+  <p class="kicker">Tiga langkah, langsung jalan</p>
+  <h2>Dari scan QR sampai AI menjawab</h2>
+  <div class="cols">
+    <div class="card"><p class="n">01</p><h3>Hubungkan WhatsApp</h3><p>Scan QR dari dashboard Agnee. Ga perlu coding, ga perlu API berbayar, ga perlu nunggu approval.</p></div>
+    <div class="card"><p class="n">02</p><h3>Undang tim CS</h3><p>Tambahkan CS lewat email dan atur perannya. Semuanya langsung dapat inbox yang sama.</p></div>
+    <div class="card"><p class="n">03</p><h3>Isi playbook lewat ngobrol</h3><p>Agnee yang nanya, kamu yang jawab. Delapan dokumen playbook tersusun dari jawabanmu.</p></div>
+  </div>
+  <div class="foot"><span>Cara mulai</span><span>Agnee</span></div>
+</div>
+
+<!-- 15 -->
+<div class="s wash">
+  <p class="kicker">Harga</p>
+  <h2>Seharusnya berapa? Kami sendiri bingung.</h2>
+  <p class="small">Satu tim CS yang menjawab, menyusul lead, mengirim broadcast, menyusun laporan, dan tidak pernah lupa janji. Ini harga pantas versi kami, bukan harga yang kamu bayar.</p>
+  <div class="ladder">
+    <div class="r"><span>Harga pantas versi kami</span><div class="bar" style="width:100%"></div><span class="val">Rp 100.000.000</span></div>
+    <div class="r"><span>Harga pantas versi kami</span><div class="bar" style="width:25%"></div><span class="val">Rp 25.000.000</span></div>
+    <div class="r"><span>Harga pantas versi kami</span><div class="bar" style="width:9%"></div><span class="val">Rp 9.000.000</span></div>
+    <div class="r"><span>Harga pantas versi kami</span><div class="bar" style="width:1.5%"></div><span class="val">Rp 299.000</span></div>
+    <div class="r me"><span><b>Starter, harga promo</b></span><div class="bar" style="width:1%"></div><span class="val">Rp 99.000</span></div>
+  </div>
+  <p class="small" style="margin-top:4mm">Panjang batang mengikuti angkanya. Empat angka pertama adalah perkiraan kami sendiri dan tidak pernah ditagihkan.</p>
+  <div class="say" style="margin-top:2mm"><p>7 hari gratis, tanpa kartu kredit. Ga terasa bedanya? Tutup akunnya, ga ada yang ditagih. Harga promo terkunci selama langgananmu jalan tanpa putus.</p></div>
+  <div class="foot"><span>Harga</span><span>Agnee</span></div>
+</div>
+
+<!-- 16 -->
+<div class="s">
+  <p class="kicker">Paket</p>
+  <h2 style="font-size:20pt;margin-bottom:4mm">Empat paket, plus Lifetime</h2>
+  <div class="plans">
+    <div class="on"><p class="b">Mulai di sini</p><p class="nm">Starter</p><p class="pr">Rp 99.000 <span>/bulan</span></p><ul><li>1 pengguna dan 1 nomor WhatsApp</li><li>Inbox, ringkasan, dan label AI</li><li>Pipeline kanban dan Lead List</li><li>Ekspor XLSX dan CSV</li><li>Latih AI lewat chat</li><li>Coba gratis 7 hari</li></ul></div>
+    <div><p class="b">Buat tim CS</p><p class="nm">Growth</p><p class="pr">Rp 1.900.000 <span>/bulan</span></p><ul><li>Semua di Starter</li><li>Tim CS dengan peran masing-masing</li><li>Delapan dokumen playbook</li><li>Follow-up berjadwal dengan pengaman</li><li>Broadcast pintar</li><li>Laporan otomatis ke supervisor</li><li>Departemen internal</li></ul></div>
+    <div><p class="b">Operasi penuh</p><p class="nm">Pro</p><p class="pr">Rp 3.900.000 <span>/bulan</span></p><ul><li>Semua di Growth</li><li>Rotasi banyak nomor</li><li>Tanya supplier dan vendor lewat WhatsApp</li><li>MCP dan API</li><li>Template playbook siap pasang</li><li>Mode agent antar-departemen (segera)</li></ul></div>
+    <div><p class="b">Skala besar</p><p class="nm">Enterprise</p><p class="pr">Custom</p><ul><li>Diskon credit sampai 90%</li><li>White label dengan namamu sendiri</li><li>Integrasi kustom</li><li>Dibahas satu per satu</li></ul></div>
+  </div>
+  <div class="foot"><span>Paket</span><span>Agnee</span></div>
+</div>
+
+<!-- 17 -->
+<div class="s wash">
+  <p class="kicker">Batas promo</p>
+  <h2>Harga promo untuk 50 perusahaan baru tiap bulan.</h2>
+  <p>Kuotanya dihitung per bulan kalender. Yang daftar sebelum kuota bulan itu penuh tetap bayar harga promo selama langganannya jalan tanpa putus. Kalau penuh, promo berhenti sampai bulan berikutnya.</p>
+  <p>Tidak ada hitung mundur, dan kuotanya tidak ditambah.</p>
+  <div class="say"><p>Kalau langgananmu berhenti lalu kamu mulai lagi saat kuota bulan itu sudah penuh, yang berlaku harga normal.</p></div>
+  <div class="card" style="margin-top:3mm"><p><b>Lifetime Rp 8.900.000, sekali bayar.</b> Fitur setara Starter seumur hidup, tanpa tagihan bulanan. Credit awal diberikan sekali, dan top-up berikutnya dihitung dengan harga paket Lifetime.</p></div>
+  <p class="small" style="margin-top:3mm;font-size:8.8pt">Pemakaian AI ditagih lewat credit: langganan bulanan mengisi credit, dan kamu bisa top-up kapan saja. Sistem credit sedang dipasang. Selama beta, langganan serta jumlah pengguna dan nomor tiap paket dikonfirmasi lewat WhatsApp sebelum kamu membayar.</p>
+  <div class="foot"><span>Promo</span><span>Agnee</span></div>
+</div>
+
+<!-- 18 -->
+<div class="s">
+  <p class="kicker">Pertanyaan yang sering ditanya (1 dari 2)</p>
+  <div class="qa" style="margin-top:2mm"><div><h3>Apakah Agnee pakai WhatsApp Business API resmi?</h3><p>Ga. Agnee pakai WhatsApp Web, jadi kamu bisa mulai dengan nomor yang udah ada, tanpa approval Meta dan tanpa biaya per pesan. Konsekuensinya, nomor itu harus tetap terhubung.</p></div><div><h3>Broadcast bisa bikin nomor saya diblokir?</h3><p>Risikonya ga nol. Yang kami lakukan: bawaannya cuma ke yang pernah membalas, jeda acak 20 sampai 45 detik, jam 08.00 sampai 20.00, maksimal 300 per hari, STOP langsung dikeluarkan. Itu mengurangi risikonya, bukan menghilangkannya.</p></div><div><h3>Berapa CS yang bisa ditambahkan?</h3><p>Starter untuk 1 pengguna. Growth dan Pro untuk tim CS. Jumlah persisnya dikonfirmasi lewat WhatsApp selama beta.</p></div><div><h3>Credit habis di tengah bulan, AI langsung mati?</h3><p>Kamu bisa top-up kapan saja. Selama beta kami hubungi lewat WhatsApp sebelum pemakaianmu menyentuh batas. Layananmu ga kami matikan tiba-tiba.</p></div><div><h3>Apakah AI-nya bisa disesuaikan dengan bisnis saya?</h3><p>Bisa. Delapan dokumen playbook mengatur cara AI menjawab. Agnee yang nanya, kamu jawab, dokumennya tersusun dari jawabanmu.</p></div><div><h3>Apakah data percakapan pelanggan saya aman?</h3><p>Tiap perusahaan cuma bisa mengakses datanya sendiri, dan pemisahannya di level database. Sudah diuji dengan permintaan lintas perusahaan, dan ditolak.</p></div></div>
+  <div class="foot"><span>FAQ</span><span>Agnee</span></div>
+</div>
+
+<!-- 19 -->
+<div class="s wash">
+  <p class="kicker">Pertanyaan yang sering ditanya (2 dari 2)</p>
+  <div class="qa" style="margin-top:2mm"><div><h3>Kalau saya ambil alih chat, AI berhenti total?</h3><p>Berhenti di chat itu selama kamu masih di sana. Setelah kamu diam 30 menit, AI lanjut lagi. Chat yang ditugaskan supervisor lewat panel ga ikut kembali ke AI.</p></div><div><h3>Atasan saya bisa lihat semua balasan saya?</h3><p>Bisa. Tiap balasan tercatat siapa penulisnya, termasuk biar balasan bagusmu kelihatan siapa yang nulis, bukan diklaim sistem.</p></div><div><h3>Saya harus belajar aplikasi baru lagi?</h3><p>Chat-nya tetap chat. Bedanya, kamu ga perlu pindah-pindah HP dan ga perlu nebak siapa yang udah bales siapa.</p></div><div><h3>Harga promonya naik bulan depan?</h3><p>Ga. Kalau daftar sebelum kuota bulan itu penuh, harga promo berlaku selama langganan jalan tanpa putus. Berhenti lalu mulai lagi saat kuota penuh, berlaku harga normal.</p></div><div><h3>Ada masa percobaan?</h3><p>Ada. Klik "Coba Gratis 7 Hari", tanpa kartu kredit. Agnee masih beta. Butuh waktu lebih lama atau kebutuhan khusus, chat kami lewat WhatsApp.</p></div><div><h3>Berapa lama setup-nya?</h3><p>WhatsApp cukup sekali scan QR. Undang tim beberapa menit. Yang paling makan waktu ngisi playbook, tapi kamu ngisinya sambil ngobrol, dan boleh dicicil.</p></div></div>
+  <div class="foot"><span>FAQ</span><span>Agnee</span></div>
+</div>
+
+<!-- 20 -->
+<div class="s dark">
+  <p class="kicker">Mulai dari yang paling pas hari ini</p>
+  <div class="rule"></div>
+  <h1>Dua cara kenalan sama Agnee.</h1>
+  <div class="cols" style="margin-top:2mm">
+    <div class="card"><p class="n">01 · Belum butuh sekarang</p><h3>Ambil ebook gratis</h3><p>"Cara Mengejar 20x ROAS". Ga perlu bikin akun, dan tetap kepakai walaupun kamu ga pakai Agnee.</p></div>
+    <div class="card"><p class="n">02 · Mau lihat sendiri</p><h3>Coba gratis 7 hari</h3><p>Hubungkan nomor WhatsApp-mu dan jalankan Agnee di chat beneran. Tanpa kartu kredit, berhenti kapan aja.</p></div>
+  </div>
+  <div class="fill"></div>
+  <p class="sub small">app.agnee.agnive.co · WhatsApp +62 812-1870-0276 · hanny@agnive.co</p>
+  <div class="foot"><span>Terima kasih</span><span>Agnee</span></div>
+</div>
+
+</body>
+</html>

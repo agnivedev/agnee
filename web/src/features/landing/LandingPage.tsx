@@ -446,7 +446,7 @@ function UmpanEbook() {
     const data = new FormData(event.currentTarget);
     const nilai = (kunci: string) => String(data.get(kunci) ?? '').trim();
     const pesan = [
-      'EBOOK ROAS - halo, saya mau fitur lanjutan dan ebook "Cara Mengejar 20x ROAS".',
+      'EBOOK ROAS - halo, saya mau fitur lanjutan dan ebook "Emang AI Bisa Bikin ROAS Naik dari 10x jadi 20x?".',
       `Nama: ${nilai('nama')}`,
       `Brand/bisnis/toko: ${nilai('brand')}`,
       `Email: ${nilai('email')}`,
@@ -465,8 +465,8 @@ function UmpanEbook() {
               <span aria-hidden className="inline-block h-px w-5 bg-[#9bd3f7]" />
               Ebook gratis
             </p>
-            <h2 className="m-0 mb-4 text-[clamp(30px,4.6vw,52px)] leading-[1.06] font-semibold tracking-[-.04em]">
-              Cara Mengejar <span className="text-[#9bd3f7]">20x ROAS</span>
+            <h2 className="m-0 mb-4 text-[clamp(28px,4vw,46px)] leading-[1.08] font-semibold tracking-[-.04em]">
+              Emang AI Bisa Bikin ROAS Naik dari <span className="text-[#9bd3f7]">10x jadi 20x?</span>
             </h2>
             <p className="m-0 mb-5 text-[17px] leading-[1.5] text-white/80">Iklan, AI, dan tim closing bekerja bersama.</p>
             <ul className="m-0 grid list-none gap-2 p-0 text-[15px] leading-[1.55] text-white/85">
@@ -860,7 +860,7 @@ function Faq() {
 const PINTU: { kondisi: string; isi: string; aksi: string; href: string; eksternal: boolean; tema: NamaTema; tombol: string }[] = [
   {
     kondisi: 'Belum butuh sekarang',
-    isi: 'Ambil ebook "Cara Mengejar 20x ROAS" dulu. Gratis, ga perlu bikin akun, dan tetap kepakai walaupun kamu ga pakai Agnee.',
+    isi: 'Baca ebook "Emang AI Bisa Bikin ROAS Naik dari 10x jadi 20x?" dulu. Gratis, ga perlu bikin akun, dan tetap kepakai walaupun kamu ga pakai Agnee.',
     aksi: 'Ambil ebook gratis',
     href: '#ebook',
     eksternal: false,

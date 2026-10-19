@@ -95,6 +95,55 @@ Query: `cursor` (dari `nextCursor` sebelumnya), `limit` (1–500, bawaan 200), `
 }
 ```
 
+## 4. Event member (WhatsApp ke member) — `POST /webhook/company/<slug>/event`
+
+Pengirim (mis. WordPress member) mengabarkan satu kejadian, Agnee mengirim satu WhatsApp ke
+member itu. Secret sama dengan pengirim lead (`lead`). Rute lama `POST /webhook/event` memakai
+`LEAD_WEBHOOK_SECRET` + `LEAD_WEBHOOK_COMPANY` dan hanya menerima source `bullbabe-member`
+dan `bullbabe-wp`. Body maksimal 64 KB.
+
+```json
+{
+  "version": 1,
+  "source": "bullbabe-member",
+  "event": {
+    "id": "acct-42-linked",
+    "type": "account_linked",
+    "whatsapp": "628123456789",
+    "name": "Budi",
+    "language": "id",
+    "text": ""
+  }
+}
+```
+
+- `id` wajib, 1–80 karakter `A-Z a-z 0-9 : . _ -`, unik per kejadian. Id yang sama dalam
+  24 jam tidak dikirim lagi.
+- `type` wajib: `registered`, `account_linked`, `account_rejected`, `withdrawal_processing`,
+  `withdrawal_done`, `withdrawal_failed`, `login_new_device`, `generic`.
+- `whatsapp` wajib, nomor telepon saja (boleh diawali `0`, `62`, `+62`; alamat ber-`@` ditolak).
+- `name` opsional (maks 100), `language` `id` | `en` (bawaan `id`).
+- `text` opsional, maks 1000, dikirim apa adanya. Kosong = teks bawaan umum per `type` dan
+  bahasa (tanpa angka atau tautan).
+
+Respons (tanpa data member):
+
+| Status | Body | Arti |
+| --- | --- | --- |
+| 200 | `{"ok":true,"sent":true}` | terkirim |
+| 200 | `{"ok":true,"sent":false,"reason":"duplicate"}` | `id` sudah diterima dalam 24 jam |
+| 200 | `{"ok":true,"sent":false,"reason":"throttled"}` | chat yang sama dengan `type` yang sama < 60 detik lalu (`login_new_device`: < 10 menit), atau chat itu sudah menerima 6 event dalam 1 jam terakhir (semua `type`) |
+| 200 | `{"ok":true,"sent":false,"reason":"opted_out"}` | nomor ada di daftar berhenti broadcast (termasuk STOP dari chat `@lid` yang nomornya diketahui) |
+| 200 | `{"ok":true,"sent":false,"reason":"send_failed"}` | WhatsApp gagal (nomor company belum tersambung, di luar jendela 24 jam Cloud API); jangan diulang terus |
+| 429 | `{"error":...}` | lebih dari 200 percobaan kirim per jam per company |
+| 400 | `{"error":...}` | payload atau nomor tidak sah |
+| 401 / 404 / 503 | `{"error":...}` | tanda tangan salah/kedaluwarsa · rute/secret belum diatur · database belum siap atau daftar berhenti tidak terbaca |
+
+Semua respons 200 menandai `id` selesai (kiriman ulang = `duplicate`); 429 dan 503 tidak, jadi
+`id` yang sama boleh dikirim lagi nanti. Dedupe, jeda, dan kuota disimpan di memori, tidak
+di database, dan kembali kosong saat Agnee dimulai ulang. Isi pesan dan nomor lengkap tidak
+pernah dicatat di log.
+
 ## Menjaga data tetap sama di kedua sisi
 
 - **Pihak ketiga → Agnee:** kirim ulang `POST .../lead` dengan `submissionId` yang sama dan
@@ -110,4 +159,4 @@ Query: `cursor` (dari `nextCursor` sebelumnya), `limit` (1–500, bawaan 200), `
 - **Pemeriksaan:** `total` dibandingkan dengan jumlah lead di sisi Anda; selisih berarti ada
   yang belum tertarik. Tarik ulang tanpa `cursor` untuk rekonsiliasi penuh.
 
-Rute lama `/webhook/lead` dan `/webhook/lead-verify` (berbasis env, Bull Babe) tetap jalan.
+Rute lama `/webhook/lead`, `/webhook/lead-verify`, dan `/webhook/event` (berbasis env, Bull Babe) tetap jalan.

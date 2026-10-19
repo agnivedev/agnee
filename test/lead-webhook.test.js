@@ -130,6 +130,13 @@ test('nomor yang berhenti dari broadcast tidak disapa', async (t) => {
   assert.equal(saved.length, 1);
 });
 
+test('STOP dari chat @lid: nomornya (kolom phone dari lid_phone_map) juga tidak disapa', async (t) => {
+  const { server, sentTo } = await app(t, { optOuts: [{ chatId: '99887766@lid', phone: '+62 812-3456-789' }] });
+  const res = await server.inject({ method: 'POST', url: '/webhook/lead', ...signed(payload()) });
+  assert.deepEqual(res.json(), { ok: true, welcomed: false, reason: 'opted_out' });
+  assert.equal((await sentTo('628123456789@c.us')).length, 0);
+});
+
 test('tanpa secret atau company pintunya tertutup (404)', async (t) => {
   const { server } = await app(t, { secret: '' });
   const res = await server.inject({ method: 'POST', url: '/webhook/lead', ...signed(payload()) });

@@ -213,6 +213,9 @@ function normalizeChatId(value, defaultCountryCode) {
   return `${digits}@c.us`;
 }
 
+/** Untuk log: empat digit terakhir saja, supaya nomor lengkap tidak masuk log. */
+const maskChatId = (chatId) => `***${String(chatId).replace(/@.*/, '').slice(-4)}`;
+
 const PIPELINE_STAGES = ['cold', 'warm', 'hot', 'closing', 'lost', 'on_hold'];
 
 function parseConversationInsight(text, locale = 'id') {
@@ -848,7 +851,7 @@ async function buildApp(overrides = {}) {
     // sendOutbound bisa menyebut namanya dalam pesan gagalnya — tanpa
     // menempelkan percakapan ini ke nomor mana pun.
     if (!chosen?.id) {
-      app.log.warn({ companyId, chatId, alasan }, 'Rotasi nomor: tidak ada nomor yang siap mengirim');
+      app.log.warn({ companyId, chat: maskChatId(chatId), alasan }, 'Rotasi nomor: tidak ada nomor yang siap mengirim');
       return utama || null;
     }
 
@@ -2542,7 +2545,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     // Kalau sering, penyebab sebenarnya ada di serialisasi model WhatsApp dan
     // pantas dikejar ke sana, bukan ditambal terus di sini.
     if (receipt?.recovered) {
-      app.log.warn({ chatId, failureKind: receipt.failure?.kind, failureDetail: receipt.failure?.detail },
+      app.log.warn({ chat: maskChatId(chatId), failureKind: receipt.failure?.kind, failureDetail: receipt.failure?.detail },
         'Pesan terkirim tapi pemanggil tidak menerima modelnya; receipt dipulihkan dari riwayat chat');
     }
     return receipt;
@@ -2928,6 +2931,9 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
   //  • POST /webhook/lead dan /lead-verify — rute lama berbasis env
   //    (LEAD_WEBHOOK_SECRET, LEAD_VERIFY_SECRET, LEAD_WEBHOOK_COMPANY) untuk
   //    Bull Babe, perilakunya tidak berubah.
+  //  • POST /webhook/event dan /webhook/company/:company/event — pemberitahuan
+  //    WhatsApp untuk event member (account terhubung, penarikan, login baru),
+  //    memakai secret yang sama dengan /lead.
   // Tanda tangan: HMAC-SHA256 atas `${timestamp}.${bodyMentah}`, header
   // x-agnive-signature (sha256=<hex>) dan x-agnive-timestamp (milidetik),
   // ditolak bila selisihnya lebih dari 5 menit. Kunci layanan API_KEY tidak
@@ -2943,6 +2949,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
   // Rute lama hanya menerima source Bull Babe; rute per company menerima nama source apa pun yang rapi.
   const LEGACY_LEAD_SOURCES = ['bullbabe-landing', 'bullbabe-member'];
   const LEGACY_VERIFY_SOURCES = ['anduman', 'bullbabe-wp'];
+  const LEGACY_EVENT_SOURCES = ['bullbabe-member', 'bullbabe-wp'];
   const genericSource = (value) => typeof value === 'string' && /^[a-z0-9][a-z0-9._-]{0,39}$/i.test(value);
 
   function normalizeEmail(value) {
@@ -3057,20 +3064,23 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
    */
   async function resolveLeadHook(request, kind) {
     const ref = request.params?.company;
+    // Event member memakai secret pengirim lead: pengirimnya sama (WordPress member).
+    const sendsMessages = kind === 'lead' || kind === 'event';
     if (!ref) {
-      const secret = kind === 'lead' ? config.leadWebhookSecret : config.leadVerifySecret;
+      const secret = sendsMessages ? config.leadWebhookSecret : config.leadVerifySecret;
       if (!secret || !config.leadWebhookCompany) return { error: 404 };
+      const sources = { lead: LEGACY_LEAD_SOURCES, event: LEGACY_EVENT_SOURCES }[kind] || LEGACY_VERIFY_SOURCES;
       return {
         legacy: true, scope: 'legacy', secret,
-        sourceOk: (v) => (kind === 'lead' ? LEGACY_LEAD_SOURCES : LEGACY_VERIFY_SOURCES).includes(v),
-        getCompanyId: async () => (kind === 'lead' && config.demoMode && !database.status().connected
+        sourceOk: (v) => sources.includes(v),
+        getCompanyId: async () => (sendsMessages && config.demoMode && !database.status().connected
           ? 'demo' : database.resolveCompanyId(config.leadWebhookCompany)),
       };
     }
     if (!database.status().connected || typeof database.getLeadWebhook !== 'function') return { error: 503 };
     const companyId = await database.resolveCompanyId(ref);
     const row = companyId ? await database.getLeadWebhook(companyId) : null;
-    const secret = { lead: row?.leadSecret, verify: row?.verifySecret, pull: row?.pullSecret }[kind];
+    const secret = { lead: row?.leadSecret, event: row?.leadSecret, verify: row?.verifySecret, pull: row?.pullSecret }[kind];
     if (!row || !row.enabled || !secret) return { error: 404 };
     return {
       legacy: false, scope: companyId, secret, settings: row, companyName: row.companyName,
@@ -3101,6 +3111,18 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     map.set(scope, recent);
     return recent;
   };
+
+  /**
+   * Chat ini ada di daftar berhenti broadcast? STOP dari chat @lid tersimpan
+   * sebagai alamat @lid; nomor teleponnya ada di kolom `phone` (lid_phone_map),
+   * jadi nomor juga dicocokkan lewat kolom itu.
+   */
+  function isOptedOut(rows, chatId) {
+    const samePhone = (phone) => {
+      try { return normalizeChatId(String(phone).replace(/\D/g, ''), config.defaultCountryCode) === chatId; } catch { return false; }
+    };
+    return (rows || []).some((row) => row?.chatId === chatId || (row?.phone && samePhone(row.phone)));
+  }
 
   async function handleLead(request, reply) {
     const ctx = await resolveLeadHook(request, 'lead');
@@ -3158,7 +3180,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     if (last && now - last < LEAD_WELCOME_WINDOW_MS) return finish({ ok: true, welcomed: false, reason: 'already_welcomed_today' });
     if (typeof database.listBroadcastOptOuts === 'function' && database.enabled && database.connected) {
       const optOuts = await database.listBroadcastOptOuts(companyId).catch(() => []);
-      if ((optOuts || []).some((row) => row.chatId === chatId)) return finish({ ok: true, welcomed: false, reason: 'opted_out' });
+      if (isOptedOut(optOuts, chatId)) return finish({ ok: true, welcomed: false, reason: 'opted_out' });
     }
     const recent = hourlyCount(leadSentTimes, ctx.scope, now);
     if (recent.length >= LEAD_HOURLY_CAP) {
@@ -3242,6 +3264,180 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     return reply.code(200).send(result);
   }
 
+  // Event member: pengirim (WordPress member) mengabarkan satu kejadian dan
+  // Agnee mengirim SATU WhatsApp ke member itu. Tidak ada yang disimpan di
+  // database: dedupe id, jeda per chat, dan kuota per jam hidup di memori,
+  // sama seperti sambutan lead. Respons hanya status, tanpa data member, dan
+  // log tidak pernah memuat isi pesan atau nomor lengkap.
+  const MEMBER_EVENT_TYPES = ['registered', 'account_linked', 'account_rejected', 'withdrawal_processing', 'withdrawal_done', 'withdrawal_failed', 'login_new_device', 'generic'];
+  const MEMBER_EVENT_DEDUPE_MS = 24 * 60 * 60_000;
+  const MEMBER_EVENT_GAP_MS = 60_000;
+  const MEMBER_EVENT_LOGIN_GAP_MS = 10 * 60_000;
+  const MEMBER_EVENT_HOURLY_CAP = 200;
+  // Batas per chat lintas type: pemegang secret tidak bisa memutar 8 type untuk
+  // membanjiri satu orang. Alur member yang wajar jauh di bawah angka ini.
+  const MEMBER_EVENT_CHAT_HOURLY_CAP = 6;
+  const memberEventIds = new Map(); // `${scope}|${eventId}` -> kapan diterima
+  const memberEventByChat = new Map(); // `${scope}|${chatId}|${type}` -> kapan terakhir dikirim
+  const memberEventChatHour = new Map(); // `${scope}|${chatId}` -> waktu kirim ke chat itu (per jam)
+  const memberEventTimes = new Map(); // scope -> waktu percobaan kirim (per jam)
+
+  // Teks bawaan sengaja umum: tanpa angka, tanpa tautan, rinciannya ada di halaman member.
+  const MEMBER_EVENT_TEXT = {
+    registered: {
+      id: 'pendaftaran kamu sudah kami terima. Langkah selanjutnya kami kabari lewat chat ini.',
+      en: 'we have received your registration. We will share the next steps in this chat.',
+    },
+    account_linked: {
+      id: 'kabar baik: account trading kamu sudah terhubung. Rinciannya bisa kamu lihat di halaman member.',
+      en: 'good news: your trading account is now linked. You can see the details on your member page.',
+    },
+    account_rejected: {
+      id: 'account trading yang kamu daftarkan belum bisa kami hubungkan. Cek halaman member untuk alasannya, atau balas chat ini kalau butuh bantuan.',
+      en: 'we could not link the trading account you submitted. Check your member page for the reason, or reply to this chat if you need help.',
+    },
+    withdrawal_processing: {
+      id: 'permintaan penarikan kamu sedang diproses. Kami kabari lagi setelah selesai.',
+      en: 'your withdrawal request is being processed. We will let you know once it is done.',
+    },
+    withdrawal_done: {
+      id: 'penarikan kamu sudah selesai diproses. Cek rinciannya di halaman member.',
+      en: 'your withdrawal has been completed. You can check the details on your member page.',
+    },
+    withdrawal_failed: {
+      id: 'penarikan kamu belum berhasil diproses. Cek halaman member untuk rinciannya, atau balas chat ini kalau butuh bantuan.',
+      en: 'your withdrawal could not be processed. Check your member page for details, or reply to this chat if you need help.',
+    },
+    login_new_device: {
+      id: 'ada login ke akun member kamu dari perangkat baru. Kalau itu bukan kamu, segera ganti password dan hubungi tim kami.',
+      en: 'there was a login to your member account from a new device. If this was not you, change your password right away and contact our team.',
+    },
+    generic: {
+      id: 'ada pembaruan di akun member kamu. Cek halaman member untuk rinciannya.',
+      en: 'there is an update on your member account. Check your member page for details.',
+    },
+  };
+
+  function parseMemberEvent(body, sourceOk) {
+    const e = body?.event;
+    if (body?.version !== 1 || !sourceOk(body?.source) || !e || typeof e !== 'object' || Array.isArray(e)) return null;
+    if (typeof e.id !== 'string' || !/^[A-Za-z0-9:._-]{1,80}$/.test(e.id)) return null;
+    if (!MEMBER_EVENT_TYPES.includes(e.type)) return null;
+    if (typeof e.whatsapp !== 'string' || !e.whatsapp.trim()) return null;
+    if (e.text !== undefined && e.text !== null && typeof e.text !== 'string') return null;
+    // Potong, jangan tolak: WP menghitung batas 1000 dalam titik kode Unicode, text.length menghitung unit UTF-16,
+    // jadi teks dwibahasa yang sah bisa melewati 1000 unit. Memotong menjaga pesan tetap terkirim.
+    const text = [...(e.text || '').trim()].slice(0, 1000).join('');
+    return {
+      id: e.id,
+      type: e.type,
+      whatsapp: e.whatsapp.trim(),
+      name: (str(e.name, 100) || '').trim(),
+      language: e.language === 'en' ? 'en' : 'id',
+      text,
+    };
+  }
+
+  /** Hanya nomor telepon. Alamat ber-'@' (grup, @lid) tidak boleh dipakai pengirim event. */
+  function memberEventChatId(whatsapp) {
+    if (whatsapp.length > 40 || !/^\+?[\d\s().-]+$/.test(whatsapp)) throw new Error('Invalid WhatsApp number');
+    return normalizeChatId(whatsapp, config.defaultCountryCode);
+  }
+
+  function memberEventText(event) {
+    if (event.text) return event.text;
+    const first = event.name.split(/\s+/)[0] || '';
+    const en = event.language === 'en';
+    const greeting = en ? `Hi${first ? ` ${first}` : ''}, ` : `Halo${first ? ` ${first}` : ''}, `;
+    return greeting + MEMBER_EVENT_TEXT[event.type][en ? 'en' : 'id'];
+  }
+
+  /** Hasil { status, body }; hanya status 200 yang membuat id event dianggap selesai. */
+  async function deliverMemberEvent(ctx, event, chatId) {
+    if (!database.status().connected && !config.demoMode) return { status: 503, body: { error: 'Database unavailable' } };
+    const companyId = await ctx.getCompanyId();
+    if (!companyId) {
+      app.log.error('Member event: receiving company not found');
+      return { status: 503, body: { error: 'Receiving company not configured' } };
+    }
+    const skipped = (reason) => ({ status: 200, body: { ok: true, sent: false, reason } });
+    if (typeof database.listBroadcastOptOuts === 'function' && database.enabled && database.connected) {
+      let optOuts;
+      try {
+        optOuts = await database.listBroadcastOptOuts(companyId);
+      } catch (error) {
+        // Daftar berhenti tak terbaca: jangan kirim ke orang yang mungkin sudah minta berhenti.
+        app.log.warn({ reason: String(error?.message || '').replace(/\d{6,}/g, '***').slice(0, 160) }, 'Member event: opt-out list unavailable');
+        return { status: 503, body: { error: 'Database unavailable' } };
+      }
+      if (isOptedOut(optOuts, chatId)) return skipped('opted_out');
+    }
+    // Dari sini sampai kirim tanpa await: jeda per chat dan kuota dicek lalu langsung dipesan,
+    // supaya kiriman serentak tidak lolos bersama.
+    const now = Date.now();
+    const chatKey = `${ctx.scope}|${chatId}|${event.type}`;
+    const gap = event.type === 'login_new_device' ? MEMBER_EVENT_LOGIN_GAP_MS : MEMBER_EVENT_GAP_MS;
+    const last = memberEventByChat.get(chatKey);
+    if (last !== undefined && now - last < gap) return skipped('throttled');
+    const recent = hourlyCount(memberEventTimes, ctx.scope, now);
+    if (recent.length >= MEMBER_EVENT_HOURLY_CAP) {
+      app.log.warn('Member event: hourly cap reached');
+      return { status: 429, body: { error: 'Too many events this hour' } };
+    }
+    const chatHourKey = `${ctx.scope}|${chatId}`;
+    const chatRecent = hourlyCount(memberEventChatHour, chatHourKey, now);
+    if (chatRecent.length >= MEMBER_EVENT_CHAT_HOURLY_CAP) return skipped('throttled');
+    recent.push(now);
+    chatRecent.push(now);
+    memberEventByChat.set(chatKey, now);
+    setTimeout(() => {
+      if (!hourlyCount(memberEventChatHour, chatHourKey, Date.now()).length) memberEventChatHour.delete(chatHourKey);
+    }, 60 * 60_000 + 1_000).unref?.();
+    try {
+      await sendLeadMessage(companyId, chatId, memberEventText(event));
+    } catch (error) {
+      // Gagal kirim (nomor belum tersambung, di luar jendela 24 jam Cloud API) tetap 200 supaya pengirim tidak mengulang terus.
+      if (memberEventByChat.get(chatKey) === now) memberEventByChat.delete(chatKey);
+      const held = memberEventChatHour.get(chatHourKey);
+      if (held?.includes(now)) held.splice(held.indexOf(now), 1);
+      // Alasan dipotong dan deret angka panjang disamarkan: tanpa nomor lengkap, tanpa isi pesan.
+      const reason = String(error?.message || '').replace(/\d{6,}/g, '***').slice(0, 160);
+      app.log.warn({ type: event.type, chat: maskChatId(chatId), status: error?.statusCode, reason }, 'Member event: message not sent');
+      return skipped('send_failed');
+    }
+    setTimeout(() => { if (memberEventByChat.get(chatKey) === now) memberEventByChat.delete(chatKey); }, gap).unref?.();
+    return { status: 200, body: { ok: true, sent: true } };
+  }
+
+  async function handleMemberEvent(request, reply) {
+    const ctx = await resolveLeadHook(request, 'event');
+    if (ctx.error) return reply.code(ctx.error).send({ error: ctx.error === 404 ? 'Not found' : 'Database unavailable' });
+    if (!checkLeadSignature(request, reply, ctx.secret, 'Member event')) return reply;
+    const event = parseMemberEvent(request.body, ctx.sourceOk);
+    if (!event) return reply.code(400).send({ error: 'Invalid event payload' });
+    let chatId;
+    try { chatId = memberEventChatId(event.whatsapp); } catch { return reply.code(400).send({ error: 'Invalid WhatsApp number' }); }
+
+    // Id dipesan sebelum await pertama: dua kiriman serentak dengan id yang sama tidak sama-sama terkirim.
+    const idKey = `${ctx.scope}|${event.id}`;
+    if (memberEventIds.has(idKey)) return reply.code(200).send({ ok: true, sent: false, reason: 'duplicate' });
+    memberEventIds.set(idKey, Date.now());
+    let outcome;
+    try {
+      outcome = await deliverMemberEvent(ctx, event, chatId);
+    } catch (error) {
+      memberEventIds.delete(idKey);
+      throw error;
+    }
+    if (outcome.status !== 200) {
+      // 429/503: belum ditangani, pengirim boleh mencoba lagi dengan id yang sama.
+      memberEventIds.delete(idKey);
+    } else {
+      setTimeout(() => memberEventIds.delete(idKey), MEMBER_EVENT_DEDUPE_MS).unref?.();
+    }
+    return reply.code(outcome.status).send(outcome.body);
+  }
+
   // Tarik lead (pihak ketiga <- Agnee). Yang ditandatangani adalah query string
   // mentah (kosong bila tak ada) pada tempat body: `${timestamp}.${query}`.
   // Halaman diurutkan menurut "terakhir berubah"; pihak ketiga menyimpan
@@ -3281,7 +3477,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     });
   });
 
-  for (const [suffix, handler, limit] of [['lead', handleLead, 64 * 1024], ['lead-verify', handleLeadVerify, 256 * 1024]]) {
+  for (const [suffix, handler, limit] of [['lead', handleLead, 64 * 1024], ['lead-verify', handleLeadVerify, 256 * 1024], ['event', handleMemberEvent, 64 * 1024]]) {
     const options = { bodyLimit: limit, preParsing: captureRawBody(limit) };
     app.post(`/webhook/${suffix}`, options, handler);
     app.post(`/webhook/company/:company/${suffix}`, options, handler);

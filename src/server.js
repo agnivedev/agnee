@@ -6,19 +6,22 @@ const fsSync = require('node:fs');
 const path = require('node:path');
 const Fastify = require('fastify');
 const modelTiers = require('./model-tiers');
+const creditPlans = require('./credit-plans');
 const fastifyStatic = require('@fastify/static');
 const fastifyMultipart = require('@fastify/multipart');
 const QRCode = require('qrcode');
 const { WhatsappManager, normalizePairingPhone } = require('./whatsapp-manager.js');
 const { putaranSla } = require('./sla');
 const broadcast = require('./broadcast');
+const leadImport = require('./lead-import');
 const { compileKsPrompt, validateSpecific, specificHash } = require('./ks-package');
 const { registerTrainAssistant } = require('./train-assistant');
-const { registerCompanyTemplates } = require('./company-templates');
+const { registerCompanyTemplates, install: installCompanyTemplate } = require('./company-templates');
 const { runPackageSimulation, makeLlmGrader } = require('./ks-simulation');
 const { builtinSource } = require('./ks-source');
 const chatImport = require('./chat-import');
 const { pilihNomorUntukPercakapanBaru } = require('./rotator');
+const agentModes = require('./agent-modes');
 const { neutralizeFormula } = require('./formula-guard');
 const { CloudApiManager } = require('./cloud-api-manager.js');
 const KnowledgeBase = require('./knowledge-loader.js');
@@ -39,6 +42,7 @@ const mayarSync = require('./mayar-sync.js');
 const { createReplyPacer } = require('./reply-delay.js');
 const handoffNotice = require('./handoff-notice.js');
 const departmentAsk = require('./department-ask.js');
+const handoffCard = require('./handoff-card.js');
 const supervisorReport = require('./supervisor-report.js');
 const reportChats = require('./report-chats.js');
 const { createTypingHooks } = require('./typing-indicator.js');
@@ -150,6 +154,7 @@ function loadConfig(overrides = {}) {
       personal: positiveNumber(process.env.AI_COST_ALERT_IDR_PERSONAL, DEFAULT_THRESHOLDS_IDR.personal),
       company: positiveNumber(process.env.AI_COST_ALERT_IDR_COMPANY, DEFAULT_THRESHOLDS_IDR.company),
     },
+    credit: creditPlans.loadCreditConfig(process.env),
     appBaseUrl: process.env.APP_BASE_URL || 'https://app.agnee.agnive.co',
     cloudApiWebhookVerifyToken: process.env.CLOUD_API_WEBHOOK_VERIFY_TOKEN || '',
     // X-Forwarded-For hanya dipercaya kalau permintaannya datang DARI alamat
@@ -511,6 +516,7 @@ async function buildApp(overrides = {}) {
         outputTokens: normalized.outputTokens,
         costUsd: normalized.costUsd,
       }, companyId).catch(() => { /* pencatatan tidak boleh menjatuhkan balasan */ });
+      void chargeCredit(companyId, { costUsd: normalized.costUsd, purpose: context?.purpose || 'unknown' });
     },
   });
   const database = overrides.database || new Database({
@@ -521,6 +527,7 @@ async function buildApp(overrides = {}) {
     logger: app.log,
     credentialsEncryptionKey: config.credentialsEncryptionKey,
   });
+  database.creditGraceDays = config.credit.graceDays;
   // Tanpa database, app tetap menyala tapi lumpuh diam-diam: login pengguna
   // asli jatuh ke fallback admin dan ditolak, pesan masuk tidak tercatat, dan
   // follow-up tidak jalan. Persis itu yang terjadi 20-21 Sep selama 16 jam dan
@@ -577,12 +584,73 @@ async function buildApp(overrides = {}) {
     // (paket berhenti/trial habis) dan status (ditutup dari konsol platform).
     const suspended = companyConfig?.planStatus === 'suspended'
       || (companyConfig?.status != null && companyConfig.status !== 'active');
-    const enabled = llmService.enabled && settings.enabled !== false && !suspended;
+    // Company berbasis credit: saldo habis menghentikan AI di semua jalur sekaligus.
+    const creditEmpty = companyConfig?.creditMode === true && !(Number(companyConfig.creditTotal) > 0);
+    const enabled = llmService.enabled && settings.enabled !== false && !suspended && !creditEmpty;
+    // Tingkatan model dibatasi paketnya (Starter tidak boleh memakai model Top-end).
+    const modelChain = companyConfig?.creditMode === true
+      ? creditPlans.filterChainForPlan(settings.modelChain || [], companyConfig.plan)
+      : (settings.modelChain || []);
     return {
       enabled,
-      modelChain: settings.modelChain || [],
-      reason: suspended ? 'suspended' : (enabled ? null : 'off'),
+      modelChain,
+      reason: suspended ? 'suspended' : (creditEmpty ? 'credit' : (enabled ? null : 'off')),
     };
+  }
+
+  /**
+   * Potong credit untuk satu panggilan AI yang sudah selesai dan, bila saldo
+   * baru saja melewati ambang, kabari supervisor sekali (saldo rendah / habis).
+   * Tidak pernah melempar: gagal memotong tidak boleh menjatuhkan balasan.
+   */
+  async function chargeCredit(companyId, { costUsd, purpose }) {
+    if (!database.enabled || !database.connected || typeof database.debitCredit !== 'function') return;
+    try {
+      const state = typeof database.getCreditState === 'function' ? await database.getCreditState(companyId) : null;
+      if (!state?.creditMode) return;
+      const amount = creditPlans.creditCostOf(costUsd, {
+        usdIdrRate: config.usdIdrRate,
+        markup: config.credit.markup,
+        creditPriceIdr: config.credit.creditPriceIdr,
+        discountPct: state.discountPct,
+        purpose,
+      });
+      if (!(amount > 0)) return;
+      const result = await database.debitCredit(companyId, {
+        amount, costUsd, purpose, alertPercents: config.credit.alertPercents,
+      });
+      if (result?.crossed) await notifyCreditLevel(companyId, result.crossed, result.total);
+    } catch (error) {
+      app.log.warn({ err: error, companyId }, 'Pemotongan credit gagal');
+    }
+  }
+
+  const creditNumberFormat = new Intl.NumberFormat('id-ID', { maximumFractionDigits: 0 });
+
+  /** Kabar saldo rendah/habis: notifikasi dalam aplikasi + WhatsApp ke nomor serah-terima company. */
+  async function notifyCreditLevel(companyId, level, total) {
+    const text = level === 'empty'
+      ? 'Credit AI habis, jadi AI berhenti membalas customer. Balas customer secara manual, atau top-up credit untuk mengaktifkan AI kembali.'
+      : `Credit AI tinggal ${level.slice(1)}% (sisa ${creditNumberFormat.format(Math.round(total))} credit). Top-up sebelum habis supaya AI tidak berhenti membalas customer.`;
+    const userIds = await database.notifyCredit(companyId, text).catch(() => []);
+    notifyUsers(companyId, userIds);
+    // WhatsApp: nomor serah-terima company + nomor WhatsApp para penerima
+    // (supervisor, owner/admin, departemen Management), tanpa duplikat.
+    const recipients = typeof database.listCreditRecipients === 'function'
+      ? await database.listCreditRecipients(companyId).catch(() => []) : [];
+    const handoff = canCall('getHandoffNotifyNumbers')
+      ? await database.getHandoffNotifyNumbers(companyId).catch(() => []) : [];
+    const sent = new Set();
+    for (const raw of [...handoff, ...recipients.map((r) => r.whatsappNumber)].filter(Boolean)) {
+      try {
+        const chatId = normalizeChatId(raw, config.defaultCountryCode);
+        if (sent.has(chatId)) continue;
+        sent.add(chatId);
+        await sendOutbound(companyId, chatId, `*Credit Agnee*\n${text}`);
+      } catch (error) {
+        app.log.warn({ err: error, recipient: `…${String(raw).slice(-4)}` }, 'Kabar credit ke satu penerima gagal');
+      }
+    }
   }
 
   /** Satu jawaban untuk semua rute AI, supaya alasannya tidak tertukar. */
@@ -590,7 +658,9 @@ async function buildApp(overrides = {}) {
     return reply.code(503).send({
       error: companyAi?.reason === 'suspended'
         ? 'Paket perusahaan ini sedang berhenti, jadi AI ikut berhenti. Aktifkan paketnya lebih dulu.'
-        : 'AI belum bisa dipakai saat ini. Hubungi tim Agnee.',
+        : companyAi?.reason === 'credit'
+          ? 'Credit AI perusahaan ini habis, jadi AI berhenti. Top-up credit untuk mengaktifkannya kembali.'
+          : 'AI belum bisa dipakai saat ini. Hubungi tim Agnee.',
     });
   }
 
@@ -696,6 +766,44 @@ async function buildApp(overrides = {}) {
       if (attached) return attached;
     }
     return primaryWaConn(companyId);
+  }
+
+
+  /**
+   * Mode agent untuk percakapan ini: nomor yang menerima pesan (connectionId
+   * dari jalur masuk) atau, bila tak diketahui, nomor yang memegang chat.
+   * Apa pun yang tidak terbaca jatuh ke 'standard' (perilaku lama).
+   */
+  async function resolveAgentMode(companyId, chatId, connectionId = null) {
+    try {
+      if (connectionId) {
+        const found = (await listWaConns(companyId)).find((row) => row.id === connectionId);
+        if (found) return agentModes.normalizeMode(found.agentMode);
+        return 'standard';
+      }
+      const conn = await waConnForChat(companyId, chatId);
+      return agentModes.normalizeMode(conn?.agentMode);
+    } catch {
+      return 'standard';
+    }
+  }
+
+  /**
+   * Siapa pengirim pada nomor mode operasi? Anggota aktif yang nomornya
+   * tercatat (termasuk lewat peta @lid). Pihak ketiga sudah dicegat lebih awal
+   * di handleInboundMessage. Null = tidak dikenal.
+   */
+  async function resolveInternalSender(companyId, chatId) {
+    if (!canCall('listMembersWithWhatsapp')) return null;
+    const norm = (value) => { try { return normalizeChatId(String(value), config.defaultCountryCode); } catch { return null; } };
+    const candidates = new Set([norm(chatId)]);
+    if (String(chatId).endsWith('@lid') && canCall('phoneForLid')) {
+      const phone = await database.phoneForLid(companyId, chatId).catch(() => null);
+      if (phone) candidates.add(norm(phone));
+    }
+    const members = await database.listMembersWithWhatsapp(companyId).catch(() => []);
+    const hit = members.find((m) => { const n = norm(m.whatsappNumber); return n && candidates.has(n); });
+    return hit ? { kind: 'member', name: hit.name, userId: hit.userId, departments: hit.departments || [] } : null;
   }
 
   /** Nomor ini benar-benar bisa mengirim sekarang? */
@@ -931,7 +1039,7 @@ async function buildApp(overrides = {}) {
     }
     await paceReply(companyId, message, receivedAt, meta, {
       produce: async () => {
-        const autoReply = await generateAutoReply(message, companyId);
+        const autoReply = await generateAutoReply(message, companyId, meta);
         if (autoReply) {
           // Kalimat serah-terima ditulis setelah chat dipindah ke manusia;
           // dibedakan supaya tetap terkirim walau pesan sesudahnya tidak
@@ -1007,6 +1115,8 @@ async function buildApp(overrides = {}) {
           if (kind === 'ai' || kind === 'handoff') await armFollowUp(companyId, message.from);
           if ((kind === 'ai' || kind === 'handoff') && handoffNotice.claimsForward(text)) {
             notifyHandoff(companyId, message, text).catch((error) => app.log.warn({ err: error }, 'Pemberitahuan serah-terima gagal'));
+            createHandoffCard({ companyId, chatId: message.from, customerText: message.body, aiText: text, attach: false })
+              .catch((error) => app.log.warn({ err: error }, 'Kartu serah-terima gagal dibuat'));
           }
         }
       },
@@ -1019,6 +1129,36 @@ async function buildApp(overrides = {}) {
    * Gagal ke semua penerima melepas pembatas, supaya balasan berikutnya mencoba lagi.
    */
   const handoffCooldown = handoffNotice.createCooldown();
+  const cardCooldown = handoffNotice.createCooldown();
+
+  /**
+   * Kartu serah-terima otomatis: ringkasan tiga baris, janji AI, data
+   * terkumpul, dan saran balasan pertama. Disimpan di baris riwayat serah-terima
+   * (bila `attach`) dan sebagai catatan internal di lini masa. Ringkasannya
+   * dibuat dengan purpose sendiri ('handoff_card') supaya biayanya terpisah
+   * di catatan pemakaian. Tidak pernah dikirim ke customer; bila model gagal
+   * atau membocorkan proses internal, kartu cadangan tanpa saran dipakai.
+   */
+  async function createHandoffCard({ companyId, chatId, customerText = '', aiText = '', requestedHuman = false, attach = true }) {
+    if (!database.enabled || !database.connected || chatId.endsWith('@g.us')) return null;
+    if (!canCall('addConversationNote') || !cardCooldown.take(`${companyId}:${chatId}`)) return null;
+    try {
+      const [lead, summary, companyAi] = await Promise.all([
+        getLeadState(chatId, companyId).catch(() => null),
+        canCall('getConversationSummary') ? database.getConversationSummary(chatId, 'id', companyId).catch(() => null) : null,
+        getCompanyAi(companyId).catch(() => ({ enabled: false })),
+      ]);
+      const out = await handoffCard.createAndStoreCard({
+        database, llm: llmService, companyAi, companyId, chatId, customerText, aiText, requestedHuman,
+        attach: attach && canCall('setLatestHandoffCard'), lead, summary,
+      });
+      if (out.note) broadcastEvent(companyId, 'note', { chatId, note: out.note });
+      return out;
+    } catch (error) {
+      cardCooldown.release(`${companyId}:${chatId}`);
+      throw error;
+    }
+  }
   async function notifyHandoff(companyId, message, aiText) {
     if (!canCall('getHandoffNotifyNumbers') || message.from.endsWith('@g.us')) return;
     const numbers = await database.getHandoffNotifyNumbers(companyId);
@@ -1295,7 +1435,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
    * (lonceng di Agnee + WhatsApp bila nomornya diisi). Satu pertanyaan terbuka
    * per chat per departemen supaya model yang mengulang tidak membanjiri.
    */
-  async function askDepartment({ companyId, chatId, customerText, departments, args }) {
+  async function askDepartment({ companyId, chatId, customerText, departments, args, askerLabel = null }) {
     const dept = departments.find((d) => d.name === args.department);
     const question = String(args.question || '').trim().slice(0, departmentAsk.QUESTION_MAX);
     if (!dept || !question) return { error: 'Departemen atau pertanyaan tidak valid.' };
@@ -1306,7 +1446,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     if (!created) return { error: 'Departemen tidak ditemukan.' };
     broadcastEvent(companyId, 'department_question', { id: created.id, department: dept.name });
     const notice = departmentAsk.buildQuestionNotice({
-      department: dept.name, question, customerLabel: handoffNotice.describeCustomer({ chatId }),
+      department: dept.name, question, customerLabel: handoffNotice.describeCustomer({ chatId }), askerLabel,
     });
     for (const member of created.members) {
       if (!member.whatsappNumber) continue;
@@ -1330,7 +1470,24 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     const routing = await getRouting(row.chatId, companyId).catch(() => null);
     if (routing?.mode === 'human') return { relayed: false, reason: 'human' };
     const companyAi = await getCompanyAi(companyId);
-    const ctx = await buildReplyContext({ companyId, text: row.customerText, chatId: row.chatId });
+    const relayMode = await resolveAgentMode(companyId, row.chatId);
+    const ctx = await buildReplyContext({ companyId, text: row.customerText, chatId: row.chatId, agentMode: relayMode });
+    // Percakapan operasi internal: penerimanya orang dalam, jadi menyebut siapa
+    // yang menjawab boleh dan pagar kebocoran proses internal tidak berlaku.
+    // Jawaban yang belum pasti tetap TIDAK diteruskan sebagai fakta.
+    if (relayMode === 'internal_ops') {
+      const result = await llmService.generateReply(
+        agentModes.opsRelayPrompt({ senderText: row.customerText, question: row.question, answer: row.answer }),
+        { systemPrompt: ctx.systemPrompt, companyId, purpose: 'auto_reply', modelChain: companyAi.modelChain },
+      ).catch(() => null);
+      const text = stripLinks(result?.text || '').trim();
+      if (!text) return { relayed: false, reason: 'empty' };
+      if (text.includes(departmentAsk.UNSURE_TOKEN)) return { relayed: false, reason: 'unsure' };
+      const sent = await sendOutbound(companyId, row.chatId, text);
+      await database.recordOutboundReply({ chatId: row.chatId, messageId: sent?.messageId || null, author: 'ai', body: text, inReplyTo: row.question }, companyId).catch(() => {});
+      await database.markDepartmentQuestionRelayed(row.id, companyId);
+      return { relayed: true };
+    }
     // Sampai dua percobaan: yang pertama biasa, yang kedua lebih ketat bila
     // yang pertama membocorkan proses internal. Jawaban yang belum pasti atau
     // tetap bocor TIDAK dikirim; staf diberi tahu dan menghubungi customer.
@@ -1361,7 +1518,9 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
    * so what a supervisor tests is what a customer actually gets. Testing
    * against a different context than production is worse than not testing.
    */
-  async function buildReplyContext({ companyId, text, chatId = null, productId = null, ks = null, allowDepartments = false }) {
+  async function buildReplyContext({ companyId, text, chatId = null, productId = null, ks = null, allowDepartments = false, agentMode = 'standard', sender = null }) {
+    const mode = agentModes.normalizeMode(agentMode);
+    const ops = mode === 'internal_ops';
     const kb = await getKnowledgeBase(companyId);
     if (!kb.loaded) await kb.load().catch(() => {});
     const relevantFaqs = kb.findRelevantFaq(text || '');
@@ -1375,7 +1534,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       dbLive ? database.getCompanyConfig(companyId).catch(() => null) : null,
     ]);
     // Produk ditentukan dulu karena menentukan playbook mana yang dibaca.
-    const product = dbLive && typeof database.listPlaybookProducts === 'function'
+    const product = !ops && dbLive && typeof database.listPlaybookProducts === 'function'
       ? await resolveConversationProduct({
         companyId, chatId, text, productId, summary: latestSummary?.summary || '',
       }).catch(() => null)
@@ -1405,7 +1564,8 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     }
 
     let paymentContext = '';
-    if (paymentParts.length) {
+    // Nomor operasi internal tidak menagih siapa pun.
+    if (paymentParts.length && !ops) {
       const intro = paymentParts.length > 1
         ? 'Ada dua cara membayar. Tawarkan keduanya dan biarkan customer memilih; jangan memaksakan salah satu.'
         : '';
@@ -1416,7 +1576,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
 
     // `ks` memaksa paket tertentu dipakai (simulasi paket yang belum aktif);
     // tanpa itu yang dibaca adalah paket aktif milik company ini.
-    const ksInstalls = ks || (dbLive && typeof database.listActiveKs === 'function'
+    const ksInstalls = ops ? [] : ks || (dbLive && typeof database.listActiveKs === 'function'
       ? await database.listActiveKs(companyId).catch(() => [])
       : []);
     const ksContext = ksInstalls.map((install) => {
@@ -1428,7 +1588,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       }
     }).filter(Boolean).join('\n\n');
 
-    const hubTools = companyConfig?.hubToolsEnabled ? hubListingTools() : [];
+    const hubTools = companyConfig?.hubToolsEnabled && !ops ? hubListingTools() : [];
     // Departemen hanya dipakai pada chat nyata (ada chatId): simulator Coach
     // tidak boleh membangunkan anggota departemen sungguhan.
     let departmentTools = [];
@@ -1447,7 +1607,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
             return out;
           },
         }));
-        departmentGuide = departmentAsk.guideThirdParties(parties);
+        departmentGuide = ops ? departmentAsk.guideThirdPartiesOps(parties) : departmentAsk.guideThirdParties(parties);
       }
     }
     if (allowDepartments && chatId && dbLive && canCall('listDepartments') && !ks) {
@@ -1457,26 +1617,49 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
         departmentTools.push(departmentAsk.toolSpec({
           departments,
           run: async (args = {}) => {
-            const out = await askDepartment({ companyId, chatId, customerText: text, departments, args });
+            const out = await askDepartment({ companyId, chatId, customerText: text, departments, args, askerLabel: ops ? (sender?.name || 'anggota tim') : null });
             if (out.status === 'sent' || out.status === 'already_asked') departmentAsked.push(out.department);
             return out;
           },
         }));
-        departmentGuide = [departmentAsk.guide(departments), departmentGuide].filter(Boolean).join('\n\n');
+        departmentGuide = [ops ? departmentAsk.guideOps(departments) : departmentAsk.guide(departments), departmentGuide].filter(Boolean).join('\n\n');
       }
     }
+    // Batasan yang ditulis manusia saat mengembalikan chat ke AI. Instruksi
+    // internal: dibaca AI, tidak pernah disebut ke customer.
+    const constraintText = !ops && chatId && dbLive && canCall('getAiConstraints')
+      ? await database.getAiConstraints(chatId, companyId).catch(() => null)
+      : null;
+    let modeBlock = '';
+    if (mode !== 'standard') {
+      const custom = dbLive && typeof database.getAgentModeInstructions === 'function'
+        ? await database.getAgentModeInstructions(companyId).catch(() => ({}))
+        : {};
+      modeBlock = agentModes.modeSection(mode, custom[mode]);
+    }
     const contextSections = [
-      playbookContext ? `## PLAYBOOK PERUSAHAAN INI (SUMBER UTAMA — prioritaskan di atas knowledge umum di atas)\n${playbookContext}` : '',
+      playbookContext
+        ? (ops
+          ? `## PENGETAHUAN PERUSAHAAN (referensi fakta untuk menjawab rekan kerja; naskah penjualan di dalamnya BUKAN untuk dipakai di nomor ini)\n${playbookContext}`
+          : `## PLAYBOOK PERUSAHAAN INI (SUMBER UTAMA — prioritaskan di atas knowledge umum di atas)\n${playbookContext}`)
+        : '',
       ksContext ? `${KS_PRECEDENCE}\n\n${ksContext}` : '',
       paymentContext,
       hubTools.length ? HUB_TOOLS_GUIDE : '',
+      // Mode agent: blok peran + panduan tambahan company. 'standard' kosong,
+      // jadi nomor lama persis seperti sebelum ada mode.
+      modeBlock,
+      ops ? agentModes.senderLine(sender) : '',
       departmentGuide,
+      handoffCard.constraintsBlock(constraintText),
       // Bentuk percakapannya milik Agnee dan sama untuk semua tenant; isinya
       // milik playbook di atas. Ditaruh paling akhir supaya paling dekat dengan
       // pesan customer — instruksi di ujung prompt lebih konsisten dipatuhi
       // daripada yang terkubur di tengah.
-      conversationRules(companyConfig?.aiIdentity),
+      agentModes.conversationRulesOverride(mode) || conversationRules(companyConfig?.aiIdentity),
     ].filter(Boolean).join('\n\n');
+
+    const basePrompt = ops ? kb.getInternalOpsPrompt() : kb.getSystemPrompt();
 
     return {
       kb,
@@ -1491,13 +1674,14 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       leadState: latestSummary?.summary
         ? { ...(leadStateRaw || {}), conversationSummary: latestSummary.summary }
         : leadStateRaw,
+      agentMode: mode,
       systemPrompt: contextSections
-        ? `${kb.getSystemPrompt()}\n\n${contextSections}`
-        : kb.getSystemPrompt(),
+        ? `${basePrompt}\n\n${contextSections}`
+        : basePrompt,
     };
   }
 
-  async function generateAutoReply(message, companyId) {
+  async function generateAutoReply(message, companyId, meta = {}) {
     if (!config.llmEnabled) return null;
     if (message.from.endsWith('@g.us')) return null;
     if (!message.body || !message.body.trim()) return null;
@@ -1505,9 +1689,24 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     if (!companyAi.enabled) return null;
     const routing = await getRouting(message.from, companyId);
     if (routing.mode === 'human') return null;
+    const agentMode = await resolveAgentMode(companyId, message.from, meta?.connectionId || null);
+    const opsMode = agentMode === 'internal_ops';
+    // Nomor operasi internal hanya melayani orang yang dikenal. Yang tidak
+    // dikenal tidak dijawab AI (percakapannya tetap masuk inbox untuk staf):
+    // mereka bukan customer, dan jawaban otomatis ke orang asing di nomor
+    // internal berisiko membuka informasi operasional.
+    let opsSender = null;
+    if (opsMode) {
+      opsSender = await resolveInternalSender(companyId, message.from);
+      if (!opsSender) {
+        app.log.info({ companyId, chatId: message.from }, 'Mode operasi: pengirim tidak dikenal, AI tidak membalas');
+        return null;
+      }
+    }
     // Penerima pemberitahuan serah-terima adalah orang dalam: kalau mereka
     // membalas pesan pemberitahuan itu, AI tidak boleh menjawabnya sebagai customer.
-    if (canCall('getHandoffNotifyNumbers')) {
+    // (Di nomor operasi justru mereka audiensnya, jadi pagar ini dilewati.)
+    if (!opsMode && canCall('getHandoffNotifyNumbers')) {
       const insiders = await database.getHandoffNotifyNumbers(companyId).catch(() => []);
       if (insiders.some((raw) => normalizeChatId(raw, config.defaultCountryCode) === message.from)) return null;
     }
@@ -1524,7 +1723,10 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
           actorUserId: null,
           note: 'Pelanggan meminta bantuan manusia.',
           priority: 'high',
+          reason: handoffCard.classifyReason({ customerText: message.body, requestedHuman: true }),
         }, companyId);
+        createHandoffCard({ companyId, chatId: message.from, customerText: message.body, requestedHuman: true, attach: true })
+          .catch((error) => app.log.warn({ err: error }, 'Kartu serah-terima gagal dibuat'));
         const looksEnglish = /\b(?:human|person|talk|speak|connect|agent)\b/i.test(message.body)
           && !/\b(?:mau|ingin|boleh|bisa|tolong|hubungkan|bicara|manusia)\b/i.test(message.body);
         return looksEnglish
@@ -1547,7 +1749,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     }
 
     // Use this company's own knowledge client from DB — never another tenant's
-    const ctx = await buildReplyContext({ companyId, text: message.body, chatId: message.from, allowDepartments: true });
+    const ctx = await buildReplyContext({ companyId, text: message.body, chatId: message.from, allowDepartments: true, agentMode, sender: opsSender });
 
     // Fetch recent conversation history so the AI knows what was already said.
     //
@@ -3457,6 +3659,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
         displayName: request.body.displayName.trim(),
         email: request.body.email.trim(),
         password: request.body.password,
+        promoQuota: config.credit.promoMonthlyQuota,
       });
     } catch (error) {
       if (error.code === 'EMAIL_TAKEN') return reply.code(409).send({ error: error.message });
@@ -3476,6 +3679,20 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     reply.header('set-cookie', `agnee_session=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=43200${config.cookieSecure ? '; Secure' : ''}`);
     if (typeof database.setPresence === 'function') await database.setPresence(signup.userId, 'online', signup.companyId);
     return reply.code(201).send({ ok: true, user: sessionUser, trialEndsAt: signup.trialEndsAt });
+  });
+
+  // Penghitung kuota promo untuk halaman landing. Publik, tanpa data sensitif:
+  // hanya jumlah terpakai dan sisa bulan ini, dibaca dari tabel companies.
+  let promoQuotaCache = { at: 0, value: null };
+  app.get('/v1/public/promo-quota', async (_request, reply) => {
+    if (!database.status().connected) return reply.code(503).send({ error: 'Tidak tersedia.' });
+    if (!promoQuotaCache.value || Date.now() - promoQuotaCache.at > 15_000) {
+      const quota = await database.getPromoQuota({ limit: config.credit.promoMonthlyQuota });
+      promoQuotaCache = { at: Date.now(), value: quota };
+    }
+    const { limit, used, remaining, resetsAt } = promoQuotaCache.value;
+    reply.header('cache-control', 'public, max-age=15');
+    return { limit, used, remaining, open: remaining > 0, resetsAt };
   });
 
   // Cache DB session checks: userId:companyId → expiry timestamp (60s TTL)
@@ -3502,6 +3719,9 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     'GET /v1/chats',
     'GET /v1/chats/:chatId/messages',
     'POST /v1/messages/send',
+    // Laporan performa untuk alat MCP; handlernya hanya melayani supervisor.
+    'GET /v1/reports/summary',
+    'GET /v1/reports/agents',
     // Agnive Hub (9c): the public listing feed, and — for supervisors only, the
     // handlers check — the copies of Hub conversations and a reply draft.
     'GET /v1/hub/listings',
@@ -3543,7 +3763,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
   }
 
   app.addHook('onRequest', async (request, reply) => {
-    if (!request.url.startsWith('/v1/') || request.url.startsWith('/v1/auth/login') || request.url.startsWith('/v1/auth/signup')) return;
+    if (!request.url.startsWith('/v1/') || request.url.startsWith('/v1/auth/login') || request.url.startsWith('/v1/auth/signup') || request.url.startsWith('/v1/public/')) return;
     const suppliedKey = request.headers['x-api-key'];
     const session = verifySession(getCookie(request.headers.cookie, 'agnee_session'), config.sessionSecret);
     if (suppliedKey !== undefined && safeEqual(suppliedKey, config.apiKey)) {
@@ -3582,6 +3802,13 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     request.agneeSession = session;
     if (request.url.startsWith('/v1/admin/') && !isSupervisor(request.agneeSession)) {
       return reply.code(403).send({ error: 'Halaman ini hanya tersedia untuk supervisor.' });
+    }
+    // Fitur yang tidak termasuk paket credit company ini (mis. broadcast di Starter).
+    if (request.url.startsWith('/v1/broadcasts') && session.companyId && database.status().connected) {
+      const co = await database.getCompanyConfig(session.companyId).catch(() => null);
+      if (co?.creditMode && !creditPlans.planAllows(co.plan, 'broadcast')) {
+        return reply.code(403).send({ error: 'Broadcast tidak termasuk paket ini. Upgrade paket untuk memakainya.' });
+      }
     }
     // Gerbang terpisah, bukan menumpang gerbang di atas. Kalau keduanya dijaga
     // isSupervisor(), setiap owner pelanggan otomatis ikut masuk ke konsol yang
@@ -4138,6 +4365,24 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     return { ...config_, usage: usage ? { currentUsers: usage.currentUsers, currentWhatsapp: usage.currentWhatsapp } : null };
   });
 
+  // Saldo dan riwayat credit company sendiri. Riwayat tidak memuat nama model.
+  app.get('/v1/admin/credit', async (request, reply) => {
+    if (!database.status().connected) return reply.code(503).send({ error: 'Tidak tersedia.' });
+    const companyId = request.agneeSession.companyId;
+    await database.getCompanyConfig(companyId).catch(() => null); // memicu kedaluwarsa lazy
+    const state = await database.getCreditState(companyId);
+    if (!state?.creditMode) return { creditMode: false };
+    const ledger = await database.listCreditLedger(companyId, 50);
+    const plan = creditPlans.CREDIT_PLANS[state.plan] || null;
+    return {
+      ...state,
+      planLabel: plan?.label || state.plan,
+      alertPercents: config.credit.alertPercents,
+      graceDays: config.credit.graceDays,
+      ledger,
+    };
+  });
+
   // What a company is ENTITLED to (plan, status, quotas) versus how it CHOOSES
   // to operate (knowledge source, payment details). A company supervisor may
   // change the second group for their own tenant, but must never grant
@@ -4320,6 +4565,10 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
         status: { type: 'string', enum: ['open', 'pending', 'closed'] },
         sendClosingMessage: { type: 'boolean', default: false },
         closingMessage: { type: 'string', maxLength: 500 },
+        // Alasan serah-terima (pilihan tetap) dan batasan untuk AI saat chat
+        // kembali ke AI. Catatan teks bebas `note` tetap ada.
+        reason: { type: 'string', enum: Object.keys(handoffCard.REASONS) },
+        aiConstraints: { type: 'string', maxLength: 800 },
       } },
     },
   }, async (request, reply) => {
@@ -4364,6 +4613,8 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       actorUserId: session.userId,
       note: request.body.note,
       priority: request.body.priority || 'normal',
+      reason: request.body.mode === 'human' ? request.body.reason : undefined,
+      aiConstraints: request.body.mode === 'ai' ? request.body.aiConstraints : undefined,
     }, companyId);
     if (previous.mode === 'human' && request.body.mode === 'ai') {
       try {
@@ -4534,8 +4785,13 @@ ${thread || '(belum ada)'}${hubContext}`,
 
   app.get('/v1/mentionables', async (request) => {
     const companyId = request.agneeSession.companyId;
-    if (!canCall('listMentionableUsers')) return { users: [] };
-    return { users: await database.listMentionableUsers(companyId).catch(() => []) };
+    if (!canCall('listMentionableUsers')) return { users: [], departments: [] };
+    // Departemen hanya nama: anggotanya dan nomornya tidak ikut keluar.
+    const departments = canCall('listDepartments')
+      ? (await database.listDepartments(companyId).catch(() => []))
+        .filter((d) => d.members.length > 0).map((d) => ({ id: d.id, name: d.name }))
+      : [];
+    return { users: await database.listMentionableUsers(companyId).catch(() => []), departments };
   });
 
   /**
@@ -4555,10 +4811,20 @@ ${thread || '(belum ada)'}${hubContext}`,
       const memberIds = new Set(members.map((m) => m.id));
       allowed = new Set(userIds.filter((id) => memberIds.has(id)));
     }
+    // Mention departemen: id diperiksa terhadap departemen company ini dan
+    // nama diambil dari database, bukan dari klien.
+    const deptById = new Map();
+    if (list.some((m) => m?.kind === 'department') && canCall('listDepartments')) {
+      for (const d of await database.listDepartments(companyId).catch(() => [])) deptById.set(d.id, d);
+    }
     const out = [];
     const seen = new Set();
     for (const mention of list) {
-      if (mention?.kind === 'user' && allowed.has(String(mention.id))) {
+      if (mention?.kind === 'department') {
+        const dept = deptById.get(String(mention.id));
+        const key = `d:${mention.id}`;
+        if (dept && !seen.has(key)) { seen.add(key); out.push({ kind: 'department', id: dept.id, name: dept.name }); }
+      } else if (mention?.kind === 'user' && allowed.has(String(mention.id))) {
         const key = `u:${mention.id}`;
         if (!seen.has(key)) { seen.add(key); out.push({ kind: 'user', id: String(mention.id) }); }
       } else if (mention?.kind === 'ai') {
@@ -4574,6 +4840,104 @@ ${thread || '(belum ada)'}${hubContext}`,
     return out;
   }
 
+  /**
+   * @Departemen di komentar samping chat: SEMUA anggota departemen diberi
+   * tahu (lonceng di Agnee, dan WhatsApp bila nomornya diisi) — pola yang sama
+   * dengan ask_department. Yang menulis tidak diberi tahu tentang tulisannya
+   * sendiri, dan anggota yang juga di-mention sebagai orang tidak mendapat dua
+   * lonceng. Penerimanya selalu staf; tidak ada jalur ke customer.
+   */
+  async function notifyDepartmentMentions({ companyId, chatId, note, mentions, actorUserId, actorName, body, kind }) {
+    if (!canCall('listDepartments') || !canCall('createMentionNotifications')) return;
+    const depts = await database.listDepartments(companyId);
+    const named = new Set(mentions.filter((m) => m.kind === 'user').map((m) => m.id));
+    const seen = new Set();
+    for (const mention of mentions.filter((m) => m.kind === 'department')) {
+      const dept = depts.find((d) => d.id === mention.id);
+      if (!dept) continue;
+      const members = dept.members.filter((m) => m.userId !== actorUserId).slice(0, 50);
+      const fresh = members.filter((m) => !named.has(m.userId) && !seen.has(m.userId));
+      fresh.forEach((m) => seen.add(m.userId));
+      if (fresh.length) {
+        const notified = await database.createMentionNotifications({
+          chatId, noteId: note.id,
+          mentions: fresh.map((m) => ({ kind: 'user', id: m.userId })),
+          actorUserId, actorKind: 'human',
+          body: `@${dept.name}: ${body}`, kind,
+        }, companyId).catch(() => []);
+        notifyUsers(companyId, notified);
+      }
+      const notice = departmentAsk.buildMentionNotice({
+        department: dept.name, authorName: actorName,
+        customerLabel: handoffNotice.describeCustomer({ chatId }), body,
+      });
+      for (const member of members) {
+        if (!member.whatsappNumber) continue;
+        try {
+          const target = normalizeChatId(member.whatsappNumber, config.defaultCountryCode);
+          const sent = await sendOutbound(companyId, target, notice);
+          await database.recordOutboundReply({ chatId: target, messageId: sent?.messageId || null, author: 'ai', body: notice }, companyId).catch(() => {});
+        } catch (error) {
+          app.log.warn({ err: error, recipient: `…${String(member.whatsappNumber).slice(-4)}` }, 'Mention departemen via WhatsApp ke satu anggota gagal');
+        }
+      }
+    }
+  }
+
+  /**
+   * Catatan jadi tugas satu klik: chat dipegang pemilik yang dipilih (default
+   * yang mengklik), dengan prioritas dan tenggat. Tugas di Agnee adalah baris
+   * routing yang dipegang manusia, jadi SLA yang sudah ada (src/sla.js,
+   * ambang per prioritas) dan notifikasi penugasan berlaku apa adanya.
+   */
+  app.post('/v1/chats/:chatId/notes/:noteId/task', {
+    schema: {
+      params: { type: 'object', required: ['chatId', 'noteId'], properties: {
+        chatId: { type: 'string', minLength: 1, maxLength: 128 },
+        noteId: { type: 'integer', minimum: 1 },
+      } },
+      body: { type: 'object', additionalProperties: false, properties: {
+        assigneeUserId: { type: 'string', maxLength: 100 },
+        dueAt: { type: ['string', 'null'], maxLength: 40 },
+        priority: { type: 'string', enum: ['low', 'normal', 'high', 'urgent'] },
+      } },
+    },
+  }, async (request, reply) => {
+    const session = request.agneeSession;
+    const companyId = session.companyId;
+    if (!canCall('getConversationNote') || !database.status().connected) return reply.code(503).send({ error: 'Tidak tersedia.' });
+    const { chatId, noteId } = request.params;
+    const noteRow = await database.getConversationNote(noteId, chatId, companyId);
+    if (!noteRow) return reply.code(404).send({ error: 'Catatan tidak ditemukan.' });
+    const previous = await getRouting(chatId, companyId);
+    if (!isSupervisor(session) && heldByOtherAgent(previous, session.userId)) {
+      return reply.code(403).send({ error: 'Chat ini dipegang agent lain.' });
+    }
+    const assigneeUserId = request.body.assigneeUserId || session.userId;
+    if (!isSupervisor(session) && assigneeUserId !== session.userId) {
+      return reply.code(403).send({ error: 'Agent hanya dapat membuat tugas untuk dirinya sendiri.' });
+    }
+    const members = await getTeamMembers(companyId);
+    if (!members.find((m) => m.id === assigneeUserId && m.status === 'active')) {
+      return reply.code(400).send({ error: 'Pilih agent yang aktif.' });
+    }
+    let dueAt = null;
+    if (request.body.dueAt) {
+      const ms = Date.parse(request.body.dueAt);
+      if (!Number.isFinite(ms)) return reply.code(400).send({ error: 'Tenggat tidak valid.' });
+      if (ms < Date.now() - 60_000) return reply.code(400).send({ error: 'Tenggat sudah lewat.' });
+      dueAt = new Date(ms).toISOString();
+    }
+    const text = String(noteRow.body).replace(/\s+/g, ' ').trim();
+    const routing = await saveRouting({
+      chatId, mode: 'human', assigneeUserId, actorUserId: session.userId,
+      note: `Tugas dari catatan: ${text}`.slice(0, 500),
+      priority: request.body.priority || previous.priority || 'normal',
+      status: 'open', dueAt, taskNoteId: noteRow.id,
+    }, companyId);
+    return reply.code(201).send({ routing });
+  });
+
   app.post('/v1/chats/:chatId/notes', {
     schema: { body: { type: 'object', additionalProperties: false, required: ['body'], properties: {
       body: { type: 'string', minLength: 1, maxLength: 2000 },
@@ -4583,7 +4947,7 @@ ${thread || '(belum ada)'}${hubContext}`,
         items: {
           type: 'object', additionalProperties: false,
           properties: {
-            kind: { type: 'string', enum: ['user', 'chat', 'ai'] },
+            kind: { type: 'string', enum: ['user', 'chat', 'ai', 'department'] },
             id: { type: 'string', maxLength: 64 },
             chatId: { type: 'string', maxLength: 128 },
           },
@@ -4610,6 +4974,14 @@ ${thread || '(belum ada)'}${hubContext}`,
           companyId: noteCompanyId,
           askerUserId: request.agneeSession?.userId || null,
         }).catch((err) => app.log.warn({ err }, 'Could not answer note mention'));
+      }
+      if (mentions.some((m) => m.kind === 'department')) {
+        notifyDepartmentMentions({
+          companyId: noteCompanyId, chatId: request.params.chatId, note, mentions,
+          actorUserId: request.agneeSession?.userId || null,
+          actorName: request.agneeSession?.displayName || null,
+          body: request.body.body.trim(), kind: request.body.parentId ? 'reply' : 'mention',
+        }).catch((err) => app.log.warn({ err }, 'Could not notify department mention'));
       }
       if (mentions.length && typeof database.createMentionNotifications === 'function') {
         const notified = await database.createMentionNotifications({
@@ -4789,6 +5161,133 @@ ${thread || '(belum ada)'}${hubContext}`,
     };
   });
 
+  // ── Credit: tindakan staf setelah pembayaran dikonfirmasi ────────────────
+  const creditParams = { type: 'object', required: ['companyId'], properties: {
+    companyId: { type: 'string', pattern: UUID_PATTERN },
+  } };
+
+  app.get('/v1/superhuman/credit-plans', async () => ({
+    plans: Object.entries(creditPlans.CREDIT_PLANS).map(([key, plan]) => ({ key, ...plan })),
+    config: config.credit,
+  }));
+
+  app.get('/v1/superhuman/companies/:companyId/credit', { schema: { params: creditParams } }, async (request, reply) => {
+    if (!database.status().connected) return reply.code(503).send({ error: 'Konsol platform butuh PostgreSQL.' });
+    const state = await database.getCreditState(request.params.companyId);
+    if (!state) return reply.code(404).send({ error: 'Tenant tidak ditemukan.' });
+    return { ...state, ledger: await database.listCreditLedger(request.params.companyId, 100) };
+  });
+
+  // Terapkan / perpanjang paket credit. Dipanggil SETELAH pembayaran dikonfirmasi.
+  app.post('/v1/superhuman/companies/:companyId/credit/subscribe', {
+    schema: {
+      params: creditParams,
+      body: { type: 'object', required: ['plan'], additionalProperties: false, properties: {
+        plan: { type: 'string', enum: creditPlans.CREDIT_PLAN_KEYS },
+        // Wajib untuk Enterprise (custom); opsional untuk menimpa credit bawaan paket.
+        monthlyCredit: { type: 'number', minimum: 0, maximum: 1_000_000_000 },
+        note: { type: 'string', maxLength: 300 },
+      } },
+    },
+  }, async (request, reply) => {
+    if (!database.status().connected) return reply.code(503).send({ error: 'Konsol platform butuh PostgreSQL.' });
+    const { plan, note } = request.body;
+    const def = creditPlans.CREDIT_PLANS[plan];
+    const monthlyCredit = request.body.monthlyCredit ?? (def.oneTime ? def.initialCredit : def.monthlyCredit);
+    if (!(monthlyCredit > 0)) {
+      return reply.code(400).send({ error: 'Paket ini butuh jumlah credit bulanan (monthlyCredit).' });
+    }
+    const before = await database.getCreditState(request.params.companyId);
+    if (!before) return reply.code(404).send({ error: 'Tenant tidak ditemukan.' });
+    let state;
+    try {
+      state = await database.subscribeCreditPlan(request.params.companyId, {
+        plan, monthlyCredit, limits: creditPlans.limitsOfPlan(plan), oneTime: def.oneTime === true,
+        userId: request.agneeSession.userId || null, note,
+      });
+    } catch (error) {
+      if (error.code === 'ONE_TIME_ALREADY') return reply.code(409).send({ error: error.message });
+      throw error;
+    }
+    await recordPlatformAudit(request, 'platform.credit.subscribed', request.params.companyId, {
+      dari: before.plan, ke: plan, monthlyCredit,
+    });
+    return state;
+  });
+
+  app.post('/v1/superhuman/companies/:companyId/credit/topup', {
+    schema: {
+      params: creditParams,
+      body: { type: 'object', required: ['amountIdr'], additionalProperties: false, properties: {
+        amountIdr: { type: 'number', exclusiveMinimum: 0, maximum: 1_000_000_000 },
+        note: { type: 'string', maxLength: 300 },
+      } },
+    },
+  }, async (request, reply) => {
+    if (!database.status().connected) return reply.code(503).send({ error: 'Konsol platform butuh PostgreSQL.' });
+    const { amountIdr, note } = request.body;
+    if (config.credit.minTopupIdr && amountIdr < config.credit.minTopupIdr) {
+      return reply.code(400).send({ error: `Top-up minimum Rp ${creditNumberFormat.format(config.credit.minTopupIdr)}.` });
+    }
+    const planState = await database.getCreditState(request.params.companyId);
+    const topupPrice = creditPlans.topupPriceFor(planState?.plan, config.credit);
+    const amount = creditPlans.creditsForTopup(amountIdr, { creditPriceIdr: topupPrice });
+    try {
+      const state = await database.grantCredit(request.params.companyId, {
+        kind: 'topup', amount, note: note || `Top-up Rp ${creditNumberFormat.format(amountIdr)}`,
+        userId: request.agneeSession.userId || null,
+      });
+      await recordPlatformAudit(request, 'platform.credit.topup', request.params.companyId, { amountIdr, credit: amount, hargaPerCredit: topupPrice });
+      return state;
+    } catch (error) {
+      if (error.code === 'NOT_CREDIT_MODE') return reply.code(409).send({ error: error.message });
+      throw error;
+    }
+  });
+
+  app.post('/v1/superhuman/companies/:companyId/credit/adjust', {
+    schema: {
+      params: creditParams,
+      body: { type: 'object', required: ['credit', 'note'], additionalProperties: false, properties: {
+        credit: { type: 'number', minimum: -1_000_000_000, maximum: 1_000_000_000 },
+        note: { type: 'string', minLength: 1, maxLength: 300 },
+      } },
+    },
+  }, async (request, reply) => {
+    if (!database.status().connected) return reply.code(503).send({ error: 'Konsol platform butuh PostgreSQL.' });
+    try {
+      const state = await database.grantCredit(request.params.companyId, {
+        kind: 'adjust', amount: request.body.credit, note: request.body.note,
+        userId: request.agneeSession.userId || null,
+      });
+      await recordPlatformAudit(request, 'platform.credit.adjusted', request.params.companyId, {
+        credit: request.body.credit, note: request.body.note,
+      });
+      return state;
+    } catch (error) {
+      if (error.code === 'NOT_CREDIT_MODE') return reply.code(409).send({ error: error.message });
+      throw error;
+    }
+  });
+
+  app.patch('/v1/superhuman/companies/:companyId/credit-discount', {
+    schema: {
+      params: creditParams,
+      body: { type: 'object', required: ['discountPct'], additionalProperties: false, properties: {
+        discountPct: { type: 'integer', minimum: 0, maximum: creditPlans.MAX_DISCOUNT_PCT },
+      } },
+    },
+  }, async (request, reply) => {
+    if (!database.status().connected) return reply.code(503).send({ error: 'Konsol platform butuh PostgreSQL.' });
+    const before = await database.getCreditState(request.params.companyId);
+    if (!before) return reply.code(404).send({ error: 'Tenant tidak ditemukan.' });
+    const state = await database.setCreditDiscount(request.params.companyId, request.body.discountPct);
+    await recordPlatformAudit(request, 'platform.credit.discount', request.params.companyId, {
+      dari: before.discountPct, ke: request.body.discountPct,
+    });
+    return state;
+  });
+
   /**
    * Pack knowledge yang benar-benar ada di disk. Konsol platform satu-satunya
    * tempat mengubah `knowledge_client`; dulu tidak ada jalan sama sekali selain
@@ -4831,7 +5330,8 @@ ${thread || '(belum ada)'}${hubContext}`,
         companyId: { type: 'string', pattern: UUID_PATTERN },
       } },
       body: { type: 'object', additionalProperties: false, minProperties: 1, properties: {
-        plan: { type: 'string', enum: ['personal', 'company', 'lifetime'] },
+        // Paket credit sebaiknya diterapkan lewat /credit/subscribe (menulis batas + credit); di sini hanya agar form tidak menolak paket yang sedang dipakai.
+        plan: { type: 'string', enum: [...new Set(['personal', 'company', 'lifetime', ...creditPlans.CREDIT_PLAN_KEYS])] },
         planStatus: { type: 'string', enum: ['trial', 'beta', 'active', 'suspended'] },
         status: { type: 'string', enum: ['active', 'suspended', 'closed'] },
         trialEndsAt: { type: ['string', 'null'], maxLength: 40 },
@@ -5159,6 +5659,8 @@ Aturan:
       productId: { anyOf: [{ type: 'string', format: 'uuid' }, { type: 'null' }] },
       compareWithAi: { type: 'boolean', default: false },
       grade: { type: 'boolean', default: true },
+      // Uji sebagai mode agent tertentu; kosong = 'standard' seperti sebelumnya.
+      agentMode: { type: 'string', enum: agentModes.MODES },
     } } },
   }, async (request, reply) => {
     if (!requireCoachSupervisor(request, reply)) return;
@@ -5183,6 +5685,7 @@ Aturan:
     // Same context the live WhatsApp path uses, so results match production.
     const ctx = await buildReplyContext({
       companyId, text: customerMessage, chatId: request.body.chatId || null, productId: request.body.productId || null,
+      agentMode: request.body.agentMode || 'standard',
     });
     const history = transcript.map((turn) => ({
       role: turn.role === 'customer' ? 'user' : 'assistant',
@@ -6287,8 +6790,14 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     const section = wantsChats ? await reportChatSection(row.companyId, week.from, week.to) : { chats: [], waiting: 0, followUpTotal: 0 };
     const weekStats = overview.find((o) => o.key === '7d').stats;
     const highlights = weekStats?.inboundMessages ? await summarizeInboundForReport(row.companyId, week.from, week.to) : [];
+    const agents = canCall('getAgentPerformance') && String(template || supervisorReport.DEFAULT_TEMPLATE).includes('{agents}')
+      ? await database.getAgentPerformance(row.companyId, week.from, week.to).catch((error) => {
+        app.log.warn({ err: error, companyId: row.companyId }, 'Kinerja agent tidak masuk laporan');
+        return [];
+      })
+      : [];
     const messages = supervisorReport.buildReportMessages({
-      companyName: row.companyName, frequency: row.frequency, tz: row.timezone, now, overview, waiting: section.waiting,
+      agents, companyName: row.companyName, frequency: row.frequency, tz: row.timezone, now, overview, waiting: section.waiting,
       highlights, sample, template, recipientName: row.displayName, chats: section.chats, followUpTotal: section.followUpTotal,
     });
     // Berurutan, bukan paralel: urutan pesan di ponsel harus sama dengan urutan baca.
@@ -6296,6 +6805,67 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     const chatId = normalizeChatId(row.whatsappNumber, config.defaultCountryCode);
     for (const text of messages) await sendLeadMessage(row.companyId, chatId, text);
   }
+
+  // ── Laporan performa (JSON): ringkasan chat dan kinerja per agent ───────────
+  //
+  // Dipakai layar Laporan dan alat MCP. Hanya supervisor: kinerja sesama agent
+  // bukan untuk dilihat semua orang. Lewat jalur layanan (MCP), peran yang
+  // berlaku tetap peran anggota yang tersambung.
+  function reportGuard(request, reply) {
+    if (!isSupervisor(request.agneeSession)) {
+      reply.code(403).send({ error: 'Hanya supervisor yang dapat melihat laporan.' });
+      return false;
+    }
+    if (!canCall('getAgentPerformance') || !canCall('getChatReportStats')) {
+      reply.code(503).send({ error: 'Database belum tersedia.' });
+      return false;
+    }
+    return true;
+  }
+
+  const REPORT_MAX_DAYS = 90;
+
+  app.get('/v1/reports/summary', async (request, reply) => {
+    if (!reportGuard(request, reply)) return reply;
+    const companyId = request.agneeSession.companyId;
+    const companyConfig = canCall('getCompanyConfig') ? await database.getCompanyConfig(companyId).catch(() => null) : null;
+    const tz = companyConfig?.timezone || 'Asia/Jakarta';
+    const now = new Date();
+    const windows = supervisorReport.reportWindows(now, tz);
+    const periods = await Promise.all(windows.map(async (w) => {
+      const [stats, previous] = await Promise.all([
+        database.getChatReportStats(companyId, w.from, w.to),
+        database.getChatReportStats(companyId, w.prevFrom, w.prevTo),
+      ]);
+      return { key: w.key, label: w.label, versus: w.versus, from: w.from.toISOString(), to: w.to.toISOString(), stats, previous };
+    }));
+    const week = windows.find((w) => w.key === '7d');
+    const { waiting, followUpTotal } = await database.getChatReportChats(companyId, week.from, week.to, 1)
+      .catch(() => ({ waiting: null, followUpTotal: null }));
+    return { generatedAt: now.toISOString(), timezone: tz, periods, waitingNow: waiting, followUpTotal };
+  });
+
+  app.get('/v1/reports/agents', {
+    schema: { querystring: { type: 'object', additionalProperties: false, properties: {
+      days: { type: 'integer', minimum: 1, maximum: REPORT_MAX_DAYS, default: 7 },
+    } } },
+  }, async (request, reply) => {
+    if (!reportGuard(request, reply)) return reply;
+    const to = new Date();
+    const from = new Date(to.getTime() - request.query.days * 24 * 60 * 60 * 1000);
+    const agents = await database.getAgentPerformance(request.agneeSession.companyId, from, to);
+    return {
+      days: request.query.days,
+      from: from.toISOString(),
+      to: to.toISOString(),
+      agents,
+      notes: [
+        'Hanya balasan yang dikirim lewat Agnee; balasan dari aplikasi WhatsApp di ponsel tidak tercatat per agent.',
+        'Waktu respons = dari pesan customer pertama yang menunggu sampai balasan human pertama, dalam jam dinding (bukan jam kerja). Balasan tanpa customer yang menunggu tidak diukur.',
+        'Kepuasan customer dan hasil closing per agent tidak dicatat, jadi tidak ada di laporan ini.',
+      ],
+    };
+  });
 
   app.get('/v1/reports/supervisors', async (request, reply) => {
     if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengatur laporan.' });
@@ -6399,6 +6969,10 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
       highlights: ['Harga dan paket', 'Cara pembayaran', 'Jadwal pengiriman'],
       template: request.body.template, recipientName: request.agneeSession.displayName,
       chats: previewChats(),
+      agents: [
+        { name: 'Dewi (contoh)', humanReplies: 42, chatsReplied: 17, responseSamples: 15, medianResponseSeconds: 190, takeovers: 3 },
+        { name: 'Raka (contoh)', humanReplies: 19, chatsReplied: 8, responseSamples: 0, medianResponseSeconds: null, takeovers: 1 },
+      ],
     });
     return { text };
   });
@@ -7094,6 +7668,8 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     ['relation', 'Hubungan'],
     ['activity', 'Keaktifan'],
     ['waLabels', 'Label WhatsApp'],
+    ['email', 'Email'],
+    ['importNote', 'Catatan impor'],
     ['mayarProducts', 'Produk Mayar'],
     ['servedByNumber', 'Dilayani nomor'],
     ['firstSeenAt', 'Masuk pertama'],
@@ -7383,6 +7959,125 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     })();
 
     return reply.code(202).send({ run: importState.get(companyId) });
+  });
+
+  // ── Impor Lead List dari Excel/CSV ──────────────────────────────────────────
+  //
+  // Dua langkah tanpa keadaan di server: pratinjau (membaca berkas, menebak
+  // pemetaan kolom, menghitung baris siap/tidak valid/duplikat) lalu simpan
+  // (berkas dikirim ulang bersama pemetaan yang dikonfirmasi). Parser dan
+  // penilaian baris ada di src/lead-import.js; kontak yang masuk memakai tabel
+  // imported_contacts sehingga langsung tampil di Lead List dan Broadcast.
+  const LEAD_IMPORT_SAMPLE_ROWS = 5;
+  const LEAD_IMPORT_PROBLEM_ROWS = 50;
+
+  function leadImportGuard(request, reply) {
+    if (!isSupervisor(request.agneeSession)) {
+      reply.code(403).send({ error: 'Hanya supervisor yang dapat mengimpor Lead List.' });
+      return false;
+    }
+    if (!canCall('importLeadsFromFile')) {
+      reply.code(503).send({ error: 'Database tidak tersedia.' });
+      return false;
+    }
+    return true;
+  }
+
+  /** Berkas + pemetaan dari form multipart. Kolom `mapping` harus dikirim SEBELUM berkas. */
+  async function readLeadImportUpload(request, reply) {
+    const upload = await request.file().catch(() => null);
+    if (!upload) { reply.code(400).send({ error: 'Tidak ada berkas yang diunggah.' }); return null; }
+    const buffer = await upload.toBuffer().catch(() => null);
+    if (!buffer || upload.file.truncated) { reply.code(413).send({ error: 'Berkas maksimal 5 MB.' }); return null; }
+    let mapping = null;
+    const rawMapping = upload.fields?.mapping?.value;
+    if (rawMapping) {
+      try { mapping = JSON.parse(rawMapping); } catch { reply.code(400).send({ error: 'Pemetaan kolom tidak valid.' }); return null; }
+    }
+    try {
+      const table = await leadImport.parseTable(buffer, upload.filename);
+      return { table, mapping, filename: upload.filename || 'impor' };
+    } catch (error) {
+      if (error instanceof leadImport.ImportError) {
+        reply.code(error.code === 'too_large' ? 413 : error.code === 'unsupported' ? 415 : 422).send({ error: error.message });
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  async function assessLeadImport(companyId, { table, mapping }) {
+    const effective = mapping
+      ? leadImport.validateMapping(mapping, table.headers.length)
+      : leadImport.suggestMapping(table.headers, table.rows);
+    if (effective.phone === undefined) return { mapping: effective, evaluation: null };
+    const existing = new Set(await database.listLeadPhones(companyId));
+    return { mapping: effective, evaluation: leadImport.evaluateRows(table.rows, effective, existing, table.rowNumbers) };
+  }
+
+  app.post('/v1/leads/import/preview', async (request, reply) => {
+    if (!leadImportGuard(request, reply)) return reply;
+    const upload = await readLeadImportUpload(request, reply);
+    if (!upload) return reply;
+    let assessed;
+    try {
+      assessed = await assessLeadImport(request.agneeSession.companyId, upload);
+    } catch (error) {
+      if (error instanceof leadImport.ImportError) return reply.code(422).send({ error: error.message });
+      throw error;
+    }
+    const { table } = upload;
+    return {
+      format: table.format,
+      headers: table.headers,
+      sampleRows: table.rows.slice(0, LEAD_IMPORT_SAMPLE_ROWS),
+      totalRows: table.rows.length,
+      formulaCells: table.formulaCells,
+      mapping: assessed.mapping,
+      summary: assessed.evaluation?.summary || null,
+      problems: assessed.evaluation ? assessed.evaluation.problems.slice(0, LEAD_IMPORT_PROBLEM_ROWS) : [],
+      readyPreview: assessed.evaluation ? assessed.evaluation.leads.slice(0, LEAD_IMPORT_SAMPLE_ROWS).map(({ phone, name, email }) => ({ phone, name, email })) : [],
+      limits: { maxFileMb: leadImport.LIMITS.fileBytes / 1024 / 1024, maxRows: leadImport.LIMITS.rows },
+    };
+  });
+
+  app.post('/v1/leads/import', async (request, reply) => {
+    if (!leadImportGuard(request, reply)) return reply;
+    const upload = await readLeadImportUpload(request, reply);
+    if (!upload) return reply;
+    if (!upload.mapping) return reply.code(400).send({ error: 'Pemetaan kolom wajib dikirim.' });
+    const companyId = request.agneeSession.companyId;
+    let assessed;
+    try {
+      assessed = await assessLeadImport(companyId, upload);
+    } catch (error) {
+      if (error instanceof leadImport.ImportError) return reply.code(422).send({ error: error.message });
+      throw error;
+    }
+    const { summary, leads } = assessed.evaluation;
+    if (!leads.length) {
+      return reply.code(422).send({ error: 'Tidak ada baris yang bisa diimpor.', summary });
+    }
+    const skipped = { invalidPhone: summary.invalidPhone, duplicateInFile: summary.duplicateInFile, alreadyExists: summary.alreadyExists };
+    const saved = await database.importLeadsFromFile(companyId, {
+      filename: upload.filename,
+      format: upload.table.format,
+      createdBy: request.agneeSession.userId || null,
+      totalRows: summary.total,
+      skipped,
+      leads: leads.map((lead) => ({ ...lead, chatId: leadImport.chatIdFor(lead.phone) })),
+    });
+    // Daftar customer masuk dari berkas luar dan menjadi calon penerima broadcast.
+    await catatAudit(request, 'contacts.file_imported', {
+      entityType: 'contacts', entityId: saved.importId,
+      metadata: { format: upload.table.format, rows: summary.total, imported: saved.imported, skipped },
+    });
+    return reply.code(201).send({
+      imported: saved.imported,
+      skipped: { ...skipped, raced: saved.raced },
+      totalRows: summary.total,
+      importId: saved.importId,
+    });
   });
 
   app.get('/v1/export/contacts', async (request) => {
@@ -8204,6 +8899,7 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
         label: row.label,
         phoneNumber: row.phoneNumber || null,
         isActive: row.isActive !== false,
+        agentMode: agentModes.normalizeMode(row.agentMode),
         // Fase diambil dari manager, bukan kolom status: kolom itu catatan
         // terakhir yang tersimpan, sedangkan manager tahu keadaan sekarang.
         phase: manager.getState(row.id).phase,
@@ -8244,20 +8940,110 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     schema: {
       params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } },
       body: {
-        type: 'object', required: ['isActive'], additionalProperties: false,
-        properties: { isActive: { type: 'boolean' } },
+        type: 'object', additionalProperties: false, minProperties: 1,
+        properties: {
+          isActive: { type: 'boolean' },
+          agentMode: { type: 'string', enum: agentModes.MODES },
+        },
       },
     },
   }, async (request, reply) => {
     if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengubah koneksi.' });
-    if (!canCall('setWhatsappConnectionActive')) return reply.code(503).send({ error: 'Database tidak tersedia.' });
-    const updated = await database.setWhatsappConnectionActive(
-      request.agneeSession.companyId, request.params.id, request.body.isActive,
-    );
-    if (!updated) return reply.code(404).send({ error: 'Nomor tidak ditemukan.' });
+    const { isActive, agentMode } = request.body;
+    const companyId = request.agneeSession.companyId;
+    let updated = null;
+    if (isActive !== undefined) {
+      if (!canCall('setWhatsappConnectionActive')) return reply.code(503).send({ error: 'Database tidak tersedia.' });
+      updated = await database.setWhatsappConnectionActive(companyId, request.params.id, isActive);
+      if (!updated) return reply.code(404).send({ error: 'Nomor tidak ditemukan.' });
+    }
+    if (agentMode !== undefined) {
+      if (!canCall('setWhatsappConnectionMode')) return reply.code(503).send({ error: 'Database tidak tersedia.' });
+      const modeRow = await database.setWhatsappConnectionMode(companyId, request.params.id, agentMode);
+      if (!modeRow) return reply.code(404).send({ error: 'Nomor tidak ditemukan.' });
+      updated = { ...(updated || {}), id: modeRow.id, agentMode: modeRow.agentMode };
+      await catatAudit(request, 'whatsapp.mode_changed', { entityType: 'whatsapp_connection', entityId: modeRow.id, metadata: { agentMode } });
+    }
     // Percakapan yang sudah menempel tidak dilepas — menonaktifkan hanya
-    // menghentikan nomor ini menerima percakapan baru.
-    return { ok: true, id: updated.id, isActive: updated.isActive };
+    // menghentikan nomor ini menerima percakapan baru. Mengganti mode berlaku
+    // untuk pesan berikutnya; riwayat tidak berubah.
+    return { ok: true, id: updated.id, isActive: updated.isActive, agentMode: updated.agentMode };
+  });
+
+  // ── Mode agent: panduan per mode dan template bawaan ─────────────────────
+
+  const modeParams = { type: 'object', required: ['mode'], properties: { mode: { type: 'string', enum: agentModes.CONFIGURABLE_MODES } } };
+
+  app.get('/v1/agent-modes', async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat melihat mode agent.' });
+    if (!canCall('getAgentModeInstructions')) return reply.code(503).send({ error: 'Database tidak tersedia.' });
+    const companyId = request.agneeSession.companyId;
+    const [custom, conns] = await Promise.all([
+      database.getAgentModeInstructions(companyId),
+      listWaConns(companyId),
+    ]);
+    const perMode = {};
+    for (const row of conns) { const m = agentModes.normalizeMode(row.agentMode); perMode[m] = (perMode[m] || 0) + 1; }
+    return {
+      maxInstructions: agentModes.INSTRUCTIONS_MAX,
+      modes: agentModes.MODES.map((id) => ({
+        id,
+        ...agentModes.META[id],
+        configurable: agentModes.CONFIGURABLE_MODES.includes(id),
+        instructions: custom[id] || '',
+        numbers: perMode[id] || 0,
+      })),
+      templates: agentModes.BUILTIN_TEMPLATES.map(({ code, mode, name, description, sections }) => ({
+        code, mode, name, description,
+        departments: sections.departments.map((d) => d.name),
+      })),
+    };
+  });
+
+  app.put('/v1/agent-modes/:mode/instructions', {
+    schema: {
+      params: modeParams,
+      body: {
+        type: 'object', additionalProperties: false, required: ['instructions'],
+        properties: { instructions: { type: 'string', maxLength: agentModes.INSTRUCTIONS_MAX } },
+      },
+    },
+  }, async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengubah mode agent.' });
+    if (!canCall('setAgentModeInstructions')) return reply.code(503).send({ error: 'Database tidak tersedia.' });
+    await database.setAgentModeInstructions(request.agneeSession.companyId, request.params.mode, request.body.instructions, request.agneeSession.userId);
+    await catatAudit(request, 'agent_mode.instructions_saved', { entityType: 'agent_mode', entityId: request.params.mode });
+    return { ok: true };
+  });
+
+  // Memasang template bawaan memakai install() template company yang sama:
+  // menambah departemen (tanpa anggota) dan panduan mode, tidak menghapus apa pun.
+  app.post('/v1/agent-modes/templates/:code/apply', {
+    schema: { params: { type: 'object', required: ['code'], properties: { code: { type: 'string', maxLength: 60 } } } },
+  }, async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat memasang template.' });
+    if (!canCall('setAgentModeInstructions') || !canCall('listDepartments')) return reply.code(503).send({ error: 'Database tidak tersedia.' });
+    const template = agentModes.getBuiltinTemplate(request.params.code);
+    if (!template) return reply.code(404).send({ error: 'Template tidak ditemukan.' });
+    // Bawaan hanya MENAMBAH: departemen yang sudah ada (dan sudah disunting
+    // company) dan panduan mode yang sudah ditulis company dibiarkan apa adanya.
+    const companyId = request.agneeSession.companyId;
+    const haveDepts = new Set((await database.listDepartments(companyId)).map((d) => d.name.toLowerCase()));
+    const haveModes = await database.getAgentModeInstructions(companyId);
+    const sections = {
+      departments: template.sections.departments.filter((d) => !haveDepts.has(d.name.toLowerCase())),
+      modes: Object.fromEntries(Object.entries(template.sections.modes).filter(([m]) => !haveModes[m])),
+    };
+    const done = await installCompanyTemplate({
+      database, companyId, userId: request.agneeSession.userId,
+      template: { sections }, sections: Object.keys(sections),
+    });
+    done.skipped = {
+      departments: template.sections.departments.length - sections.departments.length,
+      modes: Object.keys(template.sections.modes).length - Object.keys(sections.modes).length,
+    };
+    await catatAudit(request, 'template.applied', { entityType: 'builtin_template', entityId: template.code, metadata: { sections: Object.keys(done) } });
+    return { ok: true, applied: done };
   });
 
   app.delete('/v1/whatsapp/numbers/:id', {
@@ -9451,7 +10237,7 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
         productId: row.productId || null,
         productName: row.productName || null,
         relation: row.relation === 'unproven' ? 'unproven' : 'replied',
-        origin: ['chat', 'outbound', 'import', 'mayar'].includes(row.origin) ? row.origin : 'chat',
+        origin: ['chat', 'outbound', 'import', 'file', 'mayar'].includes(row.origin) ? row.origin : 'chat',
         waLabels: Array.isArray(row.waLabels) ? row.waLabels : [],
         // null = tidak diketahui (nomor terputus / Cloud API), bukan "sudah dibaca".
         unreadCount: unread ? (unread.get(row.chatId) || 0) : null,

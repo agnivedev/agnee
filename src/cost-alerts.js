@@ -45,7 +45,7 @@ function toRupiah(costUsd, rate) {
  * yang ada di Company, jadi biayanya setara, bukan lebih murah.
  */
 function thresholdFor(plan, thresholds) {
-  return plan === 'personal' ? thresholds.personal : thresholds.company;
+  return plan === 'personal' || plan === 'starter' ? thresholds.personal : thresholds.company;
 }
 
 /**

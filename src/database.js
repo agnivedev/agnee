@@ -48,6 +48,7 @@ const BROADCAST_COLUMNS = `
 
 class Database {
   constructor(options = {}) {
+    this.creditGraceDays = 3;
     this.logger = options.logger || console;
     // `null` HARUS berarti "matikan DB" — itu satu-satunya cara mematikannya,
     // dan hanya caller yang memang meminta instance nonaktif (mis. test yang
@@ -759,6 +760,7 @@ class Database {
     const result = await this.pool.query(`
       SELECT cr.chat_id AS "chatId", cr.status, cr.priority,
              cr.assigned_at AS "assignedAt", cr.updated_at AS "updatedAt",
+             cr.due_at AS "dueAt", cr.task_note_id AS "taskNoteId",
              u.id AS "assigneeUserId", u.display_name AS "assigneeName",
              cn.name AS "contactName"
       FROM conversation_routing cr
@@ -777,6 +779,7 @@ class Database {
     const result = await this.pool.query(`
       SELECT cr.chat_id AS "chatId", cr.handling_mode AS "mode", cr.assignee_user_id AS "assigneeUserId",
              cr.status, cr.priority, cr.assigned_at AS "assignedAt", cr.updated_at AS "updatedAt",
+             cr.due_at AS "dueAt", cr.task_note_id AS "taskNoteId",
              u.display_name AS "assigneeName", u.email AS "assigneeEmail"
       FROM conversation_routing cr
       LEFT JOIN users u ON u.id = cr.assignee_user_id
@@ -785,7 +788,7 @@ class Database {
     return result.rows[0] || null;
   }
 
-  async saveConversationRouting({ chatId, mode, assigneeUserId, status = 'open', priority = 'normal', actorUserId, note }, companyId) {
+  async saveConversationRouting({ chatId, mode, assigneeUserId, status = 'open', priority = 'normal', actorUserId, note, reason = null, aiConstraints = null, dueAt = null, taskNoteId = null }, companyId) {
     if (!this.enabled) return null;
     const client = await this.pool.connect();
     try {
@@ -795,24 +798,36 @@ class Database {
         FROM conversation_routing WHERE company_id = $1 AND chat_id = $2
       `, [companyId, chatId]);
       const result = await client.query(`
-        INSERT INTO conversation_routing (company_id, chat_id, handling_mode, assignee_user_id, status, priority, assigned_at)
-        VALUES ($1, $2, $3, $4, $5, $6, CASE WHEN $3 = 'human' THEN NOW() ELSE NULL END)
+        INSERT INTO conversation_routing (company_id, chat_id, handling_mode, assignee_user_id, status, priority, assigned_at, due_at, task_note_id)
+        VALUES ($1, $2, $3, $4, $5, $6, CASE WHEN $3 = 'human' THEN NOW() ELSE NULL END,
+                CASE WHEN $3 = 'human' THEN $7::timestamptz ELSE NULL END, CASE WHEN $3 = 'human' THEN $8::bigint ELSE NULL END)
         ON CONFLICT (company_id, chat_id) DO UPDATE SET
           handling_mode = EXCLUDED.handling_mode,
           assignee_user_id = EXCLUDED.assignee_user_id,
           status = EXCLUDED.status,
           priority = EXCLUDED.priority,
           assigned_at = CASE WHEN EXCLUDED.handling_mode = 'human' THEN NOW() ELSE NULL END,
+          -- Tenggat dan asal catatan dipertahankan selama chat tetap di manusia
+          -- (mengubah prioritas tidak boleh menghapus tenggat); kembali ke AI
+          -- menutup tugasnya.
+          -- Tugas baru dari catatan lain menggantikan tenggat lama (tanpa tenggat
+          -- berarti tanpa tenggat, bukan mewarisi tenggat tugas sebelumnya).
+          due_at = CASE WHEN EXCLUDED.handling_mode <> 'human' THEN NULL
+                        WHEN EXCLUDED.task_note_id IS NOT NULL THEN EXCLUDED.due_at
+                        ELSE COALESCE(EXCLUDED.due_at, conversation_routing.due_at) END,
+          task_note_id = CASE WHEN EXCLUDED.handling_mode = 'human'
+                              THEN COALESCE(EXCLUDED.task_note_id, conversation_routing.task_note_id) ELSE NULL END,
           updated_at = NOW()
         RETURNING chat_id AS "chatId", handling_mode AS mode, assignee_user_id AS "assigneeUserId",
                   status, priority, assigned_at AS "assignedAt", updated_at AS "updatedAt"
-      `, [companyId, chatId, mode, assigneeUserId || null, status, priority]);
+      `, [companyId, chatId, mode, assigneeUserId || null, status, priority, dueAt || null, taskNoteId || null]);
       const before = previous.rows[0] || { mode: null, assigneeUserId: null };
       await client.query(`
         INSERT INTO conversation_handoffs
-          (company_id, chat_id, from_mode, to_mode, from_user_id, to_user_id, note, created_by)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-      `, [companyId, chatId, before.mode, mode, before.assigneeUserId, assigneeUserId || null, note || null, actorUserId || null]);
+          (company_id, chat_id, from_mode, to_mode, from_user_id, to_user_id, note, created_by, reason, ai_constraints)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      `, [companyId, chatId, before.mode, mode, before.assigneeUserId, assigneeUserId || null, note || null, actorUserId || null,
+        reason || null, mode === 'ai' ? (String(aiConstraints || '').trim().slice(0, 800) || null) : null]);
       await client.query('COMMIT');
       return this.getConversationRouting(chatId, companyId);
     } catch (error) {
@@ -827,6 +842,7 @@ class Database {
     if (!this.enabled) return [];
     const result = await this.pool.query(`
       SELECT h.id, h.from_mode AS "fromMode", h.to_mode AS "toMode", h.note,
+             h.reason, h.card, h.ai_constraints AS "aiConstraints",
              fu.display_name AS "fromName", tu.display_name AS "toName", cu.display_name AS "createdByName",
              h.created_at AS "createdAt"
       FROM conversation_handoffs h
@@ -837,6 +853,68 @@ class Database {
       ORDER BY h.created_at DESC LIMIT $3
     `, [companyId, chatId, limit]);
     return result.rows;
+  }
+
+  /**
+   * Batasan manusia yang masih berlaku untuk AI: hanya bila serah-terima
+   * TERAKHIR chat ini adalah kembali ke AI dan memuat batasan. Chat yang sudah
+   * pindah lagi ke manusia lalu kembali tanpa batasan tidak mewarisi yang lama.
+   */
+  async getAiConstraints(chatId, companyId) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      SELECT to_mode AS "toMode", ai_constraints AS "text"
+      FROM conversation_handoffs
+      WHERE company_id = $1 AND chat_id = $2
+      ORDER BY id DESC LIMIT 1
+    `, [companyId, chatId]);
+    const row = result.rows[0];
+    return row && row.toMode === 'ai' && row.text ? row.text : null;
+  }
+
+  /**
+   * Menempelkan kartu serah-terima ke baris serah-terima ke-manusia terakhir
+   * chat ini. Hanya bila belum punya kartu, supaya pembuatan ganda tidak
+   * menimpa. Mengembalikan id baris, atau null bila tidak ada yang cocok.
+   */
+  async setLatestHandoffCard(chatId, { card, reason = null }, companyId) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      UPDATE conversation_handoffs SET card = $3::jsonb, reason = COALESCE(reason, $4)
+      WHERE id = (
+        SELECT id FROM conversation_handoffs
+        WHERE company_id = $1 AND chat_id = $2 AND to_mode = 'human'
+        ORDER BY id DESC LIMIT 1
+      ) AND card IS NULL
+      RETURNING id
+    `, [companyId, chatId, JSON.stringify(card), reason]);
+    return result.rows[0]?.id || null;
+  }
+
+  /** Pertukaran pesan terakhir (masuk + keluar) dari log database, tertua dulu. */
+  async listRecentExchange(chatId, companyId, limit = 20) {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(`
+      SELECT who, text FROM (
+        SELECT 'Customer' AS who, COALESCE(body, '') AS text, created_at FROM inbound_messages
+          WHERE company_id = $1 AND chat_id = $2
+        UNION ALL
+        SELECT CASE author WHEN 'ai' THEN 'AI' ELSE 'Agent' END, body, created_at FROM outbound_replies
+          WHERE company_id = $1 AND chat_id = $2
+      ) x WHERE text <> '' ORDER BY created_at DESC LIMIT $3
+    `, [companyId, chatId, limit]);
+    return result.rows.reverse();
+  }
+
+  /** Satu catatan milik chat ini (untuk dijadikan tugas). */
+  async getConversationNote(noteId, chatId, companyId) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      SELECT n.id, n.body, n.author_user_id AS "authorUserId", n.parent_id AS "parentId", n.kind
+      FROM conversation_notes n
+      WHERE n.id = $1 AND n.company_id = $2 AND n.chat_id = $3
+    `, [noteId, companyId, chatId]);
+    return result.rows[0] || null;
   }
 
   /**
@@ -1110,6 +1188,7 @@ class Database {
       UPDATE companies SET plan_status = 'suspended'
       WHERE id = $1 AND plan_status = 'trial' AND trial_ends_at < NOW()
     `, [companyId]);
+    await this.expireCreditIfDue(companyId, this.creditGraceDays).catch(() => {});
     const result = await this.pool.query(`
       SELECT plan, plan_status AS "planStatus", status, knowledge_client AS "knowledgeClient",
              ai_message_limit AS "aiMessageLimit", ai_message_count AS "aiMessageCount",
@@ -1125,7 +1204,9 @@ class Database {
              bank_holder AS "bankHolder", payment_notes AS "paymentNotes",
              whatsapp_provider AS "whatsappProvider",
              ai_enabled AS "aiEnabled", ai_model_chain AS "aiModelChain",
-             hub_tools_enabled AS "hubToolsEnabled"
+             hub_tools_enabled AS "hubToolsEnabled",
+             credit_mode AS "creditMode",
+             (credit_plan_balance + credit_topup_balance)::float8 AS "creditTotal"
       FROM companies WHERE id = $1
     `, [companyId]);
     return result.rows[0] || null;
@@ -1165,7 +1246,7 @@ class Database {
   }
 
   /** Self-serve signup: creates company + owner user + WA connection slot in one transaction. */
-  async createCompanySignup({ companyName, plan, displayName, email, password }) {
+  async createCompanySignup({ companyName, plan, displayName, email, password, promoQuota = 0 }) {
     if (!this.enabled) return null;
     const client = await this.pool.connect();
     try {
@@ -1186,15 +1267,24 @@ class Database {
         slug = `${baseSlug}-${suffix}`;
       }
 
+      // Tanda promo diputuskan di transaksi yang sama dengan pembuatan company,
+      // di bawah kunci, supaya dua pendaftaran serentak tidak melewati kuota.
+      let promo = false;
+      if (promoQuota > 0) {
+        await client.query("SELECT pg_advisory_xact_lock(hashtext('promo-signup-quota'))");
+        const quota = await this.getPromoQuota({ limit: promoQuota }, client);
+        promo = quota.remaining > 0;
+      }
+
       const limits = plan === 'company'
         ? { maxUsers: 5, maxPlaybooks: 0, maxWhatsapp: 0, aiMessageLimit: 0 }
         : { maxUsers: 1, maxPlaybooks: 1, maxWhatsapp: 1, aiMessageLimit: 500 };
 
       const companyResult = await client.query(`
-        INSERT INTO companies (slug, name, plan, plan_status, knowledge_client, ai_message_limit, max_users, max_playbooks, max_whatsapp, trial_ends_at)
-        VALUES ($1, $2, $3, 'trial', 'agnee', $4, $5, $6, $7, NOW() + INTERVAL '7 days')
+        INSERT INTO companies (slug, name, plan, plan_status, knowledge_client, ai_message_limit, max_users, max_playbooks, max_whatsapp, trial_ends_at, promo_signup)
+        VALUES ($1, $2, $3, 'trial', 'agnee', $4, $5, $6, $7, NOW() + INTERVAL '7 days', $8)
         RETURNING id, slug, name, trial_ends_at AS "trialEndsAt"
-      `, [slug, companyName, plan, limits.aiMessageLimit, limits.maxUsers, limits.maxPlaybooks, limits.maxWhatsapp]);
+      `, [slug, companyName, plan, limits.aiMessageLimit, limits.maxUsers, limits.maxPlaybooks, limits.maxWhatsapp, promo]);
       const company = companyResult.rows[0];
 
       const userResult = await client.query(`
@@ -1942,6 +2032,106 @@ class Database {
   }
 
   /**
+   * Kinerja tiap human agent untuk [from, to). Hanya yang tercatat:
+   *   humanReplies / chatsReplied  dari outbound_replies (author = 'human', author_user_id terisi)
+   *   waiting-time                 pesan customer pertama yang menunggu sampai balasan human pertama
+   *   takeovers / handBacks        dari conversation_handoffs, hanya yang dilakukan agent itu sendiri
+   *                                (created_by = pelaku) dan benar-benar mengganti pemegang chat
+   *   openAssigned                 chat yang SEKARANG dipegang (bukan per periode)
+   * Chat grup tidak dihitung. Anggota aktif berperan agent selalu ikut (nol
+   * adalah informasi); anggota lain hanya bila ada aktivitas.
+   */
+  async getAgentPerformance(companyId, from, to) {
+    if (!this.enabled) return [];
+    const replies = await this.pool.query(`
+      WITH h AS (
+        SELECT chat_id, author_user_id AS user_id, created_at AS t
+        FROM outbound_replies
+        WHERE company_id = $1 AND author = 'human' AND author_user_id IS NOT NULL
+          AND created_at >= $2 AND created_at < $3 AND chat_id NOT LIKE '%@g.us'
+      ), waited AS (
+        SELECT h.user_id, h.chat_id,
+          (SELECT MIN(i.timestamp) FROM inbound_messages i
+            WHERE i.company_id = $1 AND i.chat_id = h.chat_id
+              AND i.timestamp < extract(epoch FROM h.t)
+              AND i.timestamp > COALESCE((
+                SELECT extract(epoch FROM MAX(p.created_at)) FROM outbound_replies p
+                WHERE p.company_id = $1 AND p.chat_id = h.chat_id AND p.created_at < h.t), 0)
+          ) AS waiting_since,
+          extract(epoch FROM h.t) AS answered_at
+        FROM h
+      ), measured AS (
+        SELECT user_id, GREATEST(0, answered_at - waiting_since) AS seconds FROM waited WHERE waiting_since IS NOT NULL
+      )
+      SELECT u.user_id AS "userId", u.replies, u.chats,
+             m.samples, m.median, m.average
+      FROM (SELECT user_id, COUNT(*)::int AS replies, COUNT(DISTINCT chat_id)::int AS chats FROM h GROUP BY user_id) u
+      LEFT JOIN (
+        SELECT user_id, COUNT(*)::int AS samples,
+               percentile_cont(0.5) WITHIN GROUP (ORDER BY seconds) AS median, AVG(seconds) AS average
+        FROM measured GROUP BY user_id
+      ) m ON m.user_id = u.user_id
+    `, [companyId, from, to]);
+    const handoffs = await this.pool.query(`
+      SELECT user_id AS "userId", SUM(taken)::int AS takeovers, SUM(returned)::int AS "handBacks" FROM (
+        -- Setiap simpan routing (ganti prioritas, tandai selesai, tugas) menulis baris
+        -- serah-terima baru. Yang dihitung hanya perpindahan pemegang chat yang
+        -- dilakukan agent itu sendiri: bukan simpan ulang oleh agent yang sama yang
+        -- sudah memegangnya, dan bukan penugasan oleh supervisor/sistem.
+        SELECT to_user_id AS user_id, 1 AS taken, 0 AS returned FROM conversation_handoffs
+          WHERE company_id = $1 AND to_mode = 'human' AND to_user_id IS NOT NULL AND created_by = to_user_id
+            AND NOT (from_mode = 'human' AND from_user_id IS NOT DISTINCT FROM to_user_id)
+            AND created_at >= $2 AND created_at < $3
+        UNION ALL
+        SELECT from_user_id, 0, 1 FROM conversation_handoffs
+          WHERE company_id = $1 AND to_mode = 'ai' AND from_mode = 'human' AND from_user_id IS NOT NULL
+            AND created_by = from_user_id
+            AND created_at >= $2 AND created_at < $3
+      ) x GROUP BY user_id
+    `, [companyId, from, to]);
+    const open = await this.pool.query(`
+      SELECT assignee_user_id AS "userId", COUNT(*)::int AS n FROM conversation_routing
+      WHERE company_id = $1 AND handling_mode = 'human' AND status <> 'closed' AND assignee_user_id IS NOT NULL
+        AND chat_id NOT LIKE '%@g.us'
+      GROUP BY assignee_user_id
+    `, [companyId]);
+    const members = await this.pool.query(`
+      SELECT u.id AS "userId", COALESCE(NULLIF(u.display_name, ''), u.email) AS name, u.email, cm.role,
+             cm.status = 'active' AS active
+      FROM company_members cm JOIN users u ON u.id = cm.user_id
+      WHERE cm.company_id = $1
+    `, [companyId]);
+    const by = (rows) => new Map(rows.map((row) => [row.userId, row]));
+    const repliesBy = by(replies.rows);
+    const handoffsBy = by(handoffs.rows);
+    const openBy = by(open.rows);
+    const result = [];
+    for (const member of members.rows) {
+      const r = repliesBy.get(member.userId);
+      const hand = handoffsBy.get(member.userId);
+      const openAssigned = openBy.get(member.userId)?.n || 0;
+      const involved = r || hand || openAssigned;
+      if (!involved && !(member.active && member.role === 'agent')) continue;
+      result.push({
+        userId: member.userId,
+        name: member.name,
+        email: member.email,
+        role: member.role,
+        active: member.active,
+        humanReplies: r?.replies || 0,
+        chatsReplied: r?.chats || 0,
+        responseSamples: r?.samples || 0,
+        medianResponseSeconds: r?.median === null || r?.median === undefined ? null : Math.round(Number(r.median)),
+        averageResponseSeconds: r?.average === null || r?.average === undefined ? null : Math.round(Number(r.average)),
+        takeovers: hand?.takeovers || 0,
+        handBacks: hand?.handBacks || 0,
+        openAssigned,
+      });
+    }
+    return result.sort((a, b) => b.humanReplies - a.humanReplies || b.takeovers - a.takeovers || a.name.localeCompare(b.name));
+  }
+
+  /**
    * Chat yang perlu di-follow up untuk [from, to), paling penting dulu. Perlu
    * tindakan kalau: customer menunggu balasan manusia (dipegang agent, atau dipegang
    * AI tetapi sudah `silentHours` jam tanpa balasan), atau lead panas/closing, atau
@@ -2129,6 +2319,11 @@ class Database {
         c.max_whatsapp       AS "maxWhatsapp",
         c.knowledge_client   AS "knowledgeClient",
         c.hub_tools_enabled  AS "hubToolsEnabled",
+        c.credit_mode        AS "creditMode",
+        c.credit_plan_balance::float8  AS "creditPlanBalance",
+        c.credit_topup_balance::float8 AS "creditTopupBalance",
+        c.credit_period_end  AS "creditPeriodEnd",
+        c.credit_discount_pct AS "creditDiscountPct",
         (SELECT COUNT(*) FROM company_members m
           WHERE m.company_id = c.id AND m.status = 'active')::int  AS "activeUsers",
         (SELECT MAX(i.created_at) FROM inbound_messages i
@@ -3281,6 +3476,306 @@ class Database {
     return { count, limit, exceeded: limit > 0 && count > limit };
   }
 
+  // ── Credit (docs/credit-system.md) ────────────────────────────────────────
+
+  /**
+   * Credit paket yang sudah lewat periode + masa tenggang hangus. Dikerjakan
+   * lazy di jalur baca (seperti masa percobaan), bukan lewat cron: tidak ada
+   * proses yang harus hidup supaya saldo benar.
+   */
+  async expireCreditIfDue(companyId, graceDays = 3) {
+    if (!this.enabled) return null;
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const row = (await client.query(`
+        SELECT credit_plan_balance AS plan, credit_topup_balance AS topup FROM companies
+        WHERE id = $1 AND credit_mode AND credit_plan_balance > 0
+          AND credit_period_end IS NOT NULL
+          AND credit_period_end + ($2 || ' days')::interval < NOW()
+        FOR UPDATE
+      `, [companyId, String(graceDays)])).rows[0];
+      if (!row) { await client.query('ROLLBACK'); return null; }
+      await client.query('UPDATE companies SET credit_plan_balance = 0 WHERE id = $1', [companyId]);
+      await client.query(`
+        INSERT INTO credit_ledger (company_id, kind, amount, plan_after, topup_after, note)
+        VALUES ($1, 'expire', $2, 0, $3, 'Credit paket hangus: periode berakhir dan belum diperpanjang')
+      `, [companyId, -Number(row.plan), row.topup]);
+      await client.query('COMMIT');
+      return { expired: Number(row.plan) };
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * Potong credit untuk satu panggilan AI: kantong paket lebih dulu, lalu
+   * top-up. Saldo dikunci di 0; yang tak tertutup dicatat di `shortfall`.
+   * Mengembalikan null untuk company yang tidak memakai credit.
+   *
+   * `crossed` ('low' | 'empty') hanya terisi pada panggilan yang MELEWATI
+   * ambang, supaya supervisor dikabari sekali, bukan tiap pesan.
+   */
+  async debitCredit(companyId, { amount, costUsd = null, purpose = null, alertPercents = [20, 10, 1] }) {
+    if (!this.enabled || !(amount > 0)) return null;
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const row = (await client.query(`
+        SELECT credit_plan_balance AS plan, credit_topup_balance AS topup,
+               credit_last_grant AS "lastGrant", credit_alert_level AS level
+        FROM companies WHERE id = $1 AND credit_mode FOR UPDATE
+      `, [companyId])).rows[0];
+      if (!row) { await client.query('ROLLBACK'); return null; }
+
+      let plan = Number(row.plan);
+      let topup = Number(row.topup);
+      let rest = amount;
+      const fromPlan = Math.min(plan, rest); plan -= fromPlan; rest -= fromPlan;
+      const fromTopup = Math.min(topup, rest); topup -= fromTopup; rest -= fromTopup;
+      const shortfall = Math.max(0, Math.round(rest * 10_000) / 10_000);
+      const total = plan + topup;
+
+      // Level terdalam yang sudah dilewati; dikabari hanya bila lebih dalam dari
+      // level yang sudah pernah dikabari (p20 -> p10 -> p1 -> empty).
+      const order = ['p20', 'p10', 'p1', 'empty'];
+      let reached = null;
+      if (total <= 0) reached = 'empty';
+      else if (Number(row.lastGrant) > 0) {
+        const pct = (total / Number(row.lastGrant)) * 100;
+        const hit = [...alertPercents].sort((a, b) => a - b).find((p) => pct <= p);
+        if (hit !== undefined) reached = `p${hit}`;
+      }
+      const rank = (level) => (level ? order.indexOf(level) : -1);
+      const crossed = reached && rank(reached) > rank(row.level) ? reached : null;
+
+      await client.query(`
+        UPDATE companies SET credit_plan_balance = $2, credit_topup_balance = $3,
+          credit_alert_level = COALESCE($4, credit_alert_level)
+        WHERE id = $1
+      `, [companyId, plan, topup, crossed]);
+      await client.query(`
+        INSERT INTO credit_ledger (company_id, kind, amount, shortfall, plan_after, topup_after, cost_usd, purpose)
+        VALUES ($1, 'usage', $2, $3, $4, $5, $6, $7)
+      `, [companyId, -(amount - shortfall), shortfall, plan, topup, costUsd, purpose]);
+      await client.query('COMMIT');
+      return { planBalance: plan, topupBalance: topup, total, crossed, shortfall };
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * Menambah credit: 'topup' (kantong top-up), 'adjust' (koreksi staf, boleh
+   * negatif, di kantong top-up), atau berlangganan lewat subscribeCreditPlan.
+   */
+  async grantCredit(companyId, { kind, amount, note = null, userId = null }) {
+    if (!this.enabled) return null;
+    if (!['topup', 'adjust'].includes(kind)) throw new Error('Jenis credit tidak dikenal');
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const row = (await client.query(
+        'SELECT credit_plan_balance AS plan, credit_topup_balance AS topup FROM companies WHERE id = $1 AND credit_mode FOR UPDATE',
+        [companyId],
+      )).rows[0];
+      if (!row) {
+        await client.query('ROLLBACK');
+        const error = new Error('Company ini belum memakai credit. Terapkan paket credit lebih dulu.');
+        error.code = 'NOT_CREDIT_MODE';
+        throw error;
+      }
+      const topup = Math.max(0, Number(row.topup) + amount);
+      const applied = topup - Number(row.topup);
+      await client.query(
+        `UPDATE companies SET credit_topup_balance = $2,
+           credit_alert_level = CASE WHEN $3::numeric > 0 AND ($2::numeric + credit_plan_balance) > 0 THEN NULL ELSE credit_alert_level END
+         WHERE id = $1`,
+        [companyId, topup, applied],
+      );
+      await client.query(`
+        INSERT INTO credit_ledger (company_id, kind, amount, plan_after, topup_after, note, created_by)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+      `, [companyId, kind, applied, row.plan, topup, note, userId]);
+      await client.query('COMMIT');
+      return { planBalance: Number(row.plan), topupBalance: topup };
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * Menerapkan atau memperpanjang paket credit setelah pembayaran dikonfirmasi
+   * staf: menulis batas paket, mengganti kantong paket dengan credit bulanan
+   * (sisa lama hangus dan dicatat), dan memajukan periode satu bulan.
+   * Perpanjangan tepat waktu menyambung dari akhir periode, bukan dari hari ini.
+   */
+  async subscribeCreditPlan(companyId, { plan, monthlyCredit, limits, oneTime = false, userId = null, note = null }) {
+    if (!this.enabled) return null;
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const row = (await client.query(`
+        SELECT credit_mode AS mode, credit_plan_balance AS plan, credit_topup_balance AS topup,
+               credit_period_end AS "periodEnd"
+        FROM companies WHERE id = $1 FOR UPDATE
+      `, [companyId])).rows[0];
+      if (!row) { await client.query('ROLLBACK'); return null; }
+
+      if (oneTime) {
+        // Lifetime: credit awal masuk ke kantong yang tidak hangus, sekali saja.
+        const was = (await client.query('SELECT plan FROM companies WHERE id = $1', [companyId])).rows[0];
+        if (row.mode && was.plan === plan) {
+          await client.query('ROLLBACK');
+          const error = new Error('Paket ini dibayar sekali dan credit awalnya sudah diberikan. Gunakan top-up.');
+          error.code = 'ONE_TIME_ALREADY';
+          throw error;
+        }
+        await client.query(`
+          UPDATE companies SET
+            plan = $2, plan_status = 'active', credit_mode = TRUE,
+            credit_topup_balance = credit_topup_balance + $3, credit_last_grant = $3, credit_alert_level = NULL,
+            credit_period_end = NULL,
+            max_users = $4, max_whatsapp = $5, max_playbooks = $6,
+            ai_message_limit = 0, updated_at = NOW()
+          WHERE id = $1
+        `, [companyId, plan, monthlyCredit, limits.maxUsers, limits.maxWhatsapp, limits.maxPlaybooks]);
+        await client.query(`
+          INSERT INTO credit_ledger (company_id, kind, amount, plan_after, topup_after, note, created_by)
+          VALUES ($1, 'subscription', $2, $3, $4, $5, $6)
+        `, [companyId, monthlyCredit, row.plan, Number(row.topup) + monthlyCredit, note || `Credit awal ${plan} (sekali)`, userId]);
+        await client.query('COMMIT');
+        return this.getCreditState(companyId);
+      }
+
+      if (row.mode && Number(row.plan) > 0) {
+        await client.query(`
+          INSERT INTO credit_ledger (company_id, kind, amount, plan_after, topup_after, note, created_by)
+          VALUES ($1, 'expire', $2, 0, $3, 'Sisa credit paket diganti credit periode baru', $4)
+        `, [companyId, -Number(row.plan), row.topup, userId]);
+      }
+      await client.query(`
+        UPDATE companies SET
+          plan = $2, plan_status = 'active', credit_mode = TRUE,
+          credit_plan_balance = $3, credit_last_grant = $3, credit_alert_level = NULL,
+          credit_period_end = CASE
+            WHEN credit_period_end IS NOT NULL AND credit_period_end > NOW() THEN credit_period_end + INTERVAL '1 month'
+            ELSE NOW() + INTERVAL '1 month' END,
+          max_users = $4, max_whatsapp = $5, max_playbooks = $6,
+          ai_message_limit = 0, updated_at = NOW()
+        WHERE id = $1
+      `, [companyId, plan, monthlyCredit, limits.maxUsers, limits.maxWhatsapp, limits.maxPlaybooks]);
+      await client.query(`
+        INSERT INTO credit_ledger (company_id, kind, amount, plan_after, topup_after, note, created_by)
+        VALUES ($1, 'subscription', $2, $2, $3, $4, $5)
+      `, [companyId, monthlyCredit, row.topup, note || `Langganan ${plan}`, userId]);
+      await client.query('COMMIT');
+      return this.getCreditState(companyId);
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * Kuota promo bulan berjalan (zona Asia/Jakarta): jumlah perusahaan BARU yang
+   * mendaftar lewat jalur publik dengan tanda promo, dibaca dari tabel
+   * companies. Tidak ada angka lain. `executor` boleh klien transaksi.
+   */
+  async getPromoQuota({ limit, timezone = 'Asia/Jakarta' }, executor = null) {
+    if (!this.enabled) return null;
+    const result = await (executor || this.pool).query(`
+      WITH bounds AS (
+        SELECT (date_trunc('month', NOW() AT TIME ZONE $1) AT TIME ZONE $1) AS start_at
+      )
+      SELECT (SELECT COUNT(*) FROM companies c, bounds b
+              WHERE c.promo_signup AND c.created_at >= b.start_at)::int AS used,
+             (SELECT start_at FROM bounds) AS "monthStart",
+             ((SELECT start_at FROM bounds) + INTERVAL '1 month') AS "resetsAt"
+    `, [timezone]);
+    const row = result.rows[0];
+    return {
+      limit,
+      used: row.used,
+      remaining: Math.max(0, limit - row.used),
+      monthStart: row.monthStart,
+      resetsAt: row.resetsAt,
+    };
+  }
+
+  async setCreditDiscount(companyId, pct) {
+    if (!this.enabled) return null;
+    await this.pool.query('UPDATE companies SET credit_discount_pct = $2, updated_at = NOW() WHERE id = $1', [companyId, pct]);
+    return this.getCreditState(companyId);
+  }
+
+  async getCreditState(companyId) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      SELECT plan, credit_mode AS "creditMode",
+             credit_plan_balance::float8 AS "planBalance", credit_topup_balance::float8 AS "topupBalance",
+             (credit_plan_balance + credit_topup_balance)::float8 AS total,
+             credit_period_end AS "periodEnd", credit_last_grant::float8 AS "lastGrant",
+             credit_discount_pct AS "discountPct", credit_alert_level AS "alertLevel"
+      FROM companies WHERE id = $1
+    `, [companyId]);
+    return result.rows[0] || null;
+  }
+
+  async listCreditLedger(companyId, limit = 50) {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(`
+      SELECT id, kind, amount::float8 AS amount, shortfall::float8 AS shortfall,
+             plan_after::float8 AS "planAfter", topup_after::float8 AS "topupAfter",
+             purpose, note, created_at AS "createdAt"
+      FROM credit_ledger WHERE company_id = $1 ORDER BY id DESC LIMIT $2
+    `, [companyId, Math.min(200, Math.max(1, limit))]);
+    return result.rows;
+  }
+
+  /**
+   * Penerima kabar credit: owner/admin/supervisor DAN anggota departemen
+   * Management. Satu orang tidak dikabari dua kali.
+   */
+  async listCreditRecipients(companyId) {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(`
+      SELECT DISTINCT m.user_id AS "userId", m.whatsapp_number AS "whatsappNumber"
+      FROM company_members m
+      WHERE m.company_id = $1 AND m.status = 'active' AND (
+        m.role IN ('owner', 'admin', 'supervisor')
+        OR EXISTS (
+          SELECT 1 FROM department_members dm JOIN departments d ON d.id = dm.department_id
+          WHERE dm.user_id = m.user_id AND d.company_id = m.company_id AND LOWER(d.name) = 'management'
+        )
+      )
+    `, [companyId]);
+    return result.rows;
+  }
+
+  /** Notifikasi dalam aplikasi untuk penerima kabar credit (tanpa chat). Mengembalikan id penerima. */
+  async notifyCredit(companyId, body) {
+    if (!this.enabled) return [];
+    const recipients = await this.listCreditRecipients(companyId);
+    if (!recipients.length) return [];
+    await this.pool.query(`
+      INSERT INTO notifications (company_id, user_id, kind, actor_kind, body)
+      SELECT $1, x, 'credit', 'ai', $2 FROM unnest($3::uuid[]) AS x
+    `, [companyId, String(body).slice(0, 500), recipients.map((r) => r.userId)]);
+    return recipients.map((r) => r.userId);
+  }
+
   async updateTeamMemberRole(userId, role, companyId) {
     if (!this.enabled) return null;
     await this.pool.query(`
@@ -3386,7 +3881,8 @@ class Database {
     const result = await this.pool.query(`
       SELECT id, company_id AS "companyId", connection_key AS "connectionKey",
              label, client_id AS "clientId", phone_number AS "phoneNumber",
-             status, session_path AS "sessionPath", connected_at AS "connectedAt"
+             status, session_path AS "sessionPath", agent_mode AS "agentMode",
+             connected_at AS "connectedAt"
       FROM whatsapp_connections
       WHERE company_id = $1 AND connection_key = 'whatsapp-main'
       LIMIT 1
@@ -3401,7 +3897,7 @@ class Database {
       SELECT id, company_id AS "companyId", connection_key AS "connectionKey",
              label, client_id AS "clientId", phone_number AS "phoneNumber",
              status, session_path AS "sessionPath", is_active AS "isActive",
-             connected_at AS "connectedAt"
+             agent_mode AS "agentMode", connected_at AS "connectedAt"
       FROM whatsapp_connections
       WHERE company_id = $1
       ORDER BY created_at ASC
@@ -3441,6 +3937,72 @@ class Database {
     return result.rows[0] || null;
   }
 
+  async setWhatsappConnectionMode(companyId, id, mode) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      UPDATE whatsapp_connections SET agent_mode = $3, updated_at = NOW()
+      WHERE company_id = $1 AND id = $2
+      RETURNING id, agent_mode AS "agentMode"
+    `, [companyId, id, mode]);
+    return result.rows[0] || null;
+  }
+
+  /** Panduan tambahan per mode milik satu company: { sales: '...', ... }. */
+  async getAgentModeInstructions(companyId) {
+    if (!this.enabled) return {};
+    const result = await this.pool.query(
+      'SELECT mode, instructions FROM agent_mode_instructions WHERE company_id = $1', [companyId],
+    );
+    return Object.fromEntries(result.rows.map((row) => [row.mode, row.instructions]));
+  }
+
+  /** Teks kosong menghapus panduan: mode itu kembali ke bawaan Agnee. */
+  async setAgentModeInstructions(companyId, mode, instructions, userId = null) {
+    if (!this.enabled) return false;
+    const text = String(instructions || '').trim();
+    if (!text) {
+      await this.pool.query('DELETE FROM agent_mode_instructions WHERE company_id = $1 AND mode = $2', [companyId, mode]);
+      return true;
+    }
+    await this.pool.query(`
+      INSERT INTO agent_mode_instructions (company_id, mode, instructions, updated_by)
+      VALUES ($1, $2, $3, $4)
+      ON CONFLICT (company_id, mode) DO UPDATE
+        SET instructions = EXCLUDED.instructions, updated_by = EXCLUDED.updated_by, updated_at = NOW()
+    `, [companyId, mode, text, userId]);
+    return true;
+  }
+
+  /**
+   * Anggota aktif company yang punya nomor WhatsApp, beserta departemennya.
+   * Pencocokan nomor dilakukan pemanggil (format nomor beragam: 0812…, +62…).
+   */
+  async listMembersWithWhatsapp(companyId) {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(`
+      SELECT u.id AS "userId", COALESCE(u.display_name, u.email) AS name, cm.whatsapp_number AS "whatsappNumber",
+             COALESCE(array_agg(d.name ORDER BY d.name) FILTER (WHERE d.name IS NOT NULL), '{}') AS departments
+      FROM company_members cm
+      JOIN users u ON u.id = cm.user_id
+      LEFT JOIN department_members dm ON dm.user_id = cm.user_id AND dm.company_id = cm.company_id
+      LEFT JOIN departments d ON d.id = dm.department_id
+      WHERE cm.company_id = $1 AND cm.status = 'active' AND cm.whatsapp_number IS NOT NULL AND cm.whatsapp_number <> ''
+      GROUP BY u.id, u.display_name, u.email, cm.whatsapp_number
+    `, [companyId]);
+    return result.rows;
+  }
+
+  /** Nomor telepon (digit) di balik chat @lid, atau null. */
+  async phoneForLid(companyId, chatId) {
+    if (!this.enabled) return null;
+    const idPart = String(chatId).split('@')[0];
+    const result = await this.pool.query(
+      "SELECT regexp_replace(phone, '\\D', '', 'g') AS phone FROM lid_phone_map WHERE company_id = $1 AND lid IN ($2, $3) LIMIT 1",
+      [companyId, idPart, String(chatId)],
+    );
+    return result.rows[0]?.phone || null;
+  }
+
   async deleteWhatsappConnection(companyId, id) {
     if (!this.enabled) return null;
     const result = await this.pool.query(`
@@ -3456,7 +4018,8 @@ class Database {
     if (!this.enabled) return null;
     const result = await this.pool.query(`
       SELECT c.id, c.client_id AS "clientId", c.session_path AS "sessionPath",
-             c.connection_key AS "connectionKey", c.label, c.is_active AS "isActive", c.status
+             c.connection_key AS "connectionKey", c.label, c.is_active AS "isActive", c.status,
+             c.agent_mode AS "agentMode"
       FROM whatsapp_chat_numbers n
       JOIN whatsapp_connections c ON c.id = n.connection_id
       WHERE n.company_id = $1 AND n.chat_id = $2
@@ -4212,6 +4775,8 @@ class Database {
                ELSE 'unproven' END AS "relation",
           GREATEST(inbound.timestamp, extract(epoch FROM outbound.created_at)::bigint, imp.last_message_at) AS "lastActivityAt",
           COALESCE(imp.wa_labels, '[]'::jsonb) AS "waLabels",
+          imp.email AS "email",
+          imp.note AS "importNote",
           COALESCE(GREATEST(inbound.timestamp, imp.last_message_at), 0) AS "sortAt"
         FROM chats c
         JOIN chat_phones cp ON cp.chat_id = c.chat_id
@@ -4299,6 +4864,8 @@ class Database {
           NULL::text AS "relation",
           NULL::bigint AS "lastActivityAt",
           NULL::jsonb AS "waLabels",
+          NULL::text AS "email",
+          NULL::text AS "importNote",
           COALESCE(extract(epoch FROM ml.last_transaction_at)::bigint, 0) AS "sortAt"
         FROM mayar_leads ml
         WHERE ml.company_id = $1
@@ -4451,6 +5018,88 @@ class Database {
         updated_at = NOW()
     `, [companyId, JSON.stringify(payload)]);
     return result.rowCount;
+  }
+
+
+  /**
+   * Nomor (digit) yang sudah ada di Lead List company ini, untuk mendeteksi
+   * duplikat saat impor berkas. Sumbernya sama dengan Lead List: chat WhatsApp
+   * (termasuk '@lid' yang sudah terpetakan ke nomor) dan lead Mayar.
+   */
+  async listLeadPhones(companyId) {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(`
+      WITH chats AS (
+        SELECT chat_id FROM inbound_messages WHERE company_id = $1
+        UNION SELECT chat_id FROM outbound_replies WHERE company_id = $1
+        UNION SELECT chat_id FROM lead_states WHERE company_id = $1
+        UNION SELECT chat_id FROM conversation_routing WHERE company_id = $1
+        UNION SELECT chat_id FROM imported_contacts WHERE company_id = $1
+      )
+      SELECT DISTINCT phone FROM (
+        SELECT CASE WHEN c.chat_id LIKE '%@lid' THEN lpm.phone
+                    ELSE regexp_replace(c.chat_id, '@.*$', '') END AS phone
+        FROM chats c
+        LEFT JOIN lid_phone_map lpm ON lpm.company_id = $1 AND lpm.lid = c.chat_id
+        WHERE c.chat_id NOT LIKE '%@g.us' AND c.chat_id NOT LIKE '%@broadcast' AND c.chat_id NOT LIKE '%@newsletter'
+        UNION ALL
+        SELECT phone FROM mayar_leads WHERE company_id = $1
+      ) p WHERE phone ~ '^[0-9]{8,15}$'
+    `, [companyId]);
+    return result.rows.map((row) => row.phone);
+  }
+
+  /**
+   * Menyimpan hasil impor berkas dalam satu transaksi. Tidak pernah menimpa
+   * kontak yang sudah ada (ON CONFLICT DO NOTHING): nomor yang muncul di
+   * Lead List antara pratinjau dan simpan (race) cukup dilewati. Nama hanya
+   * ditulis untuk kontak yang benar-benar baru, supaya nama dari pesan asli
+   * customer tidak tergantikan oleh isi spreadsheet.
+   * @returns {{importId: string, imported: number, raced: number}}
+   */
+  async importLeadsFromFile(companyId, { filename, format, createdBy = null, totalRows, skipped = {}, leads }) {
+    if (!this.enabled) return { importId: null, imported: 0, raced: 0 };
+    // Dicek ulang di sini, bukan hanya di pratinjau: nomor bisa saja sudah jadi
+    // chat atau lead Mayar sejak berkas dinilai.
+    const existing = new Set(await this.listLeadPhones(companyId));
+    const requested = leads.length;
+    leads = leads.filter((lead) => !existing.has(String(lead.chatId).replace(/@.*$/, '')));
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const batch = await client.query(
+        `INSERT INTO lead_file_imports (company_id, filename, format, total_rows, imported, skipped, created_by)
+         VALUES ($1, $2, $3, $4, 0, $5, $6) RETURNING id`,
+        [companyId, String(filename).slice(0, 200), format, totalRows, JSON.stringify(skipped), createdBy],
+      );
+      const importId = batch.rows[0].id;
+      const payload = leads.map((lead) => ({ chat_id: lead.chatId, name: lead.name || null, email: lead.email || null, note: lead.note || null }));
+      const inserted = payload.length ? await client.query(`
+        INSERT INTO imported_contacts (company_id, chat_id, relation, source, file_import_id, email, note)
+        SELECT $1, r.chat_id, 'unproven', 'file', $2, r.email, r.note
+        FROM jsonb_to_recordset($3::jsonb) AS r(chat_id text, name text, email text, note text)
+        ON CONFLICT (company_id, chat_id) DO NOTHING
+        RETURNING chat_id
+      `, [companyId, importId, JSON.stringify(payload)]) : { rows: [] };
+      const fresh = new Set(inserted.rows.map((row) => row.chat_id));
+      const named = payload.filter((row) => fresh.has(row.chat_id) && row.name && !/^[+\d\s()-]+$/.test(row.name));
+      if (named.length) {
+        await client.query(`
+          INSERT INTO contact_names (company_id, chat_id, name)
+          SELECT $1, r.chat_id, left(r.name, 200)
+          FROM jsonb_to_recordset($2::jsonb) AS r(chat_id text, name text)
+          ON CONFLICT (company_id, chat_id) DO NOTHING
+        `, [companyId, JSON.stringify(named)]);
+      }
+      await client.query('UPDATE lead_file_imports SET imported = $2 WHERE id = $1', [importId, fresh.size]);
+      await client.query('COMMIT');
+      return { importId, imported: fresh.size, raced: requested - fresh.size };
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   /** Chat yang sudah pernah diimpor; proses berikutnya melewatinya. */
@@ -4961,7 +5610,7 @@ class Database {
    * Calon penerima broadcast: seluruh isi Lead List yang bernomor WhatsApp
    * (keputusan Hanny 15 Okt 2026; dulu hanya yang pernah chat). Yang bukan
    * 'replied' berstatus 'unproven': POST /v1/broadcasts membuangnya kecuali
-   * pemilik mengakui risikonya. `origin` = chat | outbound | import | mayar.
+   * pemilik mengakui risikonya. `origin` = chat | outbound | import | file | mayar.
    */
   async listBroadcastAudience(companyId, limit = null) {
     if (!this.enabled) return [];
@@ -4989,6 +5638,7 @@ class Database {
                          OR rt.chat_id IS NOT NULL OR imp.relation = 'replied' THEN 'chat'
                     WHEN EXISTS (SELECT 1 FROM outbound_replies o
                                  WHERE o.company_id = $1 AND o.chat_id = c.chat_id) THEN 'outbound'
+                    WHEN imp.source = 'file' THEN 'file'
                     ELSE 'import' END AS "origin",
                COALESCE(imp.wa_labels, '[]'::jsonb) AS "waLabels",
                lead.stage AS "leadStage",

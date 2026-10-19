@@ -1,4 +1,4 @@
-import { notificationVerbKey } from '@/lib/notification-link';
+import { NotificationItemBody } from '@/components/mentions/NotificationItem';
 import { useNotifications } from '@/lib/notifications';
 import { useI18n, usePageTitle } from '@/lib/i18n';
 import { AppSidebar } from '@/components/AppSidebar';
@@ -12,7 +12,7 @@ import { cn } from '@/lib/utils';
  * limit lebih tinggi (batas server 100, tidak ada cursor pagination).
  */
 export function NotificationsPage() {
-  const { t, dateLocale } = useI18n();
+  const { t } = useI18n();
   usePageTitle('notif.title');
 
   const { items, unread, error, loaded, markAllRead, openItem } = useNotifications(100);
@@ -57,21 +57,11 @@ export function NotificationsPage() {
                     type="button"
                     onClick={() => openItem(item)}
                     className={cn(
-                      'grid w-full cursor-pointer gap-0.5 rounded-app border-0 p-3 text-left',
+                      'flex w-full cursor-pointer rounded-app border-0 p-3 text-left max-md:min-h-11',
                       item.readAt ? 'bg-transparent' : 'bg-[#eef5ee]',
                     )}
                   >
-                    <span className="text-[13px]">
-                      <strong>{item.kind === 'hub' ? 'Agnive Hub' : item.actorName || t('routing.system')}</strong>{' '}
-                      {t(notificationVerbKey(item.kind))}
-                      {item.chatName ? ` · ${item.chatName}` : ''}
-                    </span>
-                    {item.body ? (
-                      <span className="line-clamp-2 text-[13px] text-muted">{item.body}</span>
-                    ) : null}
-                    <time className="font-mono text-[10px] text-muted">
-                      {new Date(item.createdAt).toLocaleString(dateLocale)}
-                    </time>
+                    <NotificationItemBody item={item} />
                   </button>
                 </li>
               ))}

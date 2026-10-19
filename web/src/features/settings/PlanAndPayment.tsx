@@ -16,6 +16,7 @@ type Company = {
   maxUsers?: number;
   maxWhatsapp?: number;
   usage?: { currentUsers?: number; currentWhatsapp?: number };
+  creditMode?: boolean;
   knowledgeClient?: string;
   paymentMethod?: string;
   paymentLink?: string;
@@ -26,6 +27,63 @@ type Company = {
 };
 
 type PaymentMethod = 'none' | 'link' | 'bank_transfer' | 'both';
+
+type CreditInfo = {
+  creditMode: boolean;
+  planLabel?: string;
+  planBalance?: number;
+  topupBalance?: number;
+  total?: number;
+  periodEnd?: string | null;
+  lastGrant?: number;
+  alertPercents?: number[];
+  ledger?: { id: number; kind: string; amount: number; note: string | null; createdAt: string }[];
+};
+
+const LEDGER_KIND: Record<string, string> = {
+  subscription: 'Langganan', topup: 'Top-up', usage: 'Pemakaian AI', adjust: 'Koreksi', expire: 'Hangus',
+};
+
+/** Saldo credit company ini. Tidak menampilkan model atau harga model. */
+function CreditBalance() {
+  const { dateLocale } = useI18n();
+  const [info, setInfo] = useState<CreditInfo | null>(null);
+  useEffect(() => {
+    void api<CreditInfo>('/v1/admin/credit').then(setInfo).catch(() => { /* kartu tetap tampil tanpa saldo */ });
+  }, []);
+  if (!info?.creditMode) return null;
+  const fmt = new Intl.NumberFormat(dateLocale);
+  const total = info.total ?? 0;
+  const lowLine = (info.lastGrant ?? 0) * ((info.alertPercents?.[0] ?? 20) / 100);
+  const state = total <= 0 ? 'habis' : total <= lowLine ? 'hampir habis' : null;
+  return (
+    <div className="mb-5 rounded-app border border-input p-4">
+      <p className="mb-1.5 font-mono text-[10px] tracking-[.1em] text-muted uppercase">Credit AI</p>
+      <p className="m-0 text-2xl font-semibold">{fmt.format(Math.round(total))}</p>
+      <p className="mt-1 mb-0 text-[13px] text-muted">
+        Paket {fmt.format(Math.round(info.planBalance ?? 0))} · Top-up {fmt.format(Math.round(info.topupBalance ?? 0))}
+        {info.periodEnd ? ` · periode sampai ${new Date(info.periodEnd).toLocaleDateString(dateLocale, { day: 'numeric', month: 'long' })}` : ''}
+      </p>
+      {state ? (
+        <p className="mt-2 mb-0 text-[13px] font-semibold text-danger">
+          {state === 'habis'
+            ? 'Credit habis, AI berhenti membalas. Hubungi tim Agnee untuk top-up.'
+            : 'Credit hampir habis. Top-up sebelum habis agar AI tidak berhenti.'}
+        </p>
+      ) : null}
+      {info.ledger?.length ? (
+        <ul className="mt-3 mb-0 grid gap-1 p-0 text-[12px] text-muted">
+          {info.ledger.slice(0, 8).map((row) => (
+            <li key={row.id} className="flex justify-between gap-3 list-none">
+              <span>{new Date(row.createdAt).toLocaleDateString(dateLocale)} · {LEDGER_KIND[row.kind] || row.kind}</span>
+              <span className="font-mono">{row.amount > 0 ? '+' : ''}{fmt.format(Math.round(row.amount * 100) / 100)}</span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
 
 export function PlanAndPayment() {
   const { t } = useI18n();
@@ -118,6 +176,7 @@ export function PlanAndPayment() {
             <QuotaBar used={company?.usage?.currentWhatsapp ?? 0} limit={company?.maxWhatsapp ?? 0} />
           </div>
         </div>
+        {company?.creditMode ? <CreditBalance /> : null}
         {trialEnds ? <p className="mb-4 text-[13px] text-muted">{t('settings.trialEndsOn', { date: trialEnds })}</p> : null}
 
         <FieldGrid>

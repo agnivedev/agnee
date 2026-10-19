@@ -1,4 +1,14 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
+import {
+  ArrowLeftRight,
+  BookOpen,
+  Bot,
+  Clock,
+  Megaphone,
+  ShieldCheck,
+  Timer,
+  type LucideIcon,
+} from 'lucide-react';
 
 /**
  * Halaman jualan publik Agnee.
@@ -30,7 +40,7 @@ import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
  * SUARA HALAMAN. Bicara langsung ke pembaca ("kamu"), bukan membingkai CS
  * sebagai pihak ketiga. Hero (2026-10-17) sengaja TIDAK lagi memakai kata-kata
  * halaman masuk app: pesannya sekarang "bukan sekadar auto-respon", dan daftar
- * kemampuan di KEMAMPUAN hanya memuat fitur yang sudah jalan di produksi.
+ * kemampuan di POIN hanya memuat fitur yang sudah jalan di produksi.
  * Jangan menulis persentase cakupan ("menjawab 95% kebutuhan") tanpa sumber
  * hitungnya. Em dash ditulis titik dua di sini (aturan antislop halaman).
  *
@@ -90,74 +100,6 @@ const FOKUS =
   'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#087d4c] dark:focus-visible:outline-[#7fff4f]';
 const FOKUS_GELAP = 'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#7fff4f]';
 
-
-/**
- * Warna per bagian (keputusan pemilik 2026-10-17: halaman terlalu hijau tua dan
- * neon). Hijau tetap warna merek dan dipakai untuk CTA. Tiga warna pendamping
- * hanya dipakai sebagai penanda bagian, satu warna per bagian, supaya pembaca
- * tahu sedang di topik mana: biru = inbox dan serah-terima, kuning = jadwal dan
- * batas jam, koral = broadcast. Kuning juga satu-satunya warna blok promo.
- */
-const TEMA = {
-  hijau: {
-    teks: 'text-green-dark dark:text-[#7fff4f]',
-    garis: 'bg-green-dark dark:bg-[#7fff4f]',
-    isi: 'bg-[#19c666]',
-    band: '',
-    kartu: 'border-[#c6dcc0] dark:border-[#24403a]',
-  },
-  biru: {
-    teks: 'text-[#1d5f8f] dark:text-[#7cc4f5]',
-    garis: 'bg-[#1d5f8f] dark:bg-[#7cc4f5]',
-    isi: 'bg-[#3a9ad9]',
-    band: 'bg-[#e3f1fc] dark:bg-[#10222e]',
-    kartu: 'border-[#b9d7ee] dark:border-[#244a63]',
-  },
-  kuning: {
-    teks: 'text-[#8a5a00] dark:text-[#f5c451]',
-    garis: 'bg-[#8a5a00] dark:bg-[#f5c451]',
-    isi: 'bg-[#e0a526]',
-    band: 'bg-[#fdf3dc] dark:bg-[#2a2412]',
-    kartu: 'border-[#ecd49a] dark:border-[#6b5620]',
-  },
-  koral: {
-    teks: 'text-[#a8400f] dark:text-[#ff9b7a]',
-    garis: 'bg-[#a8400f] dark:bg-[#ff9b7a]',
-    isi: 'bg-[#e0587a]',
-    band: 'bg-[#fde8df] dark:bg-[#2b1a16]',
-    kartu: 'border-[#f0c4b3] dark:border-[#6a3a2c]',
-  },
-} as const;
-type NamaTema = keyof typeof TEMA;
-/** Tangga harga dari TANGGA_HARGA. Panjang batang proporsional, label angka tetap tertulis. */
-function GrafikTangga() {
-  const nilai = [100_000_000, 25_000_000, 9_000_000, 299_000, 99_000];
-  const label = [...TANGGA_HARGA, 'Rp 99.000'];
-  const nama = ['Harga pantas versi kami', 'Harga pantas versi kami', 'Harga pantas versi kami', 'Harga pantas versi kami', 'Starter, harga promo'];
-  const warna = ['bg-[#c9d8cf]', 'bg-[#c9d8cf]', 'bg-[#c9d8cf]', 'bg-[#c9d8cf]', 'bg-[#19c666]'];
-  return (
-    <figure className="m-0 mt-8 rounded-panel border border-[#c6dcc0] bg-white p-5 sm:p-6 dark:border-[#24403a] dark:bg-[#14241f]">
-      <figcaption className="mb-4 text-[13px] font-semibold text-green-dark dark:text-[#7fff4f]">
-        Harga pantas versi kami dibanding Starter, per bulan
-      </figcaption>
-      <div className="grid gap-3">
-        {nilai.map((n, i) => (
-          <div key={label[i]} className="grid grid-cols-[1fr_auto] items-center gap-x-3 gap-y-1 sm:grid-cols-[170px_1fr_auto]">
-            <span className="text-[12px] text-[#4e6e5e] dark:text-[#9fc4ae]">{nama[i]}</span>
-            <span className="col-span-2 row-start-2 h-3 rounded-sm bg-[#eef5eb] sm:col-span-1 sm:row-start-auto dark:bg-[#0c1912]">
-              <span className={`block h-3 rounded-sm ${warna[i]}`} style={{ width: `${Math.max((n / nilai[0]) * 100, 1.5)}%` }} />
-            </span>
-            <span className="text-right font-mono text-[12px] font-semibold">{label[i]}</span>
-          </div>
-        ))}
-      </div>
-      <p className="mt-4 mb-0 text-[12px] leading-[1.55] text-[#4e6e5e] dark:text-[#9fc4ae]">
-        Empat angka pertama adalah perkiraan kami sendiri dan tidak pernah ditagihkan. Panjang batang mengikuti angkanya.
-      </p>
-    </figure>
-  );
-}
-
 export function LandingPage() {
   useEffect(() => {
     document.title = 'Agnee: bukan auto-respon, satu tim CS lengkap';
@@ -187,10 +129,10 @@ function Section({ children, className, id }: { children: ReactNode; className?:
   );
 }
 
-function Eyebrow({ children, tema = 'hijau' }: { children: ReactNode; tema?: NamaTema }) {
+function Eyebrow({ children }: { children: ReactNode }) {
   return (
-    <p className={`m-0 mb-2.5 flex items-center gap-2 text-[12px] font-semibold ${TEMA[tema].teks}`}>
-      <span aria-hidden className={`inline-block h-px w-5 ${TEMA[tema].garis}`} />
+    <p className="m-0 mb-2.5 flex items-center gap-2 text-[12px] font-semibold text-green-dark dark:text-[#7fff4f]">
+      <span aria-hidden className="inline-block h-px w-5 bg-green-dark dark:bg-[#7fff4f]" />
       {children}
     </p>
   );
@@ -237,69 +179,118 @@ function Nav() {
 }
 
 function Hero() {
+  const CALLOUTS = [
+    { n: 1, kiri: '81.4%', atas: '9.6%', teks: 'Skor minat 95 beserta alasannya, ditulis dari kalimat customer sendiri.' },
+    { n: 2, kiri: '46.4%', atas: '67.5%', teks: 'Tiap balasan ada penulisnya: AI, atau nama CS-nya.' },
+    { n: 3, kiri: '96.5%', atas: '83.4%', teks: 'Tahap CRM disarankan AI. Kamu yang memutuskan.' },
+  ];
   return (
-    <Section className="py-14 sm:py-20">
-      <div className="grid items-center gap-10 lg:grid-cols-[1.1fr_.9fr]">
-        <div>
-          <p className="m-0 flex items-center gap-2.5 text-[13px] font-semibold text-green-dark dark:text-[#7fff4f]">
-            <span aria-hidden className="inline-block h-0.5 w-7 bg-green-dark dark:bg-[#7fff4f]" />
-            AI untuk WhatsApp bisnis kamu
-          </p>
-          <h1 className="mt-4 mb-0 text-[clamp(34px,5.6vw,62px)] leading-[1.04] font-semibold tracking-[-.05em]">
-            Chatbot lain cuma auto-respon.
-            <br />
-            <span className="text-green-dark dark:text-[#7fff4f]">Agnee kerja kayak satu company sales.</span>
-          </h1>
-          <p className="mt-5 mb-0 max-w-xl text-[17px] leading-[1.6] text-[#4e6e5e] dark:text-[#7aaa8a]">
-            Auto-respon membalas kata kunci. Agnee membaca riwayat chat, menjawab dari playbook-mu, minggir saat CS mulai ngetik, menyusul lead yang diam, mengirim broadcast, mencatat tugas, dan melapor ke supervisor. Semuanya dari satu nomor WhatsApp yang sudah kamu pakai.
-          </p>
-          <div className="mt-7 flex flex-wrap gap-3">
-            <a
-              href={`${APP_URL}/?signup=1`}
-              className={`rounded-app bg-ink px-5 py-3 text-[15px] font-semibold text-white no-underline transition hover:-translate-y-0.5 dark:bg-[#7fff4f] dark:text-[#0c1912] ${FOKUS}`}
-            >
-              Coba Gratis 7 Hari
-            </a>
-            <a
-              href="#semua"
-              className={`rounded-app border border-[#c6dcc0] px-5 py-3 text-[15px] font-semibold no-underline dark:border-[#24403a] ${FOKUS}`}
-            >
-              Lihat Semua yang Dikerjakan
-            </a>
-          </div>
-          <p className="mt-4 mb-0 text-[13px] text-[#4e6e5e] dark:text-[#7aaa8a]">
-            7 hari gratis, tanpa kartu kredit, berhenti kapan aja.
-          </p>
-        </div>
-        <img src="/assets/hero-team.png" alt="Tim CS Agnee" className="w-full rounded-panel" />
+    <Section className="pt-12 pb-10 sm:pt-16 sm:pb-14">
+      <p className="m-0 flex items-center gap-2.5 text-[13px] font-semibold text-green-dark dark:text-[#7fff4f]">
+        <span aria-hidden className="inline-block h-0.5 w-7 bg-green-dark dark:bg-[#7fff4f]" />
+        AI untuk WhatsApp bisnis kamu
+      </p>
+      <h1 className="mt-4 mb-0 text-[clamp(32px,5.2vw,60px)] leading-[1.08] font-semibold tracking-[-.045em] text-balance">
+        <span className="block">Chatbot lain cuma auto&#8209;respon.</span>
+        <span className="block text-green-dark dark:text-[#7fff4f]">Agnee kerja kayak satu tim CS.</span>
+      </h1>
+      <ul className="m-0 mt-7 flex list-none flex-wrap gap-x-8 gap-y-3 p-0 text-[15px] sm:text-[16px]">
+        {[
+          [Bot, 'Menjawab dari Knowledge bisnismu'],
+          [ArrowLeftRight, 'Minggir saat CS mulai ngetik'],
+          [Megaphone, 'Menyusul lead yang diam'],
+        ].map(([Ikon, teks]) => {
+          const Icon = Ikon as LucideIcon;
+          return (
+            <li key={teks as string} className="flex items-center gap-2.5 font-medium whitespace-nowrap">
+              <Icon aria-hidden size={20} className="shrink-0 text-green-dark dark:text-[#7fff4f]" />
+              {teks as string}
+            </li>
+          );
+        })}
+      </ul>
+      <div className="mt-7 flex flex-wrap gap-3">
+        <a
+          href={`${APP_URL}/?signup=1`}
+          className={`rounded-app bg-ink px-6 py-3.5 text-[15px] font-semibold text-white no-underline transition hover:-translate-y-0.5 dark:bg-[#7fff4f] dark:text-[#0c1912] ${FOKUS}`}
+        >
+          Coba Gratis 7 Hari
+        </a>
+        <a
+          href="#semua"
+          className={`rounded-app border border-[#c6dcc0] px-6 py-3.5 text-[15px] font-semibold no-underline dark:border-[#24403a] ${FOKUS}`}
+        >
+          Lihat Semua yang Dikerjakan
+        </a>
       </div>
+      <p className="mt-4 mb-0 text-[13px] text-[#4e6e5e] dark:text-[#7aaa8a]">
+        Promo dibuka untuk {KUOTA_PROMO} perusahaan baru tiap bulan. Tanpa kartu kredit.
+      </p>
+
+      <figure className="relative m-0 mt-10 rounded-panel bg-ink p-2 sm:p-4 dark:bg-[#14241f]">
+        <div className="relative">
+          <img
+            src="/assets/landing/inbox.webp"
+            width={1800}
+            height={1125}
+            alt="Kotak masuk Agnee: percakapan dengan skor minat 95, balasan AI dan balasan CS, serta tahap CRM Closing"
+            className="block h-auto w-full rounded-app"
+          />
+          {CALLOUTS.map((c) => (
+            <span
+              key={c.n}
+              aria-hidden
+              style={{ left: c.kiri, top: c.atas }}
+              className="absolute grid size-6 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full bg-[#7fff4f] font-mono text-[12px] font-bold text-[#0c1912] shadow-md sm:size-7 sm:text-[13px]"
+            >
+              {c.n}
+            </span>
+          ))}
+        </div>
+        <figcaption className="sr-only">Tangkapan layar app Agnee dengan data contoh.</figcaption>
+      </figure>
+      <ol className="m-0 mt-5 grid list-none gap-3 p-0 sm:grid-cols-3">
+        {CALLOUTS.map((c) => (
+          <li key={c.n} className="flex items-start gap-3 text-[14px] leading-[1.55]">
+            <span className="mt-0.5 grid size-6 shrink-0 place-items-center rounded-full bg-green-dark font-mono text-[12px] font-bold text-white dark:bg-[#7fff4f] dark:text-[#0c1912]">
+              {c.n}
+            </span>
+            {c.teks}
+          </li>
+        ))}
+      </ol>
+      <p className="mt-3 mb-0 text-[12px] text-[#4e6e5e] dark:text-[#7aaa8a]">Tangkapan layar app asli dengan data contoh, bukan data pelanggan.</p>
     </Section>
   );
 }
 
 /**
  * Pita bukti. Empat angka yang bisa ditunjuk barisnya, bukan angka hasil bisnis:
- *   30 menit  — AUTO_ASSIGN_IDLE_MINUTES di src/server.js
- *   8 dokumen — Database.PLAYBOOK_KINDS di src/database.js
- *   AI atau CS — kolom author ('ai' | 'human') di migrasi 014
- *   3 pengaman — jendela jam, plafon harian, jarak minimum di src/follow-up.js
+ *   30 menit  : AUTO_ASSIGN_IDLE_MINUTES di src/server.js
+ *   8 dokumen : Database.PLAYBOOK_KINDS di src/database.js
+ *   5-60 dtk  : src/reply-delay.js
+ *   3 pengaman: jendela jam, plafon harian, jarak minimum di src/follow-up.js
  */
-const BUKTI: [string, string, NamaTema][] = [
-  ['30 menit', 'CS diam 30 menit, chat otomatis balik ke AI', 'biru'],
-  ['8 dokumen', 'Playbook yang mengatur cara AI menjawab, diisi lewat ngobrol', 'hijau'],
-  ['AI atau kamu', 'Tiap balasan ketahuan siapa yang nulis', 'koral'],
-  ['3 pengaman', 'Follow-up cuma jalan di jam, jumlah, dan jarak yang kamu atur', 'kuning'],
+const BUKTI: [LucideIcon, string, string][] = [
+  [Clock, '30 menit', 'CS diam, chat balik ke AI'],
+  [BookOpen, '8 bagian Knowledge', 'Satu sumber jawaban, diisi lewat ngobrol'],
+  [Timer, '5 sampai 60 detik', 'Jeda balasan seperti manusia'],
+  [ShieldCheck, '3 pengaman', 'Follow-up: jam, jumlah, jarak'],
 ];
 
 function ProofStrip() {
   return (
     <Section className="border-y border-[#c6dcc0] py-8 dark:border-[#24403a]">
       <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
-        {BUKTI.map(([nilai, label, tema]) => (
-          <div key={nilai} className="text-center">
-            <span aria-hidden className={`mx-auto mb-3 block h-1 w-10 rounded-full ${TEMA[tema].isi}`} />
-            <span className={`block text-[24px] leading-tight font-semibold tracking-[-.03em] ${TEMA[tema].teks}`}>{nilai}</span>
-            <span className="mt-1.5 block text-[13px] leading-[1.5] text-[#4e6e5e] dark:text-[#7aaa8a]">{label}</span>
+        {BUKTI.map(([Icon, nilai, label]) => (
+          <div key={nilai} className="flex items-center gap-3.5">
+            <span className="grid size-11 shrink-0 place-items-center rounded-app bg-[#dff0d6] text-green-dark dark:bg-[#1b3028] dark:text-[#7fff4f]">
+              <Icon aria-hidden size={22} />
+            </span>
+            <div>
+              <span className="block text-[20px] leading-tight font-semibold tracking-[-.03em]">{nilai}</span>
+              <span className="mt-0.5 block text-[13px] leading-[1.4] text-[#4e6e5e] dark:text-[#7aaa8a]">{label}</span>
+            </div>
           </div>
         ))}
       </div>
@@ -307,44 +298,45 @@ function ProofStrip() {
   );
 }
 
+const TILE = 'rounded-panel p-5 transition hover:-translate-y-0.5 sm:p-6';
+const TILE_TERANG = `${TILE} border border-[#c6dcc0] bg-white dark:border-[#24403a] dark:bg-[#14241f]`;
+
 /**
  * Poin singkat, ditulis dari sisi pembaca: yang bikin pegal, dan yang berubah.
- * Setiap baris menunjuk fitur yang ada di kode:
+ * Menggantikan lima band panjang (kemampuan, tampilan, MCP, serah-terima,
+ * broadcast) atas permintaan pemilik 2026-10-18. Isinya hanya fitur yang sudah
+ * live di produksi, jadi tidak ada tag "Segera". Tiap baris menunjuk fitur:
  *   intent + alasan            pipelineStageSuggested + pipelineStageSuggestedReason (PipelinePage)
  *   tanya departemen/supplier  src/department-ask.js (ask_department, ask_third_party)
- *   serah-terima, antar-dept   conversation_handoffs (migrasi 003), notes + mentions (migrasi 030), tugas + sla.js
+ *   serah-terima, antar-dept   conversation_handoffs, notes + mentions, tugas + sla.js
  *   kanban                     web/src/features/pipeline
  *   Mayar, API, MCP            src/mayar-sync.js, header x-api-key, src/mcp-server.mjs
- *   dilatih lewat chat/dokumen src/train-assistant.js, src/playbook-import.js
+ *   dilatih lewat chat/dokumen src/train-assistant.js, src/playbook-import.js (istilah publik: Knowledge)
  *   rantai model               src/llm-service.js (fallback), src/model-tiers.js
  *   laporan                    src/supervisor-report.js (harian/mingguan/bulanan)
- *   ekspor                     /v1/export/contacts.xlsx dan .csv
+ *   ekspor dan impor           /v1/export/contacts.xlsx dan .csv, impor Lead List
  *   broadcast                  src/broadcast.js (variasi AI, filter tahap lead)
  *   follow-up                  src/follow-up.js (jendela jam, plafon harian, jarak minimum)
  *   serah-terima AI ke CS      AUTO_ASSIGN_IDLE_MINUTES di src/server.js (30 menit)
- * Butir bertanda `segera` BELUM jalan di produksi: mode agent, impor Excel/CSV,
- * laporan performa per human agent, alasan serah-terima terstruktur, mention
- * departemen. Jangan hapus tandanya sebelum fiturnya live. Fitur internal chat
- * TIDAK boleh disebut di halaman ini. Jangan menyebut merek CRM lain, nama model,
- * atau persentase cakupan. Jangan menulis "24 jam" atau "nonstop" (lihat aturan
- * suara halaman di atas).
+ * Jangan menyebut fitur chat internal, merek CRM lain, nama model, atau
+ * persentase cakupan. Jangan menulis "24 jam" atau "nonstop".
  */
-const POIN: { pain: string; gain: string; segera?: boolean }[] = [
+const POIN: { pain: string; gain: string }[] = [
   { pain: 'Lead yang siap beli lewat begitu saja', gain: 'Ditandai lengkap dengan alasannya, kamu tinggal setuju' },
-  { pain: 'Tool beda untuk sales, CS, dan operasi', gain: 'Satu AI untuk semua peran, satu paket', segera: true },
-  { pain: 'Bot ngarang jawaban, kamu yang minta maaf', gain: 'Kalau ga tahu, dia tanya tim atau supplier, lalu balik dengan jawaban pasti' },
-  { pain: 'Customer disuruh cerita ulang', gain: 'Chat pindah ke CS lengkap dengan riwayat dan alasannya' },
-  { pain: 'Urusan antar-divisi nyangkut di grup chat', gain: 'Sebut rekan, jadi tugas ber-SLA' },
-  { pain: 'Pipeline lupa diupdate', gain: 'AI yang menyarankan kartu pindah tahap, kamu cukup seret' },
+  { pain: 'Tool beda untuk sales, CS, dan operasi', gain: 'Satu AI untuk semua peran, satu paket' },
+  { pain: 'Bot ngarang jawaban, kamu yang minta maaf', gain: 'Kalau ga tahu, dia tanya departemen atau supplier lewat WhatsApp, staf meninjau, lalu balik dengan jawaban pasti' },
+  { pain: 'Customer disuruh cerita ulang', gain: 'Alasan, ringkasan, dan janji AI ikut pindah ke CS' },
+  { pain: 'Urusan antar-divisi nyangkut di grup chat', gain: 'Sebut rekan atau departemen di komentar, jadi tugas ber-SLA' },
+  { pain: 'Pipeline lupa diupdate', gain: 'AI menyarankan kartu pindah tahap, kamu cukup seret' },
   { pain: 'Lead dari form dan Mayar dicatat manual', gain: 'Masuk sendiri, sisanya lewat API dan MCP' },
-  { pain: 'Nulis prompt panjang, hasilnya tetap melenceng', gain: 'Ngobrol atau unggah dokumen, AI belajar kayak karyawan baru' },
+  { pain: 'Nulis prompt panjang, hasilnya tetap melenceng', gain: 'Ngobrol atau unggah dokumen, AI belajar kayak karyawan baru, hasilnya jadi Knowledge' },
   { pain: 'Credit habis di tugas sepele', gain: 'Model dipilih sesuai tugasnya, tagihan wajar' },
   { pain: 'Minta rekap tiap minggu', gain: 'Laporan masuk ke WhatsApp supervisor sendiri' },
   { pain: 'Data kontak berserakan', gain: 'Satu tabel, ekspor XLSX atau CSV kapan saja' },
-  { pain: 'Daftar kontak lama nganggur di Excel', gain: 'Impor, langsung jadi audiens broadcast', segera: true },
+  { pain: 'Daftar kontak lama nganggur di Excel', gain: 'Impor dengan pratinjau dulu, langsung jadi audiens broadcast' },
   { pain: 'Broadcast sama rata, dianggap spam', gain: 'Satu maksud, bunyinya beda tiap penerima' },
-  { pain: 'Buka dashboard cuma buat cek chat', gain: 'Tanya dari asisten AI favoritmu' },
-  { pain: 'Ga tahu siapa di tim yang paling lambat', gain: 'Tinggal tanya', segera: true },
+  { pain: 'Buka dashboard cuma buat cek chat', gain: 'Tanya dari asisten AI favoritmu lewat MCP' },
+  { pain: 'Ga tahu siapa di tim yang paling lambat', gain: 'Tinggal tanya performa agent lewat MCP' },
   { pain: 'Lead diam, lupa dikejar', gain: 'Follow-up jalan sendiri, dibatasi jam, jumlah, dan jarak kirim' },
   { pain: 'AI dan CS bales di chat yang sama', gain: 'Kamu mulai ngetik, AI minggir. CS diam 30 menit, AI jaga lagi' },
 ];
@@ -358,39 +350,21 @@ const DETAIL_KECIL = [
   'Data tiap perusahaan terpisah',
 ];
 
-const WARNA_KARTU = [
-  'border-[#b5e3c4] bg-[#e4f7ea] dark:border-[#24523a] dark:bg-[#12281d]',
-  'border-[#f2d9a0] bg-[#fdf3dc] dark:border-[#5a4a1e] dark:bg-[#2a2412]',
-  'border-[#b9d9f2] bg-[#e3f1fc] dark:border-[#244a66] dark:bg-[#12222e]',
-  'border-[#d6c9f2] bg-[#efe9fc] dark:border-[#443468] dark:bg-[#1e1830]',
-  'border-[#f2c3cf] bg-[#fce6ec] dark:border-[#662a3a] dark:bg-[#2c1219]',
-  'border-[#f2cfb3] bg-[#fcebdc] dark:border-[#66402a] dark:bg-[#2c1c12]',
-];
-
-const URUTAN_TEMA: NamaTema[] = ['hijau', 'biru', 'kuning', 'koral'];
-
 function BandPoin() {
   return (
     <Section id="semua" className="py-16 sm:py-20">
       <Eyebrow>Kenalan sama Agnee</Eyebrow>
-      <SectionTitle>Chatbot lain berhenti di balasan pertama. Agnee baru mulai.</SectionTitle>
+      <SectionTitle>
+        <span className="text-balance">Chatbot lain berhenti di balasan pertama. Agnee baru mulai.</span>
+      </SectionTitle>
       <Lead>Yang bikin pegal tiap hari di tim CS dan sales, dan apa yang berubah begitu Agnee ikut kerja.</Lead>
       <ol className="m-0 mt-10 grid list-none gap-3 p-0 sm:grid-cols-2 lg:grid-cols-3">
-        {POIN.map(({ pain, gain, segera }, index) => (
-          <li
-            key={pain}
-            className={`flex flex-col rounded-panel border p-5 ${WARNA_KARTU[index % WARNA_KARTU.length]}`}
-          >
-            <span aria-hidden className={`mb-3 block h-1 w-8 rounded-full ${TEMA[URUTAN_TEMA[index % 4]].isi}`} />
-            <span className={`flex items-center justify-between font-mono text-[11px] font-semibold ${TEMA[URUTAN_TEMA[index % 4]].teks}`}>
+        {POIN.map(({ pain, gain }, index) => (
+          <li key={pain} className={`${TILE_TERANG} flex flex-col`}>
+            <span className="font-mono text-[11px] font-semibold text-green-dark dark:text-[#7fff4f]">
               {String(index + 1).padStart(2, '0')}
-              {segera ? (
-                <span className="rounded-full bg-[#dff0d6] px-2.5 py-0.5 text-[11px] text-[#205a38] dark:bg-[#1b3028] dark:text-[#7fff4f]">
-                  Segera
-                </span>
-              ) : null}
             </span>
-            <p className="mt-2 mb-1.5 text-[13px] leading-[1.5] text-[#4e6e5e] line-through decoration-[#9fc4ae] decoration-2 dark:text-[#9fc4ae]">
+            <p className="mt-2 mb-1.5 text-[13px] leading-[1.5] text-[#4e6e5e] line-through decoration-[#9db99a] decoration-2 dark:text-[#9fc4ae]">
               {pain}
             </p>
             <p className="m-0 text-[15px] leading-[1.5] font-semibold">{gain}</p>
@@ -558,7 +532,7 @@ function UmpanEbook() {
 const STEPS: [string, string][] = [
   ['Hubungkan WhatsApp', 'Scan QR dari dashboard Agnee. Ga perlu coding, ga perlu API berbayar, ga perlu nunggu approval.'],
   ['Undang tim CS', 'Tambahkan CS lewat email dan atur perannya. Semuanya langsung dapat inbox yang sama.'],
-  ['Isi playbook lewat ngobrol', 'Agnee yang nanya, kamu yang jawab. Delapan dokumen playbook tersusun dari jawabanmu.'],
+  ['Isi Knowledge lewat ngobrol', 'Agnee yang nanya, kamu yang jawab. Delapan bagian Knowledge tersusun dari jawabanmu.'],
 ];
 
 function HowItWorks() {
@@ -627,14 +601,14 @@ const PLANS = [
     features: [
       'Semua di Starter',
       'Tim CS dengan peran masing-masing',
-      'Delapan dokumen playbook, semuanya',
+      'Delapan bagian Knowledge, semuanya',
       'Follow-up berjadwal dengan pengaman',
       'Broadcast pintar',
       'Laporan otomatis ke supervisor',
       'Departemen internal',
     ],
     href: WA_GROWTH,
-    cta: 'Tanya paket Growth',
+    cta: 'Ambil harga promo',
     highlight: false,
   },
   {
@@ -647,11 +621,11 @@ const PLANS = [
       'Rotasi banyak nomor',
       'Tanya supplier dan vendor lewat WhatsApp',
       'MCP dan API',
-      'Template playbook siap pasang',
-      'Mode agent antar-departemen (segera)',
+      'Template Knowledge siap pasang',
+      'Mode agent antar-departemen',
     ],
     href: WA_PRO,
-    cta: 'Tanya paket Pro',
+    cta: 'Ambil harga promo',
     highlight: false,
   },
   {
@@ -691,19 +665,17 @@ function Pricing() {
         <span className="text-[13px] text-[#4e6e5e] dark:text-[#7aaa8a]">per bulan, mulai dari sini</span>
       </div>
 
-      <GrafikTangga />
-
-      <div className="mt-6 rounded-panel border border-[#c6dcc0] bg-[#dff0d6] p-6 dark:border-[#24403a] dark:bg-[#1b3028]">
-        <h3 className="m-0 mb-2 text-lg font-semibold">Risikonya kecil, dan kamu yang pegang kendali.</h3>
+      <div className="mt-6 rounded-panel border-2 border-green-dark bg-[#dff0d6] p-6 dark:border-[#7fff4f] dark:bg-[#1b3028]">
+        <h3 className="m-0 mb-2 text-lg font-semibold">Sulit menolaknya, karena kamu ga menanggung risikonya.</h3>
         <ul className="m-0 grid list-none gap-1.5 p-0 text-[14px]">
           <li>7 hari gratis, tanpa kartu kredit. Ga terasa bedanya? Tutup akunnya, ga ada yang ditagih.</li>
-          <li>Harga promo terkunci selama langgananmu jalan tanpa putus.</li>
+          <li>Harga promo terkunci selama langgananmu jalan tanpa putus. Dibuka untuk {KUOTA_PROMO} perusahaan baru tiap bulan.</li>
           <li>Ebook gratis tetap jadi milikmu, mau lanjut berlangganan atau tidak.</li>
         </ul>
       </div>
 
       <p className="mt-10 mb-0 max-w-2xl text-[14px] leading-[1.65] text-[#4e6e5e] dark:text-[#7aaa8a]">
-        Harga di bawah adalah harga promo. Penjelasan batas kuotanya ada di bagian paling bawah halaman ini.
+        Tiap bulan hanya {KUOTA_PROMO} perusahaan baru yang dapat harga promo. Kalau kuota bulan itu penuh, promo ditutup sampai bulan berikutnya dan harga naik. Kuotanya yang habis, bukan jamnya: ga ada hitung mundur palsu dan ga ada perpanjangan kuota.
       </p>
 
       <div className="mt-6 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -796,7 +768,7 @@ const FAQ_ITEMS: [string, string][] = [
   ],
   [
     'Apakah AI-nya bisa disesuaikan dengan bisnis saya?',
-    'Bisa. Ada delapan dokumen playbook yang mengatur cara AI menjawab: persona, batasan, tanya-jawab, penggalian kebutuhan, penanganan keberatan, penutupan, follow-up, dan serah terima ke manusia. Kamu ga perlu nulisnya. Agnee yang nanya, kamu jawab, lalu dokumennya tersusun dari jawabanmu.',
+    'Bisa. Knowledge adalah satu sumber kebenaran (source of truth) untuk seluruh tim: harga, aturan, dan cara bicara bisnismu. Isinya delapan bagian yang mengatur cara AI menjawab: persona, batasan, tanya-jawab, penggalian kebutuhan, penanganan keberatan, penutupan, follow-up, dan serah terima ke manusia. Kamu ga perlu nulisnya. Agnee yang nanya, kamu jawab, lalu dokumennya tersusun dari jawabanmu.',
   ],
   [
     'Apakah data percakapan pelanggan saya aman?',
@@ -824,7 +796,7 @@ const FAQ_ITEMS: [string, string][] = [
   ],
   [
     'Berapa lama setup-nya?',
-    'Hubungin WhatsApp cukup sekali scan QR. Undang tim cuma beberapa menit. Yang paling makan waktu itu ngisi playbook, karena isinya cara bisnismu ngomong ke pelanggan. Tapi kamu ngisinya sambil ngobrol, dan boleh dicicil.',
+    'Hubungin WhatsApp cukup sekali scan QR. Undang tim cuma beberapa menit. Yang paling makan waktu itu ngisi Knowledge, karena isinya cara bisnismu ngomong ke pelanggan. Tapi kamu ngisinya sambil ngobrol, dan boleh dicicil.',
   ],
 ];
 
@@ -869,22 +841,32 @@ function Faq() {
 }
 
 /**
- * Blok penutup: dua cara kenalan, disusun menaik menurut komitmen.
+ * Blok penutup: tiga pintu, lalu alasan untuk tidak menunda.
  *
- * Nadanya tenang (keputusan pemilik 2026-10-17): tidak ada desakan, tidak ada
- * hitung mundur, tidak ada angka selisih harga. Keduanya sama besar, supaya
- * pembaca yang belum siap bayar tidak merasa dikejar. Satu-satunya penekanan di
- * halaman ini adalah PromoKuota di bawahnya, dan itu karena batasnya nyata.
+ * Menggantikan banner CTA lama, yang cuma menawarkan satu jalan (coba gratis)
+ * ke semua orang. Pembaca yang belum siap beli tidak punya apa-apa selain
+ * pergi, padahal tiga pintunya sudah ada, cuma tersebar di tengah halaman.
+ *
+ * Disusun MENAIK menurut komitmen, sebagai baris bertumpuk, bukan tiga kolom
+ * sejajar: tiga kolom membuat ketiganya terlihat setara, padahal yang kita mau
+ * justru menunjukkan tangga. Penekanan visualnya ikut naik (garis tipis, garis
+ * biasa, garis aksen) supaya tangganya terbaca tanpa perlu dijelaskan.
+ *
+ * Soal FOMO: tidak ada angka selisih harga sejak 2026-10-17, karena harga normal
+ * sesudah kuota belum ditetapkan. Tidak ada hitung mundur, tidak ada sisa kuota
+ * karangan. Kalau nanti sisa kuota mau ditampilkan, dia harus datang dari hitungan nyata
+ * tabel companies, bukan dari konstanta yang gampang basi.
  */
-const PINTU: { kondisi: string; isi: string; aksi: string; href: string; eksternal: boolean; tema: NamaTema; tombol: string }[] = [
+const PINTU = [
   {
     kondisi: 'Belum butuh sekarang',
     isi: 'Baca ebook "Emang AI Bisa Bikin ROAS Naik dari 10x jadi 20x?" dulu. Gratis, ga perlu bikin akun, dan tetap kepakai walaupun kamu ga pakai Agnee.',
     aksi: 'Ambil ebook gratis',
     href: '#ebook',
     eksternal: false,
-    tema: 'koral',
-    tombol: 'border border-[#c6dcc0] bg-transparent text-ink hover:bg-[#fde8df] dark:border-[#24403a] dark:text-[#f4f9f0] dark:hover:bg-[#2b1a16]',
+    gaya: 'border border-[#c6dcc0] p-5 sm:p-6 dark:border-[#24403a]',
+    tombol:
+      'border border-[#c6dcc0] bg-transparent text-ink hover:bg-[#dff0d6] dark:border-[#24403a] dark:text-[#f4f9f0] dark:hover:bg-[#1b3028]',
   },
   {
     kondisi: 'Mau lihat sendiri',
@@ -892,159 +874,34 @@ const PINTU: { kondisi: string; isi: string; aksi: string; href: string; ekstern
     aksi: 'Coba Gratis 7 Hari',
     href: APP_URL + '/?signup=1',
     eksternal: false,
-    tema: 'hijau',
+    gaya: 'border-2 border-green-dark bg-white p-7 sm:p-8 dark:border-[#7fff4f] dark:bg-[#14241f]',
     tombol: 'bg-ink text-white hover:-translate-y-0.5 dark:bg-[#7fff4f] dark:text-[#0c1912]',
   },
 ];
 
-type StatusKuota = { tahap: 'memuat' } | { tahap: 'gagal' } | { tahap: 'ada'; used: number; limit: number; month: string };
-
-const NAMA_BULAN = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
-
-/**
- * Terisi bulan ini, dari GET /public/promo-quota (src/server.js): jumlah baris
- * companies yang dibuat di bulan kalender berjalan, zona Asia/Jakarta. Angka itu
- * mencakup SEMUA perusahaan, termasuk akun uji internal, jadi pemilik perlu
- * memutuskan apakah akun uji dikecualikan sebelum halaman ini dipasang live.
- * Kalau data gagal dimuat, halaman tidak menampilkan angka sama sekali.
- */
-function useKuotaPromo(): StatusKuota {
-  const [status, setStatus] = useState<StatusKuota>({ tahap: 'memuat' });
-  useEffect(() => {
-    const kontrol = new AbortController();
-    fetch('/public/promo-quota', { signal: kontrol.signal })
-      .then((res) => (res.ok ? res.json() : Promise.reject(new Error(String(res.status)))))
-      .then((data: { used?: unknown; limit?: unknown; month?: unknown }) => {
-        if (typeof data.used !== 'number' || typeof data.limit !== 'number' || typeof data.month !== 'string') {
-          throw new Error('format');
-        }
-        setStatus({ tahap: 'ada', used: data.used, limit: data.limit, month: data.month });
-      })
-      .catch((err: unknown) => {
-        if ((err as { name?: string })?.name !== 'AbortError') setStatus({ tahap: 'gagal' });
-      });
-    return () => kontrol.abort();
-  }, []);
-  return status;
-}
-
-/**
- * Satu-satunya blok "terbatas" di halaman ini, dan satu-satunya yang boleh
- * ditekankan. Grafiknya bagan satuan: satu titik = satu kursi promo bulan ini.
- * Titik terisi = perusahaan yang sudah dibuat bulan ini (data nyata, lihat
- * useKuotaPromo). Yang habis adalah kuotanya, bukan jamnya: tidak ada hitung
- * mundur dan kuota tidak diperpanjang.
- */
-function PromoKuota() {
-  const kuota = useKuotaPromo();
-  const used = kuota.tahap === 'ada' ? Math.min(kuota.used, kuota.limit) : 0;
-  const limit = kuota.tahap === 'ada' ? kuota.limit : KUOTA_PROMO;
-  const penuh = kuota.tahap === 'ada' && kuota.used >= kuota.limit;
-  const [tahun, bulanAngka] = kuota.tahap === 'ada' ? kuota.month.split('-').map(Number) : [0, 0];
-  const namaBulan = kuota.tahap === 'ada' ? `${NAMA_BULAN[(bulanAngka ?? 1) - 1] ?? ''} ${tahun}` : '';
-
-  return (
-    <div
-      id="promo"
-      className="mt-10 rounded-panel border-2 border-[#8a5a00] bg-[#fdf3dc] p-6 sm:p-10 dark:border-[#f5c451] dark:bg-[#2a2412]"
-    >
-      <div className="grid gap-8 lg:grid-cols-[1fr_1fr] lg:items-center">
-        <div>
-          <p className="m-0 mb-2.5 flex items-center gap-2 text-[12px] font-semibold text-[#8a5a00] dark:text-[#f5c451]">
-            <span aria-hidden className="inline-block h-px w-5 bg-[#8a5a00] dark:bg-[#f5c451]" />
-            Batas promo
-          </p>
-          <h2 className="m-0 mb-3 text-[clamp(26px,3.6vw,40px)] leading-[1.12] font-semibold tracking-[-.035em]">
-            Harga promo untuk {KUOTA_PROMO} perusahaan baru tiap bulan.
-          </h2>
-          <p className="m-0 text-[15px] leading-[1.65] text-[#3d4a3f] dark:text-[#e6d9b4]">
-            Kuotanya dihitung per bulan kalender. Yang daftar sebelum kuota bulan itu penuh tetap bayar harga promo selama langganannya jalan tanpa putus. Kalau penuh, promo berhenti sampai bulan berikutnya. Tidak ada hitung mundur, dan kuotanya tidak ditambah.
-          </p>
-          <div className="mt-6 flex flex-wrap items-center gap-3">
-            <a
-              href="#pricing"
-              className="inline-block rounded-app bg-ink px-6 py-3 text-[15px] font-semibold text-white no-underline transition hover:-translate-y-0.5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#8a5a00] dark:bg-[#f5c451] dark:text-[#2a2412] dark:focus-visible:outline-[#f5c451]"
-            >
-              Lihat paket dan harga
-            </a>
-            <span className="text-[13px] text-[#4a4a3c] dark:text-[#d9c48a]">Coba 7 hari dulu, tanpa kartu kredit.</span>
-          </div>
-        </div>
-
-        <figure className="m-0 rounded-panel border border-[#ecd49a] bg-white p-5 dark:border-[#6b5620] dark:bg-[#0c1912]/60">
-          <figcaption className="mb-3 text-[13px] font-semibold text-[#14241f] dark:text-[#f4f9f0]">
-            {kuota.tahap === 'ada' ? (
-              <>
-                <span className="text-[clamp(28px,4vw,40px)] leading-none tracking-[-.04em] text-[#8a5a00] dark:text-[#f5c451]">
-                  {kuota.used}
-                </span>{' '}
-                dari {kuota.limit} kursi terisi, {namaBulan}
-              </>
-            ) : kuota.tahap === 'memuat' ? (
-              <span role="status">Memuat data kuota bulan ini</span>
-            ) : (
-              <span role="status">Data kuota belum bisa dimuat. Tanyakan sisa kursi lewat WhatsApp.</span>
-            )}
-          </figcaption>
-          <div
-            role="img"
-            aria-label={
-              kuota.tahap === 'ada' ? `${used} dari ${limit} kursi promo terisi` : `${limit} kursi promo per bulan, jumlah terisi belum tersedia`
-            }
-            className="grid grid-cols-10 gap-1.5"
-          >
-            {Array.from({ length: limit }, (_, i) => (
-              <span
-                key={i}
-                className={`aspect-square rounded-full border-2 ${
-                  i < used
-                    ? 'border-[#8a5a00] bg-[#e0a526] dark:border-[#f5c451] dark:bg-[#f5c451]'
-                    : 'border-[#d8c48c] bg-transparent dark:border-[#6b5620]'
-                } ${kuota.tahap === 'memuat' ? 'animate-pulse' : ''}`}
-              />
-            ))}
-          </div>
-          <p className="mt-4 mb-0 text-[12px] leading-[1.55] text-[#4a4a3c] dark:text-[#d9c48a]">
-            {penuh
-              ? 'Kuota bulan ini penuh. Promo dibuka lagi di awal bulan berikutnya.'
-              : 'Satu titik satu kursi. Titik berwarna adalah perusahaan yang sudah terdaftar bulan ini, dihitung langsung dari data Agnee.'}
-          </p>
-          {kuota.tahap === 'gagal' ? (
-            <a
-              href={waLink('Halo, saya mau tanya sisa kursi promo Agnee bulan ini')}
-              target="_blank"
-              rel="noopener noreferrer"
-              className={`mt-3 inline-block rounded-app bg-[#25d366] px-4 py-3 text-[13px] font-semibold text-[#0c1912] no-underline hover:bg-[#1dbd5e] ${FOKUS}`}
-            >
-              Tanya sisa kursi via WhatsApp
-            </a>
-          ) : null}
-        </figure>
-      </div>
-    </div>
-  );
-}
-
 function FunnelPenutup() {
   return (
     <Section id="mulai" className="py-16 sm:py-20">
-      <SectionTitle>Mulai dari yang paling pas buat kamu hari ini</SectionTitle>
+      <SectionTitle>Tiga pintu. Pilih yang paling pas buat kamu hari ini.</SectionTitle>
       <Lead>
-        Ga semua orang yang baca halaman ini lagi siap bayar, dan itu wajar. Ada dua cara kenalan dengan Agnee, dari yang paling ringan sampai yang langsung dipakai.
+        Ga semua orang yang baca halaman ini lagi siap bayar, dan itu wajar. Jadi pintunya ada tiga, dari yang paling
+        ringan sampai yang paling serius.
       </Lead>
 
       <div className="mt-8 grid gap-3">
         {PINTU.map((pintu, index) => (
           <div
             key={pintu.kondisi}
-            className={`flex flex-col gap-4 rounded-panel border bg-white p-5 sm:flex-row sm:items-center sm:gap-6 sm:p-6 dark:bg-[#14241f] ${TEMA[pintu.tema].kartu}`}
+            className={`flex flex-col gap-4 rounded-panel sm:flex-row sm:items-center sm:gap-6 ${pintu.gaya}`}
           >
-            <span aria-hidden className={`grid size-8 shrink-0 place-items-center rounded-full font-mono text-[12px] font-bold text-white dark:text-[#0c1912] ${TEMA[pintu.tema].isi}`}>
-              {index + 1}
+            <span className="shrink-0 font-mono text-[11px] font-semibold text-green-dark dark:text-[#7fff4f]">
+              {String(index + 1).padStart(2, '0')}
             </span>
             <div className="min-w-0 flex-1">
               <h3 className="mt-0 mb-1 text-base font-semibold sm:text-lg">{pintu.kondisi}</h3>
-              <p className="m-0 text-[13px] leading-[1.6] text-[#4e6e5e] sm:text-[14px] dark:text-[#9fc4ae]">{pintu.isi}</p>
+              <p className="m-0 text-[13px] leading-[1.6] text-[#4e6e5e] sm:text-[14px] dark:text-[#7aaa8a]">
+                {pintu.isi}
+              </p>
             </div>
             <a
               href={pintu.href}
@@ -1057,7 +914,39 @@ function FunnelPenutup() {
         ))}
       </div>
 
-      <PromoKuota />
+      <div className="mt-8 rounded-panel bg-ink p-7 text-white sm:p-10 dark:bg-[#14241f]">
+        <div className="grid gap-6 lg:grid-cols-[1.2fr_.8fr] lg:items-center">
+          <div>
+            {/* "Batas promo", bukan "Sisa kuota": halaman ini tidak menampilkan
+                angka sisa, jadi eyebrow-nya tidak boleh menjanjikan angka. Kalau
+                nanti sisa kuota ditampilkan, dia harus dihitung dari tabel
+                companies, bukan dari konstanta yang gampang basi. */}
+            <p className="m-0 mb-2.5 flex items-center gap-2 text-[12px] font-semibold text-[#7fff4f]">
+        <span aria-hidden className="inline-block h-px w-5 bg-[#7fff4f]" />
+              Batas promo
+            </p>
+            <h2 className="m-0 mb-3 text-[clamp(24px,3.4vw,34px)] leading-[1.15] font-semibold tracking-[-.035em]">
+              Promo tiap bulan berhenti di perusahaan ke-{KUOTA_PROMO}.
+            </h2>
+            <p className="m-0 text-[15px] leading-[1.65] text-white/70">
+              Kalau kuota bulan itu penuh, harga naik sampai bulan berikutnya. Yang daftar sebelum itu tetap bayar harga promo selama
+              langganannya jalan tanpa putus. Ga ada hitung mundur palsu di halaman ini: kuotanya yang habis,
+              bukan jamnya.
+            </p>
+          </div>
+          <div className="lg:text-right">
+            <a
+              href="#pricing"
+              className={`inline-block rounded-app bg-[#7fff4f] px-6 py-3 text-[15px] font-semibold text-[#0c1912] no-underline ${FOKUS_GELAP}`}
+            >
+              Lihat harga promo
+            </a>
+            <p className="mt-3 mb-0 text-[13px] leading-[1.6] text-white/55">
+              Masih ragu? Coba 7 hari dulu, tanpa kartu kredit.
+            </p>
+          </div>
+        </div>
+      </div>
     </Section>
   );
 }

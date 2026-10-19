@@ -58,6 +58,40 @@ Aturan:
 - Setelah alat dipanggil, jangan memberi jawaban tebakan sambil menunggu.`;
 }
 
+/**
+ * Panduan alat untuk mode operasi antar-departemen. Penerimanya orang dalam,
+ * jadi larangan menyebut "tim/departemen" di panduan customer tidak berlaku;
+ * yang tetap berlaku: jangan menebak, jangan berbohong, jangan bocorkan data.
+ */
+function guideOps(departments) {
+  const list = departments.map((d) => `- ${d.name}${d.description ? `: ${d.description}` : ''}`).join('\n');
+  return `## BERTANYA KE DEPARTEMEN (alat ask_department)
+Kalau pengirim menanyakan sesuatu yang jawabannya TIDAK ada di playbook atau pengetahuan di atas, JANGAN menebak. Panggil ask_department ke departemen yang paling berwenang.
+
+Departemen yang tersedia:
+${list}
+
+Aturan:
+- Pilih SATU departemen yang paling relevan. Tulis pertanyaan yang singkat dan lengkap (hal/barang yang dimaksud, jumlah atau ukuran, kapan dibutuhkan) sehingga bisa dijawab tanpa membaca chat.
+- Setelah alat dipanggil, katakan kepada pengirim bahwa pertanyaannya sudah diteruskan ke departemen terkait dan kamu akan mengabari begitu ada jawaban. Jangan menjanjikan jam atau durasi.
+- Jangan bertanya untuk hal yang sudah ada jawabannya, dan jangan memanggil alat dua kali untuk pertanyaan yang sama.
+- Jangan menebak sambil menunggu, dan jangan mengaku sudah mengecek sesuatu yang belum.`;
+}
+
+function guideThirdPartiesOps(parties) {
+  const list = parties.map((p) => `- ${p.name} [${p.tags.join(', ')}]${p.notes ? `: ${p.notes}` : ''}`).join('\n');
+  return `## BERTANYA KE PIHAK LUAR (alat ask_third_party)
+Untuk hal yang hanya diketahui pihak luar (stok bahan, kapasitas, jadwal kirim dari supplier) dan tidak ada di pengetahuan. Hal internal ditanyakan ke departemen, bukan ke pihak luar.
+
+Pihak luar yang tersedia (tag di dalam kurung):
+${list}
+
+Aturan:
+- Pilih pihak yang tag dan catatannya paling cocok. Tulis pertanyaan singkat dan teknis.
+- JANGAN menyebut nama, nomor, atau data customer, dan jangan membuka harga jual atau margin kita.
+- Setelah alat dipanggil, katakan kepada pengirim bahwa pertanyaannya sudah diteruskan dan akan dikabari. Jangan menebak sambil menunggu.`;
+}
+
 function guideThirdParties(parties) {
   const list = parties.map((p) => `- ${p.name} [${p.tags.join(', ')}]${p.notes ? `: ${p.notes}` : ''}`).join('\n');
   return `## BERTANYA KE PIHAK KETIGA (alat ask_third_party)
@@ -114,14 +148,28 @@ function toolSpec({ departments, run }) {
 }
 
 /** Pesan WhatsApp ke anggota departemen. */
-function buildQuestionNotice({ department, question, customerLabel }) {
+function buildQuestionNotice({ department, question, customerLabel, askerLabel = null }) {
   const cut = (v, n) => { const t = String(v || '').replace(/\s+/g, ' ').trim(); return t.length > n ? `${t.slice(0, n - 1)}…` : t; };
   return [
     `*Pertanyaan dari asisten untuk tim ${department}*`,
-    `Customer: ${customerLabel}`,
+    askerLabel ? `Penanya: ${askerLabel}` : `Customer: ${customerLabel}`,
     `Pertanyaan: "${cut(question, 500)}"`,
     '',
-    'Mohon dijawab lewat Agnee (menu Pertanyaan AI). Jawaban pertama yang masuk akan diteruskan ke customer.',
+    askerLabel
+      ? 'Mohon dijawab lewat Agnee (menu Pertanyaan AI). Jawaban pertama yang masuk akan diteruskan ke penanya.'
+      : 'Mohon dijawab lewat Agnee (menu Pertanyaan AI). Jawaban pertama yang masuk akan diteruskan ke customer.',
+  ].join('\n');
+}
+
+/** Pesan WhatsApp ke anggota departemen yang di-mention di komentar samping chat. */
+function buildMentionNotice({ department, authorName, customerLabel, body }) {
+  const cut = (v, n) => { const t = String(v || '').replace(/\s+/g, ' ').trim(); return t.length > n ? `${t.slice(0, n - 1)}…` : t; };
+  return [
+    `*${authorName || 'Rekan tim'} menyebut tim ${department} di catatan chat*`,
+    `Customer: ${customerLabel}`,
+    `Catatan: "${cut(body, 500)}"`,
+    '',
+    'Buka Agnee untuk membaca dan membalas di catatan. Pesan ini tidak dikirim ke customer.',
   ].join('\n');
 }
 
@@ -154,4 +202,4 @@ function judgeRelay(text) {
   return { kind: 'ok', text: clean };
 }
 
-module.exports = { judgeRelay, leaksInternal, UNSURE_TOKEN, guideThirdParties, toolSpecThirdParty, buildThirdPartyMessage, mentionsWaiting, ensureHolding, buildReminderNotice, REMINDER_MINUTES, guide, toolSpec, buildQuestionNotice, relayPrompt, HOLDING_FALLBACK, QUESTION_MAX };
+module.exports = { buildMentionNotice, guideOps, guideThirdPartiesOps, judgeRelay, leaksInternal, UNSURE_TOKEN, guideThirdParties, toolSpecThirdParty, buildThirdPartyMessage, mentionsWaiting, ensureHolding, buildReminderNotice, REMINDER_MINUTES, guide, toolSpec, buildQuestionNotice, relayPrompt, HOLDING_FALLBACK, QUESTION_MAX };

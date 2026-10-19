@@ -103,7 +103,8 @@ type Overview = {
   currency?: Currency;
 };
 
-const PLANS = ['personal', 'company', 'lifetime'];
+const PLANS = ['personal', 'company', 'lifetime', 'starter', 'growth', 'pro', 'enterprise'];
+const CREDIT_PLAN_OPTIONS = ['starter', 'growth', 'pro', 'lifetime', 'enterprise'];
 const PLAN_STATUSES = ['trial', 'beta', 'active', 'suspended'];
 const STATUSES = ['active', 'suspended', 'closed'];
 
@@ -717,6 +718,7 @@ function CompanyDetailView({ companyId, onBack }: { companyId: string; onBack: (
       ) : null}
 
       <SubscriptionForm detail={detail} onSaved={setDetail} />
+      <CreditCard companyId={company.id} />
       <MembersCard members={detail.members} />
       <ConnectionsCard connections={detail.connections} />
       <UsageCard usage={detail.usage} />
@@ -850,6 +852,168 @@ function SubscriptionForm({
           ) : null}
         </div>
       </form>
+    </Card>
+  );
+}
+
+type CreditState = {
+  plan: string;
+  creditMode: boolean;
+  planBalance: number;
+  topupBalance: number;
+  total: number;
+  periodEnd: string | null;
+  lastGrant: number;
+  discountPct: number;
+  alertLevel: 'low' | 'empty' | null;
+  ledger?: { id: number; kind: string; amount: number; shortfall: number; note: string | null; purpose: string | null; createdAt: string }[];
+};
+
+const LEDGER_KIND: Record<string, string> = {
+  subscription: 'Langganan', topup: 'Top-up', usage: 'Pemakaian AI', adjust: 'Koreksi', expire: 'Hangus',
+};
+
+/**
+ * Credit tenant: saldo, dan tindakan staf SETELAH pembayaran dikonfirmasi
+ * (terapkan/perpanjang paket, top-up, koreksi, diskon). Angka paket bawaan
+ * adalah usulan yang belum disetujui pemilik (docs/credit-system.md).
+ */
+function CreditCard({ companyId }: { companyId: string }) {
+  const base = `/v1/superhuman/companies/${companyId}`;
+  const [state, setState] = useState<CreditState | null>(null);
+  const [plan, setPlan] = useState('starter');
+  const [monthlyCredit, setMonthlyCredit] = useState('');
+  const [topup, setTopup] = useState('');
+  const [adjust, setAdjust] = useState('');
+  const [adjustNote, setAdjustNote] = useState('');
+  const [discount, setDiscount] = useState('0');
+  const [message, setMessage] = useState('');
+  const [failed, setFailed] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      const next = await api<CreditState>(`${base}/credit`);
+      setState(next);
+      setDiscount(String(next.discountPct));
+    } catch (caught) {
+      setFailed(true);
+      setMessage(messageFromError(caught, 'Gagal memuat credit.'));
+    }
+  }, [base]);
+  useEffect(() => { void load(); }, [load]);
+
+  async function run(path: string, method: 'POST' | 'PATCH', body: Record<string, unknown>, done: string) {
+    setMessage('');
+    setFailed(false);
+    try {
+      await api(`${base}${path}`, { method, body });
+      setMessage(done);
+      await load();
+    } catch (caught) {
+      setFailed(true);
+      setMessage(messageFromError(caught, 'Gagal.'));
+    }
+  }
+
+  return (
+    <Card
+      eyebrow="CREDIT"
+      title="Saldo dan penagihan credit"
+      description="Perpanjangan dan top-up dicatat SETELAH pembayaran dikonfirmasi; credit tidak pernah terisi otomatis. Jumlah credit bawaan tiap paket masih usulan (belum disetujui pemilik)."
+    >
+      <div className="grid gap-3 sm:grid-cols-4">
+        <Tile label="Mode" value={state?.creditMode ? `Credit · ${state.plan}` : 'Kuota pesan lama'} />
+        <Tile label="Credit paket" value={numberFormat.format(Math.round(state?.planBalance ?? 0))} />
+        <Tile label="Credit top-up" value={numberFormat.format(Math.round(state?.topupBalance ?? 0))} />
+        <Tile label="Periode berakhir" value={formatDate(state?.periodEnd)} />
+      </div>
+      {state?.alertLevel ? (
+        <p className="mt-3 mb-0 text-[13px] font-semibold text-danger">
+          {state.alertLevel === 'empty' ? 'Credit habis: AI tenant ini berhenti.' : 'Credit hampir habis.'}
+        </p>
+      ) : null}
+
+      <div className="mt-5 grid items-end gap-4 md:grid-cols-3">
+        <SelectField label="Terapkan / perpanjang paket" value={plan} onChange={setPlan} options={CREDIT_PLAN_OPTIONS} />
+        <NumberField
+          label="Credit bulanan / awal (wajib untuk enterprise)"
+          hint="Kosongkan untuk memakai credit bawaan paket. Lifetime: credit awal, sekali saja."
+          value={monthlyCredit}
+          onChange={setMonthlyCredit}
+        />
+        <div>
+          <Button
+            type="button" size="sm"
+            onClick={() => void run('/credit/subscribe', 'POST', {
+              plan, ...(monthlyCredit ? { monthlyCredit: Number(monthlyCredit) } : {}),
+            }, 'Paket diterapkan ✓')}
+          >
+            Terapkan (sudah dibayar)
+          </Button>
+        </div>
+      </div>
+
+      <div className="mt-4 grid items-end gap-4 md:grid-cols-3">
+        <NumberField label="Top-up (Rp, sudah dibayar)" value={topup} onChange={setTopup} />
+        <div>
+          <Button
+            type="button" size="sm" disabled={!(Number(topup) > 0) || !state?.creditMode}
+            onClick={() => void run('/credit/topup', 'POST', { amountIdr: Number(topup) }, 'Top-up dicatat ✓').then(() => setTopup(''))}
+          >
+            Catat top-up
+          </Button>
+        </div>
+      </div>
+
+      <div className="mt-4 grid items-end gap-4 md:grid-cols-3">
+        <NumberField label="Koreksi credit (+/−)" type="text" value={adjust} onChange={setAdjust} />
+        <NumberField label="Alasan koreksi" type="text" value={adjustNote} onChange={setAdjustNote} />
+        <div>
+          <Button
+            type="button" size="sm" variant="outline"
+            disabled={!Number(adjust) || !adjustNote.trim() || !state?.creditMode}
+            onClick={() => void run('/credit/adjust', 'POST', { credit: Number(adjust), note: adjustNote.trim() }, 'Koreksi dicatat ✓')}
+          >
+            Koreksi
+          </Button>
+        </div>
+      </div>
+
+      <div className="mt-4 grid items-end gap-4 md:grid-cols-3">
+        <NumberField label="Diskon credit % (maks. 60)" value={discount} onChange={setDiscount} hint="Mengurangi credit yang dipotong per panggilan AI." />
+        <div>
+          <Button
+            type="button" size="sm" variant="outline"
+            onClick={() => void run('/credit-discount', 'PATCH', { discountPct: Number(discount) }, 'Diskon disimpan ✓')}
+          >
+            Simpan diskon
+          </Button>
+        </div>
+      </div>
+
+      {message ? (
+        <p role="status" className={cn('mt-3 mb-0 font-mono text-[11px] font-semibold', failed ? 'text-danger' : 'text-green-dark')}>
+          {message}
+        </p>
+      ) : null}
+
+      {state?.ledger?.length ? (
+        <div className="mt-5 overflow-x-auto">
+          <table className="w-full border-collapse text-[13px]">
+            <thead><tr><Th>Waktu</Th><Th>Jenis</Th><Th>Credit</Th><Th>Catatan</Th></tr></thead>
+            <tbody>
+              {state.ledger.slice(0, 30).map((row) => (
+                <tr key={row.id}>
+                  <Td>{formatDate(row.createdAt)}</Td>
+                  <Td>{LEDGER_KIND[row.kind] || row.kind}</Td>
+                  <Td>{row.amount > 0 ? '+' : ''}{numberFormat.format(Math.round(row.amount * 100) / 100)}</Td>
+                  <Td>{row.note || row.purpose || ''}</Td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
     </Card>
   );
 }

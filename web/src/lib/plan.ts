@@ -24,7 +24,7 @@ export function quotaTone(percent: number | null): QuotaTone {
   return 'ok';
 }
 
-const PLAN_LABELS: Record<string, string> = { personal: 'Personal', company: 'Company', lifetime: 'Lifetime' };
+const PLAN_LABELS: Record<string, string> = { personal: 'Personal', company: 'Company', lifetime: 'Lifetime', starter: 'Starter', growth: 'Growth', pro: 'Pro', enterprise: 'Enterprise' };
 
 export function planLabel(plan: string | null | undefined): string {
   return (plan && PLAN_LABELS[plan]) || plan || '—';

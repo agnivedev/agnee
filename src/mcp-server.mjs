@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import { McpServer } from '@modelcontextprotocol/server';
 import * as z from 'zod/v4';
-import { mcpContext, WRITE_SCOPE } from './mcp-context.mjs';
+import { currentIdentity, WRITE_SCOPE } from './mcp-context.mjs';
 
 const apiBaseUrl = (process.env.MCP_API_BASE_URL || 'http://127.0.0.1:4100').replace(/\/$/, '');
 const apiKey = process.env.API_KEY || 'dev-api-key';
@@ -13,12 +13,12 @@ if (process.env.NODE_ENV === 'production' && apiKey === 'dev-api-key') {
 
 /**
  * Calls the backend as the member behind this request. The backend takes the
- * service key only from inside the network, only for these four routes, and
+ * service key only from inside the network, only for the routes listed in SERVICE_ROUTES (server.js), and
  * only on behalf of an active member — with that member's own role, so an
  * agent here hits the same claim rules as in the inbox.
  */
 async function agneeApi(path, options = {}) {
-  const identity = mcpContext.getStore();
+  const identity = currentIdentity();
   if (!identity?.userId || !identity?.companyId) {
     throw new Error('No Agnee account is attached to this connection. Reconnect and sign in with your Agnee account.');
   }
@@ -45,7 +45,7 @@ function result(data) {
   };
 }
 
-const canWrite = () => Boolean(mcpContext.getStore()?.scopes?.includes(WRITE_SCOPE));
+const canWrite = () => Boolean(currentIdentity()?.scopes?.includes(WRITE_SCOPE));
 
 // Klien (ChatGPT, Claude) mengambil ikon aplikasi dari sini; tanpa ini mereka
 // menampilkan ikon acak. File-nya disajikan mcp-http.mjs dari origin MCP_PUBLIC_URL.
@@ -64,7 +64,7 @@ export function buildMcpServer() {
     { name: 'agnee', title: 'Agnee WhatsApp', version: '0.3.0', icons: serverIcons() },
     {
       instructions: [
-        'WhatsApp: read a conversation before replying. Ask for confirmation before sending consequential or promotional messages.',
+        'Reports: report_summary and agent_performance are for supervisors; quote only the numbers returned and their notes, never invent metrics that are not in the result. WhatsApp: read a conversation before replying. Ask for confirmation before sending consequential or promotional messages.',
         'Agnive Hub: hub_search_listings / hub_get_listing read the public marketplace (research ready to fund).',
         'hub_list_threads / hub_read_thread / hub_draft_reply are for Agnive staff (supervisors) and cover conversations between funders and research teams.',
         'There is no tool that sends anything to a funder: hub_draft_reply only drafts. The research team sends replies from Agnive Insight.',
@@ -73,6 +73,20 @@ export function buildMcpServer() {
   );
 
   const SECTORS = ['health', 'agriculture', 'energy', 'digital-technology', 'materials-environment'];
+
+  server.registerTool('report_summary', {
+    title: 'Chat report summary',
+    description: 'Supervisors only: customer-chat numbers for today, yesterday, the last 7 and 30 days, each with the previous period for comparison (inbound messages, active and new chats, AI and human replies, handoffs to the team, hot leads), plus how many chats are waiting for a reply right now.',
+    inputSchema: z.object({}),
+    annotations: { readOnlyHint: true, openWorldHint: false },
+  }, async () => result(await agneeApi('/v1/reports/summary')));
+
+  server.registerTool('agent_performance', {
+    title: 'Human agent performance',
+    description: 'Supervisors only: per human agent over the last N days — replies sent through Agnee, chats replied to, median and average response time (only measured where a customer was actually waiting), chats taken over from the AI, chats handed back, and chats currently held. Replies typed in the WhatsApp phone app are not attributed to an agent, and satisfaction or closing results per agent are not recorded; do not infer them.',
+    inputSchema: z.object({ days: z.number().int().min(1).max(90).default(7) }),
+    annotations: { readOnlyHint: true, openWorldHint: false },
+  }, async ({ days }) => result(await agneeApi(`/v1/reports/agents?days=${days}`)));
 
   server.registerTool('hub_search_listings', {
     title: 'Search Agnive Hub listings',

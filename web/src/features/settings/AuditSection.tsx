@@ -22,6 +22,7 @@ type AuditEntry = {
     sent?: number | null;
     connections?: number | null;
     trial?: boolean | null;
+    imported?: number | null;
   } | null;
   createdAt: string;
   actorName: string | null;
@@ -33,9 +34,12 @@ type AuditEntry = {
  */
 const AUDIT_ACTIONS = [
   'contacts.exported',
+  'contacts.file_imported',
   'lead.open_in_whatsapp',
   'payment.changed',
   'whatsapp.disconnected',
+  'whatsapp.mode_changed',
+  'agent_mode.instructions_saved',
   'team.member_added',
   'team.role_changed',
   'team.member_updated',
@@ -94,6 +98,9 @@ export function AuditSection() {
     const m = entry.metadata || {};
     if (entry.action === 'contacts.exported') {
       return [m.format?.toUpperCase(), m.rows != null ? `${m.rows} ${t('audit.rows')}` : null].filter(Boolean).join(' · ');
+    }
+    if (entry.action === 'contacts.file_imported') {
+      return [m.format?.toUpperCase(), m.imported != null ? `${m.imported}/${m.rows} ${t('audit.rows')}` : null].filter(Boolean).join(' · ');
     }
     if (entry.action === 'contacts.import_started') {
       return [m.connections != null ? t('audit.importNumbers', { count: m.connections }) : null, m.trial ? t('audit.importTrial') : null].filter(Boolean).join(' · ');

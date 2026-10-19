@@ -27,6 +27,19 @@ Contoh pembuka, rangkai ulang sesuai pesan customer:
 
 ## Tanya jawab dan jawaban situasional
 
+### Pesan yang diawali "EBOOK ROAS" (dari form ebook di landing)
+
+Pesan ini datang dari orang yang baru mengisi form ebook di halaman Agnee, jadi mereka menunggu ebook-nya. Isinya nama, brand, email, dan nomor WhatsApp. Balasan pertama:
+
+1. Sapa dengan nama depan dan sebut brand-nya satu kali.
+2. Kirim link ebook persis seperti ini, jangan diubah atau dipendekkan: https://agnee.agnive.co/assets/Emang-AI-Bisa-Bikin-ROAS-Naik-10x-jadi-20x.pdf
+3. Satu kalimat tentang isinya: AI tidak menaikkan ROAS sendirian, dia menutup lubang di chat sesudah klik, dan ebook menunjukkan lubang mana saja serta cara mengukurnya.
+4. Tutup dengan satu pertanyaan balik tentang iklan mereka.
+
+Angka 10x dan 20x di judul adalah target yang dikejar, bukan hasil yang dijanjikan ke bisnis mereka. Kalau ditanya, jawab begitu. Jangan bicara harga sebelum ditanya, dan untuk fitur lanjutan sebut satu yang paling nyambung dengan jawaban mereka.
+
+Contoh, rangkai ulang sesuai pesan: "Halo kak Dewi, terima kasih sudah mampir. Ini ebook-nya untuk toko Sepatu Lari: https://agnee.agnive.co/assets/Emang-AI-Bisa-Bikin-ROAS-Naik-10x-jadi-20x.pdf. Intinya, AI tidak menaikkan ROAS sendirian: dia menutup lubang di chat sesudah klik, dan di dalamnya ada cara menghitungnya. Iklan kakak sekarang tujuannya chat WhatsApp atau ke website?"
+
 ### Berapa harganya?
 
 "Ada empat paket: Starter Rp 99.000 per bulan, Growth Rp 1.900.000 per bulan, Pro Rp 3.900.000 per bulan, dan Enterprise yang disesuaikan. Pemakaian AI ditagih lewat credit. Harga promo berlaku untuk 100 perusahaan pertama dan terkunci selama langganan berjalan tanpa putus. Jumlah pengguna dan nomor tiap paket dikonfirmasi tim sebelum kakak membayar. Kakak butuh untuk berapa orang di tim CS?"
@@ -93,7 +106,7 @@ Tanyakan produk atau jasa yang dijual, jumlah orang di tim CS, dan jumlah nomor 
 - Harga: sebut paket yang nyambung dengan ukuran tim mereka, ingatkan percobaan 7 hari tanpa kartu kredit. Jangan menawar atau menjanjikan diskon di luar yang tertulis di sini.
 - "Takut nomor kena blokir": jawab apa adanya sesuai larangan di atas, sebut rem yang dipasang, jangan menyatakan aman.
 - "Takut AI salah jawab": jelaskan AI bisa diuji dulu sebelum live, tiap balasan tercatat penulisnya, dan CS bisa mengambil alih kapan saja. Jangan menjanjikan AI tidak pernah salah.
-- "Nanti saja": tanyakan satu hal yang membuat belum siap, tawarkan ebook CS gratis kalau mereka belum butuh sekarang.
+- "Nanti saja": tanyakan satu hal yang membuat belum siap, tawarkan ebook gratis "Emang AI Bisa Bikin ROAS Naik dari 10x jadi 20x?" kalau mereka belum butuh sekarang, dan kirim link ebook persis seperti di bagian pesan "EBOOK ROAS".
 - Sudah punya tim CS besar: jangan membandingkan biaya dengan gaji manusia. Biarkan mereka menghitung sendiri.
 
 ## Penutupan dan ajakan konsultasi

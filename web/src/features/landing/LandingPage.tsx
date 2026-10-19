@@ -438,13 +438,28 @@ const KOLOM_FORM = 'h-12 w-full rounded-app border border-white/25 bg-white px-4
 function UmpanEbook() {
   const [kirim, setKirim] = useState(false);
 
-  // Belum ada penyimpanan lead di server untuk form ini. Isiannya dibawa ke
-  // WhatsApp Agnee sebagai pesan siap kirim, jadi lead masuk lewat jalur yang
-  // sudah hidup dan tidak ada endpoint publik yang bisa disalahgunakan.
+  // Dua langkah dalam satu klik. Lead dicatat dulu lewat POST /public/ebook-lead
+  // (keepalive, supaya tetap terkirim walau tab berpindah), lalu isiannya dibawa
+  // ke WhatsApp Agnee sebagai pesan siap kirim. Server sengaja tidak mengirim
+  // WhatsApp ke nomor yang diisi: pesan pembuka dari pengunjung itulah yang
+  // memicu balasan ebook dari playbook. Pencatatan yang gagal tidak menahan
+  // pengunjung: pesan WhatsApp tetap membawa keempat isiannya.
   function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
     const nilai = (kunci: string) => String(data.get(kunci) ?? '').trim();
+    fetch('/public/ebook-lead', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        name: nilai('nama'),
+        brand: nilai('brand'),
+        email: nilai('email'),
+        whatsapp: nilai('wa'),
+        website: nilai('website'),
+      }),
+      keepalive: true,
+    }).catch(() => undefined);
     const pesan = [
       'EBOOK ROAS - halo, saya mau fitur lanjutan dan ebook "Emang AI Bisa Bikin ROAS Naik dari 10x jadi 20x?".',
       `Nama: ${nilai('nama')}`,
@@ -509,6 +524,10 @@ function UmpanEbook() {
                 />
               </label>
             ))}
+            <label aria-hidden className="absolute -left-[9999px] size-px overflow-hidden">
+              Jangan diisi
+              <input name="website" type="text" tabIndex={-1} autoComplete="off" />
+            </label>
             <button
               type="submit"
               className={`mt-1 h-12 cursor-pointer rounded-app border-0 bg-[#25d366] px-5 text-[15px] font-semibold text-[#0c1912] transition hover:bg-[#1dbd5e] ${FOKUS_GELAP}`}
@@ -517,7 +536,7 @@ function UmpanEbook() {
             </button>
             {kirim ? (
               <p role="status" className="m-0 text-[13px] leading-[1.55] text-[#9bd3f7]">
-                WhatsApp terbuka dengan isianmu. Tekan kirim di sana supaya kami menerimanya.
+                Datamu tercatat. WhatsApp terbuka dengan isianmu: tekan kirim di sana, ebook-nya langsung dibalas ke chat itu.
               </p>
             ) : null}
           </form>

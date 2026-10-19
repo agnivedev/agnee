@@ -122,6 +122,11 @@ function loadConfig(overrides = {}) {
     // Company penerima wajib disebut eksplisit, sama seperti webhook Insight.
     leadWebhookSecret: process.env.LEAD_WEBHOOK_SECRET || '',
     leadWebhookCompany: (process.env.LEAD_WEBHOOK_COMPANY || '').trim(),
+    // Form ebook di /landing (POST /public/ebook-lead). Company penerima disebut
+    // eksplisit dan bukan tenant bawaan: ini lead pemasaran Beweix sendiri.
+    // Kosongkan EBOOK_LEAD_COMPANY untuk menutup pintunya (404). Kalau slug-nya
+    // tidak ada di server itu, rute menolak dengan 503, tidak jatuh ke company lain.
+    ebookLeadCompany: (process.env.EBOOK_LEAD_COMPANY ?? 'beweix-digital').trim(),
     // Hasil pembacaan portal IB broker (robot Anduman) -> Agnee. Rahasia sendiri,
     // terpisah dari LEAD_WEBHOOK_SECRET milik WordPress. Kosong = pintu tertutup.
     leadVerifySecret: process.env.LEAD_VERIFY_SECRET || '',
@@ -2595,6 +2600,82 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     } catch {
       return reply.code(503).send({ error: 'Data kuota belum tersedia.' });
     }
+  });
+
+  // Lead dari form ebook di /landing. Publik dan tanpa sesi, jadi dijaga tiga
+  // lapis: batas per IP, batas total per jam, dan kolom jebakan `website` yang
+  // tidak terlihat orang. Sengaja TIDAK mengirim WhatsApp ke nomor yang diisi:
+  // pintu publik yang menembak pesan ke nomor siapa pun adalah alat spam.
+  // Pengunjung mengirim sendiri pesan pembuka dari WhatsApp-nya, dan balasan
+  // ebook datang dari playbook, bukan dari sini. Yang dikerjakan di sini hanya
+  // mencatat lead supaya tidak hilang kalau pesan itu tidak jadi dikirim.
+  const EBOOK_LEAD_SOURCE = 'ebook-20x-roas';
+  const EBOOK_LEAD_IP_HOURLY = 8;
+  const EBOOK_LEAD_ALL_HOURLY = 200;
+  const ebookLeadIpTimes = new Map();
+  let ebookLeadAllTimes = [];
+  const cleanText = (value, max) => String(value ?? '').replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s{2,}/g, ' ').trim().slice(0, max);
+
+  app.post('/public/ebook-lead', {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['name', 'brand', 'email', 'whatsapp'],
+        additionalProperties: false,
+        properties: {
+          name: { type: 'string', minLength: 2, maxLength: 100 },
+          brand: { type: 'string', minLength: 2, maxLength: 120 },
+          email: { type: 'string', maxLength: 200 },
+          whatsapp: { type: 'string', minLength: 8, maxLength: 40 },
+          website: { type: 'string', maxLength: 200 },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    if (!config.ebookLeadCompany) return reply.code(404).send({ error: 'Not found' });
+    // Pengisi otomatis mengisi kolom yang tidak terlihat. Dijawab sukses supaya robot tidak belajar.
+    if (request.body.website) return { ok: true };
+
+    const now = Date.now();
+    const ip = request.ip || request.socket.remoteAddress || 'unknown';
+    const ipRecent = (ebookLeadIpTimes.get(ip) || []).filter((at) => now - at < 60 * 60_000);
+    ebookLeadAllTimes = ebookLeadAllTimes.filter((at) => now - at < 60 * 60_000);
+    if (ipRecent.length >= EBOOK_LEAD_IP_HOURLY || ebookLeadAllTimes.length >= EBOOK_LEAD_ALL_HOURLY) {
+      reply.header('retry-after', '3600');
+      return reply.code(429).send({ error: 'Terlalu banyak kiriman. Coba lagi nanti.' });
+    }
+    ipRecent.push(now);
+    ebookLeadIpTimes.set(ip, ipRecent);
+    ebookLeadAllTimes.push(now);
+
+    const name = cleanText(request.body.name, 100);
+    const brand = cleanText(request.body.brand, 120);
+    const email = normalizeEmail(request.body.email);
+    if (name.length < 2 || brand.length < 2 || !email) return reply.code(400).send({ error: 'Data belum lengkap.' });
+    let chatId;
+    try { chatId = normalizeChatId(request.body.whatsapp, config.defaultCountryCode); } catch { return reply.code(400).send({ error: 'Nomor WhatsApp tidak valid.' }); }
+
+    if (!database.enabled || !database.status().connected) return reply.code(503).send({ error: 'Layanan belum tersedia.' });
+    const companyId = await database.resolveCompanyId(config.ebookLeadCompany).catch(() => null);
+    if (!companyId) {
+      app.log.error({ company: config.ebookLeadCompany }, 'Ebook lead: company penerima tidak ditemukan');
+      return reply.code(503).send({ error: 'Layanan belum tersedia.' });
+    }
+    try {
+      await database.recordWebsiteLead({
+        chatId,
+        title: `${name} · ${brand}`,
+        detail: `Dari form ebook (${EBOOK_LEAD_SOURCE}). Email: ${email}.`,
+      }, companyId);
+      await database.saveWebsiteLeadProfile({
+        submissionId: `ebook-${chatId}`.slice(0, 64), chatId, name, whatsapp: request.body.whatsapp, email,
+        broker: '', accountStatus: 'new', accountNumber: '', brokerEmail: '', language: 'id',
+      }, companyId);
+    } catch (error) {
+      app.log.warn({ err: error }, 'Ebook lead: lead tidak tersimpan');
+      return reply.code(503).send({ error: 'Layanan belum tersedia.' });
+    }
+    return { ok: true };
   });
 
   // Health is tenant-agnostic: there is no default company whose WhatsApp state

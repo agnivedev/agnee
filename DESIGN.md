@@ -35,22 +35,6 @@ Dua warna inti, satu aksen. Netral tidak dihitung.
 tombolnya hijau WhatsApp, tombol itu memang membuka WhatsApp. Jangan dipakai
 untuk hal lain.
 
-### Warna pendamping (override pemilik, 2026-10-17)
-
-Hanny meminta halaman landing tidak hampir seluruhnya hijau tua dan neon.
-Aturan dua warna inti + satu aksen dilonggarkan khusus `/landing`: ada tiga
-warna pendamping yang dipakai sebagai penanda bagian (`TEMA` di
-`LandingPage.tsx`), satu warna per bagian, bukan dicampur dalam satu bagian.
-
-| Warna | Terang | Gelap | Bagian |
-|---|---|---|---|
-| Biru | `#1d5f8f` / latar `#e3f1fc` | `#7cc4f5` / `#10222e` | Inbox, serah-terima, webinar |
-| Kuning | `#8a5a00` / latar `#fdf3dc` | `#f5c451` / `#2a2412` | Follow-up, dan **satu-satunya** blok promo kuota |
-| Koral | `#a8400f` / latar `#fde8df` | `#ff9b7a` / `#2b1a16` | Broadcast, ebook |
-
-Hijau tetap warna merek dan warna tombol CTA utama. Penekanan (garis tebal,
-angka besar) hanya boleh ada di blok promo kuota.
-
 ## Tipografi
 
 - Teks: **DM Sans**. Dipilih karena bentuk hurufnya terbuka dan terbaca di

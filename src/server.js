@@ -2790,20 +2790,6 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     });
   }
 
-  // Kuota promo untuk /landing. Publik dan tanpa sesi: yang keluar hanya
-  // bulan, batas, dan jumlah perusahaan yang dibuat bulan itu. Batas 50 harus
-  // sama dengan KUOTA_PROMO di web/src/features/landing/LandingPage.tsx.
-  app.get('/public/promo-quota', async (_request, reply) => {
-    if (!database.status().connected) return reply.code(503).send({ error: 'Data kuota belum tersedia.' });
-    try {
-      const { used, month } = await database.countCompaniesCreatedThisMonth();
-      reply.header('Cache-Control', 'public, max-age=60');
-      return { month, limit: 50, used };
-    } catch {
-      return reply.code(503).send({ error: 'Data kuota belum tersedia.' });
-    }
-  });
-
   // Lead dari form ebook di /landing. Publik dan tanpa sesi, jadi dijaga tiga
   // lapis: batas per IP, batas total per jam, dan kolom jebakan `website` yang
   // tidak terlihat orang. Sengaja TIDAK mengirim WhatsApp ke nomor yang diisi:

@@ -1,0 +1,493 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<title>Cara Mengejar 20x ROAS: Iklan, AI, dan Tim Closing Bekerja Bersama</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
+<!--
+Alasan keputusan desain (antislop R-31). Dial: ENERGY 2 / RHYTHM 3 / MOTION 1 (cetak, diam).
+- Palet dari DESIGN.md. Biru, kuning, koral hanya penanda bab: biru untuk iklan, kuning untuk chat dan follow-up, koral untuk ukur dan rencana.
+- Bricolage Grotesque untuk judul dan angka, Plus Jakarta Sans untuk isi. Tanpa huruf mono dan tanpa label kapital berjarak lebar (R-06).
+- Diagram digambar dari mekanisme yang dibahas di teks, bukan ilustrasi stok (R-22).
+- Contoh hitungan di bab 9 diberi label rekaan latihan. Satu-satunya angka hasil yang dipakai adalah angka yang dipegang pemilik (R-17, R-36).
+- Dilarang di halaman Agnee dan ikut berlaku di sini: "24 jam", "nonstop", nama model, merek CRM lain, em dash.
+-->
+<style>
+  :root{
+    --ink:#14241f; --soft:#3f5c4e; --wash:#eef5eb; --line:#c6dcc0;
+    --deep:#0c1912; --lime:#7fff4f; --green:#087d4c;
+    --biru:#1d5f8f; --biru-bg:#e3f1fc;
+    --kuning:#8a5a00; --kuning-bg:#fdf3dc;
+    --koral:#a8400f; --koral-bg:#fde8df;
+    --head:"Bricolage Grotesque","Plus Jakarta Sans",sans-serif;
+    --body:"Plus Jakarta Sans",-apple-system,"Helvetica Neue",Arial,sans-serif;
+  }
+  @page{
+    size:148mm 210mm; margin:17mm 15mm 18mm 15mm;
+    @bottom-right{content:counter(page);font-family:"Plus Jakarta Sans",sans-serif;font-size:8pt;color:#3f5c4e}
+    @bottom-left{content:"Cara Mengejar 20x ROAS";font-family:"Plus Jakarta Sans",sans-serif;font-size:8pt;color:#3f5c4e}
+  }
+  @page :first{margin:0;@bottom-right{content:none}@bottom-left{content:none}}
+  @page cover-end{margin:0;@bottom-right{content:none}@bottom-left{content:none}}
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{font-family:var(--body);font-size:9.7pt;line-height:1.55;color:var(--ink);-webkit-font-smoothing:antialiased}
+  h1,h2,h3{font-family:var(--head);letter-spacing:-.02em;margin:0}
+  p{margin:0 0 3.2mm}
+  strong{font-weight:700}
+  ul,ol{margin:0 0 3.5mm;padding-left:5.5mm}
+  li{margin-bottom:1.6mm}
+
+  /* sampul */
+  .cover{width:148mm;height:210mm;background:var(--deep);color:#f4f9f0;position:relative;overflow:hidden;
+         page-break-after:always;break-after:page;display:flex;flex-direction:column;padding:16mm 15mm}
+  .cover .logo{height:8mm;align-self:flex-start;filter:brightness(0) invert(1)}
+  .cover .x{font-family:var(--head);font-weight:800;font-size:120pt;line-height:.85;letter-spacing:-.06em;color:var(--lime);margin:16mm 0 0}
+  .cover h1{font-size:30pt;line-height:1.04;font-weight:800;letter-spacing:-.03em;margin:4mm 0 5mm;max-width:112mm}
+  .cover .sub{font-size:12pt;color:rgba(244,249,240,.8);max-width:96mm;margin:0}
+  .cover .img{position:absolute;left:0;right:0;bottom:0;height:62mm}
+  .cover .img img{width:100%;height:100%;object-fit:cover;object-position:60% 40%;filter:brightness(1.1)}
+  .cover .img:after{content:"";position:absolute;inset:0;background:linear-gradient(0deg,rgba(12,25,18,.1),#0c1912 92%)}
+  .cover .by{position:absolute;left:15mm;bottom:12mm;font-size:9pt;color:rgba(244,249,240,.85);z-index:2}
+
+  /* pembuka bab */
+  .opener{break-before:page;padding-top:0}
+  .opener .no{font-family:var(--head);font-weight:800;font-size:46pt;line-height:.9;letter-spacing:-.05em;margin:0 0 2mm}
+  .opener h1{font-size:21pt;line-height:1.08;font-weight:800;letter-spacing:-.03em;margin:0 0 3mm;max-width:112mm}
+  .opener .lede{font-size:11pt;line-height:1.5;color:var(--soft);font-weight:500;margin:0 0 4mm}
+  .c-biru .no{color:var(--biru)} .c-kuning .no{color:var(--kuning)} .c-koral .no{color:var(--koral)} .c-hijau .no{color:var(--green)}
+  h2{font-size:13pt;line-height:1.22;margin:6.5mm 0 2.5mm;font-weight:700}
+  h3{font-size:10.5pt;margin:4.5mm 0 1.2mm;font-weight:700;font-family:var(--body);letter-spacing:0}
+
+  /* komponen */
+  .box{border-radius:3mm;padding:4.5mm 5mm;margin:4.5mm 0;background:var(--wash)}
+  .box b.t{display:block;font-family:var(--head);font-size:10.5pt;margin-bottom:1.5mm}
+  .box p:last-child,.box ul:last-child{margin-bottom:0}
+  .c-biru .box{background:var(--biru-bg)} .c-kuning .box{background:var(--kuning-bg)} .c-koral .box{background:var(--koral-bg)}
+  .agnee{background:var(--deep)!important;color:#eef5eb;border-radius:3mm}
+  .agnee b.t{color:var(--lime)}
+  .chat{margin:3mm 0;display:grid;gap:2mm;break-inside:avoid}
+  .chat div{max-width:88%;padding:2.4mm 3.4mm;border-radius:3.2mm;font-size:9.4pt;line-height:1.45}
+  .chat .k{background:#fff;border:1px solid var(--line)}
+  .chat .a{background:#d9f4de;justify-self:end;border:1px solid #b5e3c4}
+  .chat small{display:block;font-size:7.5pt;color:var(--soft);margin-bottom:.6mm;font-weight:600}
+  .dg{width:100%;height:auto;display:block;margin:4mm 0}
+  svg text{font-family:var(--body)}
+  table{border-collapse:collapse;width:100%;margin:4mm 0;font-size:9pt;line-height:1.4}
+  th{font-family:var(--head);text-align:left;padding:2mm 2.4mm;background:var(--deep);color:#f4f9f0;font-weight:700;font-size:9pt}
+  td{padding:2mm 2.4mm;border-bottom:1px solid var(--line);vertical-align:top}
+  td.n{font-family:var(--head);font-weight:700;text-align:right;white-space:nowrap}
+  .keep{break-inside:avoid}
+  h2,h3{break-after:avoid}
+  .box{break-inside:avoid}
+  .dg{margin:3mm 0}
+  .quote{font-family:var(--head);font-size:15pt;line-height:1.2;font-weight:700;letter-spacing:-.02em;margin:5mm 0;color:var(--green)}
+  .check{list-style:none;padding:0}
+  .check li{padding-left:6mm;position:relative;margin-bottom:2.2mm}
+  .check li:before{content:"";position:absolute;left:0;top:1.2mm;width:3.2mm;height:3.2mm;border:1.5px solid var(--ink);border-radius:.8mm}
+
+  .toc{list-style:none;padding:0;counter-reset:b;}
+  .toc li{break-inside:avoid;display:grid;grid-template-columns:8mm 1fr;gap:3mm;padding:.7mm 0;border-top:1px solid var(--line);margin:0;align-items:baseline}
+  .toc li:last-child{border-bottom:1px solid var(--line)}
+  .toc b{font-family:var(--head);font-size:13pt;color:var(--green)}
+  .toc span{font-weight:600;font-size:10pt}
+  .toc em{display:inline;font-style:normal;font-weight:400;font-size:8.8pt;color:var(--soft);margin-left:2mm}
+</style>
+</head>
+<body>
+
+<!-- SAMPUL -->
+<div class="cover">
+  <img class="logo" src="../../assets/brand/agnee-logo-primary.svg" alt="Agnee by Beweix">
+  <div class="x">20x</div>
+  <h1>Cara Mengejar ROAS</h1>
+  <p class="sub">Iklan, AI, dan tim closing bekerja bersama.</p>
+  <div class="img"><img src="../../public/assets/hero-team.png" alt=""></div>
+  <div class="by">Ebook gratis dari Agnee by Beweix</div>
+</div>
+
+<!-- CARA BACA -->
+<div style="break-after:page">
+  <h1 style="font-size:21pt;font-weight:800;letter-spacing:-.03em;margin:0 0 3mm">Sebelum mulai</h1>
+  <p class="lede" style="font-size:11.5pt;color:var(--soft);font-weight:500">Ebook ini buat kamu yang sudah pasang iklan, dapat chat masuk, tapi omzetnya belum sebanding dengan biaya iklannya.</p>
+  <p>Isinya satu cerita: ROAS ditentukan di tiga tempat. Di iklan, di chat sesudah klik, dan di meja closing. Kebanyakan orang hanya mengurus yang pertama, lalu heran kenapa angkanya mentok.</p>
+  <p>Angka di judul adalah arah yang kami kejar, bukan janji untuk bisnismu: tim iklan manusia mengejar 10x, lalu AI yang membalas dan menyusul lead yang diam menambah 2 sampai 3 kali lipat. Hasilmu tergantung produk, harga, dan cara timmu menutup. Bab 9 mengajarkan cara mengukurnya sendiri.</p>
+  <ol class="toc" style="margin-top:3mm">
+    <li><b>1</b><span>ROAS itu hasil tiga hal<em>Rumus yang bisa kamu pegang</em></span></li>
+    <li><b>2</b><span>Di mana ROAS bocor<em>Lima lubang sesudah klik</em></span></li>
+    <li><b>3</b><span>Iklan: satu pesan, satu tujuan<em>Mulai kecil, uji, kembangkan yang jalan</em></span></li>
+    <li><b>4</b><span>Janji iklan harus sama dengan jawaban chat<em>Konsistensi pembuka</em></span></li>
+    <li><b>5</b><span>Lima menit pertama<em>Kecepatan, tanpa terdengar seperti robot</em></span></li>
+    <li><b>6</b><span>Siapa memegang apa, AI atau manusia<em>Pembagian kerja</em></span></li>
+    <li><b>7</b><span>Dari "nanya doang" ke "transfer ke mana ya"<em>Lima tahap menutup</em></span></li>
+    <li><b>8</b><span>Follow-up yang tidak nagih<em>Tiga pengaman</em></span></li>
+    <li><b>9</b><span>Mengukur ROAS yang jujur<em>Tabel dan rumus</em></span></li>
+    <li><b>10</b><span>Rencana 30 hari<em>Plus checklist cetak</em></span></li>
+  </ol>
+</div>
+
+<!-- BAB 1 -->
+<div class="opener c-hijau">
+  <p class="no">1</p>
+  <h1>ROAS itu hasil tiga hal</h1>
+  <p class="lede">Iklan membawa orang ke pintu. Sesudah itu, dua hal lain menentukan berapa yang masuk.</p>
+</div>
+<p>ROAS, singkatnya, omzet dibagi biaya iklan. Kalau kamu belanja iklan Rp 1 juta dan omzet dari iklan itu Rp 10 juta, ROAS-nya 10x. Tapi omzet itu hasil perkalian beberapa tahap, dan satu tahap yang lemah menarik seluruh hasilnya turun.</p>
+
+<svg class="dg keep" viewBox="0 0 560 150" role="img" aria-label="Rumus omzet: klik dikali chat masuk dikali dibalas cepat dikali closing dikali nilai order">
+  <g font-family="Bricolage Grotesque, sans-serif" font-weight="700" text-anchor="middle">
+    <rect x="0" y="30" width="96" height="70" rx="10" fill="#e3f1fc"/><text x="48" y="62" font-size="14" fill="#1d5f8f">Klik</text><text x="48" y="82" font-size="10" font-family="Plus Jakarta Sans" font-weight="500" fill="#14241f">dari iklan</text>
+    <text x="106" y="72" font-size="18" fill="#14241f">×</text>
+    <rect x="116" y="30" width="96" height="70" rx="10" fill="#e3f1fc"/><text x="164" y="62" font-size="14" fill="#1d5f8f">Chat masuk</text><text x="164" y="82" font-size="10" font-family="Plus Jakarta Sans" font-weight="500" fill="#14241f">dari klik</text>
+    <text x="222" y="72" font-size="18" fill="#14241f">×</text>
+    <rect x="232" y="30" width="96" height="70" rx="10" fill="#fdf3dc"/><text x="280" y="62" font-size="14" fill="#8a5a00">Dibalas</text><text x="280" y="82" font-size="10" font-family="Plus Jakarta Sans" font-weight="500" fill="#14241f">cepat dan nyambung</text>
+    <text x="338" y="72" font-size="18" fill="#14241f">×</text>
+    <rect x="348" y="30" width="96" height="70" rx="10" fill="#fdf3dc"/><text x="396" y="62" font-size="14" fill="#8a5a00">Closing</text><text x="396" y="82" font-size="10" font-family="Plus Jakarta Sans" font-weight="500" fill="#14241f">jadi beli</text>
+    <text x="454" y="72" font-size="18" fill="#14241f">×</text>
+    <rect x="464" y="30" width="96" height="70" rx="10" fill="#fde8df"/><text x="512" y="62" font-size="14" fill="#a8400f">Nilai order</text><text x="512" y="82" font-size="10" font-family="Plus Jakarta Sans" font-weight="500" fill="#14241f">dan beli lagi</text>
+  </g>
+  <text x="0" y="128" font-size="11" fill="#3f5c4e">Biru: urusan iklan. Kuning: urusan chat. Koral: urusan harga dan pelanggan lama.</text>
+</svg>
+
+<p>Perhatikan dua kotak kuning di tengah. Itu tahap yang terjadi sesudah orang menekan iklanmu, dan itu tahap yang paling sering tidak dipegang siapa-siapa. Iklan diurus agency atau marketer. Closing diurus sales. Chat di antaranya diurus "siapa yang lagi pegang HP".</p>
+
+<div class="box">
+  <b class="t">Rumus tiga tangan</b>
+  <p><strong>Iklan</strong> membawa orang yang tepat. <strong>AI</strong> memastikan tiap chat dibalas cepat, digali, dan dikejar. <strong>Manusia</strong> menutup percakapan yang butuh pertimbangan dan hubungan.</p>
+  <p>Ketiganya dikali, bukan dijumlah. Iklan sempurna dengan chat yang dibalas besok pagi tetap menghasilkan sedikit.</p>
+</div>
+
+<!-- BAB 2 -->
+<div class="opener c-kuning">
+  <p class="no">2</p>
+  <h1>Di mana ROAS bocor</h1>
+  <p class="lede">Lima lubang yang hampir selalu ada di antara klik dan transfer.</p>
+</div>
+
+<svg class="dg keep" viewBox="0 0 560 250" role="img" aria-label="Corong dengan lima lubang: chat telat, jawaban brosur, link terlalu cepat, lead diam, tidak ada catatan">
+  <path d="M10 10 H550 L420 130 V210 H140 V130 Z" fill="#eef5eb" stroke="#c6dcc0" stroke-width="2"/>
+  <g font-family="Bricolage Grotesque, sans-serif" font-weight="700" font-size="13" fill="#14241f">
+    <circle cx="30" cy="40" r="11" fill="#e0a526"/><text x="30" y="45" font-size="12" text-anchor="middle">1</text><text x="50" y="45">Chat dibalas telat</text>
+    <circle cx="30" cy="78" r="11" fill="#e0a526"/><text x="30" y="83" font-size="12" text-anchor="middle">2</text><text x="50" y="83">Jawaban berupa brosur</text>
+    <circle cx="30" cy="116" r="11" fill="#e0a526"/><text x="30" y="121" font-size="12" text-anchor="middle">3</text><text x="50" y="121">Link bayar terlalu cepat</text>
+    <circle cx="180" cy="160" r="11" fill="#e0a526"/><text x="180" y="165" font-size="12" text-anchor="middle">4</text><text x="200" y="165">Lead diam, tidak dikejar</text>
+    <circle cx="180" cy="196" r="11" fill="#e0a526"/><text x="180" y="201" font-size="12" text-anchor="middle">5</text><text x="200" y="201">Tidak ada catatan</text>
+  </g>
+  <path d="M280 210 V240" stroke="#19c666" stroke-width="10"/><text x="300" y="238" font-family="Bricolage Grotesque, sans-serif" font-weight="700" font-size="13" fill="#087d4c">Transfer</text>
+</svg>
+
+<h3>1. Chat dibalas telat</h3>
+<p>Orang yang menekan iklan sedang punya niat, dan niat itu dingin cepat. Chat yang menunggu berjam-jam sering sudah berpindah ke toko lain yang membalas lebih dulu.</p>
+<h3>2. Jawaban berupa brosur</h3>
+<p>Pelanggan tanya satu hal, dibalas enam paragraf keunggulan. Dia tidak membaca, tapi dia juga tidak enak bilang "nggak jadi". Jadi dia menghilang.</p>
+<h3>3. Link bayar terlalu cepat</h3>
+<p>Baru menyebut harga, sudah disodori formulir bayar. Dia belum tahu yang mana yang dia beli.</p>
+<h3>4. Lead diam, tidak dikejar</h3>
+<p>Janji "nanti dikabarin lagi" dicatat di kepala satu orang, dan orang itu pulang jam lima.</p>
+<h3>5. Tidak ada catatan</h3>
+<p>Sales berganti shift, pelanggan disuruh cerita ulang. Percakapan yang sudah 80% jadi mulai dari nol lagi.</p>
+<div class="box">
+  <b class="t">Hitung milikmu sendiri</b>
+  <p>Ambil sepuluh chat terakhir dari iklan. Untuk tiap chat, catat: berapa menit sampai balasan pertama, apakah ada pertanyaan balik, dan apakah ada follow-up kalau dia diam. Dari sepuluh itu biasanya terlihat lubang mana yang paling besar.</p>
+</div>
+
+<!-- BAB 3 -->
+<div class="opener c-biru">
+  <p class="no">3</p>
+  <h1>Iklan: satu pesan, satu tujuan</h1>
+  <p class="lede">Mulai kecil, uji dulu, kembangkan yang bekerja.</p>
+</div>
+<p>Iklan boleh kecil. Targetnya yang harus besar. Anggaran kecil dengan sistem yang benar dari awal lebih berguna daripada anggaran besar yang menyiram ke mana-mana.</p>
+<h2>Satu kampanye, satu tujuan</h2>
+<p>Tentukan hasil yang kamu hitung: <strong>chat masuk</strong> atau <strong>pembelian di situs</strong>. Jangan campur keduanya di satu kampanye, karena algoritma iklan mengoptimalkan satu hal saja dan kamu tidak bisa membandingkan hasilnya.</p>
+<p>Kalau penjualanmu terjadi di WhatsApp, pakai tujuan chat. Seluruh ebook ini mengasumsikan itu.</p>
+<h2>Uji satu pesan, pelajari respons, kembangkan yang bekerja</h2>
+<ol>
+  <li><strong>Tulis tiga pesan iklan</strong> yang berbeda sudut: masalah pelanggan, hasil yang dia mau, atau alasan memilihmu.</li>
+  <li><strong>Jalankan dengan anggaran kecil yang sama</strong> dan audiens yang sama, selama beberapa hari.</li>
+  <li><strong>Baca respons dari chat</strong>, bukan dari jumlah klik: pesan mana yang menghasilkan percakapan yang berlanjut.</li>
+  <li><strong>Matikan yang lemah, naikkan yang kuat.</strong> Lalu ulangi dengan tiga sudut baru.</li>
+</ol>
+<div class="box">
+  <b class="t">Angka yang dilihat</b>
+  <p>Lihat <strong>biaya per chat masuk</strong>, lalu <strong>biaya per chat yang berlanjut</strong>. Klik murah yang tidak jadi percakapan bukan murah.</p>
+</div>
+<h2>Audiens: sempit dulu</h2>
+<p>Mulai dari satu kota atau satu jenis pelanggan yang paling jelas. Lebih mudah membaca hasil dari kelompok kecil yang seragam daripada dari kelompok luas yang campur aduk.</p>
+
+<!-- BAB 4 -->
+<div class="opener c-biru">
+  <p class="no">4</p>
+  <h1>Janji iklan harus sama dengan jawaban chat</h1>
+  <p class="lede">Pelanggan datang karena satu kalimat. Chat pertama harus membuktikan kalimat itu benar.</p>
+</div>
+<p>Kebocoran paling halus terjadi di sini. Iklan menjanjikan "ongkir gratis ke seluruh Jawa". Orang menekan, chat terbuka, dan balasan pertamanya: "Halo, selamat datang di toko kami, ada yang bisa dibantu?". Dia harus mengetik ulang apa yang dia lihat di iklan.</p>
+<div class="chat">
+  <div class="k"><small>Pelanggan</small>Kak, yang ongkir gratis ke Jawa Tengah itu masih berlaku?</div>
+  <div class="a"><small>Balasan yang melempar bola balik</small>Halo kak, selamat datang! Ada yang bisa kami bantu?</div>
+</div>
+<div class="chat">
+  <div class="k"><small>Pelanggan</small>Kak, yang ongkir gratis ke Jawa Tengah itu masih berlaku?</div>
+  <div class="a"><small>Balasan yang menyambung</small>Masih kak, berlaku sampai akhir bulan untuk pembelian di atas Rp 300.000. Kakak mau cek untuk produk yang mana?</div>
+</div>
+<p style="font-size:8.5pt;color:var(--soft)">Percakapan contoh untuk ilustrasi, bukan percakapan klien.</p>
+<h2>Satu iklan, satu pembuka</h2>
+<p>Untuk tiap iklan, tulis pesan pembuka yang cocok dengan janjinya. Di iklan Click-to-WhatsApp, kamu bisa mengisi teks awal yang muncul di kolom chat pelanggan. Isi dengan kalimat yang membuat dia langsung bertanya hal yang kamu inginkan.</p>
+<div class="box">
+  <b class="t">Rumus pembuka iklan</b>
+  <p>Sebut hal yang ada di iklan, lalu satu pertanyaan yang gampang dijawab. Contoh: "Halo, saya lihat iklan sepatu trail diskon. Ukuran 42 masih ada?"</p>
+</div>
+<h2>Satu label sumber</h2>
+<p>Beri tiap iklan tanda yang masuk ke chat: kata pertama yang berbeda, atau label di Lead List. Tanpa ini kamu tidak tahu iklan mana yang menghasilkan omzet, dan bab 9 tidak bisa dikerjakan.</p>
+
+<!-- BAB 5 -->
+<div class="opener c-kuning">
+  <p class="no">5</p>
+  <h1>Lima menit pertama</h1>
+  <p class="lede">Cepat itu perlu. Terdengar seperti robot itu merusak.</p>
+</div>
+<p>Orang yang baru menekan iklan masih memegang HP. Balasan di lima menit pertama bertemu dia saat niatnya masih hangat. Balasan sesudah setengah hari bertemu dia saat dia sedang mengurus hal lain.</p>
+<p>Di sinilah AI paling berguna. Bukan menggantikan sales, tapi memastikan tidak ada chat yang menunggu manusia yang sedang makan siang, rapat, atau sudah pulang.</p>
+<h2>Tiga hal dalam balasan pertama</h2>
+<ol>
+  <li><strong>Jawab yang ditanya.</strong> Satu kalimat, tanpa pembukaan panjang.</li>
+  <li><strong>Tanya satu hal balik.</strong> Hal yang membantumu memahami kebutuhannya.</li>
+  <li><strong>Tunjukkan langkah berikutnya.</strong> Bukan link bayar, tapi apa yang akan terjadi kalau dia lanjut.</li>
+</ol>
+<div class="chat">
+  <div class="k"><small>Pelanggan, 21.40</small>Kak, sepatu trail ukuran 42 ready?</div>
+  <div class="a"><small>Balasan pertama, 21.40</small>Ready kak, warna hitam dan abu. Kakak mau dipakai buat lari di jalur seperti apa? Biar kami pilihkan yang pas.</div>
+  <div class="k"><small>Pelanggan</small>Buat lari di bukit, tanah basah</div>
+  <div class="a"><small>Balasan kedua</small>Kalau begitu yang abu lebih cocok, tapak lebih dalam. Kalau dipesan sebelum jam 3 sore, kami kirim hari yang sama. Mau saya lanjutkan ke detail pengiriman?</div>
+</div>
+<p style="font-size:8.5pt;color:var(--soft)">Percakapan contoh untuk ilustrasi, bukan percakapan klien.</p>
+<div class="box agnee">
+  <b class="t">Yang dikerjakan Agnee di tahap ini</b>
+  <p>Agnee membaca riwayat chat dan menjawab dari playbook-mu, termasuk bertanya balik sesuai tahap penggalian. Jeda balasan bisa diatur supaya terasa seperti manusia mengetik, bukan semburan otomatis.</p>
+</div>
+<h2>Yang harus dihindari AI</h2>
+<ul>
+  <li>Mengarang jawaban kalau tidak tahu. Lebih baik bertanya ke tim lalu kembali.</li>
+  <li>Menyebut harga atau janji yang tidak ada di playbook.</li>
+  <li>Mengirim link bayar sebelum kebutuhan jelas.</li>
+</ul>
+
+<!-- BAB 6 -->
+<div class="opener c-kuning">
+  <p class="no">6</p>
+  <h1>Siapa memegang apa, AI atau manusia</h1>
+  <p class="lede">Pembagian kerja yang jelas membuat keduanya lebih berguna.</p>
+</div>
+<svg class="dg keep" viewBox="0 0 560 220" role="img" aria-label="Dua kolom: pekerjaan AI dan pekerjaan manusia">
+  <g font-family="Bricolage Grotesque, sans-serif" font-weight="700">
+    <rect x="0" y="0" width="270" height="220" rx="12" fill="#e4f7ea"/>
+    <text x="16" y="28" font-size="15" fill="#087d4c">AI memegang</text>
+    <rect x="290" y="0" width="270" height="220" rx="12" fill="#e3f1fc"/>
+    <text x="306" y="28" font-size="15" fill="#1d5f8f">Manusia memegang</text>
+  </g>
+  <g font-size="11.5" fill="#14241f">
+    <text x="16" y="56">Pertanyaan yang berulang</text>
+    <text x="16" y="80">Penggalian kebutuhan awal</text>
+    <text x="16" y="104">Menjawab di luar jam kerja</text>
+    <text x="16" y="128">Follow-up yang terjadwal</text>
+    <text x="16" y="152">Ringkasan dan label percakapan</text>
+    <text x="16" y="176">Mencatat tugas dan SLA</text>
+    <text x="306" y="56">Tawar-menawar dan diskon</text>
+    <text x="306" y="80">Komplain dan pelanggan marah</text>
+    <text x="306" y="104">Order bernilai besar</text>
+    <text x="306" y="128">Janji khusus yang tidak ada di playbook</text>
+    <text x="306" y="152">Hubungan dengan pelanggan lama</text>
+    <text x="306" y="176">Keputusan yang butuh penilaian</text>
+  </g>
+</svg>
+<h2>Aturan serah-terima</h2>
+<p><strong>Kalau kamu mulai mengetik, AI minggir.</strong> Chat itu jadi milikmu, dan AI berhenti membalas supaya tidak ada dua suara di satu percakapan.</p>
+<p><strong>Kalau kamu diam, AI jaga lagi.</strong> Di Agnee, chat yang kamu tinggalkan kembali ke AI setelah 30 menit tanpa balasan manusia, supaya pelanggan tidak menunggu orang yang sudah pulang.</p>
+<div class="box">
+  <b class="t">Serah-terima yang baik membawa tiga hal</b>
+  <ul>
+    <li>Riwayat percakapan, supaya pelanggan tidak cerita ulang.</li>
+    <li>Alasan kenapa chat dipindah.</li>
+    <li>Siapa yang memegang sekarang. Di Agnee tiap balasan ketahuan siapa yang menulis: AI, atau nama CS-nya.</li>
+  </ul>
+</div>
+<h2>Kapan AI sebaiknya langsung memanggil manusia</h2>
+<ul>
+  <li>Pelanggan menyebut kata kunci komplain atau minta bicara dengan orang.</li>
+  <li>Nilai pesanan melewati batas yang kamu tentukan.</li>
+  <li>Pertanyaannya di luar playbook. Agnee tidak menebak: dia bertanya ke departemen terkait atau ke supplier lewat WhatsApp, lalu kembali ke pelanggan dengan jawaban yang pasti.</li>
+</ul>
+
+<!-- BAB 7 -->
+<div class="opener c-kuning">
+  <p class="no">7</p>
+  <h1>Dari "nanya doang" ke "transfer ke mana ya"</h1>
+  <p class="lede">Lima tahap, supaya percakapan punya arah tanpa terdengar sedang berjualan.</p>
+</div>
+<p>Percakapan yang berlarut jarang karena pelanggannya lama berpikir. Lebih sering karena tidak ada yang memandunya. Lima tahap ini cocok dipakai manusia maupun dijadikan isi playbook AI.</p>
+<table class="keep">
+  <tr><th style="width:24%">Tahap</th><th>Tujuannya</th></tr>
+  <tr><td><strong>1. Buka</strong></td><td>Bikin dia membalas, dan tahu dia bicara dengan siapa. Satu kalimat yang menyambung dengan iklan.</td></tr>
+  <tr><td><strong>2. Gali</strong></td><td>Tiga pertanyaan yang menggantikan brosur: untuk apa, untuk kapan, untuk siapa.</td></tr>
+  <tr><td><strong>3. Cocokkan</strong></td><td>Tawarkan yang dia butuh, bukan semua yang kamu punya. Satu pilihan, dua paling banyak.</td></tr>
+  <tr><td><strong>4. Tangani keberatan</strong></td><td>"Mahal" hampir tidak pernah berarti mahal. Biasanya berarti "saya belum paham kenapa ini layak".</td></tr>
+  <tr><td><strong>5. Tutup</strong></td><td>Minta keputusan tanpa kedengaran memaksa. Beri langkah yang jelas dan mudah.</td></tr>
+</table>
+<h2>Tahap 2 yang paling sering dilewati</h2>
+<p>Penggalian terasa memperlambat, jadi banyak yang langsung melompat ke penawaran. Padahal tiga pertanyaan tadi adalah yang membuat penawaranmu terdengar sebagai jawaban atas kebutuhan, bukan promosi.</p>
+<h2>Keberatan harga</h2>
+<p>Jangan langsung turunkan harga. Ulangi dulu apa yang dia butuhkan, lalu tunjukkan bagian mana dari penawaran yang menjawab kebutuhan itu. Kalau setelah itu dia tetap keberatan, itu informasi yang jujur, dan tawarannya boleh disesuaikan.</p>
+<div class="box">
+  <b class="t">Kapan mengirim link bayar</b>
+  <p>Setelah tiga hal terpenuhi: dia sudah menyebut kebutuhannya, dia sudah menyebut pilihan yang dia mau, dan dia sudah bertanya cara membayar atau pengiriman. Itu sinyal siap beli. Sebelum itu, link bayar menghentikan percakapan.</p>
+</div>
+<div class="box agnee">
+  <b class="t">Di Agnee</b>
+  <p>Kelima tahap bisa menjadi dokumen playbook yang dipakai AI: Discovery, Objection, dan Closing masing-masing punya dokumennya. Kamu tidak menulisnya sendiri, Agnee yang bertanya lalu menyusunnya dari jawabanmu. Lead yang menunjukkan niat tinggi ditandai dengan alasannya, dari kalimat pelanggan sendiri.</p>
+</div>
+
+<!-- BAB 8 -->
+<div class="opener c-kuning">
+  <p class="no">8</p>
+  <h1>Follow-up yang tidak nagih</h1>
+  <p class="lede">Mengejar yang diam itu perlu. Membuat pelanggan risih itu merugikan.</p>
+</div>
+<p>Banyak penjualan hilang bukan karena pelanggan menolak, tapi karena tidak ada yang menanyakan lagi. Tapi follow-up yang terlalu sering, terlalu larut, atau terlalu mirip salinan membuat orang memblokir kamu.</p>
+<svg class="dg keep" viewBox="0 0 560 120" role="img" aria-label="Pesan follow-up melewati tiga pengaman sebelum terkirim">
+  <g font-family="Bricolage Grotesque, sans-serif" font-weight="700" font-size="12" text-anchor="middle">
+    <rect x="0" y="30" width="100" height="56" rx="10" fill="#fff" stroke="#8a5a00" stroke-width="2"/><text x="50" y="62" fill="#14241f">Follow-up</text>
+    <path d="M100 58 H120" stroke="#8a5a00" stroke-width="3"/>
+    <rect x="120" y="22" width="100" height="72" rx="10" fill="#e0a526"/><text x="170" y="54" fill="#14241f">Jam kirim</text><text x="170" y="74" font-weight="500" font-size="10" font-family="Plus Jakarta Sans" fill="#14241f">dalam jendela</text>
+    <path d="M220 58 H236" stroke="#8a5a00" stroke-width="3"/>
+    <rect x="236" y="22" width="100" height="72" rx="10" fill="#e0a526"/><text x="286" y="54" fill="#14241f">Jumlah</text><text x="286" y="74" font-weight="500" font-size="10" font-family="Plus Jakarta Sans" fill="#14241f">belum lewat batas</text>
+    <path d="M336 58 H352" stroke="#8a5a00" stroke-width="3"/>
+    <rect x="352" y="22" width="100" height="72" rx="10" fill="#e0a526"/><text x="402" y="54" fill="#14241f">Jarak</text><text x="402" y="74" font-weight="500" font-size="10" font-family="Plus Jakarta Sans" fill="#14241f">cukup dari sebelumnya</text>
+    <path d="M452 58 H468" stroke="#8a5a00" stroke-width="3"/>
+    <rect x="468" y="30" width="92" height="56" rx="10" fill="#19c666"/><text x="514" y="62" fill="#0c1912">Terkirim</text>
+  </g>
+</svg>
+<h2>Tiga pengaman</h2>
+<ol>
+  <li><strong>Jam kirim.</strong> Hanya di jam yang wajar bagi pelangganmu. Pesan jam 23.00 membuat orang merasa dikejar.</li>
+  <li><strong>Jumlah.</strong> Ada batas berapa follow-up per hari dan per pelanggan.</li>
+  <li><strong>Jarak.</strong> Ada jeda minimal dari pesan sebelumnya, supaya tidak beruntun.</li>
+</ol>
+<h2>Tiga bentuk pesan yang bekerja</h2>
+<div class="chat">
+  <div class="a"><small>Mengingatkan konteks</small>Kak, kemarin kita sempat bahas sepatu trail ukuran 42 warna abu. Masih jadi dipertimbangkan?</div>
+  <div class="a"><small>Menawarkan bantuan kecil</small>Kalau masih ragu soal ukuran, saya bisa kirim panduan ukurannya. Mau?</div>
+  <div class="a"><small>Memberi pintu keluar</small>Kalau sudah dapat yang lain juga tidak apa-apa kak. Kabari saja kalau butuh lagi.</div>
+</div>
+<p style="font-size:8.5pt;color:var(--soft)">Pesan contoh untuk ilustrasi, bukan pesan klien.</p>
+<p>Pesan ketiga sering paling efektif. Memberi pintu keluar menghilangkan tekanan, dan orang yang tidak merasa ditekan lebih mudah kembali.</p>
+<div class="box agnee">
+  <b class="t">Di Agnee</b>
+  <p>Follow-up berjalan dengan ketiga pengaman itu: jam kirim yang kamu atur, batas jumlah per hari, dan jarak minimum. Supervisor tetap bisa mengirim manual di luar jadwal dengan jarak yang dipersingkat.</p>
+</div>
+
+<!-- BAB 9 -->
+<div class="opener c-koral">
+  <p class="no">9</p>
+  <h1>Mengukur ROAS yang jujur dari chat</h1>
+  <p class="lede">Tanpa angka sendiri, kamu hanya percaya cerita orang lain.</p>
+</div>
+<p>Kalau penjualannya terjadi di chat, dashboard iklan hanya tahu sampai "chat dimulai". Omzet yang sebenarnya ada di percakapan, dan harus kamu tarik sendiri.</p>
+<h2>Enam angka per minggu</h2>
+<table class="keep">
+  <tr><th>Angka</th><th>Dari mana</th></tr>
+  <tr><td><strong>Biaya iklan</strong></td><td>Dashboard iklan, per iklan.</td></tr>
+  <tr><td><strong>Chat masuk</strong></td><td>Jumlah percakapan baru, dikelompokkan per label sumber.</td></tr>
+  <tr><td><strong>Dibalas di bawah 5 menit</strong></td><td>Dari waktu balasan pertama.</td></tr>
+  <tr><td><strong>Lead serius</strong></td><td>Chat yang menyebut kebutuhan dan pilihan.</td></tr>
+  <tr><td><strong>Closing</strong></td><td>Chat yang berakhir dengan pembayaran.</td></tr>
+  <tr><td><strong>Omzet dari closing</strong></td><td>Nilai pesanan, dikelompokkan per label sumber.</td></tr>
+</table>
+<p><strong>Cara membacanya.</strong> <strong>ROAS per iklan</strong> = omzet dari chat yang berlabel iklan itu, dibagi biaya iklan itu. Hitung per iklan, bukan total, karena iklan yang bagus dan buruk saling menutupi kalau digabung.</p>
+<h2>Contoh hitungan untuk latihan</h2>
+<div class="box keep">
+  <p style="font-size:8.5pt;color:var(--soft)"><strong>Angka rekaan untuk latihan, bukan hasil klien siapa pun.</strong></p>
+  <table style="margin:2mm 0">
+    <tr><th>Tahap</th><th style="text-align:right">Iklan A</th><th style="text-align:right">Iklan B</th></tr>
+    <tr><td>Biaya iklan</td><td class="n">Rp 1.000.000</td><td class="n">Rp 1.000.000</td></tr>
+    <tr><td>Chat masuk</td><td class="n">50</td><td class="n">50</td></tr>
+    <tr><td>Lead serius</td><td class="n">20</td><td class="n">10</td></tr>
+    <tr><td>Closing</td><td class="n">8</td><td class="n">3</td></tr>
+    <tr><td>Omzet</td><td class="n">Rp 4.000.000</td><td class="n">Rp 1.500.000</td></tr>
+    <tr><td><strong>ROAS</strong></td><td class="n"><strong>4x</strong></td><td class="n"><strong>1,5x</strong></td></tr>
+  </table>
+  <p>Chat masuknya sama, tapi iklan A menghasilkan lead yang lebih serius. Pelajaran: bandingkan iklan dari lead serius dan closing, bukan dari jumlah chat.</p>
+</div>
+<p><strong>Di mana angka itu berubah.</strong> Kalau <strong>chat masuk</strong> tinggi tapi <strong>lead serius</strong> rendah, periksa janji iklan dan pembuka chat (bab 3 dan 4). Kalau <strong>lead serius</strong> tinggi tapi <strong>closing</strong> rendah, periksa bab 5 sampai 7. Kalau closing bagus tapi omzet kecil, periksa penawaran dan nilai order.</p>
+<div class="box agnee">
+  <b class="t">Di Agnee</b>
+  <p>Setiap percakapan masuk ke Lead List dengan tahap, label, dan ringkasan yang bisa kamu koreksi. Datanya bisa diekspor ke XLSX atau CSV kapan saja, jadi tabel di atas bisa kamu isi dari data yang sudah ada.</p>
+</div>
+
+<!-- BAB 10 -->
+<div class="opener c-koral">
+  <p class="no">10</p>
+  <h1>Rencana 30 hari</h1>
+  <p class="lede">Satu perbaikan per minggu, bukan semuanya sekaligus.</p>
+</div>
+<table class="keep">
+  <tr><th style="width:20%">Minggu</th><th>Kerjakan</th></tr>
+  <tr><td><strong>1. Lihat</strong></td><td>Ambil sepuluh chat terakhir dari iklan, hitung waktu balasan dan ada tidaknya follow-up. Pasang label sumber di tiap iklan.</td></tr>
+  <tr><td><strong>2. Rapikan chat</strong></td><td>Tulis pembuka yang cocok untuk tiap iklan. Tetapkan siapa yang membalas di luar jam kerja. Susun jawaban untuk dua belas pertanyaan yang paling sering muncul.</td></tr>
+  <tr><td><strong>3. Pasang AI dan serah-terima</strong></td><td>Hubungkan nomor WhatsApp, isi playbook lewat percakapan, uji dengan chat contoh sebelum live. Tetapkan aturan kapan chat pindah ke manusia.</td></tr>
+  <tr><td><strong>4. Follow-up dan ukur</strong></td><td>Aktifkan follow-up dengan tiga pengaman. Isi tabel enam angka untuk pertama kali, dan bandingkan per iklan.</td></tr>
+</table>
+<p>Setelah empat minggu, ulangi siklus iklan di bab 3: tiga pesan baru, anggaran kecil, baca dari chat. Perbaikan kecil yang berulang lebih berguna daripada satu perombakan besar.</p>
+
+<h2>Checklist siap cetak</h2>
+<div class="keep">
+<h3>Iklan</h3>
+<ul class="check">
+  <li>Satu kampanye, satu tujuan.</li>
+  <li>Tiga pesan diuji dengan anggaran kecil yang sama.</li>
+  <li>Tiap iklan punya pembuka chat dan label sumber sendiri.</li>
+</ul>
+<h3>Chat</h3>
+<ul class="check">
+  <li>Balasan pertama di bawah 5 menit, termasuk di luar jam kerja.</li>
+  <li>Jawab, tanya satu hal balik, tunjukkan langkah berikutnya.</li>
+  <li>Link bayar hanya setelah kebutuhan dan pilihan jelas.</li>
+</ul>
+</div>
+<div class="keep">
+<h3>Serah-terima dan follow-up</h3>
+<ul class="check">
+  <li>Aturan kapan AI minggir dan kapan jaga lagi sudah tertulis.</li>
+  <li>Setiap serah-terima membawa riwayat dan alasan.</li>
+  <li>Follow-up punya jam kirim, batas jumlah, dan jarak minimum.</li>
+</ul>
+<h3>Ukur</h3>
+<ul class="check">
+  <li>Enam angka diisi tiap minggu, per iklan.</li>
+  <li>ROAS dihitung dari omzet chat berlabel, bukan dari dashboard iklan.</li>
+</ul>
+</div>
+
+<!-- PENUTUP -->
+<div class="opener c-hijau">
+  <h1 style="font-size:23pt">Kalau mau tangan kedua dan ketiganya dikerjakan Agnee</h1>
+  <p class="lede">Ebook ini bisa kamu pakai tanpa Agnee. Kalau mau sebagian besar pekerjaan di bab 5 sampai 8 berjalan sendiri, di situlah Agnee masuk.</p>
+</div>
+<div class="box agnee">
+  <b class="t">Yang dikerjakan Agnee dari satu nomor WhatsApp</b>
+  <ul>
+    <li>Membalas dari playbook-mu, bertanya balik, dan tahu kapan harus bertanya ke tim.</li>
+    <li>Minggir saat CS mulai mengetik, dan jaga lagi saat chat diam 30 menit.</li>
+    <li>Menyusul lead yang diam dengan tiga pengaman.</li>
+    <li>Mengirim broadcast ke customer lama dengan batas jam, jumlah, dan jarak.</li>
+    <li>Menandai lead yang siap beli lengkap dengan alasannya.</li>
+    <li>Melapor ke supervisor lewat WhatsApp, harian, mingguan, atau bulanan.</li>
+  </ul>
+</div>
+<p><strong>Coba gratis 7 hari</strong>, tanpa kartu kredit, berhenti kapan saja: <strong>app.agnee.agnive.co</strong></p>
+<p>Tanya langsung lewat WhatsApp: <strong>+62 812-1870-0276</strong></p>
+<p style="color:var(--soft);font-size:9pt;margin:4mm 0 0">Agnee by Beweix. Ebook ini boleh dibagikan ke tim dan rekanmu.</p>
+
+</body>
+</html>

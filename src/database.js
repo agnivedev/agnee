@@ -4559,6 +4559,129 @@ class Database {
     return { days, ...result.rows[0], byListing: byListing.rows, byKind: byKind.rows };
   }
 
+  // ── Integrasi DealPOS ─────────────────────────────────────────────────────
+  // client_secret dienkripsi pgcrypto, pola yang sama dengan mayar_connections.
+
+  async getDealposConnection(companyId) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      SELECT company_id AS "companyId", host, client_id AS "clientId",
+             pgp_sym_decrypt(client_secret_enc, $2) AS "clientSecret",
+             enabled, last_synced_at AS "lastSyncedAt", last_error AS "lastError"
+      FROM dealpos_connections WHERE company_id = $1
+    `, [companyId, this.credentialsEncryptionKey]);
+    return result.rows[0] || null;
+  }
+
+  /** Semua koneksi yang menyala — dipakai penjadwal sinkronisasi. */
+  async listEnabledDealposConnections() {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(`
+      SELECT d.company_id AS "companyId", d.host, d.client_id AS "clientId",
+             pgp_sym_decrypt(d.client_secret_enc, $1) AS "clientSecret"
+      FROM dealpos_connections d
+      JOIN companies c ON c.id = d.company_id
+      WHERE d.enabled AND COALESCE(c.plan_status, 'beta') <> 'suspended' AND c.status = 'active'
+      ORDER BY COALESCE(d.last_synced_at, 'epoch'::timestamptz) ASC
+    `, [this.credentialsEncryptionKey]);
+    return result.rows;
+  }
+
+  async upsertDealposConnection(companyId, { host, clientId, clientSecret }) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      INSERT INTO dealpos_connections (company_id, host, client_id, client_secret_enc)
+      VALUES ($1, $2, $3, pgp_sym_encrypt($4, $5))
+      ON CONFLICT (company_id) DO UPDATE SET
+        host = EXCLUDED.host,
+        client_id = EXCLUDED.client_id,
+        client_secret_enc = EXCLUDED.client_secret_enc,
+        enabled = true,
+        last_error = NULL,
+        updated_at = NOW()
+      RETURNING company_id AS "companyId"
+    `, [companyId, host, clientId, clientSecret, this.credentialsEncryptionKey]);
+    return result.rows[0] || null;
+  }
+
+  async recordDealposSync(companyId, { error = null }) {
+    if (!this.enabled) return;
+    await this.pool.query(`
+      UPDATE dealpos_connections SET
+        last_synced_at = CASE WHEN $2::text IS NULL THEN NOW() ELSE last_synced_at END,
+        last_error = $2,
+        updated_at = NOW()
+      WHERE company_id = $1
+    `, [companyId, error]);
+  }
+
+  async setDealposEnabled(companyId, enabled) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(
+      'UPDATE dealpos_connections SET enabled = $2, updated_at = NOW() WHERE company_id = $1 RETURNING enabled',
+      [companyId, enabled],
+    );
+    return result.rows[0] || null;
+  }
+
+  async deleteDealposConnection(companyId) {
+    if (!this.enabled) return false;
+    // dealpos_customers TIDAK ikut dihapus: memutus koneksi menghentikan
+    // sinkronisasi berikutnya, bukan membuang data yang sudah ditarik.
+    const result = await this.pool.query('DELETE FROM dealpos_connections WHERE company_id = $1', [companyId]);
+    return result.rowCount > 0;
+  }
+
+  async countDealposCustomers(companyId) {
+    if (!this.enabled) return { total: 0, withPhone: 0 };
+    const result = await this.pool.query(`
+      SELECT COUNT(*)::int AS total, COUNT(phone)::int AS "withPhone"
+      FROM dealpos_customers WHERE company_id = $1
+    `, [companyId]);
+    return result.rows[0] || { total: 0, withPhone: 0 };
+  }
+
+  /** Upsert massal lewat unnest: puluhan ribu customer tidak layak di-insert satu per satu. */
+  async upsertDealposCustomers(companyId, customers) {
+    if (!this.enabled || !customers.length) return 0;
+    const BATCH = 1000;
+    for (let from = 0; from < customers.length; from += BATCH) {
+      const chunk = customers.slice(from, from + BATCH);
+      await this.pool.query(`
+        INSERT INTO dealpos_customers
+          (company_id, dealpos_customer_id, code, name, email, phone, joined_at, synced_at)
+        SELECT $1, t.id, t.code, t.name, t.email, t.phone, t.joined_at, NOW()
+        FROM unnest($2::text[], $3::text[], $4::text[], $5::text[], $6::text[], $7::timestamptz[])
+          AS t(id, code, name, email, phone, joined_at)
+        ON CONFLICT (company_id, dealpos_customer_id) DO UPDATE SET
+          code = EXCLUDED.code, name = EXCLUDED.name, email = EXCLUDED.email,
+          phone = EXCLUDED.phone, joined_at = EXCLUDED.joined_at, synced_at = NOW()
+      `, [
+        companyId,
+        chunk.map((c) => c.dealposCustomerId), chunk.map((c) => c.code), chunk.map((c) => c.name),
+        chunk.map((c) => c.email), chunk.map((c) => c.phone), chunk.map((c) => c.joinedAt),
+      ]);
+    }
+    return customers.length;
+  }
+
+  // ── Tab integrasi yang dinyalakan (Pengaturan > Integrasi) ───────────────
+
+  async getIntegrationTabs(companyId) {
+    if (!this.enabled) return [];
+    const result = await this.pool.query('SELECT integration_tabs AS tabs FROM companies WHERE id = $1', [companyId]);
+    return result.rows[0]?.tabs || [];
+  }
+
+  async setIntegrationTabs(companyId, tabs) {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(
+      'UPDATE companies SET integration_tabs = $2 WHERE id = $1 RETURNING integration_tabs AS tabs',
+      [companyId, tabs],
+    );
+    return result.rows[0]?.tabs || [];
+  }
+
   async upsertMayarLeads(companyId, leads) {
     if (!this.enabled || !leads.length) return 0;
     let count = 0;

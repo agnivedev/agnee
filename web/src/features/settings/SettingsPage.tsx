@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { CreditCard, MessageCircle, Sparkles, Database, Users, ScrollText, type LucideIcon } from 'lucide-react';
+import { api, messageFromError } from '@/lib/api';
 import { useI18n, usePageTitle } from '@/lib/i18n';
 import { useSession } from '@/lib/session';
 import { Button } from '@/components/ui/button';
@@ -15,6 +16,9 @@ import { AiSettingsSection } from './AiSettingsSection';
 import { AuditSection } from './AuditSection';
 import { ExportSection } from './ExportSection';
 import { MayarSection } from './MayarSection';
+import { DealposSection } from './DealposSection';
+import { IntegrationsHome } from './IntegrationsHome';
+import { INTEGRATIONS, INTEGRATION_KEYS, SECTION_INTEGRATION, integrationTabId, type IntegrationKey, type IntegrationTabId } from './integrations';
 import { LeadWebhookSection } from './LeadWebhookSection';
 import { McpSection } from './McpSection';
 import { SourcesSection } from './SourcesSection';
@@ -22,7 +26,9 @@ import { WhatsappNumbersSection, CloudApiSection } from './WhatsappSections';
 import { AccountSection, TeamSection } from './TeamSection';
 import { DepartmentQuestionsSection, DepartmentSection, ThirdPartySection } from './DepartmentSection';
 
-type TabId = 'paket' | 'whatsapp' | 'ai' | 'data' | 'tim' | 'audit';
+type BaseTabId = 'paket' | 'whatsapp' | 'ai' | 'data' | 'tim' | 'audit';
+// 'data' adalah beranda Integrasi; tiap integrasi yang dinyalakan menambah tab `int:<kunci>`.
+type TabId = BaseTabId | IntegrationTabId;
 
 /**
  * Section ids kept from the vanilla page, because other pages link straight to
@@ -37,8 +43,6 @@ const SECTION_TAB: Record<string, TabId> = {
   aiSection: 'ai',
   followUpSection: 'ai',
   replyDelaySection: 'ai',
-  exportSection: 'data',
-  mcpSection: 'data',
   teamSection: 'tim',
   departmentSection: 'tim',
   departmentQuestions: 'tim',
@@ -48,8 +52,8 @@ const SECTION_TAB: Record<string, TabId> = {
   auditSection: 'audit',
 };
 
-const TAB_IDS: TabId[] = ['paket', 'whatsapp', 'ai', 'data', 'tim', 'audit'];
-const TAB_ICON: Record<TabId, LucideIcon> = {
+const TAB_IDS: BaseTabId[] = ['paket', 'whatsapp', 'ai', 'data', 'tim', 'audit'];
+const TAB_ICON: Record<BaseTabId, LucideIcon> = {
   paket: CreditCard,
   whatsapp: MessageCircle,
   ai: Sparkles,
@@ -59,7 +63,9 @@ const TAB_ICON: Record<TabId, LucideIcon> = {
 };
 // 'paket' is supervisor-only too: /v1/admin/company answers 403 to an agent, so
 // showing the tab would only offer an empty card and a save button that fails.
-const SUPERVISOR_ONLY: TabId[] = ['paket', 'whatsapp', 'ai', 'data', 'audit'];
+const SUPERVISOR_ONLY: BaseTabId[] = ['paket', 'whatsapp', 'ai', 'data', 'audit'];
+
+const isIntegrationTab = (id: string): id is IntegrationTabId => id.startsWith('int:');
 
 function tabFromHash(): TabId | null {
   const hash = window.location.hash.replace('#', '');
@@ -70,6 +76,10 @@ function tabFromHash(): TabId | null {
   }
   if (!hash) return null;
   if ((TAB_IDS as string[]).includes(hash)) return hash as TabId;
+  if (isIntegrationTab(hash) && INTEGRATION_KEYS.includes(hash.slice(4) as IntegrationKey)) return hash;
+  // Bagian integrasi: tab sendiri kalau dinyalakan, kalau tidak beranda Integrasi.
+  const owner = SECTION_INTEGRATION[hash];
+  if (owner) return integrationTabId(owner);
   return SECTION_TAB[hash] ?? null;
 }
 
@@ -80,7 +90,25 @@ export function SettingsPage() {
   const { isSupervisor, signOut } = useSession();
   usePageTitle('settings.title');
 
-  const tabs = TAB_IDS.filter((id) => isSupervisor || !SUPERVISOR_ONLY.includes(id));
+  // Saklar integrasi disimpan di server (bersama seluruh supervisor company).
+  const [integrationsOn, setIntegrationsOn] = useState<IntegrationKey[]>([]);
+  const [integrationsError, setIntegrationsError] = useState('');
+  useEffect(() => {
+    if (!isSupervisor) return;
+    api<{ tabs: IntegrationKey[] }>('/v1/integrations/tabs')
+      .then((out) => setIntegrationsOn(out.tabs))
+      .catch(() => {});
+  }, [isSupervisor]);
+
+  const integrationTabs = isSupervisor
+    ? INTEGRATIONS.filter(({ key }) => integrationsOn.includes(key)).map(({ key }) => integrationTabId(key))
+    : [];
+  const baseTabs: TabId[] = TAB_IDS.filter((id) => isSupervisor || !SUPERVISOR_ONLY.includes(id));
+  // Tab integrasi duduk tepat sesudah beranda Integrasi ('data').
+  const dataAt = baseTabs.indexOf('data');
+  const tabs: TabId[] = dataAt < 0
+    ? baseTabs
+    : [...baseTabs.slice(0, dataAt + 1), ...integrationTabs, ...baseTabs.slice(dataAt + 1)];
   const [tab, setTab] = useState<TabId>(() => tabFromHash() || 'paket');
   // An agent lands on the only tab they have, whatever the hash asked for.
   const activeTab = tabs.includes(tab) ? tab : tabs[0];
@@ -116,6 +144,20 @@ export function SettingsPage() {
     return () => window.removeEventListener('hashchange', openHashTarget);
   }, [openHashTarget]);
 
+  async function toggleIntegration(key: IntegrationKey, next: boolean) {
+    const previous = integrationsOn;
+    const updated = next ? [...previous, key] : previous.filter((item) => item !== key);
+    setIntegrationsOn(updated);
+    setIntegrationsError('');
+    try {
+      const out = await api<{ tabs: IntegrationKey[] }>('/v1/integrations/tabs', { method: 'PUT', body: { tabs: updated } });
+      setIntegrationsOn(out.tabs);
+    } catch (error) {
+      setIntegrationsOn(previous);
+      setIntegrationsError(messageFromError(error, ''));
+    }
+  }
+
   function selectTab(next: TabId) {
     setTab(next);
     // replaceState, not a hash assignment: a new history entry per tab click
@@ -148,7 +190,8 @@ export function SettingsPage() {
             className={cn('-mx-5 mt-7 gap-1 overflow-x-auto border-b border-border px-5 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0', tabs.length > 1 ? 'flex' : 'hidden')}
           >
             {tabs.map((id) => {
-              const Icon = TAB_ICON[id];
+              const integration = isIntegrationTab(id) ? INTEGRATIONS.find(({ key }) => integrationTabId(key) === id) : undefined;
+              const Icon = integration ? integration.Icon : TAB_ICON[id as BaseTabId];
               return (
                 <button
                   key={id}
@@ -162,7 +205,7 @@ export function SettingsPage() {
                   )}
                 >
                   <Icon aria-hidden className="size-4" strokeWidth={2} />
-                  {t(`settings.tab.${id}`)}
+                  {integration ? t(`integrations.${integration.key}.name`) : t(`settings.tab.${id}`)}
                 </button>
               );
             })}
@@ -187,14 +230,14 @@ export function SettingsPage() {
             </>
           ) : null}
           {activeTab === 'data' && isSupervisor ? (
-            <>
-              <ExportSection />
-              <MayarSection />
-              <LeadWebhookSection />
-              <McpSection />
-              <SourcesSection />
-            </>
+            <IntegrationsHome enabled={integrationsOn} error={integrationsError} onToggle={(key, next) => void toggleIntegration(key, next)} />
           ) : null}
+          {activeTab === integrationTabId('dealpos') && isSupervisor ? <DealposSection /> : null}
+          {activeTab === integrationTabId('mayar') && isSupervisor ? <MayarSection /> : null}
+          {activeTab === integrationTabId('export') && isSupervisor ? <ExportSection /> : null}
+          {activeTab === integrationTabId('webhook') && isSupervisor ? <LeadWebhookSection /> : null}
+          {activeTab === integrationTabId('mcp') && isSupervisor ? <McpSection /> : null}
+          {activeTab === integrationTabId('sources') && isSupervisor ? <SourcesSection /> : null}
           {activeTab === 'tim' ? (
             <>
               <TeamSection onChanged={bumpTeam} />

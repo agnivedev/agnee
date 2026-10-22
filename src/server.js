@@ -39,6 +39,7 @@ const onedrive = require('./onedrive-sync.js');
 const gsheets = require('./gsheets-sync.js');
 const { HUB_REPLY_WORKING_DAYS, addWorkingDays, workingDaysSince } = require('./hub-followup.js');
 const mayarSync = require('./mayar-sync.js');
+const dealposSync = require('./dealpos-sync.js');
 const { createReplyPacer } = require('./reply-delay.js');
 const handoffNotice = require('./handoff-notice.js');
 const departmentAsk = require('./department-ask.js');
@@ -9066,6 +9067,99 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
       const { count } = await syncMayarFor(companyId, conn.apiKey);
       return { leadCount: count };
     },
+  });
+
+  // ── Integrasi DealPOS: customer POS dikumpulkan per company ────────────────
+  //
+  // Pola sama dengan Mayar (kredensial terenkripsi, hanya supervisor, cocokkan
+  // lewat nomor HP). Hasilnya baru ditampung di `dealpos_customers`; belum
+  // digabung ke Lead List.
+
+  async function syncDealposFor(companyId, conn) {
+    const customers = await dealposSync.fetchCustomers(conn);
+    await database.upsertDealposCustomers(companyId, customers);
+    await database.recordDealposSync(companyId, { error: null });
+    return { customerCount: customers.length, withPhone: customers.filter((c) => c.phone).length };
+  }
+
+  app.get('/v1/integrations/dealpos', async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengatur integrasi.' });
+    if (!canCall('getDealposConnection')) return { connected: false };
+    const companyId = request.agneeSession.companyId;
+    const conn = await database.getDealposConnection(companyId);
+    if (!conn) return { connected: false };
+    const counts = await database.countDealposCustomers(companyId);
+    // clientSecret sengaja tidak dikembalikan: browser tidak pernah perlu melihatnya lagi.
+    return {
+      connected: true, enabled: conn.enabled, host: conn.host, clientId: conn.clientId,
+      lastSyncedAt: conn.lastSyncedAt, lastError: conn.lastError,
+      customerCount: counts.total, withPhone: counts.withPhone,
+    };
+  });
+
+  app.post('/v1/integrations/dealpos', {
+    schema: {
+      body: {
+        type: 'object', required: ['host', 'clientId', 'clientSecret'], additionalProperties: false,
+        properties: {
+          host: { type: 'string', minLength: 3, maxLength: 200 },
+          clientId: { type: 'string', minLength: 8, maxLength: 100 },
+          clientSecret: { type: 'string', minLength: 8, maxLength: 100 },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengatur integrasi.' });
+    if (!canCall('upsertDealposConnection')) return reply.code(503).send({ error: 'Database tidak tersedia.' });
+    const companyId = request.agneeSession.companyId;
+    const host = dealposSync.normalizeHost(request.body.host);
+    if (!host) return reply.code(422).send({ error: 'Alamat DealPOS tidak dikenali. Contoh: namatoko.dealpos.co.id' });
+    const credentials = { host, clientId: request.body.clientId.trim(), clientSecret: request.body.clientSecret.trim() };
+    try {
+      // Diverifikasi ke DealPOS SEBELUM disimpan, pola yang sama dengan Mayar.
+      const { total } = await dealposSync.verifyCredentials(credentials);
+      await database.upsertDealposConnection(companyId, credentials);
+      const result = await syncDealposFor(companyId, credentials);
+      await catatAudit(request, 'integration.connected', {
+        entityType: 'integration', entityId: 'dealpos', metadata: { integration: 'dealpos' },
+      });
+      return reply.code(201).send({ ok: true, customerTotal: total, ...result });
+    } catch (error) {
+      return reply.code(422).send({ error: publicErrorMessage(error) });
+    }
+  });
+
+  registerIntegrationLifecycle({
+    base: '/v1/integrations/dealpos', integration: 'dealpos',
+    gateMessage: 'Hanya supervisor yang dapat mengatur integrasi.',
+    notConnected: 'Hubungkan DealPOS dulu.', missingForToggle: 'Belum ada DealPOS yang terhubung.',
+    get: 'getDealposConnection', record: 'recordDealposSync',
+    setEnabled: 'setDealposEnabled', remove: 'deleteDealposConnection',
+    sync: (companyId, conn) => syncDealposFor(companyId, conn),
+  });
+
+  // ── Tab integrasi yang dinyalakan di Pengaturan ───────────────────────────
+  // Daftar tertutup: kunci di luar ini ditolak, bukan disimpan diam-diam.
+  const INTEGRATION_TAB_KEYS = ['mayar', 'dealpos', 'export', 'webhook', 'mcp', 'sources'];
+
+  app.get('/v1/integrations/tabs', async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengatur integrasi.' });
+    if (!canCall('getIntegrationTabs')) return { tabs: [] };
+    return { tabs: (await database.getIntegrationTabs(request.agneeSession.companyId)).filter((key) => INTEGRATION_TAB_KEYS.includes(key)) };
+  });
+
+  app.put('/v1/integrations/tabs', {
+    schema: {
+      body: {
+        type: 'object', required: ['tabs'], additionalProperties: false,
+        properties: { tabs: { type: 'array', maxItems: 20, items: { type: 'string', enum: INTEGRATION_TAB_KEYS } } },
+      },
+    },
+  }, async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengatur integrasi.' });
+    if (!canCall('setIntegrationTabs')) return reply.code(503).send({ error: 'Database tidak tersedia.' });
+    const tabs = [...new Set(request.body.tabs)];
+    return { tabs: await database.setIntegrationTabs(request.agneeSession.companyId, tabs) };
   });
 
   // ── Nomor WhatsApp Web milik satu company (rotator) ───────────────────────

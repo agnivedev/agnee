@@ -9080,8 +9080,8 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
   // lewat nomor HP). Hasilnya baru ditampung di `dealpos_customers`; belum
   // digabung ke Lead List.
 
-  async function syncDealposFor(companyId, conn) {
-    const customers = await dealposSync.fetchCustomers(conn);
+  async function syncDealposFor(companyId, conn, token = null) {
+    const customers = await dealposSync.fetchCustomers(conn, undefined, token);
     await database.upsertDealposCustomers(companyId, customers);
     await database.recordDealposSync(companyId, { error: null });
     return { customerCount: customers.length, withPhone: customers.filter((c) => c.phone).length };
@@ -9122,9 +9122,10 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     const credentials = { host, clientId: request.body.clientId.trim(), clientSecret: request.body.clientSecret.trim() };
     try {
       // Diverifikasi ke DealPOS SEBELUM disimpan, pola yang sama dengan Mayar.
-      const { total } = await dealposSync.verifyCredentials(credentials);
+      const { total, token } = await dealposSync.verifyCredentials(credentials);
       await database.upsertDealposConnection(companyId, credentials);
-      const result = await syncDealposFor(companyId, credentials);
+      // Token yang sama dipakai ulang: DealPOS membatasi laju, dua token beruntun memperparah.
+      const result = await syncDealposFor(companyId, credentials, token);
       await catatAudit(request, 'integration.connected', {
         entityType: 'integration', entityId: 'dealpos', metadata: { integration: 'dealpos' },
       });

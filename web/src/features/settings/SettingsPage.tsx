@@ -104,14 +104,14 @@ export function SettingsPage() {
     ? INTEGRATIONS.filter(({ key }) => integrationsOn.includes(key)).map(({ key }) => integrationTabId(key))
     : [];
   const baseTabs: TabId[] = TAB_IDS.filter((id) => isSupervisor || !SUPERVISOR_ONLY.includes(id));
-  // Tab integrasi duduk tepat sesudah beranda Integrasi ('data').
-  const dataAt = baseTabs.indexOf('data');
-  const tabs: TabId[] = dataAt < 0
-    ? baseTabs
-    : [...baseTabs.slice(0, dataAt + 1), ...integrationTabs, ...baseTabs.slice(dataAt + 1)];
+  // Tab integrasi tidak ikut bar utama; mereka jadi sub tab di bawah 'data'.
+  const tabs: TabId[] = [...baseTabs, ...integrationTabs];
   const [tab, setTab] = useState<TabId>(() => tabFromHash() || 'paket');
   // An agent lands on the only tab they have, whatever the hash asked for.
-  const activeTab = tabs.includes(tab) ? tab : tabs[0];
+  // Tab integrasi yang belum dinyalakan (mis. dari tautan) jatuh ke Ikhtisar.
+  const activeTab = tabs.includes(tab) ? tab : isIntegrationTab(tab) && baseTabs.includes('data') ? 'data' : tabs[0];
+  const subTabs: TabId[] = ['data', ...integrationTabs];
+  const mainActive: TabId = isIntegrationTab(activeTab) ? 'data' : activeTab;
 
   // A hash that names a section still scrolls to it, once its tab is mounted.
   const openHashTarget = useCallback(() => {
@@ -189,27 +189,52 @@ export function SettingsPage() {
             aria-label={t('settings.tabsLabel')}
             className={cn('-mx-5 mt-7 gap-1 overflow-x-auto border-b border-border px-5 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0', tabs.length > 1 ? 'flex' : 'hidden')}
           >
-            {tabs.map((id) => {
-              const integration = isIntegrationTab(id) ? INTEGRATIONS.find(({ key }) => integrationTabId(key) === id) : undefined;
-              const Icon = integration ? integration.Icon : TAB_ICON[id as BaseTabId];
+            {baseTabs.map((id) => {
+              const Icon = TAB_ICON[id as BaseTabId];
               return (
                 <button
                   key={id}
                   type="button"
                   role="tab"
-                  aria-selected={activeTab === id}
+                  aria-selected={mainActive === id}
                   onClick={() => selectTab(id)}
                   className={cn(
                     'flex shrink-0 cursor-pointer items-center gap-1.5 border-0 border-b-2 bg-transparent px-4 py-3 text-[13px] font-medium whitespace-nowrap transition-colors',
-                    activeTab === id ? 'border-b-green text-ink' : 'border-b-transparent text-muted hover:text-ink',
+                    mainActive === id ? 'border-b-green text-ink' : 'border-b-transparent text-muted hover:text-ink',
                   )}
                 >
                   <Icon aria-hidden className="size-4" strokeWidth={2} />
-                  {integration ? t(`integrations.${integration.key}.name`) : t(`settings.tab.${id}`)}
+                  {t(`settings.tab.${id}`)}
                 </button>
               );
             })}
           </div>
+
+          {/* Sub tab Integrasi: Ikhtisar + tiap integrasi yang dinyalakan. */}
+          {mainActive === 'data' && isSupervisor && subTabs.length > 1 ? (
+            <div role="tablist" aria-label={t('integrations.subtabsLabel')} className="mt-4 flex flex-wrap gap-2">
+              {subTabs.map((id) => {
+                const integration = isIntegrationTab(id) ? INTEGRATIONS.find(({ key }) => integrationTabId(key) === id) : undefined;
+                const Icon = integration?.Icon;
+                return (
+                  <button
+                    key={id}
+                    type="button"
+                    role="tab"
+                    aria-selected={activeTab === id}
+                    onClick={() => selectTab(id)}
+                    className={cn(
+                      'flex cursor-pointer items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-[13px] font-medium whitespace-nowrap transition-colors',
+                      activeTab === id ? 'border-green bg-green/10 text-ink' : 'border-border bg-transparent text-muted hover:text-ink',
+                    )}
+                  >
+                    {Icon ? <Icon aria-hidden className="size-3.5" strokeWidth={2} /> : null}
+                    {integration ? t(`integrations.${integration.key}.name`) : t('integrations.overview')}
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
 
           {/* Each tab mounts its own sections, so a tab nobody opens costs no
               request. Every endpoint behind them is scoped to the session's

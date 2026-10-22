@@ -7883,7 +7883,12 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     if (value === null || value === undefined) return '';
     if (key === 'handlingMode') return value === 'ai' ? 'AI' : 'Manusia';
     if (key === 'lastOutboundAuthor') return value === 'ai' ? 'AI' : value === 'broadcast' ? 'Broadcast' : 'Manusia';
-    if (key === 'source') return value === 'mayar' ? 'Mayar' : value === 'both' ? 'WhatsApp + Mayar' : 'WhatsApp';
+    if (key === 'source') {
+      // 'both' = WhatsApp + Mayar (nilai lama); nilai lain digabung dengan '+'.
+      if (value === 'both') return 'WhatsApp + Mayar';
+      const labels = { whatsapp: 'WhatsApp', mayar: 'Mayar', dealpos: 'DealPOS' };
+      return String(value).split('+').map((part) => labels[part] || 'WhatsApp').join(' + ');
+    }
     // 'unproven' ditulis "Belum terlihat membalas", bukan "Tidak pernah":
     // jendela baca riwayat terbatas, jadi yang tidak terlihat belum tentu tidak ada.
     if (key === 'relation') return value === 'replied' ? 'Pernah membalas' : 'Belum terlihat membalas';
@@ -10513,7 +10518,7 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
         productId: row.productId || null,
         productName: row.productName || null,
         relation: row.relation === 'unproven' ? 'unproven' : 'replied',
-        origin: ['chat', 'outbound', 'import', 'file', 'mayar'].includes(row.origin) ? row.origin : 'chat',
+        origin: ['chat', 'outbound', 'import', 'file', 'mayar', 'dealpos'].includes(row.origin) ? row.origin : 'chat',
         waLabels: Array.isArray(row.waLabels) ? row.waLabels : [],
         // null = tidak diketahui (nomor terputus / Cloud API), bukan "sudah dibaca".
         unreadCount: unread ? (unread.get(row.chatId) || 0) : null,

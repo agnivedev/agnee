@@ -4811,6 +4811,10 @@ class Database {
    * (`source = 'mayar'`, `chatId` NULL — "Buka di Inbox" otomatis
    * tersembunyi lewat guard `!row.chatId` yang sudah ada di frontend,
    * "Buka di WhatsApp" otomatis tetap muncul karena `phone` tetap terisi).
+   *
+   * Sumber ke-6, `dealpos_customers`, mengikuti pola yang sama: menempel ke
+   * baris chat lewat nomor HP, atau tampil sendiri lewat `dealpos_only`
+   * (`source = 'dealpos'`) kalau nomornya belum pernah chat dan bukan lead Mayar.
    */
   async listContactExportRows(companyId, limit = 5000) {
     if (!this.enabled) return [];
@@ -4846,7 +4850,7 @@ class Database {
           -- Nama dari pesan WhatsApp diutamakan (paling segar); nama Mayar
           -- jadi cadangan saat chat-nya belum pernah mengirim pesan yang
           -- merekam nama (contact_names kosong untuk chat itu).
-          COALESCE(cname.name, ml.name) AS "name",
+          COALESCE(cname.name, ml.name, dc.name) AS "name",
           c.chat_id LIKE '%@g.us' AS "isGroup",
           first_seen.first_at AS "firstSeenAt",
           inbound.body AS "lastInboundBody",
@@ -4870,7 +4874,12 @@ class Database {
           COALESCE(wnum.label, cnum.label, cnum.display_phone_number) AS "servedByNumber",
           counts.inbound_count AS "inboundCount",
           counts.outbound_count AS "outboundCount",
-          CASE WHEN ml.id IS NOT NULL THEN 'both' ELSE 'whatsapp' END AS "source",
+          -- 'both' = WhatsApp + Mayar, dipertahankan apa adanya (nilai lama).
+          -- DealPOS menambah nilai baru yang digabung dengan '+'.
+          CASE WHEN ml.id IS NOT NULL AND dc.id IS NOT NULL THEN 'whatsapp+mayar+dealpos'
+               WHEN ml.id IS NOT NULL THEN 'both'
+               WHEN dc.id IS NOT NULL THEN 'whatsapp+dealpos'
+               ELSE 'whatsapp' END AS "source",
           ml.products AS "mayarProducts",
           ml.total_amount AS "mayarTotalAmount",
           -- Hubungan: 'replied' kalau Agnee pernah mencatat chat masuk (pesan,
@@ -4937,6 +4946,13 @@ class Database {
           ON imp.company_id = $1 AND imp.chat_id = c.chat_id
         LEFT JOIN mayar_leads ml
           ON ml.company_id = $1 AND ml.phone = cp.phone
+        -- Satu customer DealPOS per nomor (LIMIT 1): nomor yang sama bisa
+        -- dimiliki beberapa customer POS, dan JOIN biasa menggandakan baris chat.
+        LEFT JOIN LATERAL (
+          SELECT d.id, d.name FROM dealpos_customers d
+          WHERE d.company_id = $1 AND d.phone = cp.phone
+          ORDER BY d.joined_at DESC NULLS LAST LIMIT 1
+        ) dc ON TRUE
       ),
       mayar_only AS (
         SELECT
@@ -4966,7 +4982,8 @@ class Database {
           NULL::text AS "servedByNumber",
           0::integer AS "inboundCount",
           0::integer AS "outboundCount",
-          'mayar'::text AS "source",
+          CASE WHEN EXISTS (SELECT 1 FROM dealpos_customers d WHERE d.company_id = $1 AND d.phone = ml.phone)
+               THEN 'mayar+dealpos' ELSE 'mayar' END AS "source",
           ml.products AS "mayarProducts",
           ml.total_amount AS "mayarTotalAmount",
           NULL::text AS "relation",
@@ -4979,10 +4996,62 @@ class Database {
         WHERE ml.company_id = $1
           AND ml.phone IS NOT NULL
           AND NOT EXISTS (SELECT 1 FROM chat_phones cp2 WHERE cp2.phone = ml.phone)
+      ),
+      -- Customer DealPOS yang nomornya belum jadi chat dan bukan lead Mayar
+      -- (yang itu sudah tampil di mayar_only). Satu baris per nomor.
+      -- sortAt -1: di bawah semua percakapan, jadi LIMIT memotong mereka
+      -- lebih dulu, bukan chat WhatsApp lama.
+      dealpos_only AS (
+        SELECT * FROM (
+          SELECT DISTINCT ON (dc.phone)
+            NULL::text AS "chatId",
+            dc.phone AS "phone",
+            dc.name AS "name",
+            FALSE AS "isGroup",
+            dc.joined_at AS "firstSeenAt",
+            NULL::text AS "lastInboundBody",
+            NULL::bigint AS "lastInboundAt",
+            NULL::text AS "lastOutboundBody",
+            NULL::text AS "lastOutboundAuthor",
+            NULL::timestamptz AS "lastOutboundAt",
+            NULL::text AS "summary",
+            NULL::text AS "handlingMode",
+            NULL::text AS "status",
+            NULL::text AS "priority",
+            NULL::text AS "picName",
+            NULL::text AS "picEmail",
+            NULL::text AS "leadStage",
+            NULL::smallint AS "leadScore",
+            NULL::text AS "leadTitle",
+            NULL::text AS "leadDetail",
+            NULL::integer AS "followUpSent",
+            NULL::boolean AS "followUpRunning",
+            NULL::text AS "followUpStopReason",
+            NULL::text AS "servedByNumber",
+            0::integer AS "inboundCount",
+            0::integer AS "outboundCount",
+            'dealpos'::text AS "source",
+            NULL::text AS "mayarProducts",
+            NULL::numeric AS "mayarTotalAmount",
+            NULL::text AS "relation",
+            NULL::bigint AS "lastActivityAt",
+            NULL::jsonb AS "waLabels",
+            dc.email AS "email",
+            NULL::text AS "importNote",
+            -1::bigint AS "sortAt"
+          FROM dealpos_customers dc
+          WHERE dc.company_id = $1
+            AND dc.phone IS NOT NULL
+            AND NOT EXISTS (SELECT 1 FROM chat_phones cp2 WHERE cp2.phone = dc.phone)
+            AND NOT EXISTS (SELECT 1 FROM mayar_leads ml2 WHERE ml2.company_id = $1 AND ml2.phone = dc.phone)
+          ORDER BY dc.phone, dc.joined_at DESC NULLS LAST
+        ) one_per_phone
       )
       SELECT * FROM whatsapp_rows
       UNION ALL
       SELECT * FROM mayar_only
+      UNION ALL
+      SELECT * FROM dealpos_only
       ORDER BY "sortAt" DESC
       LIMIT $2
     `, [companyId, limit]);
@@ -5152,6 +5221,8 @@ class Database {
         WHERE c.chat_id NOT LIKE '%@g.us' AND c.chat_id NOT LIKE '%@broadcast' AND c.chat_id NOT LIKE '%@newsletter'
         UNION ALL
         SELECT phone FROM mayar_leads WHERE company_id = $1
+        UNION ALL
+        SELECT phone FROM dealpos_customers WHERE company_id = $1
       ) p WHERE phone ~ '^[0-9]{8,15}$'
     `, [companyId]);
     return result.rows.map((row) => row.phone);
@@ -5718,7 +5789,7 @@ class Database {
    * Calon penerima broadcast: seluruh isi Lead List yang bernomor WhatsApp
    * (keputusan Hanny 15 Okt 2026; dulu hanya yang pernah chat). Yang bukan
    * 'replied' berstatus 'unproven': POST /v1/broadcasts membuangnya kecuali
-   * pemilik mengakui risikonya. `origin` = chat | outbound | import | file | mayar.
+   * pemilik mengakui risikonya. `origin` = chat | outbound | import | file | mayar | dealpos.
    */
   async listBroadcastAudience(companyId, limit = null) {
     if (!this.enabled) return [];
@@ -5792,10 +5863,38 @@ class Database {
           AND NOT EXISTS (
             SELECT 1 FROM chat_rows cr WHERE cr."phone" = ml.phone OR cr."chatId" = ml.phone || '@c.us'
           )
+      ),
+      -- Customer DealPOS yang nomornya belum jadi chat dan bukan lead Mayar.
+      -- Satu baris per nomor; urutan terakhir (sortAt NULL) di bawah yang lain.
+      dealpos_rows AS (
+        SELECT * FROM (
+          SELECT DISTINCT ON (dc.phone)
+                 (dc.phone || '@c.us') AS "chatId",
+                 dc.name AS "name",
+                 dc.phone AS "phone",
+                 NULL::bigint AS "lastInboundAt",
+                 'unproven'::text AS "relation",
+                 'dealpos'::text AS "origin",
+                 '[]'::jsonb AS "waLabels",
+                 NULL::text AS "leadStage",
+                 NULL::uuid AS "productId",
+                 NULL::text AS "productName",
+                 oo.chat_id IS NOT NULL AS "optedOut",
+                 NULL::bigint AS "sortAt"
+          FROM dealpos_customers dc
+          LEFT JOIN broadcast_opt_outs oo ON oo.company_id = $1 AND oo.chat_id = dc.phone || '@c.us'
+          WHERE dc.company_id = $1
+            AND dc.phone ~ '^[0-9]{8,15}$'
+            AND NOT EXISTS (
+              SELECT 1 FROM chat_rows cr WHERE cr."phone" = dc.phone OR cr."chatId" = dc.phone || '@c.us'
+            )
+            AND NOT EXISTS (SELECT 1 FROM mayar_leads ml2 WHERE ml2.company_id = $1 AND ml2.phone = dc.phone)
+          ORDER BY dc.phone, dc.joined_at DESC NULLS LAST
+        ) one_per_phone
       )
       SELECT "chatId", "name", "phone", "lastInboundAt", "relation", "origin", "waLabels",
              "leadStage", "productId", "productName", "optedOut"
-      FROM (SELECT * FROM chat_rows UNION ALL SELECT * FROM mayar_rows) all_rows
+      FROM (SELECT * FROM chat_rows UNION ALL SELECT * FROM mayar_rows UNION ALL SELECT * FROM dealpos_rows) all_rows
       ORDER BY "sortAt" DESC NULLS LAST
       LIMIT $2
     `, [companyId, limit]);

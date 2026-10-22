@@ -50,7 +50,7 @@ export type Candidate = {
    */
   relation: 'replied' | 'unproven';
   /** Dari mana kontak dikenal: chat masuk, hanya pernah kita kirimi, terlihat di ponsel, atau pembeli Mayar. */
-  origin: 'chat' | 'outbound' | 'import' | 'mayar';
+  origin: 'chat' | 'outbound' | 'import' | 'file' | 'mayar' | 'dealpos';
   /** Label WhatsApp Business; kosong untuk akun biasa. */
   waLabels: string[];
   /** Pesan belum dibuka; null = tidak diketahui (Cloud API / nomor terputus). */

@@ -143,6 +143,7 @@ function periodLabel(frequency, from, to, tz) {
 const stripFormatting = (value) => String(value || '').replace(/[*_~`]/g, '');
 
 const EMPTY_PERIOD = 'Tidak ada percakapan pada periode ini.';
+const QUIET_PERIOD = 'tidak ada chat dari customer.';
 const TOPICS_HEADING = '*Yang paling banyak dibahas*';
 
 /**
@@ -219,19 +220,37 @@ const METRICS = [
   ['Lead panas/closing', (s) => s.hotLeads],
 ];
 
+const NO_BASELINE = 'belum ada data periode sebelumnya';
+
 /**
  * Ringkasan semua periode, tiap angka dengan selisih terhadap periode sebelumnya.
+ * Periode tanpa chat cukup satu baris. Periode pembanding yang kosong sama
+ * sekali (company baru, Agnee belum dipakai) tidak dibandingkan: "+174" untuk
+ * semua angka hanya berarti "dulu belum ada data", bukan kenaikan.
  * @param overview {{label, versus, stats, prev}[]} urutan seperti reportWindows
  * @param waiting jumlah chat yang menunggu balasan saat ini (tanpa pembanding: kondisi sekarang)
+ * @param aiAutoReply false = AI company dimatikan; disebut di "Saat ini" supaya
+ *   "Dibalas AI: 0" tidak dibaca sebagai AI yang rusak
  */
-function formatOverview(overview, waiting = 0) {
+function formatOverview(overview, waiting = 0, { aiAutoReply = true } = {}) {
   const blocks = overview.map(({ label, versus, stats, prev }) => {
+    if (quietStats(stats)) {
+      // Sepi setelah periode yang ramai tetap layak disebut: itulah kabarnya.
+      const before = quietStats(prev) ? '' : ` (${versus}: ${num(prev.inboundMessages)} pesan)`;
+      return `*${label}*: ${QUIET_PERIOD.replace(/\.$/, '')}${before}.`;
+    }
+    if (quietStats(prev)) {
+      const lines = METRICS.map(([name, pick]) => `• ${name}: ${num(pick(stats))}`);
+      return [`*${label}* — ${NO_BASELINE}`, ...lines].join('\n');
+    }
     const head = `*${label}*${versus ? ` — dibanding ${versus}` : ''}`;
-    if (quietStats(stats) && quietStats(prev)) return `${head}\n${EMPTY_PERIOD}`;
     const lines = METRICS.map(([name, pick]) => `• ${name}: ${num(pick(stats))} ${deltaLabel(pick(stats), pick(prev))}`);
     return [head, ...lines].join('\n');
   });
-  if (waiting) blocks.push(`*Saat ini*\n• Menunggu balasan kita: ${num(waiting)} chat`);
+  const now = [];
+  if (waiting) now.push(`• Menunggu balasan kita: ${num(waiting)} chat`);
+  if (aiAutoReply === false) now.push('• AI membalas customer: *mati* — semua chat harus dibalas tim');
+  if (now.length) blocks.push(['*Saat ini*', ...now].join('\n'));
   return blocks.join('\n\n');
 }
 
@@ -280,16 +299,18 @@ function placeholderValues({ recipientName, companyName, frequency, tz, now, sta
  * @param chats chat yang perlu di-follow up, paling penting dulu (lihat report-chats.js)
  * @param followUpTotal jumlah SEMUA chat yang perlu di-follow up (bisa lebih banyak dari `chats`)
  * @param waiting jumlah chat yang menunggu balasan kita
+ * @param hidden chat yang disembunyikan karena spam / ucapan penutup (hanya dihitung)
+ * @param aiAutoReply false = AI company dimatikan
  * @returns {string[]} pesan pertama = laporan; bila daftar chat tidak muat di satu pesan WhatsApp,
  *   daftar itu menjadi pesan-pesan berikutnya (penomoran lanjut)
  */
 function buildReportMessages({
   companyName, frequency, tz, now = new Date(), overview, waiting = 0, highlights = [], template = null, recipientName = '',
-  sample = false, chats = [], followUpTotal = chats.length, agents = [],
+  sample = false, chats = [], followUpTotal = chats.length, agents = [], hidden = 0, aiAutoReply = true,
 }) {
   const weekly = overview.find((entry) => entry.key === '7d') || overview[overview.length - 1];
   const stats = { ...weekly.stats, waiting };
-  const overviewText = formatOverview(overview, waiting);
+  const overviewText = formatOverview(overview, waiting, { aiAutoReply });
   const agentText = agentPerformance.formatAgentSection(agents);
   const source = String(template || DEFAULT_TEMPLATE);
   const render = (chatText) => {
@@ -303,11 +324,11 @@ function buildReportMessages({
     }
     return text;
   };
-  if (!source.includes('{chat_details}') || !chats.length) return [render('')];
-  const single = render(chatDetails.formatChatDetails(chats, now, followUpTotal));
+  if (!source.includes('{chat_details}') || (!chats.length && !hidden)) return [render('')];
+  const single = render(chatDetails.formatChatDetails(chats, now, followUpTotal, hidden));
   if (single.length <= chatDetails.MAX_MESSAGE_LENGTH) return [single];
   // Tidak muat: laporan tanpa daftar, lalu daftar chat di pesan tersendiri.
-  return [render(''), ...chatDetails.chunkChatDetails(chats, now, followUpTotal)];
+  return [render(''), ...chatDetails.chunkChatDetails(chats, now, followUpTotal, { hidden })];
 }
 
 /** Seluruh pesan sebagai satu teks (pratinjau dan tes); pesan dipisah garis. */

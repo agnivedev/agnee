@@ -403,7 +403,7 @@ class WhatsappManager {
   _createClient(connectionId, clientId, sessionPath, callbacks) {
     const entry = this._getEntry(connectionId);
     const companyId = entry.companyId;
-    const { log, onMessage, onStatusUpdate } = callbacks;
+    const { log, onMessage, onOwnMessage, onStatusUpdate } = callbacks;
     const state = entry.state;
 
     // Remove Chromium singleton locks left over from container restarts
@@ -540,6 +540,12 @@ class WhatsappManager {
         timestamp: message.timestamp || Math.floor(Date.now() / 1000),
         type: message.type || 'chat',
       });
+      // Pesan kita sendiri: kiriman Agnee DAN yang diketik tim langsung di HP.
+      // Penerimanya yang membedakan keduanya.
+      if (message.fromMe) {
+        Promise.resolve(onOwnMessage?.(companyId, message, { connectionId }))
+          .catch((error) => log?.warn({ err: error }, 'Own message handling failed'));
+      }
     });
 
     wa.on('message_ack', (message, ack) => {
@@ -562,7 +568,7 @@ class WhatsappManager {
    * Start a WA client for a company. No-op if already running.
    * @param {string} companyId
    * @param {{ clientId: string, sessionPath: string }} connConfig
-   * @param {{ log, onMessage, onStatusUpdate }} callbacks
+   * @param {{ log, onMessage, onOwnMessage, onStatusUpdate }} callbacks
    */
   async startFor(connectionId, { companyId, clientId, sessionPath }, callbacks = {}) {
     const entry = this._getEntry(connectionId, companyId);

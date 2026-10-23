@@ -189,3 +189,55 @@ test('chat penting untuk laporan: urutan, status penanganan, dan hitungan menung
     assert.equal((await db.getChatReportChats(cid, from, to, 25, 0)).followUpTotal, 5);
     assert.deepEqual(await db.getChatReportChats(cid, new Date('2026-01-01'), new Date('2026-01-02')), { chats: [], waiting: 0, followUpTotal: 0 });
   });
+
+test('pesan sistem WhatsApp tidak dihitung; balasan dari HP dihitung "Dibalas tim" dan menutup "menunggu"',
+  { skip: !DB_URL && 'DATABASE_URL tidak diset' }, async (t) => {
+    const db = new Database({ connectionString: DB_URL, logger: { info() {}, warn() {} } });
+    await db.connect();
+    const stamp = Date.now();
+    const { rows: [company] } = await db.pool.query("INSERT INTO companies (slug, name) VALUES ($1, 'Toko HP') RETURNING id", [`hp-${stamp}`]);
+    t.after(async () => {
+      await db.pool.query('DELETE FROM companies WHERE id = $1', [company.id]);
+      await db.pool.end();
+    });
+    const cid = company.id;
+    const from = new Date('2026-10-14T00:00:00Z');
+    const to = new Date('2026-10-15T00:00:00Z');
+    const at = (hour) => new Date(`2026-10-14T${String(hour).padStart(2, '0')}:00:00Z`);
+    let seq = 0;
+    const inbound = (chat, hour, body, type = 'chat') => db.pool.query(
+      "INSERT INTO inbound_messages (company_id, chat_id, provider, wa_message_id, body, message_type, timestamp, created_at) VALUES ($1, $2, 'whatsapp_web', $3, $4, $5, $6, $7)",
+      [cid, chat, `m${stamp}-${seq += 1}`, body, type, Math.floor(at(hour) / 1000), at(hour)],
+    );
+
+    // A: dua template notifikasi + satu pesan customer. B: hanya notifikasi (bukan customer). C: pesan customer.
+    await inbound('a@lid', 8, '', 'notification_template'); await inbound('a@lid', 8, '', 'notification_template');
+    await inbound('a@lid', 9, 'Ada lampu 18 watt?');
+    await inbound('b@lid', 10, '', 'notification_template'); await inbound('b@lid', 10, '', 'e2e_notification');
+    await inbound('c@lid', 11, 'Halo');
+
+    // Balasan HP: chat customer tercatat; chat yang bukan customer, dan kiriman Agnee (id sama), tidak.
+    assert.equal(await db.recordPhoneReply({ chatId: 'a@lid', messageId: `p-${stamp}-1`, body: 'Ada kak', sentAt: at(12) }, cid), true);
+    assert.equal(await db.recordPhoneReply({ chatId: 'a@lid', messageId: `p-${stamp}-1`, body: 'Ada kak', sentAt: at(12) }, cid), false);
+    assert.equal(await db.recordPhoneReply({ chatId: 'teman@c.us', messageId: `p-${stamp}-2`, body: 'jadi ngopi?', sentAt: at(12) }, cid), false);
+    await db.pool.query("INSERT INTO outbound_replies (company_id, chat_id, message_id, author, body, created_at) VALUES ($1, 'c@lid', $2, 'ai', 'Halo juga', $3)", [cid, `p-${stamp}-3`, at(11)]);
+    assert.equal(await db.recordPhoneReply({ chatId: 'c@lid', messageId: `p-${stamp}-3`, body: 'Halo juga', sentAt: at(11) }, cid), false);
+
+    const stats = await db.getChatReportStats(cid, from, to);
+    assert.equal(stats.inboundMessages, 2);
+    assert.equal(stats.activeChats, 2);
+    assert.equal(stats.newChats, 2);
+    assert.equal(stats.humanReplies, 1);
+    assert.equal(stats.aiReplies, 1);
+
+    const { chats, waiting, followUpTotal } = await db.getChatReportChats(cid, from, to, 25, 0);
+    assert.equal(waiting, 0);
+    assert.equal(followUpTotal, 0);
+    assert.equal(chats.length, 0);
+    // Customer A bicara lagi setelah balasan HP: kembali menunggu, dan isi chat memuat balasan HP-nya.
+    await inbound('a@lid', 13, 'Harganya berapa?');
+    const again = await db.getChatReportChats(cid, from, to, 25, 0);
+    assert.equal(again.waiting, 1);
+    assert.deepEqual(again.chats[0].messages.map((m) => [m.fromMe, m.body]),
+      [[false, 'Ada lampu 18 watt?'], [true, 'Ada kak'], [false, 'Harganya berapa?']]);
+  });

@@ -131,12 +131,13 @@ test('laporan bawaan: semua periode dengan selisih, topik, dan waktu pembuatan',
 
 test('laporan bawaan: periode tanpa percakapan ditulis apa adanya dan tanpa judul kosong', () => {
   const text = r.buildReport({ ...base, overview: QUIET });
-  assert.equal((text.match(/Tidak ada percakapan pada periode ini\./g) || []).length, 4);
-  assert.doesNotMatch(text, /Saat ini|Yang paling banyak dibahas|follow-up/);
-  // Hari ini sepi tetapi kemarin ramai: bukan "kosong", karena selisihnya penting.
+  // Periode sepi cukup satu baris, tanpa daftar angka nol.
+  assert.equal((text.match(/\*: tidak ada chat dari customer\.$/gm) || []).length, 4);
+  assert.doesNotMatch(text, /Saat ini|Yang paling banyak dibahas|follow-up|• Pesan masuk/);
+  // Hari ini sepi tetapi kemarin ramai: pembandingnya tetap disebut.
   const mixed = overviewOf([0, 30, 157, 420], [8, 32, 137, 365]);
   const text2 = r.buildReport({ ...base, overview: mixed });
-  assert.match(text2, /\*Hari ini[^\n]*\n• Pesan masuk dari customer: 0 \(-8\)/);
+  assert.match(text2, /\*Hari ini[^\n]*\*: tidak ada chat dari customer \(kemarin sampai jam yang sama: 8 pesan\)\./);
 });
 
 test('contoh diberi label CONTOH; laporan asli tidak', () => {
@@ -200,4 +201,28 @@ test('detail chat: dibatasi tiga pesan daftar; sisanya dicatat, bukan dibuang di
 test('detail chat: tanpa chat atau tanpa {chat_details} hanya satu pesan', () => {
   assert.equal(r.buildReportMessages({ ...base, overview: BUSY }).length, 1);
   assert.equal(r.buildReportMessages({ ...base, overview: BUSY, chats: [mkChat()], template: '{overview}' }).length, 1);
+});
+
+test('periode pembanding kosong (company baru): angka tanpa selisih, bukan "+174" di semua baris', () => {
+  const fresh = overviewOf([0, 0, 38, 174], [0, 0, 98, 0]);
+  const text = r.buildReport({ ...base, overview: fresh });
+  assert.match(text, /\*30 hari terakhir\* — belum ada data periode sebelumnya\n• Pesan masuk dari customer: 174\n/);
+  assert.doesNotMatch(text, /\(\+174\)/);
+  // 7 hari tetap dibandingkan karena periode sebelumnya ada isinya.
+  assert.match(text, /\*7 hari terakhir\* — dibanding 7 hari sebelumnya\n• Pesan masuk dari customer: 38 \(-60\)/);
+});
+
+test('AI company mati: disebut di "Saat ini" supaya "Dibalas AI: 0" tidak dibaca sebagai AI rusak', () => {
+  const off = r.buildReport({ ...base, overview: QUIET, aiAutoReply: false });
+  assert.match(off, /\*Saat ini\*\n• AI membalas customer: \*mati\* — semua chat harus dibalas tim/);
+  assert.doesNotMatch(r.buildReport({ ...base, overview: QUIET }), /AI membalas customer/);
+});
+
+test('chat yang disembunyikan (spam / ucapan penutup) hanya dihitung di catatan akhir', () => {
+  const text = r.buildReport({ ...base, overview: BUSY, chats: [mkChat()], followUpTotal: 1, hidden: 3 });
+  assert.match(text, /Chat yang perlu di-follow up\* \(1\)/);
+  assert.match(text, /3 chat lain tidak ditampilkan: spam, penawaran jasa ke kita, atau customer hanya menutup percakapan\./);
+  const onlyHidden = r.buildReport({ ...base, overview: BUSY, chats: [], followUpTotal: 0, hidden: 2 });
+  assert.match(onlyHidden, /2 chat lain tidak ditampilkan/);
+  assert.doesNotMatch(onlyHidden, /Chat yang perlu di-follow up/);
 });

@@ -1,5 +1,26 @@
 ## [Unreleased]
 
+- **Fix: laporan supervisor jujur soal siapa yang membalas (temuan laporan Citilux 21–23 Okt).**
+  - **Balasan yang diketik tim langsung di HP/WhatsApp Web kini tercatat** (tabel baru
+    `phone_replies`, migrasi 069). Sebelumnya hanya kiriman lewat Agnee yang tercatat, jadi
+    customer yang sudah dibalas dari HP tetap "menunggu balasan 5 hari" dan "Dibalas tim" selalu 0.
+    Hanya chat customer yang dicatat (customer pernah mengirim pesan ke company itu); kiriman
+    Agnee sendiri dikenali dari id pesan atau chat + isi yang sama, dan tidak ikut. Tabel
+    terpisah supaya review mode, daftar chat, dan riwayat tidak berubah.
+  - **Chat yang tampak menunggu dicek langsung ke WhatsApp saat laporan dibuat**: kalau pesan
+    terakhir ternyata dari kita, chat itu tidak masuk daftar follow-up (kecuali lead panas). Ini
+    juga menutup balasan HP sebelum migrasi 069.
+  - **Pesan sistem WhatsApp tidak dihitung sebagai pesan customer** (`notification_template`,
+    `e2e_notification`, dsb.). Di Citilux 30 hari: 174 pesan / 65 customer ternyata 46 / 13;
+    102 notifikasi dari 51 chat muncul saat nomor pertama kali disambungkan.
+  - **AI company yang dimatikan disebut di "Saat ini"**, chat ditulis "Dipegang Tim", bukan
+    "Dipegang AI · Tim (AI belum membalas)". Ringkasan isi dan langkah berikutnya tetap ditulis
+    AI (saklar "AI membalas customer" tidak mematikan AI laporan; paket berhenti/credit habis tetap).
+  - **Spam, penawaran jasa ke kita, salah sambung, dan ucapan penutup** ("oke", "siap ka")
+    tidak ditampilkan, hanya dihitung di catatan akhir. Lead panas tetap tampil.
+  - **Periode pembanding yang kosong tidak dibandingkan**: "30 hari — belum ada data periode
+    sebelumnya" tanpa "(+174)" di semua baris. Periode tanpa chat cukup satu baris.
+
 - **Laporan supervisor: hanya chat yang perlu di-follow up, dan daftarnya dipecah jadi pesan
   tersendiri bila panjang.** Bagian "Chat yang perlu di-follow up (N)" kini hanya memuat chat
   yang butuh tindakan: customer menunggu balasan manusia (dipegang agent, atau dipegang AI

@@ -48,7 +48,11 @@ test('formatChat menetralkan tanda format WhatsApp dan memotong ringkasan panjan
 
 test('parseChatDigest: array JSON di dalam pagar kode atau teks lain; sampah menghasilkan peta kosong', () => {
   const ok = c.parseChatDigest('Ini hasilnya:\n```json\n[{"id":1,"summary":"Minta diskon","nextStep":"Kirim penawaran"},{"id":"x"}]\n```');
-  assert.deepEqual([...ok.entries()], [[1, { summary: 'Minta diskon', nextStep: 'Kirim penawaran' }]]);
+  assert.deepEqual([...ok.entries()], [[1, { summary: 'Minta diskon', nextStep: 'Kirim penawaran', needsFollowUp: true }]]);
+  // Hanya false yang tegas menyembunyikan chat.
+  const flagged = c.parseChatDigest('[{"id":1,"summary":"Jasa SEO","nextStep":"-","needsFollowUp":false},{"id":2,"summary":"a","needsFollowUp":"tidak"}]');
+  assert.equal(flagged.get(1).needsFollowUp, false);
+  assert.equal(flagged.get(2).needsFollowUp, true);
   assert.equal(c.parseChatDigest('bukan json').size, 0);
   assert.equal(c.parseChatDigest('[{rusak').size, 0);
 });
@@ -70,4 +74,34 @@ test('fallbackSummary: teks, detail lead, lalu jenis media; tak pernah kosong', 
   assert.equal(c.fallbackSummary({ messages: [], leadDetail: 'Tanya rebate' }), 'Tanya rebate');
   assert.match(c.fallbackSummary({ messages: [], lastInboundType: 'video' }), /video/);
   assert.ok(c.fallbackSummary({ messages: [] }).length > 10);
+});
+
+test('AI company mati: chat milik tim sejak awal, bukan "Dipegang AI" / "AI belum membalas"', () => {
+  const info = c.describeChat({ ...base, aiEnabled: false, lastInboundAt: '2026-10-12T09:00:00Z' }, NOW);
+  assert.equal(info.owner, 'Tim');
+  assert.match(info.status, /Dipegang Tim$/);
+  assert.equal(c.needsAction({ ...base, stage: 'cold', aiEnabled: false, lastInboundAt: '2026-10-15T09:55:00Z' }, NOW), true);
+  // AI hidup dan baru 5 menit: belum urusan tim.
+  assert.equal(c.needsAction({ ...base, stage: 'cold', lastInboundAt: '2026-10-15T09:55:00Z' }, NOW), false);
+});
+
+test('reconcileWithLive: balasan tim dari HP membuat chat tidak lagi menunggu', () => {
+  const chat = { ...base, stage: 'cold', aiEnabled: false, lastInboundAt: '2026-10-12T09:00:00Z', lastOutboundAt: null, messages: [{ fromMe: false, body: 'ada 18 watt?' }] };
+  const live = [
+    { fromMe: false, timestamp: Date.parse('2026-10-12T09:00:00Z') / 1000, body: 'ada 18 watt?', type: 'chat' },
+    { fromMe: true, timestamp: Date.parse('2026-10-12T09:20:00Z') / 1000, body: 'Ada kak, ini katalognya', type: 'chat' },
+    { fromMe: false, timestamp: Date.parse('2026-10-12T09:21:00Z') / 1000, body: '', type: 'image' },
+  ];
+  const after = c.reconcileWithLive(chat, live);
+  assert.equal(new Date(after.lastOutboundAt).toISOString(), '2026-10-12T09:20:00.000Z');
+  assert.equal(c.describeChat(after, NOW).waitingOnUs, false);
+  assert.equal(c.needsAction(after, NOW), false);
+  assert.deepEqual(after.messages, [{ fromMe: false, body: 'ada 18 watt?' }, { fromMe: true, body: 'Ada kak, ini katalognya' }]);
+  // Customer bicara lagi setelah balasan HP: tetap menunggu.
+  const later = c.reconcileWithLive({ ...chat, lastInboundAt: '2026-10-12T10:00:00Z' }, live);
+  assert.equal(c.describeChat(later, NOW).waitingOnUs, true);
+  // WhatsApp tidak terbaca: chat tidak diubah.
+  assert.equal(c.reconcileWithLive(chat, null), chat);
+  // Lead panas tetap perlu tindakan walau sudah dibalas.
+  assert.equal(c.needsAction({ ...after, stage: 'hot' }, NOW), true);
 });

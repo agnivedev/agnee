@@ -5,6 +5,20 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { Pool } = require('pg');
 
+/**
+ * Jenis pesan yang masuk lewat jalur pesan customer tetapi dibuat WhatsApp
+ * sendiri (pemberitahuan enkripsi, template notifikasi bisnis, dsb.). Di
+ * Citilux dua pertiga "pesan masuk" ternyata jenis ini; laporan tidak boleh
+ * menghitungnya sebagai pesan customer.
+ */
+const SYSTEM_MESSAGE_TYPES = [
+  'notification_template', 'e2e_notification', 'protocol', 'gp2', 'notification',
+  'broadcast_notification', 'biz_content_placeholder', 'revoked',
+];
+const SYSTEM_TYPES_SQL = `'{${SYSTEM_MESSAGE_TYPES.join(',')}}'::text[]`;
+/** Syarat SQL "bukan pesan sistem" untuk kolom message_type dengan alias `alias`. */
+const notSystem = (alias) => `${alias ? `${alias}.` : ''}message_type <> ALL(${SYSTEM_TYPES_SQL})`;
+
 function slugify(value) {
   return String(value || '')
     .toLowerCase()
@@ -1975,24 +1989,32 @@ class Database {
     );
   }
 
-  /** Angka percakapan satu company untuk [from, to). Chat grup tidak dihitung. */
+  /**
+   * Angka percakapan satu company untuk [from, to). Chat grup dan pesan sistem
+   * WhatsApp tidak dihitung. "Dibalas tim" = balasan lewat Agnee + balasan yang
+   * diketik langsung di HP (phone_replies, migrasi 069).
+   */
   async getChatReportStats(companyId, from, to) {
     if (!this.enabled) return null;
-    const [inbound, outbound, handoffs, leads] = await Promise.all([
+    const [inbound, outbound, phone, handoffs, leads] = await Promise.all([
       this.pool.query(`
         SELECT COUNT(*)::int AS messages, COUNT(DISTINCT chat_id)::int AS chats,
                COUNT(DISTINCT chat_id) FILTER (WHERE NOT EXISTS (
                  SELECT 1 FROM inbound_messages o
-                 WHERE o.company_id = $1 AND o.chat_id = m.chat_id AND o.created_at < $2
+                 WHERE o.company_id = $1 AND o.chat_id = m.chat_id AND o.created_at < $2 AND ${notSystem('o')}
                ))::int AS "newChats"
         FROM inbound_messages m
         WHERE m.company_id = $1 AND m.created_at >= $2 AND m.created_at < $3
-          AND m.chat_id NOT LIKE '%@g.us'
+          AND m.chat_id NOT LIKE '%@g.us' AND ${notSystem('m')}
       `, [companyId, from, to]),
       this.pool.query(`
         SELECT author, COUNT(*)::int AS n FROM outbound_replies
         WHERE company_id = $1 AND created_at >= $2 AND created_at < $3 AND chat_id NOT LIKE '%@g.us'
         GROUP BY author
+      `, [companyId, from, to]),
+      this.pool.query(`
+        SELECT COUNT(*)::int AS n FROM phone_replies
+        WHERE company_id = $1 AND created_at >= $2 AND created_at < $3
       `, [companyId, from, to]),
       this.pool.query(`
         SELECT COUNT(*)::int AS n FROM conversation_handoffs
@@ -2010,7 +2032,7 @@ class Database {
       activeChats: inbound.rows[0].chats,
       newChats: inbound.rows[0].newChats,
       aiReplies: by.ai || 0,
-      humanReplies: by.human || 0,
+      humanReplies: (by.human || 0) + phone.rows[0].n,
       handoffs: handoffs.rows[0].n,
       hotLeads: leads.rows[0].n,
     };
@@ -2131,16 +2153,20 @@ class Database {
       WITH active AS (
         SELECT chat_id, COUNT(*)::int AS n FROM inbound_messages
         WHERE company_id = $1 AND created_at >= $2 AND created_at < $3 AND chat_id NOT LIKE '%@g.us'
+          AND ${notSystem()}
         GROUP BY chat_id
       ), base AS (
         SELECT a.chat_id, a.n,
                (SELECT MAX(i.created_at) FROM inbound_messages i
-                 WHERE i.company_id = $1 AND i.chat_id = a.chat_id AND i.created_at < $3) AS last_in,
-               (SELECT o.created_at FROM outbound_replies o
-                 WHERE o.company_id = $1 AND o.chat_id = a.chat_id AND o.created_at < $3
-                 ORDER BY o.created_at DESC LIMIT 1) AS last_out,
+                 WHERE i.company_id = $1 AND i.chat_id = a.chat_id AND i.created_at < $3 AND ${notSystem('i')}) AS last_in,
+               GREATEST(
+                 (SELECT MAX(o.created_at) FROM outbound_replies o
+                   WHERE o.company_id = $1 AND o.chat_id = a.chat_id AND o.created_at < $3),
+                 (SELECT MAX(p.created_at) FROM phone_replies p
+                   WHERE p.company_id = $1 AND p.chat_id = a.chat_id AND p.created_at < $3)
+               ) AS last_out,
                (SELECT i.message_type FROM inbound_messages i
-                 WHERE i.company_id = $1 AND i.chat_id = a.chat_id AND i.created_at < $3
+                 WHERE i.company_id = $1 AND i.chat_id = a.chat_id AND i.created_at < $3 AND ${notSystem('i')}
                  ORDER BY i.created_at DESC LIMIT 1) AS last_in_type,
                ls.title AS lead_title, ls.detail AS lead_detail,
                COALESCE(ls.pipeline_stage, 'cold') AS stage,
@@ -2193,8 +2219,12 @@ class Database {
           UNION ALL
           SELECT chat_id, TRUE, body, created_at FROM outbound_replies
           WHERE company_id = $1 AND chat_id = ANY($4::text[]) AND created_at >= $2 AND created_at < $3
+          UNION ALL
+          SELECT chat_id, TRUE, body, created_at FROM phone_replies
+          WHERE company_id = $1 AND chat_id = ANY($4::text[]) AND created_at >= $2 AND created_at < $3
+            AND LENGTH(TRIM(body)) > 0
         ) merged
-      ) numbered WHERE rn <= 6 ORDER BY chat_id, at ASC
+      ) numbered WHERE rn <= 8 ORDER BY chat_id, at ASC
     `, [companyId, from, to, chatIds]);
     const byChat = new Map();
     for (const row of messages.rows) {
@@ -3349,6 +3379,24 @@ class Database {
       RETURNING id, created_at AS "createdAt"
     `, [companyId, chatId, messageId, author, authorUserId, body, inReplyTo]);
     return result.rows[0] || null;
+  }
+
+  /**
+   * Pesan yang tim ketik langsung di aplikasi WhatsApp (migrasi 069). Dicatat
+   * hanya kalau chat itu chat customer (customer pernah mengirim pesan ke
+   * company ini) dan pesannya bukan kiriman Agnee sendiri.
+   * @returns {Promise<boolean>} true kalau baris baru tertulis
+   */
+  async recordPhoneReply({ chatId, messageId, body = '', messageType = 'chat', sentAt = new Date() }, companyId) {
+    if (!this.enabled || !chatId || !messageId) return false;
+    const result = await this.pool.query(`
+      INSERT INTO phone_replies (company_id, chat_id, message_id, body, message_type, created_at)
+      SELECT $1, $2, $3, $4, $5, $6
+      WHERE EXISTS (SELECT 1 FROM inbound_messages WHERE company_id = $1 AND chat_id = $2)
+        AND NOT EXISTS (SELECT 1 FROM outbound_replies WHERE company_id = $1 AND message_id = $3)
+      ON CONFLICT (company_id, message_id) DO NOTHING
+    `, [companyId, chatId, messageId, String(body || '').slice(0, 2000), messageType || 'chat', sentAt]);
+    return result.rowCount > 0;
   }
 
   /**
@@ -6306,5 +6354,7 @@ class Database {
     this.connected = false;
   }
 }
+
+Database.SYSTEM_MESSAGE_TYPES = SYSTEM_MESSAGE_TYPES;
 
 module.exports = Database;

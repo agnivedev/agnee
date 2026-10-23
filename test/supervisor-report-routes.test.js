@@ -7,7 +7,7 @@ const { buildApp } = require('../src/server');
 const owner = { id: 'owner-1', companyId: 'co-1', email: 'own@t.test', displayName: 'Owner', role: 'owner' };
 const agent = { id: 'agent-1', companyId: 'co-1', email: 'ag@t.test', displayName: 'Agen', role: 'agent' };
 
-async function app(t, overrides = {}) {
+async function app(t, { db: dbOverrides = {}, ...overrides } = {}) {
   const saved = new Map([['owner-1', { userId: 'owner-1', displayName: 'Owner', email: owner.email, role: 'owner', frequency: 'off', whatsappNumber: null, lastSentAt: null }]]);
   const audits = [];
   const tpl = { value: null };
@@ -54,6 +54,7 @@ async function app(t, overrides = {}) {
       }] };
     },
   };
+  Object.assign(database, dbOverrides);
   const server = await buildApp({ logger: false, startupEnabled: false, demoMode: true, database, sessionSecret: 'rep-session', ...overrides });
   t.after(() => server.close());
   const login = async (email) => (await server.inject({ method: 'POST', url: '/v1/auth/login', payload: { email, password: 'pass-12345' } })).headers['set-cookie'].split(';')[0];
@@ -248,4 +249,42 @@ test('ringkasan model dipanggil per batch 8 chat dan hasilnya jatuh ke chat yang
   const sent = await server.inject({ method: 'GET', url: `/v1/chats/${encodeURIComponent('6281234567890@c.us')}/messages`, headers: { cookie: ownerCookie } });
   const all = (sent.json().messages || []).filter((m) => m.fromMe).map((m) => m.body).join('\n');
   for (const n of [1, 9, 17, 20]) assert.match(all, new RegExp(`\\*${n}\\. Customer ${n}\\*\\nIsi: Ringkasan model untuk Pesan ${n}\\n`));
+});
+
+test('AI membalas customer mati: laporan tetap diringkas AI, chat dipegang tim, spam disembunyikan', async (t) => {
+  const prompts = [];
+  const llmService = {
+    enabled: true, model: 'fake',
+    async generateReply(transcript, options) {
+      prompts.push({ transcript, purpose: options.purpose });
+      return { text: '[{"id":1,"summary":"Tanya lampu 18 watt","nextStep":"Kirim katalog 18 watt","needsFollowUp":true},'
+        + '{"id":2,"summary":"Menawarkan jasa SEO","nextStep":"-","needsFollowUp":false},'
+        + '{"id":3,"summary":"Minta penawaran proyek","nextStep":"Tanyakan jumlah titik lampu","needsFollowUp":true}]' };
+    },
+  };
+  const chat = (i, body) => ({
+    chatId: `${i}@lid`, contactName: `Customer ${i}`, stage: 'cold', handlingMode: 'ai', assigneeName: null, routingStatus: 'open',
+    lastInboundAt: new Date(Date.now() - 50 * 3_600_000).toISOString(), lastOutboundAt: null,
+    storedSummary: null, messages: [{ fromMe: false, body }],
+  });
+  const { server, saved, ownerCookie } = await app(t, {
+    llmService,
+    db: {
+      async getAiSettings() { return { enabled: false, modelChain: ['m'] }; },
+      async getChatReportChats() {
+        return { waiting: 3, followUpTotal: 3, chats: [chat(1, 'ada 18 watt?'), chat(2, 'Jasa SEO murah kak'), chat(3, 'Mau konsultasi proyek')] };
+      },
+    },
+  });
+  Object.assign(saved.get('owner-1'), { frequency: 'daily', whatsappNumber: '081234567890' });
+  const res = await server.inject({ method: 'POST', url: '/v1/reports/supervisors/owner-1/test', headers: { cookie: ownerCookie } });
+  assert.equal(res.statusCode, 200, res.body);
+  assert.equal(prompts.filter((p) => p.purpose === 'supervisor_report' && p.transcript.includes('ada 18 watt')).length, 1);
+  const sent = await server.inject({ method: 'GET', url: `/v1/chats/${encodeURIComponent('6281234567890@c.us')}/messages`, headers: { cookie: ownerCookie } });
+  const body = (sent.json().messages || []).filter((m) => m.fromMe).at(-1).body;
+  assert.match(body, /AI membalas customer: \*mati\* — semua chat harus dibalas tim/);
+  assert.match(body, /Chat yang perlu di-follow up\* \(2\)/);
+  assert.match(body, /Tanya lampu 18 watt\nStatus: Baru · Customer menunggu balasan 2 hari · Dipegang Tim\nTindakan: Kirim katalog 18 watt — \*Tim\*/);
+  assert.doesNotMatch(body, /SEO|AI belum membalas|Dipegang AI/);
+  assert.match(body, /1 chat lain tidak ditampilkan/);
 });

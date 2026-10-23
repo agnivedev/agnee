@@ -1279,6 +1279,7 @@ async function buildApp(overrides = {}) {
     return {
       log: app.log,
       onMessage: handleInboundMessage,
+      onOwnMessage: handleOwnMessage,
       onStatusUpdate: async (companyId, status, phoneNumber, connectionId) => {
         if (database.enabled && database.connected) {
           await database.updateWhatsappStatus(companyId, status, phoneNumber, connectionId).catch(() => {});
@@ -2453,6 +2454,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
    * sebelum menyatakannya gagal.
    */
   async function sendTextForUi(wa, chatId, text, options = {}) {
+    noteAgneeSend(chatId, text);
     const receipt = await wa.pupPage.evaluate(async (requestedChatId, content, sendOptions) => {
       const nowSeconds = () => Math.floor(Date.now() / 1000);
 
@@ -2554,7 +2556,54 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       app.log.warn({ chat: maskChatId(chatId), failureKind: receipt.failure?.kind, failureDetail: receipt.failure?.detail },
         'Pesan terkirim tapi pemanggil tidak menerima modelnya; receipt dipulihkan dari riwayat chat');
     }
+    noteAgneeSend(chatId, text, receipt?.messageId);
     return receipt;
+  }
+
+  // ── Balasan yang diketik tim langsung di HP (migrasi 069) ────────────────
+  // WhatsApp memberi tahu SEMUA pesan kita sendiri lewat `message_create`,
+  // termasuk yang dikirim Agnee. Kiriman Agnee dikenali dari id pesannya, atau
+  // (kalau id tidak terbaca) dari chat + isi yang sama dalam beberapa menit.
+  const AGNEE_SEND_TTL_MS = 10 * 60 * 1000;
+  const PHONE_REPLY_SETTLE_MS = 15_000;
+  const agneeSentIds = new Map();
+  const agneeSentBodies = new Map();
+
+  function noteAgneeSend(chatId, text, messageId = null) {
+    const now = Date.now();
+    if (messageId) agneeSentIds.set(messageId, now);
+    agneeSentBodies.set(`${chatId}\n${String(text || '').trim()}`, now);
+    if (agneeSentIds.size + agneeSentBodies.size > 2000) {
+      for (const map of [agneeSentIds, agneeSentBodies]) {
+        for (const [key, at] of map) if (now - at > AGNEE_SEND_TTL_MS) map.delete(key);
+      }
+    }
+  }
+
+  function sentByAgnee(chatId, messageId, body) {
+    const now = Date.now();
+    const byId = agneeSentIds.get(messageId);
+    if (byId && now - byId < AGNEE_SEND_TTL_MS) return true;
+    const byBody = agneeSentBodies.get(`${chatId}\n${String(body || '').trim()}`);
+    return Boolean(byBody && now - byBody < AGNEE_SEND_TTL_MS);
+  }
+
+  /**
+   * Pesan keluar dari nomor company. Ditunggu sebentar dulu: `message_create`
+   * bisa datang sebelum pengiriman Agnee selesai mencatat id-nya.
+   */
+  async function handleOwnMessage(companyId, message) {
+    if (config.demoMode || !canCall('recordPhoneReply')) return;
+    const chatId = message.to || message.id?.remote?._serialized || message.id?.remote || null;
+    const messageId = message.id?._serialized || null;
+    if (!chatId || !messageId || !chatImport.isChatPerorangan(chatId)) return;
+    if (Database.SYSTEM_MESSAGE_TYPES.includes(message.type)) return;
+    await new Promise((resolve) => { setTimeout(resolve, PHONE_REPLY_SETTLE_MS).unref?.(); });
+    if (sentByAgnee(chatId, messageId, message.body)) return;
+    const sentAt = Number(message.timestamp) > 0 ? new Date(Number(message.timestamp) * 1000) : new Date();
+    await database.recordPhoneReply({
+      chatId, messageId, body: message.body || '', messageType: message.type || 'chat', sentAt,
+    }, companyId);
   }
 
   async function getLeadState(chatId, companyId) {
@@ -6897,9 +6946,24 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
   // Frekuensi dan nomor WhatsApp diatur PER supervisor. Dikirim dari nomor
   // WhatsApp company itu sendiri, pukul 08.00 zona waktunya (lihat supervisor-report.js).
 
+  /**
+   * AI untuk MENULIS laporan. Saklar "AI membalas customer" yang dimatikan
+   * tidak ikut mematikannya: laporan justru paling dibutuhkan saat tim yang
+   * membalas semua chat. Paket berhenti atau credit habis tetap menghentikannya.
+   */
+  async function reportAi(companyId) {
+    const companyAi = await getCompanyAi(companyId).catch(() => null);
+    if (!companyAi) return { usable: false, autoReply: false, modelChain: [] };
+    return {
+      usable: companyAi.enabled || (llmService.enabled && companyAi.reason === 'off'),
+      autoReply: companyAi.enabled,
+      modelChain: companyAi.modelChain,
+    };
+  }
+
   async function summarizeInboundForReport(companyId, from, to) {
-    const companyAi = await getCompanyAi(companyId);
-    if (!companyAi.enabled) return [];
+    const ai = await reportAi(companyId);
+    if (!ai.usable) return [];
     const sample = await database.sampleInboundForReport(companyId, from, to);
     if (sample.length < 5) return [];
     const result = await llmService.generateReply(
@@ -6908,7 +6972,7 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
         systemPrompt: 'Berikut pesan customer sebuah bisnis dalam satu periode. Tulis 3 sampai 5 topik yang paling sering ditanyakan atau dikeluhkan, satu baris pendek per topik (maksimal 12 kata), tanpa pembuka dan tanpa penutup. Jangan menyebut nama atau nomor customer.',
         companyId,
         purpose: 'supervisor_report',
-        modelChain: companyAi.modelChain,
+        modelChain: ai.modelChain,
       },
     ).catch(() => null);
     return supervisorReport.parseHighlights(result?.text);
@@ -6918,41 +6982,85 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
   const DIGEST_BATCH = 8;
 
   /**
-   * Chat yang perlu di-follow up untuk laporan: ringkasan isi dan langkah
-   * berikutnya ditulis model, DIGEST_BATCH chat per panggilan (jawaban untuk
-   * 25 chat sekaligus mudah terpotong jadi JSON rusak); status dan penanggung
-   * jawab dihitung dari data (report-chats.js). Kalau AI mati atau gagal,
-   * ringkasan lama atau pesan terakhir customer yang dipakai, jadi bagian ini
-   * tetap terisi.
+   * Pesan terakhir satu chat langsung dari WhatsApp, lewat nomor yang memegang
+   * chat itu. null kalau nomornya tidak tersambung atau chat tidak terbaca.
    */
-  async function reportChatSection(companyId, from, to) {
-    if (!canCall('getChatReportChats')) return { chats: [], waiting: 0, followUpTotal: 0 };
-    const { chats, waiting, followUpTotal } = await database.getChatReportChats(companyId, from, to, REPORT_CHAT_LIMIT, reportChats.AI_SILENT_HOURS);
+  async function liveMessagesForReport(companyId, chatId) {
+    if (config.demoMode || await getWhatsappProvider(companyId) !== 'whatsapp_web') return null;
+    const conn = (canCall('getWhatsappChatNumber')
+      ? await database.getWhatsappChatNumber(companyId, chatId).catch(() => null) : null)
+      || await primaryWaConn(companyId).catch(() => null);
+    if (!conn?.id || !waSiapKirim(conn.id)) return null;
+    const wa = manager.getClient(conn.id);
+    if (!wa) return null;
+    const result = await getMessagesForUi(wa, chatId, 12).catch(() => null);
+    return result?.messages || null;
+  }
+
+  /**
+   * Chat yang perlu di-follow up untuk laporan:
+   *  1. kandidat dari database (database.js getChatReportChats);
+   *  2. chat yang tampak menunggu dicek ke WhatsApp itu sendiri, karena balasan
+   *     yang diketik di HP bisa belum tercatat; yang ternyata sudah dibalas
+   *     dan tidak panas dibuang;
+   *  3. ringkasan isi dan langkah berikutnya ditulis model, DIGEST_BATCH chat
+   *     per panggilan (25 sekaligus mudah terpotong jadi JSON rusak). Model
+   *     juga menandai spam / penawaran jasa / ucapan penutup; chat itu tidak
+   *     ditampilkan, hanya dihitung.
+   * Status dan penanggung jawab dihitung dari data (report-chats.js). Kalau AI
+   * tidak bisa dipakai, ringkasan lama atau pesan terakhir customer yang dipakai.
+   */
+  async function reportChatSection(companyId, from, to, now = new Date()) {
+    const empty = { chats: [], waiting: 0, followUpTotal: 0, hidden: 0, aiAutoReply: true };
+    if (!canCall('getChatReportChats')) return empty;
+    const ai = await reportAi(companyId);
+    // AI yang mati tidak akan membalas: chat yang menunggu langsung jadi urusan tim.
+    const silentHours = ai.autoReply ? reportChats.AI_SILENT_HOURS : 0;
+    const found = await database.getChatReportChats(companyId, from, to, REPORT_CHAT_LIMIT, silentHours);
+    let { waiting, followUpTotal } = found;
+    const reconciled = [];
+    for (const original of found.chats) {
+      const chat = { ...original, aiEnabled: ai.autoReply };
+      const before = reportChats.describeChat(chat, now).waitingOnUs;
+      // Berurutan: tiap baca membuka chat di Puppeteer yang sama.
+      const checked = before ? reportChats.reconcileWithLive(chat, await liveMessagesForReport(companyId, chat.chatId)) : chat;
+      const stillWaiting = reportChats.describeChat(checked, now).waitingOnUs;
+      if (before && !stillWaiting) waiting -= 1;
+      if (!reportChats.needsAction(checked, now, silentHours)) { followUpTotal -= 1; continue; }
+      reconciled.push(checked);
+    }
+
     const digest = new Map();
-    const companyAi = chats.length ? await getCompanyAi(companyId).catch(() => null) : null;
-    if (companyAi?.enabled) {
+    if (ai.usable && reconciled.length) {
       const batches = [];
-      for (let offset = 0; offset < chats.length; offset += DIGEST_BATCH) batches.push(chats.slice(offset, offset + DIGEST_BATCH));
+      for (let offset = 0; offset < reconciled.length; offset += DIGEST_BATCH) batches.push(reconciled.slice(offset, offset + DIGEST_BATCH));
       await Promise.all(batches.map(async (batch, batchIndex) => {
         const { transcript, systemPrompt } = reportChats.buildDigestPrompt(batch);
         const result = await llmService.generateReply(transcript, {
-          systemPrompt, companyId, purpose: 'supervisor_report', modelChain: companyAi.modelChain,
+          systemPrompt, companyId, purpose: 'supervisor_report', modelChain: ai.modelChain,
         }).catch(() => null);
         for (const [id, entry] of reportChats.parseChatDigest(result?.text)) digest.set(batchIndex * DIGEST_BATCH + id, entry);
       }));
     }
+    let hidden = 0;
+    const chats = [];
+    reconciled.forEach((chat, index) => {
+      const entry = digest.get(index + 1);
+      // Lead panas tetap tampil walau model menganggapnya sudah selesai.
+      if (entry?.needsFollowUp === false && chat.stage !== 'hot' && chat.stage !== 'closing') { hidden += 1; return; }
+      chats.push({
+        ...chat,
+        name: reportChats.displayName(chat),
+        summary: entry?.summary || chat.storedSummary || reportChats.fallbackSummary(chat),
+        nextStep: entry?.nextStep || null,
+      });
+    });
     return {
-      waiting,
-      followUpTotal,
-      chats: chats.map((chat, index) => {
-        const entry = digest.get(index + 1);
-        return {
-          ...chat,
-          name: reportChats.displayName(chat),
-          summary: entry?.summary || chat.storedSummary || reportChats.fallbackSummary(chat),
-          nextStep: entry?.nextStep || null,
-        };
-      }),
+      chats,
+      waiting: Math.max(0, waiting),
+      followUpTotal: Math.max(chats.length, followUpTotal - hidden),
+      hidden,
+      aiAutoReply: ai.autoReply,
     };
   }
 
@@ -6970,7 +7078,8 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     const template = row.template !== undefined ? row.template
       : (canCall('getReportTemplate') ? await database.getReportTemplate(row.companyId).catch(() => null) : null);
     const wantsChats = String(template || supervisorReport.DEFAULT_TEMPLATE).includes('{chat_details}');
-    const section = wantsChats ? await reportChatSection(row.companyId, week.from, week.to) : { chats: [], waiting: 0, followUpTotal: 0 };
+    const section = wantsChats ? await reportChatSection(row.companyId, week.from, week.to, now)
+      : { chats: [], waiting: 0, followUpTotal: 0, hidden: 0, aiAutoReply: (await reportAi(row.companyId)).autoReply };
     const weekStats = overview.find((o) => o.key === '7d').stats;
     const highlights = weekStats?.inboundMessages ? await summarizeInboundForReport(row.companyId, week.from, week.to) : [];
     const agents = canCall('getAgentPerformance') && String(template || supervisorReport.DEFAULT_TEMPLATE).includes('{agents}')
@@ -6982,6 +7091,7 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     const messages = supervisorReport.buildReportMessages({
       agents, companyName: row.companyName, frequency: row.frequency, tz: row.timezone, now, overview, waiting: section.waiting,
       highlights, sample, template, recipientName: row.displayName, chats: section.chats, followUpTotal: section.followUpTotal,
+      hidden: section.hidden, aiAutoReply: section.aiAutoReply,
     });
     // Berurutan, bukan paralel: urutan pesan di ponsel harus sama dengan urutan baca.
     // sendLeadMessage = sendOutbound, dan mode demo menulis ke riwayat demo.

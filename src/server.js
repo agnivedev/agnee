@@ -7053,6 +7053,7 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
         name: reportChats.displayName(chat),
         summary: entry?.summary || chat.storedSummary || reportChats.fallbackSummary(chat),
         nextStep: entry?.nextStep || null,
+        flow: entry?.flow?.length ? entry.flow : null,
       });
     });
     return {

@@ -1,5 +1,13 @@
 ## [Unreleased]
 
+- **Laporan supervisor: tiap chat follow-up kini berisi ringkasan, alur chat, chat terakhir,
+  dan usulan Agnee.** Blok per chat: "Ringkasan", "Alur chat" (maksimal 4 giliran terakhir,
+  mis. "1. Customer: … / 2. CS: …", ditulis model; tanpa model dari pesan apa adanya),
+  "👉 *Chat terakhir dari Customer* — belum dibalas 6 hari: "…"" atau "dari CS/AI (2 jam lalu)
+  — menunggu balasan customer", "Status: tahap · dipegang siapa", dan "💡 *Usulan Agnee:* …".
+  Pembicara dibedakan Customer / CS (agent atau dari HP) / AI. Isi percakapan diambil sampai
+  10 pesan terakhir, tidak lagi terpotong di awal periode 7 hari.
+
 - **Laporan supervisor: blok "perlu perhatian" di paling atas.** Tepat di bawah judul dan
   waktu, sebelum angka: "⚠️ AI membalas customer: *MATI*" bila AI company dimatikan (tidak
   diulang di "Saat ini"), lalu "🔴 *SEGERA DIBALAS (N)*" berisi tiap customer yang menunggu

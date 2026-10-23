@@ -2211,25 +2211,27 @@ class Database {
 
     const chatIds = ranked.rows.map((row) => row.chat_id);
     const messages = await this.pool.query(`
-      SELECT chat_id, from_me, body FROM (
-        SELECT chat_id, from_me, body, at, ROW_NUMBER() OVER (PARTITION BY chat_id ORDER BY at DESC) AS rn FROM (
-          SELECT chat_id, FALSE AS from_me, body, created_at AS at FROM inbound_messages
-          WHERE company_id = $1 AND chat_id = ANY($4::text[]) AND created_at >= $2 AND created_at < $3
+      SELECT chat_id, from_me, author, body, at FROM (
+        SELECT *, ROW_NUMBER() OVER (PARTITION BY chat_id ORDER BY at DESC) AS rn FROM (
+          SELECT chat_id, FALSE AS from_me, 'customer' AS author, body, created_at AS at FROM inbound_messages
+          WHERE company_id = $1 AND chat_id = ANY($3::text[]) AND created_at < $2
             AND message_type IN ('text', 'chat') AND LENGTH(TRIM(COALESCE(body, ''))) > 0
           UNION ALL
-          SELECT chat_id, TRUE, body, created_at FROM outbound_replies
-          WHERE company_id = $1 AND chat_id = ANY($4::text[]) AND created_at >= $2 AND created_at < $3
+          SELECT chat_id, TRUE, author, body, created_at FROM outbound_replies
+          WHERE company_id = $1 AND chat_id = ANY($3::text[]) AND created_at < $2
           UNION ALL
-          SELECT chat_id, TRUE, body, created_at FROM phone_replies
-          WHERE company_id = $1 AND chat_id = ANY($4::text[]) AND created_at >= $2 AND created_at < $3
+          SELECT chat_id, TRUE, 'phone', body, created_at FROM phone_replies
+          WHERE company_id = $1 AND chat_id = ANY($3::text[]) AND created_at < $2
             AND LENGTH(TRIM(body)) > 0
         ) merged
-      ) numbered WHERE rn <= 8 ORDER BY chat_id, at ASC
-    `, [companyId, from, to, chatIds]);
+      ) numbered WHERE rn <= 10 ORDER BY chat_id, at ASC
+    `, [companyId, to, chatIds]);
+    // Percakapan utuh sampai akhir periode, bukan hanya yang di dalam periode:
+    // alur chat di laporan butuh awal percakapannya juga. Dibatasi 10 pesan terakhir.
     const byChat = new Map();
     for (const row of messages.rows) {
       if (!byChat.has(row.chat_id)) byChat.set(row.chat_id, []);
-      byChat.get(row.chat_id).push({ fromMe: row.from_me, body: row.body });
+      byChat.get(row.chat_id).push({ fromMe: row.from_me, author: row.author, body: row.body, at: row.at });
     }
     return {
       waiting,

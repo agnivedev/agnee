@@ -170,7 +170,7 @@ test('template tanpa {chat_details} tidak memuat chat; {overview} bisa dipakai d
 test('detail chat: isi, status, dan tindakan oleh siapa ikut di laporan bawaan, dengan jumlah total di judul', () => {
   const text = r.buildReport({ ...base, overview: BUSY, chats: [mkChat()], followUpTotal: 1 });
   assert.match(text, /\*Chat yang perlu di-follow up\* \(1\)/);
-  assert.match(text, /\*🔴 1\. Budi\*\nIsi: Tanya paket 3 bulan\.\nStatus: Panas · Customer menunggu balasan 3 jam · Dipegang Sari\nTindakan: Kirim penawaran — \*Sari\*/);
+  assert.match(text, /\*🔴 1\. Budi\*\nRingkasan: Tanya paket 3 bulan\.\n👉 \*Chat terakhir dari Customer\* — belum dibalas 3 jam\nStatus: Panas · Dipegang Sari\n💡 \*Usulan Agnee:\* Kirim penawaran — \*Sari\*/);
   assert.equal(r.buildReportMessages({ ...base, overview: BUSY, chats: [mkChat()] }).length, 1);
 });
 

@@ -164,7 +164,7 @@ test('kirim sekarang: tanpa pilihan periode; semua periode dan pembandingnya dia
   for (const label of ['*Kemarin*', '*7 hari terakhir*', '*30 hari terakhir*']) assert.ok(body.includes(label), label);
   assert.match(body, /\*Hari ini \(sampai \d\d\.\d\d\)\*/);
   assert.match(body, /• Menunggu balasan kita: 1 chat/);
-  assert.match(body, /\*🔴 1\. Budi\*\nIsi: Mau paket 3 bulan, ada diskon\?\nStatus: Panas · Customer menunggu balasan 3 jam · Dipegang Sari\nTindakan: Balas dan dorong ke closing — \*Sari\*/);
+  assert.match(body, /\*🔴 1\. Budi\*\nRingkasan: Mau paket 3 bulan, ada diskon\?\nAlur chat:\n1\. Customer: Mau paket 3 bulan, ada diskon\?\n👉 \*Chat terakhir dari Customer\* — belum dibalas 3 jam: \"Mau paket 3 bulan, ada diskon\?\"\nStatus: Panas · Dipegang Sari\n💡 \*Usulan Agnee:\* Balas dan dorong ke closing — \*Sari\*/);
 });
 
 test('template tanpa {chat_details} tidak mengambil data chat sama sekali', async (t) => {
@@ -194,8 +194,8 @@ test('ringkasan isi dan langkah berikutnya datang dari SATU panggilan model untu
   assert.match(digestCalls[0].transcript, /^#1\nCustomer: Mau paket 3 bulan, ada diskon\?/);
   const sent = await server.inject({ method: 'GET', url: `/v1/chats/${encodeURIComponent('6281234567890@c.us')}/messages`, headers: { cookie: ownerCookie } });
   const body = (sent.json().messages || []).filter((m) => m.fromMe).at(-1).body;
-  assert.match(body, /Isi: Minta diskon paket 3 bulan\nStatus: Panas/);
-  assert.match(body, /Tindakan: Kirim penawaran paket 3 bulan — \*Sari\*/);
+  assert.match(body, /Ringkasan: Minta diskon paket 3 bulan\n/);
+  assert.match(body, /💡 \*Usulan Agnee:\* Kirim penawaran paket 3 bulan — \*Sari\*/);
 });
 
 test('model gagal: detail chat tetap terkirim dengan pesan terakhir customer dan tindakan bawaan', async (t) => {
@@ -206,8 +206,8 @@ test('model gagal: detail chat tetap terkirim dengan pesan terakhir customer dan
   assert.equal(res.statusCode, 200, res.body);
   const sent = await server.inject({ method: 'GET', url: `/v1/chats/${encodeURIComponent('6281234567890@c.us')}/messages`, headers: { cookie: ownerCookie } });
   const body = (sent.json().messages || []).filter((m) => m.fromMe).at(-1).body;
-  assert.match(body, /Isi: Mau paket 3 bulan, ada diskon\?/);
-  assert.match(body, /Tindakan: Balas dan dorong ke closing — \*Sari\*/);
+  assert.match(body, /Ringkasan: Mau paket 3 bulan, ada diskon\?/);
+  assert.match(body, /💡 \*Usulan Agnee:\* Balas dan dorong ke closing — \*Sari\*/);
 });
 
 test('daftar chat panjang dikirim sebagai pesan terpisah, berurutan, setelah pesan angka', async (t) => {
@@ -248,7 +248,7 @@ test('ringkasan model dipanggil per batch 8 chat dan hasilnya jatuh ke chat yang
   assert.equal(calls.length, 3, '20 chat = 8 + 8 + 4');
   const sent = await server.inject({ method: 'GET', url: `/v1/chats/${encodeURIComponent('6281234567890@c.us')}/messages`, headers: { cookie: ownerCookie } });
   const all = (sent.json().messages || []).filter((m) => m.fromMe).map((m) => m.body).join('\n');
-  for (const n of [1, 9, 17, 20]) assert.match(all, new RegExp(`\\*🔴 ${n}\\. Customer ${n}\\*\\nIsi: Ringkasan model untuk Pesan ${n}\\n`));
+  for (const n of [1, 9, 17, 20]) assert.match(all, new RegExp(`\\*🔴 ${n}\\. Customer ${n}\\*\\nRingkasan: Ringkasan model untuk Pesan ${n}\\n`));
 });
 
 test('AI membalas customer mati: laporan tetap diringkas AI, chat dipegang tim, spam disembunyikan', async (t) => {
@@ -289,7 +289,7 @@ test('AI membalas customer mati: laporan tetap diringkas AI, chat dipegang tim, 
   // Tidak diulang di "Saat ini".
   assert.equal((body.match(/AI membalas customer/g) || []).length, 1);
   assert.match(body, /Chat yang perlu di-follow up\* \(2\)/);
-  assert.match(body, /Tanya lampu 18 watt\nStatus: Baru · Customer menunggu balasan 2 hari · Dipegang Tim\nTindakan: Kirim katalog 18 watt — \*Tim\*/);
+  assert.match(body, /Ringkasan: Tanya lampu 18 watt\n[\s\S]*?👉 \*Chat terakhir dari Customer\* — belum dibalas 2 hari: \"ada 18 watt\?\"\nStatus: Baru · Dipegang Tim\n💡 \*Usulan Agnee:\* Kirim katalog 18 watt — \*Tim\*/);
   assert.doesNotMatch(body, /SEO|AI belum membalas|Dipegang AI/);
   assert.match(body, /1 chat lain tidak ditampilkan/);
 });

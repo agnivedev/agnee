@@ -43,12 +43,12 @@ test('formatChat menetralkan tanda format WhatsApp dan memotong ringkasan panjan
   const text = c.formatChat({ ...base, name: '*Budi_*', summary: `*tebal* ${'a'.repeat(400)}`, lastInboundAt: '2026-10-15T09:00:00Z' }, 0, NOW);
   assert.match(text, /^\*1\. Budi\*\n/);
   assert.doesNotMatch(text.split('\n')[1], /\*/);
-  assert.ok(text.split('\n')[1].length <= 'Isi: '.length + 220);
+  assert.ok(text.split('\n')[1].length <= 'Ringkasan: '.length + 200);
 });
 
 test('parseChatDigest: array JSON di dalam pagar kode atau teks lain; sampah menghasilkan peta kosong', () => {
   const ok = c.parseChatDigest('Ini hasilnya:\n```json\n[{"id":1,"summary":"Minta diskon","nextStep":"Kirim penawaran"},{"id":"x"}]\n```');
-  assert.deepEqual([...ok.entries()], [[1, { summary: 'Minta diskon', nextStep: 'Kirim penawaran', needsFollowUp: true }]]);
+  assert.deepEqual([...ok.entries()], [[1, { summary: 'Minta diskon', nextStep: 'Kirim penawaran', needsFollowUp: true, flow: [] }]]);
   // Hanya false yang tegas menyembunyikan chat.
   const flagged = c.parseChatDigest('[{"id":1,"summary":"Jasa SEO","nextStep":"-","needsFollowUp":false},{"id":2,"summary":"a","needsFollowUp":"tidak"}]');
   assert.equal(flagged.get(1).needsFollowUp, false);
@@ -96,7 +96,7 @@ test('reconcileWithLive: balasan tim dari HP membuat chat tidak lagi menunggu', 
   assert.equal(new Date(after.lastOutboundAt).toISOString(), '2026-10-12T09:20:00.000Z');
   assert.equal(c.describeChat(after, NOW).waitingOnUs, false);
   assert.equal(c.needsAction(after, NOW), false);
-  assert.deepEqual(after.messages, [{ fromMe: false, body: 'ada 18 watt?' }, { fromMe: true, body: 'Ada kak, ini katalognya' }]);
+  assert.deepEqual(after.messages.map((m) => [m.author, m.body]), [['customer', 'ada 18 watt?'], ['phone', 'Ada kak, ini katalognya']]);
   // Customer bicara lagi setelah balasan HP: tetap menunggu.
   const later = c.reconcileWithLive({ ...chat, lastInboundAt: '2026-10-12T10:00:00Z' }, live);
   assert.equal(c.describeChat(later, NOW).waitingOnUs, true);
@@ -104,4 +104,55 @@ test('reconcileWithLive: balasan tim dari HP membuat chat tidak lagi menunggu', 
   assert.equal(c.reconcileWithLive(chat, null), chat);
   // Lead panas tetap perlu tindakan walau sudah dibalas.
   assert.equal(c.needsAction({ ...after, stage: 'hot' }, NOW), true);
+});
+
+test('blok chat: alur per giliran dari model, chat terakhir dari siapa disorot, usulan Agnee', () => {
+  const chat = {
+    ...base, stage: 'cold', aiEnabled: false, name: 'Olivia', summary: 'Butuh lampu 18 watt, sudah approval atasan.',
+    lastInboundAt: '2026-10-12T09:30:00Z', lastOutboundAt: '2026-10-12T09:10:00Z', nextStep: 'Kirim pilihan 18 watt merek lain',
+    flow: [
+      { from: 'Customer', text: 'Konsultasi lampu LED untuk proyek' },
+      { from: 'CS', text: 'Tanya kebutuhan watt dan jumlah' },
+      { from: 'Customer', text: 'Butuh 18 watt, sudah approval atasan' },
+      { from: 'CS', text: 'Ada Philips 18 watt' },
+      { from: 'Customer', text: 'Selain Philips ada tidak?' },
+    ],
+    messages: [{ fromMe: false, author: 'customer', body: 'selain brand philip ada tidak bu ?', at: '2026-10-12T09:30:00Z' }],
+  };
+  const text = c.formatChat({ ...chat, urgent: true }, 0, NOW);
+  assert.equal(text, [
+    '*🔴 1. Olivia*',
+    'Ringkasan: Butuh lampu 18 watt, sudah approval atasan.',
+    'Alur chat:',
+    '1. CS: Tanya kebutuhan watt dan jumlah',
+    '2. Customer: Butuh 18 watt, sudah approval atasan',
+    '3. CS: Ada Philips 18 watt',
+    '4. Customer: Selain Philips ada tidak?',
+    '👉 *Chat terakhir dari Customer* — belum dibalas 3 hari: "selain brand philip ada tidak bu ?"',
+    'Status: Baru · Dipegang Tim',
+    '💡 *Usulan Agnee:* Kirim pilihan 18 watt merek lain — *Tim*',
+  ].join('\n'));
+});
+
+test('blok chat: tanpa alur dari model dipakai pesan apa adanya; CS terakhir bicara; customer terakhir kirim foto', () => {
+  const messages = [
+    { fromMe: false, author: 'customer', body: 'Harga paket?', at: '2026-10-15T07:00:00Z' },
+    { fromMe: true, author: 'ai', body: 'Paket mulai 1 juta', at: '2026-10-15T07:01:00Z' },
+    { fromMe: true, author: 'phone', body: 'Saya kirim brosurnya ya kak', at: '2026-10-15T08:00:00Z' },
+  ];
+  const replied = c.formatChat({ ...base, stage: 'hot', name: 'Budi', summary: 's', lastInboundAt: '2026-10-15T07:00:00Z', lastOutboundAt: '2026-10-15T08:00:00Z', messages }, 0, NOW);
+  assert.match(replied, /Alur chat:\n1\. Customer: Harga paket\?\n2\. AI: Paket mulai 1 juta\n3\. CS: Saya kirim brosurnya ya kak\n/);
+  assert.match(replied, /👉 \*Chat terakhir dari CS\* \(2 jam lalu\): "Saya kirim brosurnya ya kak" — menunggu balasan customer/);
+  const photo = c.formatChat({ ...base, name: 'Sri', summary: 's', lastInboundType: 'image', lastInboundAt: '2026-10-15T09:00:00Z', lastOutboundAt: '2026-10-15T08:00:00Z', messages }, 0, NOW);
+  assert.match(photo, /👉 \*Chat terakhir dari Customer\* — belum dibalas 1 jam: \(mengirim foto\)/);
+});
+
+test('parseChatDigest: alur dinormalkan (pembicara dikenal, 4 giliran terakhir)', () => {
+  const out = c.parseChatDigest(JSON.stringify([{ id: 1, summary: 's', nextStep: 'n', flow: [
+    { from: 'customer', text: 'a' }, { from: 'Tim', text: 'b' }, { from: 'Bot?', text: 'x' }, { from: 'AI', text: '' },
+    { from: 'CS', text: 'c' }, { from: 'Customer', text: 'd' }, { from: 'CS', text: 'e' },
+  ] }]));
+  assert.deepEqual(out.get(1).flow, [
+    { from: 'CS', text: 'b' }, { from: 'CS', text: 'c' }, { from: 'Customer', text: 'd' }, { from: 'CS', text: 'e' },
+  ]);
 });

@@ -2806,6 +2806,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
         assigneeName: member?.displayName || null,
         status: change.status || 'open',
         priority: change.priority || previous.priority || 'normal',
+        autoAssigned: change.mode === 'human' && Boolean(change.autoAssigned),
         updatedAt: new Date().toISOString(),
       };
       const history = conversationHandoffs.get(cacheKey) || [];
@@ -4917,8 +4918,9 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
 
   app.get('/v1/chats/:chatId/routing', async (request) => {
     const companyId = request.agneeSession.companyId;
+    const routing = await getRouting(request.params.chatId, companyId);
     return {
-      routing: await getRouting(request.params.chatId, companyId),
+      routing: { ...routing, autoReturnAt: await autoReturnAt(routing, companyId) },
       handoffs: typeof database.listConversationHandoffs === 'function' && database.status().connected
         ? await database.listConversationHandoffs(request.params.chatId, 20, companyId)
         : conversationHandoffs.get(`${companyId}:${request.params.chatId}`) || [],
@@ -4942,6 +4944,9 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
         // kembali ke AI. Catatan teks bebas `note` tetap ada.
         reason: { type: 'string', enum: Object.keys(handoffCard.REASONS) },
         aiConstraints: { type: 'string', maxLength: 800 },
+        // Diambil dari composer: kembali ke AI sendiri kalau agent berhenti
+        // membalas, sama seperti pengambilalihan otomatis.
+        autoReturn: { type: 'boolean', default: false },
       } },
     },
   }, async (request, reply) => {
@@ -4988,6 +4993,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       priority: request.body.priority || 'normal',
       reason: request.body.mode === 'human' ? request.body.reason : undefined,
       aiConstraints: request.body.mode === 'ai' ? request.body.aiConstraints : undefined,
+      autoAssigned: request.body.mode === 'human' && request.body.autoReturn && assigneeUserId === session.userId,
     }, companyId);
     if (previous.mode === 'human' && request.body.mode === 'ai') {
       try {
@@ -4995,8 +5001,11 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       } catch (error) {
         app.log.warn({ err: error, chatId: request.params.chatId }, 'Could not refresh AI context after handover');
       }
+      answerWaitingCustomer(companyId, request.params.chatId)
+        .catch((error) => app.log.warn({ err: error, chatId: request.params.chatId },
+          'Pesan customer yang menunggu tidak bisa dijawab AI setelah diserahkan'));
     }
-    return { routing };
+    return { routing: { ...routing, autoReturnAt: await autoReturnAt(routing, companyId) } };
   });
 
   app.get('/v1/chats/:chatId/notes', async (request) => {
@@ -7852,6 +7861,9 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
       actorUserId: session.userId,
       priority: patch.priority || current.priority || 'normal',
       status: patch.status || current.status || 'open',
+      // Mengubah status/prioritas tidak mematikan kembali-ke-AI; memindah
+      // pemegangnya ya, karena itu penugasan baru oleh orang.
+      autoAssigned: Boolean(current.autoAssigned) && assigneeUserId === current.assigneeUserId,
     }, companyId);
   }
 
@@ -10011,6 +10023,65 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
   const AUTO_ASSIGN_IDLE_MINUTES = 30;
 
   /**
+   * Kapan penyapu akan mengembalikan chat ini ke AI, atau null kalau tidak
+   * akan (mode AI, atau dipegang lewat panel). Sama dengan syarat di
+   * `returnIdleAutoAssignedToAi`: 30 menit sejak yang paling akhir dari
+   * pengambilalihan dan balasan manusia terakhir. Dibaca segar, tidak dari
+   * cache routing, karena setiap balasan agent memundurkannya.
+   */
+  async function autoReturnAt(routing, companyId) {
+    if (routing?.mode !== 'human' || !routing.autoAssigned) return null;
+    const lastReply = canCall('getLastHumanReplyAt')
+      ? await database.getLastHumanReplyAt(companyId, routing.chatId).catch(() => null)
+      : null;
+    const since = Math.max(
+      routing.updatedAt ? new Date(routing.updatedAt).getTime() : 0,
+      lastReply ? new Date(lastReply).getTime() : 0,
+    );
+    return since ? new Date(since + AUTO_ASSIGN_IDLE_MINUTES * 60_000).toISOString() : null;
+  }
+
+  /**
+   * Chat baru diserahkan kembali ke AI sementara customer masih menunggu
+   * jawaban: AI menjawab pesan terakhirnya, lewat jeda balasan yang sama.
+   *
+   * Tanpa ini customer yang bertanya saat agent memegang chat tidak dijawab
+   * siapa pun sampai dia menulis lagi. Balasan yang diketik di HP tidak
+   * tercatat di Agnee, jadi untuk WhatsApp Web riwayat aslinya diperiksa dulu:
+   * kalau pesan terakhir di sana dari kita, sudah ada yang menjawab.
+   */
+  async function answerWaitingCustomer(companyId, chatId) {
+    if (!config.llmEnabled || config.demoMode || chatId.endsWith('@g.us')) return;
+    if (!canCall('getUnansweredInbound')) return;
+    const waiting = await database.getUnansweredInbound(companyId, chatId);
+    if (!waiting?.body?.trim()) return;
+    const provider = waiting.provider || 'whatsapp_web';
+    if (provider === 'whatsapp_web') {
+      const { client } = await waFor(companyId, chatId).catch(() => ({ client: null }));
+      if (!client) return;
+      const { messages = [] } = await getMessagesForUi(client, chatId, 3).catch(() => ({ messages: [] }));
+      const last = messages[messages.length - 1];
+      if (!last || last.fromMe) return;
+    }
+    const message = {
+      from: chatId,
+      body: waiting.body,
+      type: waiting.messageType || 'chat',
+      hasMedia: false,
+      id: { _serialized: waiting.waMessageId },
+      timestamp: Number(waiting.timestamp),
+      _data: { notifyName: null },
+      reply: (text) => sendOutbound(companyId, chatId, text),
+    };
+    await paceReply(companyId, message, Date.now(), { connectionId: waiting.connectionId, provider }, {
+      produce: async () => {
+        const text = await generateAutoReply(message, companyId);
+        return text ? { kind: 'ai', text } : null;
+      },
+    });
+  }
+
+  /**
    * Agent mengetik di percakapan bermode AI: dia mengambil alih.
    *
    * Tanpa ini, dua penulis menjawab customer yang sama tanpa saling tahu.
@@ -11551,7 +11622,9 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
           'Percakapan dikembalikan ke AI setelah agent-nya diam');
       }
     };
-    const timer = setInterval(() => { jalankan().catch(() => {}); }, 5 * 60_000);
+    // Tiap menit, bukan 5: composer menampilkan hitung mundurnya, dan AI yang
+    // baru kembali 4 menit setelah angka itu habis membuat angkanya bohong.
+    const timer = setInterval(() => { jalankan().catch(() => {}); }, 60_000);
     timer.unref?.();
   }
 

@@ -818,6 +818,7 @@ class Database {
       SELECT cr.chat_id AS "chatId", cr.handling_mode AS "mode", cr.assignee_user_id AS "assigneeUserId",
              cr.status, cr.priority, cr.assigned_at AS "assignedAt", cr.updated_at AS "updatedAt",
              cr.due_at AS "dueAt", cr.task_note_id AS "taskNoteId",
+             cr.auto_assigned AS "autoAssigned",
              u.display_name AS "assigneeName", u.email AS "assigneeEmail"
       FROM conversation_routing cr
       LEFT JOIN users u ON u.id = cr.assignee_user_id
@@ -826,7 +827,15 @@ class Database {
     return result.rows[0] || null;
   }
 
-  async saveConversationRouting({ chatId, mode, assigneeUserId, status = 'open', priority = 'normal', actorUserId, note, reason = null, aiConstraints = null, dueAt = null, taskNoteId = null }, companyId) {
+  /**
+   * `autoAssigned` menandai chat yang pindah ke manusia karena agent membalas,
+   * bukan karena dipilih lewat panel — hanya itu yang boleh dikembalikan ke AI
+   * oleh penyapu. Sejak migration 025 kolomnya ada tapi tidak pernah ditulis di
+   * sini, jadi penyapu tidak pernah menemukan apa-apa dan chat yang ditinggal
+   * agent diam selamanya. Setiap simpan menulisnya ulang: penugasan lewat panel
+   * sesudahnya mematikan kedaluwarsanya.
+   */
+  async saveConversationRouting({ chatId, mode, assigneeUserId, status = 'open', priority = 'normal', actorUserId, note, reason = null, aiConstraints = null, dueAt = null, taskNoteId = null, autoAssigned = false }, companyId) {
     if (!this.enabled) return null;
     const client = await this.pool.connect();
     try {
@@ -836,9 +845,9 @@ class Database {
         FROM conversation_routing WHERE company_id = $1 AND chat_id = $2
       `, [companyId, chatId]);
       const result = await client.query(`
-        INSERT INTO conversation_routing (company_id, chat_id, handling_mode, assignee_user_id, status, priority, assigned_at, due_at, task_note_id)
+        INSERT INTO conversation_routing (company_id, chat_id, handling_mode, assignee_user_id, status, priority, assigned_at, due_at, task_note_id, auto_assigned)
         VALUES ($1, $2, $3, $4, $5, $6, CASE WHEN $3 = 'human' THEN NOW() ELSE NULL END,
-                CASE WHEN $3 = 'human' THEN $7::timestamptz ELSE NULL END, CASE WHEN $3 = 'human' THEN $8::bigint ELSE NULL END)
+                CASE WHEN $3 = 'human' THEN $7::timestamptz ELSE NULL END, CASE WHEN $3 = 'human' THEN $8::bigint ELSE NULL END, $9)
         ON CONFLICT (company_id, chat_id) DO UPDATE SET
           handling_mode = EXCLUDED.handling_mode,
           assignee_user_id = EXCLUDED.assignee_user_id,
@@ -855,10 +864,11 @@ class Database {
                         ELSE COALESCE(EXCLUDED.due_at, conversation_routing.due_at) END,
           task_note_id = CASE WHEN EXCLUDED.handling_mode = 'human'
                               THEN COALESCE(EXCLUDED.task_note_id, conversation_routing.task_note_id) ELSE NULL END,
+          auto_assigned = EXCLUDED.auto_assigned,
           updated_at = NOW()
         RETURNING chat_id AS "chatId", handling_mode AS mode, assignee_user_id AS "assigneeUserId",
                   status, priority, assigned_at AS "assignedAt", updated_at AS "updatedAt"
-      `, [companyId, chatId, mode, assigneeUserId || null, status, priority, dueAt || null, taskNoteId || null]);
+      `, [companyId, chatId, mode, assigneeUserId || null, status, priority, dueAt || null, taskNoteId || null, mode === 'human' && Boolean(autoAssigned)]);
       const before = previous.rows[0] || { mode: null, assigneeUserId: null };
       await client.query(`
         INSERT INTO conversation_handoffs
@@ -5669,6 +5679,43 @@ class Database {
       WHERE company_id = $1 AND chat_id = $2
     `, [companyId, chatId, menungguSejak]);
     return result.rowCount > 0;
+  }
+
+  /** Balasan manusia terakhir lewat Agnee, untuk hitung mundur kembali ke AI. */
+  async getLastHumanReplyAt(companyId, chatId) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      SELECT MAX(created_at) AS at FROM outbound_replies
+      WHERE company_id = $1 AND chat_id = $2 AND author = 'human'
+    `, [companyId, chatId]);
+    return result.rows[0]?.at || null;
+  }
+
+  /**
+   * Pesan customer yang belum dijawab siapa pun: pesan masuk terakhir, umurnya
+   * di bawah `maxJam`, dan tidak ada balasan tercatat sesudahnya. Dipakai saat
+   * chat diserahkan kembali ke AI supaya customer yang sedang menunggu tidak
+   * dibiarkan. Balasan dari HP tidak tercatat di sini — pemanggil memeriksa
+   * riwayat WhatsApp sendiri bila bisa.
+   */
+  async getUnansweredInbound(companyId, chatId, maxJam = 24) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      SELECT l.body, l.message_type AS "messageType", l.timestamp, l.wa_message_id AS "waMessageId",
+             l.connection_id AS "connectionId", l.provider
+      FROM (
+        SELECT * FROM inbound_messages
+        WHERE company_id = $1 AND chat_id = $2
+        ORDER BY created_at DESC, id DESC
+        LIMIT 1
+      ) l
+      WHERE l.created_at > NOW() - ($3 || ' hours')::INTERVAL
+        AND NOT EXISTS (
+          SELECT 1 FROM outbound_replies o
+          WHERE o.company_id = $1 AND o.chat_id = $2 AND o.created_at >= l.created_at
+        )
+    `, [companyId, chatId, String(maxJam)]);
+    return result.rows[0] || null;
   }
 
   async returnIdleAutoAssignedToAi(idleMinutes) {

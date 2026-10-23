@@ -173,4 +173,4 @@ async function fetchCustomerDetail(host, token, id, fetchImpl = fetch) {
 }
 
 module.exports = {
-  fetchCustomerDetail, otherPhone, cleanText, sleep, PAGE_GAP_MS, normalizeHost, normalizePhone, fetchToken, verifyCredentials, fetchCustomers };
+  dealposGet, fetchCustomerDetail, otherPhone, cleanText, sleep, PAGE_GAP_MS, normalizeHost, normalizePhone, fetchToken, verifyCredentials, fetchCustomers };

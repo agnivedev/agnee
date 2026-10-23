@@ -29,7 +29,23 @@ function ensureHolding(text) {
 // claimDueDepartmentReminders. Yang ke-4 terakhir; setelah itu 'unresolved'.
 const REMINDER_MINUTES = [5, 15, 120, 720];
 
-function buildReminderNotice({ department, question, customerLabel, reminderCount, final }) {
+/** Kode pendek pertanyaan (#ab12cd) untuk menjawab dari grup tanpa reply. */
+function questionCode(id) { return String(id || '').replace(/-/g, '').slice(0, 6).toLowerCase(); }
+
+/** Kode di teks jawaban grup, mis. "#ab12cd stok ada 40 sak". */
+function codeInText(text) {
+  const match = /#([0-9a-f]{6})\b/i.exec(String(text || ''));
+  return match ? match[1].toLowerCase() : null;
+}
+
+/** Baris cara menjawab: dari grup (reply atau kode) atau dari Agnee. */
+function answerHint({ code, group }) {
+  return group
+    ? `Jawab dengan *reply* pesan ini di grup, atau tulis #${code} di jawabanmu. Bisa juga lewat Agnee (menu Pertanyaan AI).`
+    : 'Mohon dijawab lewat Agnee (menu Pertanyaan AI).';
+}
+
+function buildReminderNotice({ department, question, customerLabel, reminderCount, final, code = null, group = false }) {
   const cut = (v, n) => { const t = String(v || '').replace(/\s+/g, ' ').trim(); return t.length > n ? `${t.slice(0, n - 1)}…` : t; };
   return [
     final ? `*Pengingat terakhir — tim ${department}*` : `*Pengingat ${reminderCount}/4 — tim ${department}*`,
@@ -37,8 +53,8 @@ function buildReminderNotice({ department, question, customerLabel, reminderCoun
     `Pertanyaan: "${cut(question, 500)}"`,
     '',
     final
-      ? 'Belum ada yang menjawab selama 12 jam. Customer ditandai belum terjawab; jawab lewat Agnee (menu Pertanyaan AI) kapan pun.'
-      : 'Customer masih menunggu. Mohon dijawab lewat Agnee (menu Pertanyaan AI).',
+      ? `Belum ada yang menjawab selama 12 jam. Customer ditandai belum terjawab. ${answerHint({ code, group })}`
+      : `Customer masih menunggu. ${answerHint({ code, group })}`,
   ].join('\n');
 }
 
@@ -148,16 +164,14 @@ function toolSpec({ departments, run }) {
 }
 
 /** Pesan WhatsApp ke anggota departemen. */
-function buildQuestionNotice({ department, question, customerLabel, askerLabel = null }) {
+function buildQuestionNotice({ department, question, customerLabel, askerLabel = null, code = null, group = false }) {
   const cut = (v, n) => { const t = String(v || '').replace(/\s+/g, ' ').trim(); return t.length > n ? `${t.slice(0, n - 1)}…` : t; };
   return [
     `*Pertanyaan dari asisten untuk tim ${department}*`,
     askerLabel ? `Penanya: ${askerLabel}` : `Customer: ${customerLabel}`,
     `Pertanyaan: "${cut(question, 500)}"`,
     '',
-    askerLabel
-      ? 'Mohon dijawab lewat Agnee (menu Pertanyaan AI). Jawaban pertama yang masuk akan diteruskan ke penanya.'
-      : 'Mohon dijawab lewat Agnee (menu Pertanyaan AI). Jawaban pertama yang masuk akan diteruskan ke customer.',
+    `${answerHint({ code, group })} Jawaban pertama yang masuk akan diteruskan ke ${askerLabel ? 'penanya' : 'customer'}.`,
   ].join('\n');
 }
 
@@ -202,4 +216,4 @@ function judgeRelay(text) {
   return { kind: 'ok', text: clean };
 }
 
-module.exports = { buildMentionNotice, guideOps, guideThirdPartiesOps, judgeRelay, leaksInternal, UNSURE_TOKEN, guideThirdParties, toolSpecThirdParty, buildThirdPartyMessage, mentionsWaiting, ensureHolding, buildReminderNotice, REMINDER_MINUTES, guide, toolSpec, buildQuestionNotice, relayPrompt, HOLDING_FALLBACK, QUESTION_MAX };
+module.exports = { questionCode, codeInText, buildMentionNotice, guideOps, guideThirdPartiesOps, judgeRelay, leaksInternal, UNSURE_TOKEN, guideThirdParties, toolSpecThirdParty, buildThirdPartyMessage, mentionsWaiting, ensureHolding, buildReminderNotice, REMINDER_MINUTES, guide, toolSpec, buildQuestionNotice, relayPrompt, HOLDING_FALLBACK, QUESTION_MAX };

@@ -63,6 +63,8 @@ export function PipelinePage() {
               pipelineStage: updated.pipelineStage || lead.pipelineStage,
               pipelineStageSuggested: updated.pipelineStageSuggested ?? null,
               pipelineStageSuggestedReason: updated.pipelineStageSuggestedReason ?? null,
+              pipelineStageUpdatedBy: updated.pipelineStageUpdatedBy ?? lead.pipelineStageUpdatedBy,
+              pipelineStageReason: updated.pipelineStageReason ?? null,
             }
           : lead,
       ),
@@ -150,6 +152,27 @@ export function PipelinePage() {
                       </strong>
                       {lead.contactName && realPhone(lead.phone) ? (
                         <span className="text-[11px] text-muted">+{realPhone(lead.phone)}</span>
+                      ) : null}
+                      {lead.pipelineStageUpdatedBy === 'ai' ? (
+                        <div onClick={(event) => event.stopPropagation()} className="mt-1 grid gap-1.5 text-[11px]">
+                          {lead.pipelineStageReason ? (
+                            <span className="text-muted">{t('pipeline.movedByAi', { reason: lead.pipelineStageReason })}</span>
+                          ) : null}
+                          <select
+                            aria-label={t('pipeline.moveTo')}
+                            value=""
+                            onChange={(event) => {
+                              const stage = event.target.value as PipelineStage;
+                              if (stage) void setStage(lead.chatId, stage, false);
+                            }}
+                            className="h-7 rounded-lg border border-border bg-white px-1.5 text-[11px]"
+                          >
+                            <option value="">{t('pipeline.moveTo')}</option>
+                            {PIPELINE_STAGES.filter((s) => s !== lead.pipelineStage).map((s) => (
+                              <option key={s} value={s}>{t(`lead.pipeline.${s}`)}</option>
+                            ))}
+                          </select>
+                        </div>
                       ) : null}
                       {lead.pipelineStageSuggested && lead.pipelineStageSuggested !== lead.pipelineStage ? (
                         <div

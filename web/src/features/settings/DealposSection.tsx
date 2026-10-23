@@ -16,6 +16,9 @@ type Dealpos = {
   customerCount?: number;
   withPhone?: number;
   detailDone?: number;
+  productCount?: number | null;
+  productsSyncedAt?: string | null;
+  productsError?: string | null;
 };
 
 /**
@@ -90,10 +93,16 @@ export function DealposSection() {
                 <small className="truncate font-mono text-[11px] text-muted">
                   {t('dealpos.detailProgress', { done: state.detailDone ?? 0, total: state.customerCount ?? 0 })}
                 </small>
+                <small className="truncate font-mono text-[11px] text-muted">
+                  {state.productsSyncedAt
+                    ? t('dealpos.prices', { count: state.productCount ?? 0, when: new Date(state.productsSyncedAt).toLocaleString('id-ID') })
+                    : t('dealpos.pricesPending')}
+                </small>
                 {state.dataHidden ? <small className="text-[11px] font-semibold text-muted">{t('dealpos.hiddenNote')}</small> : null}
               </span>
             </Row>
             {state.lastError ? <StatusLine tone="error">{state.lastError}</StatusLine> : null}
+            {state.productsError ? <StatusLine tone="error">{t('dealpos.pricesError', { error: state.productsError })}</StatusLine> : null}
             <div className="mt-3 flex flex-wrap gap-2">
               <Button
                 size="sm"

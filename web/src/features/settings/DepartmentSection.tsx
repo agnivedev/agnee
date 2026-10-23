@@ -9,7 +9,15 @@ import { Row, SettingCard, StatusLine } from './parts';
 import type { TeamMember } from '@/features/inbox/types';
 
 type DeptMember = { userId: string; displayName: string; email?: string; whatsappNumber?: string | null };
-type Department = { id: string; name: string; description: string; members: DeptMember[] };
+type Department = {
+  id: string;
+  name: string;
+  description: string;
+  whatsappGroupId?: string | null;
+  whatsappGroupName?: string | null;
+  members: DeptMember[];
+};
+type WaGroup = { id: string; name: string };
 type Question = {
   id: string;
   chatId: string;
@@ -32,6 +40,8 @@ export function DepartmentSection() {
   const [editing, setEditing] = useState<string | null>(null);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [renaming, setRenaming] = useState<string | null>(null);
+  const [groups, setGroups] = useState<WaGroup[] | null>(null);
+  const [groupPick, setGroupPick] = useState('');
 
   const load = useCallback(async () => {
     try {
@@ -67,8 +77,29 @@ export function DepartmentSection() {
     }
   }
 
-  async function saveMembers(id: string) {
+  async function openRecipients(dept: Department) {
+    setPicked(new Set(dept.members.map((m) => m.userId)));
+    setGroupPick(dept.whatsappGroupId || '');
+    setEditing(dept.id);
+    if (groups) return;
     try {
+      const data = await api<{ groups: WaGroup[] }>('/v1/whatsapp/groups');
+      setGroups(data.groups || []);
+    } catch {
+      setGroups([]);
+    }
+  }
+
+  async function saveMembers(dept: Department) {
+    const id = dept.id;
+    try {
+      if (groupPick !== (dept.whatsappGroupId || '')) {
+        const group = (groups || []).find((g) => g.id === groupPick);
+        await api(`/v1/departments/${id}`, {
+          method: 'PATCH',
+          body: { whatsappGroupId: groupPick || null, whatsappGroupName: group?.name || null },
+        });
+      }
       await api(`/v1/departments/${id}/members`, { method: 'PUT', body: { userIds: [...picked] } });
       setEditing(null);
       await load();
@@ -132,14 +163,38 @@ export function DepartmentSection() {
                       {m.displayName || m.email}
                     </label>
                   ))}
+                  <label className="mt-1 grid gap-1 text-xs">
+                    <span className="font-semibold">{t('dept.group')}</span>
+                    <select
+                      value={groupPick}
+                      onChange={(event) => setGroupPick(event.target.value)}
+                      className="h-9 max-w-sm rounded-[10px] border border-border bg-white px-2 text-sm"
+                    >
+                      <option value="">{t('dept.noGroup')}</option>
+                      {dept.whatsappGroupId && !(groups || []).some((g) => g.id === dept.whatsappGroupId) ? (
+                        <option value={dept.whatsappGroupId}>{dept.whatsappGroupName || dept.whatsappGroupId}</option>
+                      ) : null}
+                      {(groups || []).map((g) => (
+                        <option key={g.id} value={g.id}>{g.name}</option>
+                      ))}
+                    </select>
+                    <small className="text-[11px] text-muted">
+                      {groups && groups.length === 0 ? `${t('dept.groupsEmpty')} ` : ''}{t('dept.groupHint')}
+                    </small>
+                  </label>
                   <span className="flex gap-2">
-                    <Button size="sm" onClick={() => void saveMembers(dept.id)}>{t('common.save')}</Button>
+                    <Button size="sm" onClick={() => void saveMembers(dept)}>{t('common.save')}</Button>
                     <Button size="sm" variant="ghost" onClick={() => setEditing(null)}>{t('common.cancel')}</Button>
                   </span>
                 </div>
               ) : (
                 <ul className="flex flex-wrap gap-1.5 pt-0.5">
-                  {dept.members.length === 0 ? <li className="text-[11px] text-muted">{t('dept.noMembers')}</li> : null}
+                  {dept.members.length === 0 && !dept.whatsappGroupId ? <li className="text-[11px] text-muted">{t('dept.noMembers')}</li> : null}
+                  {dept.whatsappGroupId ? (
+                    <li className="rounded-full bg-ink/8 px-2.5 py-1 text-[11px]">
+                      {t('dept.groupChip', { name: dept.whatsappGroupName || dept.whatsappGroupId })}
+                    </li>
+                  ) : null}
                   {dept.members.map((m) => (
                     <li key={m.userId} className="rounded-full bg-ink/8 px-2.5 py-1 text-[11px]">{m.displayName}</li>
                   ))}
@@ -148,7 +203,7 @@ export function DepartmentSection() {
             </span>
             {isSupervisor && editing !== dept.id ? (
               <span className="flex flex-wrap items-center gap-2">
-                <Button size="sm" variant="outline" onClick={() => { setPicked(new Set(dept.members.map((m) => m.userId))); setEditing(dept.id); }}>
+                <Button size="sm" variant="outline" onClick={() => void openRecipients(dept)}>
                   {t('dept.members')}
                 </Button>
                 <Button size="sm" variant="outline" onClick={() => setRenaming(dept.id)}>{t('team.edit')}</Button>

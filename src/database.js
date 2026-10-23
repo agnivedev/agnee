@@ -170,7 +170,8 @@ class Database {
         pipeline_stage_suggested_reason AS "pipelineStageSuggestedReason",
         pipeline_stage_suggested_at AS "pipelineStageSuggestedAt",
         pipeline_stage_updated_at AS "pipelineStageUpdatedAt",
-        pipeline_stage_updated_by AS "pipelineStageUpdatedBy"
+        pipeline_stage_updated_by AS "pipelineStageUpdatedBy",
+        pipeline_stage_reason AS "pipelineStageReason"
       FROM lead_states
       WHERE company_id = $1 AND chat_id = $2
     `, [companyId, chatId]);
@@ -399,11 +400,47 @@ class Database {
         pipeline_stage_suggested = NULL,
         pipeline_stage_suggested_reason = NULL,
         pipeline_stage_suggested_at = NULL,
+        pipeline_stage_reason = NULL,
         updated_at = NOW()
       RETURNING chat_id AS "chatId", pipeline_stage AS "pipelineStage",
         pipeline_stage_suggested AS "pipelineStageSuggested",
-        pipeline_stage_suggested_reason AS "pipelineStageSuggestedReason"
+        pipeline_stage_suggested_reason AS "pipelineStageSuggestedReason",
+        pipeline_stage_updated_by AS "pipelineStageUpdatedBy",
+        pipeline_stage_reason AS "pipelineStageReason"
     `, [companyId, chatId, stage, updatedBy]);
+    return result.rows[0] || null;
+  }
+
+  /**
+   * AI memindahkan tahap pipeline mengikuti isi chat. Tahap yang dipilih orang
+   * SETELAH pesan terakhir yang dianalisis tidak ditimpa: koreksi manusia
+   * bertahan sampai ada percakapan baru. Pemindahan otomatis lain (website-lead,
+   * lead-verify, dan AI sendiri) boleh ditimpa.
+   */
+  async autoPipelineStage(chatId, stage, reason, sourceTimestamp, companyId) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      UPDATE lead_states SET
+        pipeline_stage = $3,
+        pipeline_stage_reason = $4,
+        pipeline_stage_updated_at = NOW(),
+        pipeline_stage_updated_by = 'ai',
+        pipeline_stage_suggested = NULL,
+        pipeline_stage_suggested_reason = NULL,
+        pipeline_stage_suggested_at = NULL,
+        updated_at = NOW()
+      WHERE company_id = $1 AND chat_id = $2
+        AND pipeline_stage IS DISTINCT FROM $3
+        AND NOT (
+          COALESCE(pipeline_stage_updated_by, 'ai') NOT IN ('ai', 'website-lead', 'lead-verify')
+          AND pipeline_stage_updated_at >= to_timestamp($5::double precision)
+        )
+      RETURNING chat_id AS "chatId", pipeline_stage AS "pipelineStage",
+        pipeline_stage_suggested AS "pipelineStageSuggested",
+        pipeline_stage_suggested_reason AS "pipelineStageSuggestedReason",
+        pipeline_stage_updated_by AS "pipelineStageUpdatedBy",
+        pipeline_stage_reason AS "pipelineStageReason"
+    `, [companyId, chatId, stage, reason || null, Number(sourceTimestamp) || 0]);
     return result.rows[0] || null;
   }
 
@@ -448,7 +485,9 @@ class Database {
         ls.pipeline_stage AS "pipelineStage",
         ls.pipeline_stage_suggested AS "pipelineStageSuggested",
         ls.pipeline_stage_suggested_reason AS "pipelineStageSuggestedReason",
-        ls.pipeline_stage_updated_at AS "pipelineStageUpdatedAt"
+        ls.pipeline_stage_updated_at AS "pipelineStageUpdatedAt",
+        ls.pipeline_stage_updated_by AS "pipelineStageUpdatedBy",
+        ls.pipeline_stage_reason AS "pipelineStageReason"
       FROM lead_states ls
       LEFT JOIN contact_names cn ON cn.company_id = ls.company_id AND cn.chat_id = ls.chat_id
       LEFT JOIN lid_phone_map lp ON lp.company_id = ls.company_id AND ls.chat_id LIKE '%@lid'
@@ -1371,6 +1410,7 @@ class Database {
     if (!this.enabled) return [];
     const result = await this.pool.query(`
       SELECT d.id, d.name, d.description,
+             d.whatsapp_group_id AS "whatsappGroupId", d.whatsapp_group_name AS "whatsappGroupName",
              COALESCE(json_agg(json_build_object(
                'userId', u.id, 'displayName', COALESCE(u.display_name, u.email),
                'email', u.email, 'whatsappNumber', cm.whatsapp_number)
@@ -1386,21 +1426,27 @@ class Database {
     return result.rows;
   }
 
-  async createDepartment({ name, description = '' }, companyId) {
+  async createDepartment({ name, description = '', whatsappGroupId = null, whatsappGroupName = null }, companyId) {
     if (!this.enabled) return null;
     const result = await this.pool.query(`
-      INSERT INTO departments (company_id, name, description) VALUES ($1, $2, $3)
-      RETURNING id, name, description
-    `, [companyId, String(name).trim(), String(description || '').trim()]);
+      INSERT INTO departments (company_id, name, description, whatsapp_group_id, whatsapp_group_name) VALUES ($1, $2, $3, $4, $5)
+      RETURNING id, name, description, whatsapp_group_id AS "whatsappGroupId", whatsapp_group_name AS "whatsappGroupName"
+    `, [companyId, String(name).trim(), String(description || '').trim(), whatsappGroupId || null, whatsappGroupId ? whatsappGroupName || null : null]);
     return { ...result.rows[0], members: [] };
   }
 
-  async updateDepartment(id, { name, description }, companyId) {
+  /** `whatsappGroupId: null` melepas grup; tidak dikirim = grup tidak diubah. */
+  async updateDepartment(id, { name, description, whatsappGroupId, whatsappGroupName }, companyId) {
     if (!this.enabled) return null;
     const result = await this.pool.query(`
-      UPDATE departments SET name = COALESCE($3, name), description = COALESCE($4, description), updated_at = NOW()
-      WHERE id = $1 AND company_id = $2 RETURNING id, name, description
-    `, [id, companyId, name === undefined ? null : String(name).trim(), description === undefined ? null : String(description).trim()]);
+      UPDATE departments SET name = COALESCE($3, name), description = COALESCE($4, description),
+        whatsapp_group_id = CASE WHEN $5 THEN $6 ELSE whatsapp_group_id END,
+        whatsapp_group_name = CASE WHEN $5 THEN $7 ELSE whatsapp_group_name END,
+        updated_at = NOW()
+      WHERE id = $1 AND company_id = $2
+      RETURNING id, name, description, whatsapp_group_id AS "whatsappGroupId", whatsapp_group_name AS "whatsappGroupName"
+    `, [id, companyId, name === undefined ? null : String(name).trim(), description === undefined ? null : String(description).trim(),
+      whatsappGroupId !== undefined, whatsappGroupId || null, whatsappGroupId ? whatsappGroupName || null : null]);
     return result.rows[0] || null;
   }
 
@@ -1497,7 +1543,7 @@ class Database {
   /** Pertanyaan AI ke satu departemen. Mengembalikan pertanyaan + anggota yang harus diberi tahu. */
   async createDepartmentQuestion({ departmentId, chatId, customerText, question }, companyId) {
     if (!this.enabled) return null;
-    const dept = await this.pool.query('SELECT id, name FROM departments WHERE id = $1 AND company_id = $2', [departmentId, companyId]);
+    const dept = await this.pool.query('SELECT id, name, whatsapp_group_id AS "whatsappGroupId" FROM departments WHERE id = $1 AND company_id = $2', [departmentId, companyId]);
     if (!dept.rowCount) return null;
     const created = await this.pool.query(`
       INSERT INTO department_questions (company_id, department_id, chat_id, customer_text, question)
@@ -1517,7 +1563,49 @@ class Database {
         SELECT $1, x, 'department_question', $2, 'ai', $3 FROM unnest($4::uuid[]) AS x
       `, [companyId, chatId, body, members.rows.map((m) => m.userId)]);
     }
-    return { id: created.rows[0].id, department: dept.rows[0].name, members: members.rows };
+    return { id: created.rows[0].id, department: dept.rows[0].name, whatsappGroupId: dept.rows[0].whatsappGroupId, members: members.rows };
+  }
+
+  /** Simpan id pesan pemberitahuan di grup, supaya balasan "reply" ke pesan itu dikenali. */
+  async addDepartmentQuestionGroupMessage(id, stanzaId, companyId) {
+    if (!this.enabled || !stanzaId) return;
+    await this.pool.query(`
+      UPDATE department_questions SET group_message_ids = array_append(group_message_ids, $3)
+      WHERE id = $1 AND company_id = $2
+    `, [id, companyId, String(stanzaId)]);
+  }
+
+  /**
+   * Pertanyaan yang sedang dijawab dari grup WhatsApp departemen: lewat reply
+   * ke pemberitahuannya (stanza id), atau lewat kode pendeknya (#ab12cd).
+   * Hanya pertanyaan yang belum dijawab dan memang milik departemen grup itu.
+   */
+  async findGroupDepartmentQuestion(companyId, groupId, { stanzaId = null, code = null } = {}) {
+    if (!this.enabled || (!stanzaId && !code)) return null;
+    const result = await this.pool.query(`
+      SELECT q.id, q.chat_id AS "chatId", d.name AS department
+      FROM department_questions q
+      JOIN departments d ON d.id = q.department_id
+      WHERE q.company_id = $1 AND d.whatsapp_group_id = $2
+        AND q.status IN ('open', 'unresolved')
+        AND (($3::text IS NOT NULL AND $3 = ANY(q.group_message_ids))
+          OR ($4::text IS NOT NULL AND q.id::text LIKE $4 || '%'))
+      ORDER BY q.created_at DESC
+      LIMIT 1
+    `, [companyId, groupId, stanzaId, code ? String(code).toLowerCase() : null]);
+    return result.rows[0] || null;
+  }
+
+  /** Anggota aktif company dengan nomor WhatsApp ini (untuk mencatat siapa yang menjawab dari grup). */
+  async findMemberByWhatsapp(companyId, digits) {
+    if (!this.enabled || !digits) return null;
+    const result = await this.pool.query(`
+      SELECT user_id AS "userId" FROM company_members
+      WHERE company_id = $1 AND status = 'active'
+        AND regexp_replace(COALESCE(whatsapp_number, ''), '\\D', '', 'g') IN ($2, '0' || substr($2, 3))
+      LIMIT 1
+    `, [companyId, String(digits)]);
+    return result.rows[0] || null;
   }
 
   async listDepartmentQuestions(companyId, { userId = null, status = 'open', limit = 50 } = {}) {
@@ -1591,7 +1679,8 @@ class Database {
         continue;
       }
       const members = await this.pool.query(`
-        SELECT u.id AS "userId", cm.whatsapp_number AS "whatsappNumber", d.name AS department
+        SELECT u.id AS "userId", cm.whatsapp_number AS "whatsappNumber", d.name AS department,
+               d.whatsapp_group_id AS "whatsappGroupId"
         FROM departments d
         LEFT JOIN department_members dm ON dm.department_id = d.id
         LEFT JOIN company_members cm ON cm.company_id = d.company_id AND cm.user_id = dm.user_id AND cm.status = 'active'
@@ -1617,7 +1706,7 @@ class Database {
           SELECT $1, x, 'department_question', $2, 'ai', $3 FROM unnest($4::uuid[]) AS x
         `, [row.companyId, row.chatId, body, [...targets]]);
       }
-      rows.push({ ...row, department, members: people });
+      rows.push({ ...row, department, whatsappGroupId: members.rows[0]?.whatsappGroupId || null, members: people });
     }
     return rows;
   }
@@ -4618,7 +4707,8 @@ class Database {
       SELECT company_id AS "companyId", host, client_id AS "clientId",
              pgp_sym_decrypt(client_secret_enc, $2) AS "clientSecret",
              enabled, data_hidden AS "dataHidden",
-             last_synced_at AS "lastSyncedAt", last_error AS "lastError"
+             last_synced_at AS "lastSyncedAt", last_error AS "lastError",
+             products_synced_at AS "productsSyncedAt", products_error AS "productsError"
       FROM dealpos_connections WHERE company_id = $1
     `, [companyId, this.credentialsEncryptionKey]);
     return result.rows[0] || null;
@@ -4693,6 +4783,63 @@ class Database {
     return result.rowCount > 0;
   }
 
+  /** Ganti seluruh harga DealPOS company ini dengan hasil tarikan terbaru. */
+  async replaceDealposProducts(companyId, products) {
+    if (!this.enabled) return 0;
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('DELETE FROM dealpos_products WHERE company_id = $1', [companyId]);
+      for (let i = 0; i < products.length; i += 500) {
+        const chunk = products.slice(i, i + 500);
+        await client.query(`
+          INSERT INTO dealpos_products (company_id, variant_id, code, name, category, unit, unit_price)
+          SELECT $1, * FROM unnest($2::text[], $3::text[], $4::text[], $5::text[], $6::text[], $7::numeric[])
+          ON CONFLICT (company_id, variant_id) DO NOTHING
+        `, [companyId, chunk.map((p) => p.variantId), chunk.map((p) => p.code), chunk.map((p) => p.name),
+          chunk.map((p) => p.category), chunk.map((p) => p.unit), chunk.map((p) => p.unitPrice)]);
+      }
+      await client.query('UPDATE dealpos_connections SET products_synced_at = NOW(), products_error = NULL WHERE company_id = $1', [companyId]);
+      await client.query('COMMIT');
+      return products.length;
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async recordDealposProductsError(companyId, message) {
+    if (!this.enabled) return;
+    await this.pool.query('UPDATE dealpos_connections SET products_error = $2 WHERE company_id = $1', [companyId, String(message).slice(0, 300)]);
+  }
+
+  /** Harga untuk balasan AI. Kosong bila koneksi dimatikan. */
+  async listDealposProducts(companyId) {
+    if (!this.enabled) return { products: [], syncedAt: null };
+    const result = await this.pool.query(`
+      SELECT p.variant_id AS "variantId", p.code, p.name, p.category, p.unit, p.unit_price::float8 AS "unitPrice",
+             d.products_synced_at AS "syncedAt"
+      FROM dealpos_products p
+      JOIN dealpos_connections d ON d.company_id = p.company_id AND d.enabled
+      WHERE p.company_id = $1
+    `, [companyId]);
+    return { products: result.rows, syncedAt: result.rows[0]?.syncedAt || null };
+  }
+
+  /** Koneksi menyala yang harganya belum ditarik atau sudah lebih tua dari `hours`. */
+  async listDealposProductsDue(hours) {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(`
+      SELECT d.company_id AS "companyId" FROM dealpos_connections d
+      JOIN companies c ON c.id = d.company_id
+      WHERE d.enabled AND c.status = 'active'
+        AND (d.products_synced_at IS NULL OR d.products_synced_at < NOW() - make_interval(hours => $1))
+    `, [hours]);
+    return result.rows.map((r) => r.companyId);
+  }
+
   async countDealposCustomers(companyId) {
     if (!this.enabled) return { total: 0, withPhone: 0 };
     const result = await this.pool.query(`
@@ -4701,6 +4848,12 @@ class Database {
       FROM dealpos_customers WHERE company_id = $1
     `, [companyId]);
     return result.rows[0] || { total: 0, withPhone: 0, detailDone: 0 };
+  }
+
+  async countDealposProducts(companyId) {
+    if (!this.enabled) return 0;
+    const result = await this.pool.query('SELECT COUNT(*)::int AS n FROM dealpos_products WHERE company_id = $1', [companyId]);
+    return result.rows[0].n;
   }
 
   /** Customer yang detailnya (alamat dst.) belum ditarik; yang punya nomor WhatsApp lebih dulu. */

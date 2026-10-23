@@ -111,6 +111,8 @@ export type Lead = {
   pipelineStage?: PipelineStage | null;
   pipelineStageSuggested?: PipelineStage | null;
   pipelineStageSuggestedReason?: string | null;
+  pipelineStageUpdatedBy?: string | null;
+  pipelineStageReason?: string | null;
 };
 
 /** Satu baris dari GET /v1/leads/pipeline — dipakai board Kanban. */
@@ -123,6 +125,8 @@ export type PipelineLead = {
   pipelineStage: PipelineStage;
   pipelineStageSuggested?: PipelineStage | null;
   pipelineStageSuggestedReason?: string | null;
+  pipelineStageUpdatedBy?: string | null;
+  pipelineStageReason?: string | null;
 };
 
 export type Attachment = {

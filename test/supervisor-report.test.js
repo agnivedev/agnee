@@ -170,7 +170,7 @@ test('template tanpa {chat_details} tidak memuat chat; {overview} bisa dipakai d
 test('detail chat: isi, status, dan tindakan oleh siapa ikut di laporan bawaan, dengan jumlah total di judul', () => {
   const text = r.buildReport({ ...base, overview: BUSY, chats: [mkChat()], followUpTotal: 1 });
   assert.match(text, /\*Chat yang perlu di-follow up\* \(1\)/);
-  assert.match(text, /\*1\. Budi\*\nIsi: Tanya paket 3 bulan\.\nStatus: Panas · Customer menunggu balasan 3 jam · Dipegang Sari\nTindakan: Kirim penawaran — \*Sari\*/);
+  assert.match(text, /\*🔴 1\. Budi\*\nIsi: Tanya paket 3 bulan\.\nStatus: Panas · Customer menunggu balasan 3 jam · Dipegang Sari\nTindakan: Kirim penawaran — \*Sari\*/);
   assert.equal(r.buildReportMessages({ ...base, overview: BUSY, chats: [mkChat()] }).length, 1);
 });
 
@@ -184,7 +184,7 @@ test('detail chat: daftar yang tidak muat di satu pesan menjadi pesan berikutnya
   assert.doesNotMatch(messages[0], /follow-up/);
   assert.match(messages[1], /^\*Chat yang perlu di-follow up\* \(20\)/);
   assert.match(messages[2], /^\*Chat yang perlu di-follow up\* \(lanjutan\)/);
-  const numbers = messages.slice(1).join('\n').match(/^\*(\d+)\. Customer/gm).map((m) => Number(m.match(/\d+/)[0]));
+  const numbers = messages.slice(1).join('\n').match(/^\*(?:🔴 )?(\d+)\. Customer/gm).map((m) => Number(m.match(/\d+/)[0]));
   assert.deepEqual(numbers, numbers.map((_, i) => i + 1), 'nomor berurutan tanpa celah');
   assert.equal(numbers.length, 20, 'semua chat tampil');
 });
@@ -194,7 +194,7 @@ test('detail chat: dibatasi tiga pesan daftar; sisanya dicatat, bukan dibuang di
   const messages = r.buildReportMessages({ ...base, overview: BUSY, chats, followUpTotal: 140 });
   assert.equal(messages.length, 4);
   assert.ok(messages.every((m) => m.length <= 3800));
-  const shown = messages.slice(1).join('\n').match(/^\*\d+\. Customer/gm).length;
+  const shown = messages.slice(1).join('\n').match(/^\*(?:🔴 )?\d+\. Customer/gm).length;
   assert.match(messages.at(-1), new RegExp(`Dan ${140 - shown} chat lain yang juga perlu tindak lanjut`));
 });
 
@@ -214,8 +214,13 @@ test('periode pembanding kosong (company baru): angka tanpa selisih, bukan "+174
 
 test('AI company mati: disebut di "Saat ini" supaya "Dibalas AI: 0" tidak dibaca sebagai AI rusak', () => {
   const off = r.buildReport({ ...base, overview: QUIET, aiAutoReply: false });
-  assert.match(off, /\*Saat ini\*\n• AI membalas customer: \*mati\* — semua chat harus dibalas tim/);
-  assert.doesNotMatch(r.buildReport({ ...base, overview: QUIET }), /AI membalas customer/);
+  // Template bawaan: peringatan di paling atas, tepat setelah waktu laporan.
+  assert.match(off, /^\*Laporan Chat — X\*\n[^\n]+\n\n⚠️ AI membalas customer: \*MATI\* — semua chat customer harus dibalas tim\n/);
+  assert.doesNotMatch(off, /\*Saat ini\*/);
+  // Template sendiri tanpa {attention}: tetap disebut di "Saat ini".
+  const custom = r.buildReport({ ...base, overview: QUIET, aiAutoReply: false, template: '{overview}' });
+  assert.match(custom, /\*Saat ini\*\n• AI membalas customer: \*MATI\*/);
+  assert.doesNotMatch(r.buildReport({ ...base, overview: QUIET }), /AI membalas customer|SEGERA/);
 });
 
 test('chat yang disembunyikan (spam / ucapan penutup) hanya dihitung di catatan akhir', () => {
@@ -225,4 +230,16 @@ test('chat yang disembunyikan (spam / ucapan penutup) hanya dihitung di catatan 
   const onlyHidden = r.buildReport({ ...base, overview: BUSY, chats: [], followUpTotal: 0, hidden: 2 });
   assert.match(onlyHidden, /2 chat lain tidak ditampilkan/);
   assert.doesNotMatch(onlyHidden, /Chat yang perlu di-follow up/);
+});
+
+test('chat yang customernya menunggu balasan kita ditandai 🔴, ditaruh di depan, dan dirangkum di paling atas', () => {
+  const waitingCold = mkChat({ name: 'Olivia', stage: 'cold', summary: 'Tanya brand selain Philips', lastInboundAt: '2026-10-13T00:00:00Z', lastOutboundAt: null });
+  const hotReplied = mkChat({ name: 'Budi', lastInboundAt: '2026-10-14T20:00:00Z', lastOutboundAt: '2026-10-14T21:00:00Z' });
+  const text = r.buildReport({ ...base, overview: BUSY, chats: [hotReplied, waitingCold], followUpTotal: 2 });
+  const [top] = text.split('*Hari ini');
+  assert.match(top, /🔴 \*SEGERA DIBALAS \(1\)\* — customer menunggu balasan kita\n1\. \*Olivia\* — menunggu \d+ hari: Tanya brand selain Philips/);
+  assert.doesNotMatch(top, /Budi/);
+  // Di daftar: urgent dulu dengan tanda merah, lead panas yang sudah dibalas tanpa tanda.
+  assert.match(text, /\*🔴 1\. Olivia\*\n/);
+  assert.match(text, /\*2\. Budi\*\n/);
 });

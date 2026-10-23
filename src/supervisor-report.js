@@ -154,6 +154,8 @@ const DEFAULT_TEMPLATE = [
   '*Laporan Chat — {company}*',
   '{period}',
   '',
+  '{attention}',
+  '',
   '{overview}',
   '',
   '{topics}',
@@ -171,6 +173,7 @@ const PLACEHOLDERS = [
   { key: 'company', label: 'Nama perusahaan', example: 'Beweix Digital' },
   { key: 'frequency', label: 'Jadwal: Harian / Mingguan / Bulanan', example: 'Harian' },
   { key: 'period', label: 'Waktu laporan dibuat', example: 'Kamis, 15 Okt 2026 10.16' },
+  { key: 'attention', label: 'Perlu perhatian, ditaruh paling atas: peringatan bila AI membalas customer dimatikan, dan chat yang harus SEGERA dibalas (customer menunggu balasan kita). Kosong kalau tidak ada', example: null },
   { key: 'overview', label: 'Angka hari ini, kemarin, 7 dan 30 hari, lengkap dengan selisih terhadap periode sebelumnya', example: null },
   { key: 'inbound', label: 'Pesan masuk dari customer (7 hari terakhir)', example: '128' },
   { key: 'chats', label: 'Customer yang chat (7 hari terakhir)', example: '23' },
@@ -221,6 +224,20 @@ const METRICS = [
 ];
 
 const NO_BASELINE = 'belum ada data periode sebelumnya';
+const AI_OFF_TEXT = 'AI membalas customer: *MATI* — semua chat customer harus dibalas tim';
+
+/**
+ * Blok paling atas: hal yang harus dilihat supervisor lebih dulu daripada
+ * angka. AI yang dimatikan (sengaja atau tidak) dan chat yang harus segera
+ * dibalas.
+ */
+function formatAttention({ aiAutoReply = true, chats = [], now = new Date() }) {
+  const parts = [];
+  if (aiAutoReply === false) parts.push(`⚠️ ${AI_OFF_TEXT}`);
+  const urgent = chatDetails.formatUrgentList(chats, now);
+  if (urgent) parts.push(urgent);
+  return parts.join('\n\n');
+}
 
 /**
  * Ringkasan semua periode, tiap angka dengan selisih terhadap periode sebelumnya.
@@ -232,7 +249,7 @@ const NO_BASELINE = 'belum ada data periode sebelumnya';
  * @param aiAutoReply false = AI company dimatikan; disebut di "Saat ini" supaya
  *   "Dibalas AI: 0" tidak dibaca sebagai AI yang rusak
  */
-function formatOverview(overview, waiting = 0, { aiAutoReply = true } = {}) {
+function formatOverview(overview, waiting = 0, { aiAutoReply = true, aiNoticeElsewhere = false } = {}) {
   const blocks = overview.map(({ label, versus, stats, prev }) => {
     if (quietStats(stats)) {
       // Sepi setelah periode yang ramai tetap layak disebut: itulah kabarnya.
@@ -249,13 +266,13 @@ function formatOverview(overview, waiting = 0, { aiAutoReply = true } = {}) {
   });
   const now = [];
   if (waiting) now.push(`• Menunggu balasan kita: ${num(waiting)} chat`);
-  if (aiAutoReply === false) now.push('• AI membalas customer: *mati* — semua chat harus dibalas tim');
+  if (aiAutoReply === false && !aiNoticeElsewhere) now.push(`• ${AI_OFF_TEXT}`);
   if (now.length) blocks.push(['*Saat ini*', ...now].join('\n'));
   return blocks.join('\n\n');
 }
 
 /** Nilai tiap penanda untuk satu laporan. `stats` = angka 7 hari terakhir. */
-function placeholderValues({ recipientName, companyName, frequency, tz, now, stats, overviewText, highlights, chatText, agentText }) {
+function placeholderValues({ recipientName, companyName, frequency, tz, now, stats, overviewText, highlights, chatText, agentText, attentionText }) {
   const statLines = quietStats(stats) ? [EMPTY_PERIOD] : [
     `• Pesan masuk dari customer: ${num(stats.inboundMessages)}`,
     `• Customer yang chat: ${num(stats.activeChats)} (${num(stats.newChats)} baru)`,
@@ -285,6 +302,7 @@ function placeholderValues({ recipientName, companyName, frequency, tz, now, sta
     topics: points.length ? [TOPICS_HEADING, ...points.map((p) => `– ${p}`)].join('\n') : '',
     waiting: num(stats.waiting),
     agents: agentText,
+    attention: attentionText,
     chat_details: chatText,
   };
 }
@@ -310,11 +328,14 @@ function buildReportMessages({
 }) {
   const weekly = overview.find((entry) => entry.key === '7d') || overview[overview.length - 1];
   const stats = { ...weekly.stats, waiting };
-  const overviewText = formatOverview(overview, waiting, { aiAutoReply });
-  const agentText = agentPerformance.formatAgentSection(agents);
   const source = String(template || DEFAULT_TEMPLATE);
+  const withAttention = source.includes('{attention}');
+  chats = chatDetails.markUrgent(chats, now);
+  const overviewText = formatOverview(overview, waiting, { aiAutoReply, aiNoticeElsewhere: withAttention });
+  const attentionText = formatAttention({ aiAutoReply, chats, now });
+  const agentText = agentPerformance.formatAgentSection(agents);
   const render = (chatText) => {
-    const values = placeholderValues({ recipientName, companyName, frequency, tz, now, stats, overviewText, highlights, chatText, agentText });
+    const values = placeholderValues({ recipientName, companyName, frequency, tz, now, stats, overviewText, highlights, chatText, agentText, attentionText });
     // Satu lintasan, jadi isi nilai (nama company yang memuat "{name}") tidak ikut diganti lagi.
     let text = source.replace(/\{([a-z_]+)\}/g, (match, key) => (Object.hasOwn(values, key) ? values[key] : match));
     // Penanda kosong (mis. {topics}) meninggalkan baris kosong berlipat.

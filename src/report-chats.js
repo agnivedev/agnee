@@ -80,11 +80,13 @@ const clip = (text, max) => {
 };
 const plain = (text) => String(text || '').replace(/[*_~`]/g, '');
 
-/** Satu blok chat. Nomor ditampilkan hanya kalau customer tidak punya nama. */
+const URGENT_MARK = '🔴';
+
+/** Satu blok chat. Nomor ditampilkan hanya kalau customer tidak punya nama. Chat `urgent` diberi tanda merah. */
 function formatChat(chat, index, now) {
   const info = describeChat(chat, now);
   const lines = [
-    `*${index + 1}. ${clip(plain(chat.name), 40)}*`,
+    `*${chat.urgent ? `${URGENT_MARK} ` : ''}${index + 1}. ${clip(plain(chat.name), 40)}*`,
     `Isi: ${clip(plain(chat.summary) || 'Belum ada ringkasan.', 220)}`,
     `Status: ${info.status}`,
     `Tindakan: ${clip(plain(info.action), 90)} — *${clip(plain(info.owner), 40)}*`,
@@ -93,6 +95,35 @@ function formatChat(chat, index, now) {
 }
 
 const HEADING = '*Chat yang perlu di-follow up*';
+
+/**
+ * Tandai chat yang customernya sedang menunggu balasan kita (`urgent`) dan
+ * taruh di depan, urutan lain dipertahankan. Spam dan ucapan penutup sudah
+ * dibuang sebelum sampai sini, jadi yang tersisa memang harus dibalas.
+ */
+function markUrgent(chats, now = new Date()) {
+  const marked = chats.map((chat) => ({ ...chat, urgent: describeChat(chat, now).waitingOnUs }));
+  return [...marked.filter((chat) => chat.urgent), ...marked.filter((chat) => !chat.urgent)];
+}
+
+const MAX_URGENT_LINES = 10;
+
+/**
+ * Blok "Segera dibalas" di bagian atas laporan: satu baris per chat urgent
+ * (nama, lama menunggu, isi singkat), supaya terbaca tanpa menggulir ke daftar.
+ * @returns {string} kosong kalau tidak ada chat urgent
+ */
+function formatUrgentList(chats, now = new Date()) {
+  const urgent = chats.filter((chat) => chat.urgent);
+  if (!urgent.length) return '';
+  const lines = urgent.slice(0, MAX_URGENT_LINES).map((chat, index) => {
+    const wait = durationLabel(hoursSince(chat.lastInboundAt, now));
+    const gist = clip(plain(chat.summary), 80);
+    return `${index + 1}. *${clip(plain(chat.name), 30)}* — menunggu ${wait}${gist ? `: ${gist}` : ''}`;
+  });
+  if (urgent.length > MAX_URGENT_LINES) lines.push(`Dan ${urgent.length - MAX_URGENT_LINES} customer lain; lihat daftar di bawah.`);
+  return [`${URGENT_MARK} *SEGERA DIBALAS (${urgent.length})* — customer menunggu balasan kita`, ...lines].join('\n');
+}
 const MAX_DETAIL_MESSAGES = 3;
 
 const moreFooter = (rest) => `Dan ${rest} chat lain yang juga perlu tindak lanjut; lihat selengkapnya di Inbox.`;
@@ -251,5 +282,5 @@ function fallbackSummary(chat) {
 module.exports = {
   STAGE_LABEL, AI_SILENT_HOURS, MAX_MESSAGE_LENGTH, HEADING,
   describeChat, formatChat, formatChatDetails, chunkChatDetails, MAX_DETAIL_MESSAGES, parseChatDigest, buildDigestPrompt, displayName, fallbackSummary,
-  reconcileWithLive, needsAction,
+  reconcileWithLive, needsAction, markUrgent, formatUrgentList, URGENT_MARK,
 };

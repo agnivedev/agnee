@@ -1,5 +1,12 @@
 ## [Unreleased]
 
+- **Laporan supervisor: blok "perlu perhatian" di paling atas.** Tepat di bawah judul dan
+  waktu, sebelum angka: "⚠️ AI membalas customer: *MATI*" bila AI company dimatikan (tidak
+  diulang di "Saat ini"), lalu "🔴 *SEGERA DIBALAS (N)*" berisi tiap customer yang menunggu
+  balasan kita (nama, lama menunggu, isi singkat; maksimal 10 baris). Di daftar follow-up, chat
+  itu ditaruh paling depan dan diberi 🔴. Penanda baru `{attention}` di template bawaan;
+  template buatan sendiri tanpa penanda itu tetap mendapat baris AI mati di "Saat ini".
+
 - **Fix: laporan supervisor jujur soal siapa yang membalas (temuan laporan Citilux 21–23 Okt).**
   - **Balasan yang diketik tim langsung di HP/WhatsApp Web kini tercatat** (tabel baru
     `phone_replies`, migrasi 069). Sebelumnya hanya kiriman lewat Agnee yang tercatat, jadi

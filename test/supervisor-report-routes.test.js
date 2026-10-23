@@ -164,7 +164,7 @@ test('kirim sekarang: tanpa pilihan periode; semua periode dan pembandingnya dia
   for (const label of ['*Kemarin*', '*7 hari terakhir*', '*30 hari terakhir*']) assert.ok(body.includes(label), label);
   assert.match(body, /\*Hari ini \(sampai \d\d\.\d\d\)\*/);
   assert.match(body, /• Menunggu balasan kita: 1 chat/);
-  assert.match(body, /\*1\. Budi\*\nIsi: Mau paket 3 bulan, ada diskon\?\nStatus: Panas · Customer menunggu balasan 3 jam · Dipegang Sari\nTindakan: Balas dan dorong ke closing — \*Sari\*/);
+  assert.match(body, /\*🔴 1\. Budi\*\nIsi: Mau paket 3 bulan, ada diskon\?\nStatus: Panas · Customer menunggu balasan 3 jam · Dipegang Sari\nTindakan: Balas dan dorong ke closing — \*Sari\*/);
 });
 
 test('template tanpa {chat_details} tidak mengambil data chat sama sekali', async (t) => {
@@ -248,7 +248,7 @@ test('ringkasan model dipanggil per batch 8 chat dan hasilnya jatuh ke chat yang
   assert.equal(calls.length, 3, '20 chat = 8 + 8 + 4');
   const sent = await server.inject({ method: 'GET', url: `/v1/chats/${encodeURIComponent('6281234567890@c.us')}/messages`, headers: { cookie: ownerCookie } });
   const all = (sent.json().messages || []).filter((m) => m.fromMe).map((m) => m.body).join('\n');
-  for (const n of [1, 9, 17, 20]) assert.match(all, new RegExp(`\\*${n}\\. Customer ${n}\\*\\nIsi: Ringkasan model untuk Pesan ${n}\\n`));
+  for (const n of [1, 9, 17, 20]) assert.match(all, new RegExp(`\\*🔴 ${n}\\. Customer ${n}\\*\\nIsi: Ringkasan model untuk Pesan ${n}\\n`));
 });
 
 test('AI membalas customer mati: laporan tetap diringkas AI, chat dipegang tim, spam disembunyikan', async (t) => {
@@ -282,7 +282,12 @@ test('AI membalas customer mati: laporan tetap diringkas AI, chat dipegang tim, 
   assert.equal(prompts.filter((p) => p.purpose === 'supervisor_report' && p.transcript.includes('ada 18 watt')).length, 1);
   const sent = await server.inject({ method: 'GET', url: `/v1/chats/${encodeURIComponent('6281234567890@c.us')}/messages`, headers: { cookie: ownerCookie } });
   const body = (sent.json().messages || []).filter((m) => m.fromMe).at(-1).body;
-  assert.match(body, /AI membalas customer: \*mati\* — semua chat harus dibalas tim/);
+  // Paling atas, sebelum angka: AI mati dan chat yang harus segera dibalas.
+  const top = body.split('*Hari ini')[0];
+  assert.match(top, /⚠️ AI membalas customer: \*MATI\* — semua chat customer harus dibalas tim/);
+  assert.match(top, /🔴 \*SEGERA DIBALAS \(2\)\* — customer menunggu balasan kita\n1\. \*Customer 1\* — menunggu 2 hari: Tanya lampu 18 watt\n2\. \*Customer 3\* — menunggu 2 hari: Minta penawaran proyek/);
+  // Tidak diulang di "Saat ini".
+  assert.equal((body.match(/AI membalas customer/g) || []).length, 1);
   assert.match(body, /Chat yang perlu di-follow up\* \(2\)/);
   assert.match(body, /Tanya lampu 18 watt\nStatus: Baru · Customer menunggu balasan 2 hari · Dipegang Tim\nTindakan: Kirim katalog 18 watt — \*Tim\*/);
   assert.doesNotMatch(body, /SEO|AI belum membalas|Dipegang AI/);

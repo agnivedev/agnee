@@ -7077,7 +7077,9 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     const week = windows.find((w) => w.key === '7d');
     const template = row.template !== undefined ? row.template
       : (canCall('getReportTemplate') ? await database.getReportTemplate(row.companyId).catch(() => null) : null);
-    const wantsChats = String(template || supervisorReport.DEFAULT_TEMPLATE).includes('{chat_details}');
+    const source = String(template || supervisorReport.DEFAULT_TEMPLATE);
+    // {attention} memuat chat yang harus segera dibalas, jadi butuh data chat juga.
+    const wantsChats = source.includes('{chat_details}') || source.includes('{attention}');
     const section = wantsChats ? await reportChatSection(row.companyId, week.from, week.to, now)
       : { chats: [], waiting: 0, followUpTotal: 0, hidden: 0, aiAutoReply: (await reportAi(row.companyId)).autoReply };
     const weekStats = overview.find((o) => o.key === '7d').stats;

@@ -65,3 +65,85 @@ test('customer DealPOS digabung ke Lead List dan audiens broadcast lewat nomor H
   assert.equal(audienceByPhone[posOnly].relation, 'unproven', 'belum pernah chat: butuh pengakuan risiko');
   assert.equal(audienceByPhone[posOnly].chatId, `${posOnly}@c.us`);
 });
+
+test('detail customer DealPOS (alamat, kota, telp lain) tampil di Lead List dan antre sampai ditarik', { skip: !DB_URL && 'DATABASE_URL tidak diset' }, async (t) => {
+  const db = new Database({ connectionString: DB_URL });
+  await db.connect();
+  const companyId = (await db.pool.query(
+    `INSERT INTO companies (slug, name) VALUES ($1, $1) RETURNING id`, [`dealpos-detail-${Date.now()}`],
+  )).rows[0].id;
+  t.after(async () => {
+    await db.pool.query('DELETE FROM companies WHERE id = $1', [companyId]);
+    await db.close();
+  });
+
+  await db.upsertDealposCustomers(companyId, [
+    { dealposCustomerId: 'a', code: 'A', name: 'Ani', email: null, phone: '6281200000011', phoneExtra: null, joinedAt: null },
+    { dealposCustomerId: 'b', code: 'B', name: 'Tanpa HP', email: null, phone: null, phoneExtra: '021-5551234', joinedAt: null },
+  ]);
+  // Yang punya nomor WhatsApp ditarik lebih dulu.
+  assert.deepEqual(await db.listDealposPendingDetail(companyId), ['a', 'b']);
+
+  await db.saveDealposDetail(companyId, 'a', {
+    address: 'Jl. Mawar 1 RT 02/03', city: 'Tangerang', phoneAlt: '021-7770000', gender: 'Female',
+    birthDate: '1990-05-17', memberGroup: 'Gold', loyaltyPoints: 5,
+  });
+  assert.deepEqual(await db.listDealposPendingDetail(companyId), ['b']);
+  assert.deepEqual(await db.countDealposCustomers(companyId), { total: 2, withPhone: 1, detailDone: 1 });
+
+  // Sinkron ulang daftar tidak menghapus detail yang sudah ditarik.
+  await db.upsertDealposCustomers(companyId, [
+    { dealposCustomerId: 'a', code: 'A', name: 'Ani Baru', email: null, phone: '6281200000011', phoneExtra: null, joinedAt: null },
+  ]);
+  const rows = await db.listContactExportRows(companyId);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].name, 'Ani Baru');
+  assert.equal(rows[0].address, 'Jl. Mawar 1 RT 02/03');
+  assert.equal(rows[0].city, 'Tangerang');
+  assert.equal(rows[0].otherPhone, '021-7770000');
+  assert.equal(rows[0].gender, 'Female');
+  assert.equal(rows[0].birthDate, '1990-05-17');
+  assert.equal(rows[0].memberGroup, 'Gold');
+});
+
+test('matikan & sembunyikan: customer DealPOS hilang dari Lead List dan broadcast, chat tetap, muncul lagi saat dinyalakan', { skip: !DB_URL && 'DATABASE_URL tidak diset' }, async (t) => {
+  const db = new Database({ connectionString: DB_URL });
+  await db.connect();
+  db.credentialsEncryptionKey = 'kunci-uji';
+  const companyId = (await db.pool.query(
+    `INSERT INTO companies (slug, name) VALUES ($1, $1) RETURNING id`, [`dealpos-hide-${Date.now()}`],
+  )).rows[0].id;
+  t.after(async () => {
+    await db.pool.query('DELETE FROM companies WHERE id = $1', [companyId]);
+    await db.close();
+  });
+  const chatPhone = '6281200000021';
+  const posOnly = '6281200000022';
+  await db.upsertDealposConnection(companyId, { host: 'toko.dealpos.co.id', clientId: 'client-id-1', clientSecret: 'client-secret-1' });
+  await db.recordInboundMessage(companyId, { chatId: `${chatPhone}@c.us`, provider: 'whatsapp_web', waMessageId: `h-${Date.now()}`, body: 'halo', timestamp: 1000 });
+  await db.upsertDealposCustomers(companyId, [
+    { dealposCustomerId: 'a', code: 'A', name: 'Sudah Chat', email: null, phone: chatPhone, phoneExtra: null, joinedAt: null },
+    { dealposCustomerId: 'b', code: 'B', name: 'Belum Chat', email: null, phone: posOnly, phoneExtra: null, joinedAt: null },
+  ]);
+  await db.saveDealposDetail(companyId, 'a', { address: 'Jl. Mawar 1', city: null, phoneAlt: null, gender: null, birthDate: null, memberGroup: null, loyaltyPoints: null });
+  assert.equal((await db.listContactExportRows(companyId)).length, 2);
+  assert.equal((await db.listBroadcastAudience(companyId)).length, 2);
+
+  assert.equal(await db.setDealposEnabled(companyId, false).then((r) => r.enabled), false);
+  await db.setDealposDataHidden(companyId, true);
+
+  const rows = await db.listContactExportRows(companyId);
+  assert.equal(rows.length, 1, 'yang hanya ada di DealPOS hilang');
+  assert.equal(rows[0].phone, chatPhone, 'chat WhatsApp tetap ada');
+  assert.equal(rows[0].source, 'whatsapp', 'tanpa penanda dan alamat DealPOS');
+  assert.equal(rows[0].address, null);
+  assert.equal((await db.listBroadcastAudience(companyId)).length, 1);
+  assert.equal((await db.countDealposCustomers(companyId)).total, 2, 'datanya tidak dihapus');
+  assert.equal((await db.getDealposConnection(companyId)).dataHidden, true);
+
+  await db.setDealposEnabled(companyId, true);
+  assert.equal((await db.getDealposConnection(companyId)).dataHidden, false, 'menyalakan lagi memunculkan datanya');
+  const back = await db.listContactExportRows(companyId);
+  assert.equal(back.length, 2);
+  assert.equal(back.find((row) => row.phone === chatPhone).address, 'Jl. Mawar 1');
+});

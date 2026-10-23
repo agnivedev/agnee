@@ -28,17 +28,35 @@ function normalizeHost(raw) {
   return host;
 }
 
-/** Nomor DealPOS -> format `phone` WhatsApp Agnee (digit saja, berkode negara). */
+/**
+ * Nomor DealPOS -> format `phone` WhatsApp Agnee (62 + 8-11 digit, mis.
+ * 6281234567890). Hanya nomor HP Indonesia yang lolos; telepon rumah, nomor
+ * luar negeri, dan isian sampah ("1234", "26052362") tidak boleh jadi nomor
+ * WhatsApp karena ikut jadi sasaran broadcast.
+ */
 function normalizePhone(raw) {
   if (!raw) return null;
   const text = String(raw).trim();
   const digits = text.replace(/\D/g, '');
-  if (digits.length < 8) return null;
-  if (text.startsWith('+') || digits.startsWith('62')) return digits;
-  if (digits.startsWith('0')) return `62${digits.slice(1)}`;
-  if (digits.startsWith('8')) return `62${digits}`;
-  return digits;
+  let candidate = null;
+  if (digits.startsWith('62')) candidate = digits;
+  else if (digits.startsWith('08')) candidate = `62${digits.slice(1)}`;
+  else if (digits.startsWith('8')) candidate = `62${digits}`;
+  return candidate && /^628\d{8,11}$/.test(candidate) ? candidate : null;
 }
+
+/** Nomor yang tidak lolos jadi WhatsApp tetap disimpan sebagai "telp lain". */
+function otherPhone(raw) {
+  if (!raw) return null;
+  const text = String(raw).trim();
+  if (normalizePhone(text)) return null;
+  return text.replace(/\D/g, '').length >= 5 ? text.slice(0, 40) : null;
+}
+
+const cleanText = (value) => {
+  const text = String(value ?? '').replace(/\s+/g, ' ').trim();
+  return text && !/^[.\-_,/]+$/.test(text) ? text : null;
+};
 
 async function readJson(response) {
   const text = await response.text();
@@ -61,7 +79,9 @@ function failure(data, response) {
     error.retryAfter = wait;
     return error;
   }
-  return new Error(`DealPOS menolak permintaan: ${data?.Message || data?.message || data?.title || `HTTP ${response.status}`}`);
+  const error = new Error(`DealPOS menolak permintaan: ${data?.Message || data?.message || data?.title || `HTTP ${response.status}`}`);
+  error.status = response.status;
+  return error;
 }
 
 /** Token berlaku 2 hari; satu sinkronisasi cukup dengan satu token. */
@@ -119,6 +139,7 @@ async function fetchCustomers(credentials, fetchImpl = fetch, existingToken = nu
         name: row.Name && row.Name.trim() !== '.' ? row.Name.trim() : null,
         email: row.Email || null,
         phone: normalizePhone(row.Mobile),
+        phoneExtra: otherPhone(row.Mobile),
         joinedAt: joined && !Number.isNaN(joined.getTime()) ? joined : null,
       });
     }
@@ -128,4 +149,28 @@ async function fetchCustomers(credentials, fetchImpl = fetch, existingToken = nu
   return [...byId.values()];
 }
 
-module.exports = { normalizeHost, normalizePhone, fetchToken, verifyCredentials, fetchCustomers };
+/** Tanggal lahir DealPOS kosong dikirim "0001-01-01". */
+function parseDate(value) {
+  // Bagian tanggal diambil dari teksnya langsung: lewat `new Date(...)` +
+  // toISOString tanggal lahir bergeser sehari di zona waktu server.
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(value ?? ''));
+  if (!match || match[1] === '0001') return null;
+  return `${match[1]}-${match[2]}-${match[3]}`;
+}
+
+/** Detail satu customer: alamat dan kawan-kawan yang tidak ada di daftar. */
+async function fetchCustomerDetail(host, token, id, fetchImpl = fetch) {
+  const data = await dealposGet(host, token, `/Customer/Detail?ID=${encodeURIComponent(id)}`, fetchImpl);
+  return {
+    address: cleanText(data?.Address),
+    city: cleanText(data?.City),
+    phoneAlt: String(data?.Phone ?? '').replace(/\D/g, '').length >= 5 ? String(data.Phone).trim().slice(0, 40) : null,
+    gender: cleanText(data?.Gender),
+    birthDate: parseDate(data?.Birthday),
+    memberGroup: cleanText(data?.Group),
+    loyaltyPoints: Number.isInteger(data?.LoyaltyPoint) ? data.LoyaltyPoint : null,
+  };
+}
+
+module.exports = {
+  fetchCustomerDetail, otherPhone, cleanText, sleep, PAGE_GAP_MS, normalizeHost, normalizePhone, fetchToken, verifyCredentials, fetchCustomers };

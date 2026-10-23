@@ -7853,6 +7853,12 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     ['waLabels', 'Label WhatsApp'],
     ['email', 'Email'],
     ['importNote', 'Catatan impor'],
+    ['address', 'Alamat'],
+    ['city', 'Kota'],
+    ['otherPhone', 'No telp lain'],
+    ['gender', 'Gender'],
+    ['birthDate', 'Tgl lahir'],
+    ['memberGroup', 'Member DealPOS'],
     ['mayarProducts', 'Produk Mayar'],
     ['servedByNumber', 'Dilayani nomor'],
     ['firstSeenAt', 'Masuk pertama'],
@@ -9084,7 +9090,75 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     const customers = await dealposSync.fetchCustomers(conn, undefined, token);
     await database.upsertDealposCustomers(companyId, customers);
     await database.recordDealposSync(companyId, { error: null });
+    // Alamat dst. tidak ada di daftar customer; ditarik satu per satu di latar belakang.
+    void runDealposDetailJob(companyId);
     return { customerCount: customers.length, withPhone: customers.filter((c) => c.phone).length };
+  }
+
+  // ── Detail customer DealPOS (alamat, kota, telepon lain, ...) ──────────────
+  //
+  // `/Customer/Detail` satu panggilan per customer dan DealPOS membatasi laju
+  // (balasan 429 + "tunggu N detik"), jadi ini jalan di latar belakang dan bisa
+  // dilanjutkan: baris yang `detail_synced_at`-nya NULL ditarik lebih dulu,
+  // 429 membuat pekerjaan tidur sesuai permintaan DealPOS lalu lanjut dari
+  // baris yang sama, dan startup server menyambung yang tertinggal.
+  const dealposDetailRunning = new Set();
+  const DEALPOS_DETAIL_GAP_MS = 350;
+  const DEALPOS_DETAIL_MAX_SLEEP_MS = 400_000;
+
+  async function runDealposDetailJob(companyId) {
+    if (dealposDetailRunning.has(companyId)) return;
+    dealposDetailRunning.add(companyId);
+    let done = 0;
+    let rateLimited = 0;
+    try {
+      let conn = await database.getDealposConnection(companyId);
+      if (!conn?.enabled) return;
+      let token = await dealposSync.fetchToken(conn);
+      for (;;) {
+        const pending = await database.listDealposPendingDetail(companyId, 100);
+        if (!pending.length) break;
+        for (const id of pending) {
+          // Dimatikan atau diputus di tengah jalan: berhenti, jangan terus menarik.
+          if (done % 50 === 0) {
+            conn = await database.getDealposConnection(companyId);
+            if (!conn?.enabled) return;
+          }
+          for (let attempt = 0; ; attempt += 1) {
+            try {
+              const detail = await dealposSync.fetchCustomerDetail(conn.host, token, id);
+              await database.saveDealposDetail(companyId, id, detail);
+              done += 1;
+              break;
+            } catch (error) {
+              // Satu customer yang ditolak (mis. sudah dihapus di DealPOS) tidak boleh
+              // menghentikan sisanya: ditandai selesai tanpa detail.
+              if (error.status === 400 || error.status === 404) {
+                await database.saveDealposDetail(companyId, id, { address: null, city: null, phoneAlt: null, gender: null, birthDate: null, memberGroup: null, loyaltyPoints: null });
+                break;
+              }
+              if (!error.rateLimited || attempt >= 3) throw error;
+              rateLimited += 1;
+              const wait = Math.min(((error.retryAfter || 180) + 5) * 1000, DEALPOS_DETAIL_MAX_SLEEP_MS);
+              app.log.info({ companyId, wait, done }, 'DealPOS membatasi laju, penarikan detail menunggu');
+              await dealposSync.sleep(wait);
+            }
+          }
+          await dealposSync.sleep(DEALPOS_DETAIL_GAP_MS);
+        }
+      }
+      app.log.info({ companyId, done, rateLimited }, 'Detail customer DealPOS selesai ditarik');
+    } catch (error) {
+      app.log.warn({ err: error, companyId, done }, 'Penarikan detail customer DealPOS berhenti');
+      await database.recordDealposSync(companyId, { error: `Penarikan alamat berhenti: ${error.message}` }).catch(() => {});
+    } finally {
+      dealposDetailRunning.delete(companyId);
+    }
+  }
+
+  async function resumeDealposDetailJobs() {
+    const companies = await database.listDealposCompaniesPendingDetail().catch(() => []);
+    for (const companyId of companies) void runDealposDetailJob(companyId);
   }
 
   app.get('/v1/integrations/dealpos', async (request, reply) => {
@@ -9097,8 +9171,8 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     // clientSecret sengaja tidak dikembalikan: browser tidak pernah perlu melihatnya lagi.
     return {
       connected: true, enabled: conn.enabled, host: conn.host, clientId: conn.clientId,
-      lastSyncedAt: conn.lastSyncedAt, lastError: conn.lastError,
-      customerCount: counts.total, withPhone: counts.withPhone,
+      lastSyncedAt: conn.lastSyncedAt, lastError: conn.lastError, dataHidden: Boolean(conn.dataHidden),
+      customerCount: counts.total, withPhone: counts.withPhone, detailDone: counts.detailDone,
     };
   });
 
@@ -9133,6 +9207,24 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     } catch (error) {
       return reply.code(422).send({ error: publicErrorMessage(error) });
     }
+  });
+
+  // Matikan DealPOS DAN sembunyikan customernya dari Lead List dan broadcast
+  // (pilihan lain: PATCH enabled:false, yang tetap menampilkannya). Tidak ada
+  // data yang dihapus, chat tidak tersentuh; menyalakan lagi memunculkannya.
+  // Hapus permanen sengaja bukan di sini: itu fitur terpisah yang juga harus
+  // membersihkan inbox dan turunannya.
+  app.post('/v1/integrations/dealpos/turn-off-hide', async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengatur integrasi.' });
+    if (!canCall('setDealposEnabled') || !canCall('setDealposDataHidden')) return reply.code(503).send({ error: 'Database tidak tersedia.' });
+    const companyId = request.agneeSession.companyId;
+    const updated = await database.setDealposEnabled(companyId, false);
+    if (!updated) return reply.code(404).send({ error: 'Belum ada DealPOS yang terhubung.' });
+    await database.setDealposDataHidden(companyId, true);
+    await catatAudit(request, 'integration.disconnected', {
+      entityType: 'integration', entityId: 'dealpos', metadata: { integration: 'dealpos' },
+    });
+    return { ok: true, enabled: false, hidden: true };
   });
 
   registerIntegrationLifecycle({
@@ -11198,6 +11290,7 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     if (canCall('claimDueDepartmentReminders')) startDepartmentQuestionSweeper();
     if (canCall('listActiveSupervisorReports')) startSupervisorReportSweeper();
     if (database.enabled && database.connected) startHubFollowUpSweeper();
+    if (canCall('listDealposCompaniesPendingDetail')) void resumeDealposDetailJobs();
     if (database.enabled && database.connected) startBroadcastSender();
     if (database.enabled && database.connected) startWedgeWatch();
 

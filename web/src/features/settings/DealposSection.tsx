@@ -8,12 +8,14 @@ import { Row, SecretField, SettingCard, StatusLine, TextField } from './parts';
 type Dealpos = {
   connected?: boolean;
   enabled?: boolean;
+  dataHidden?: boolean;
   host?: string;
   clientId?: string;
   lastSyncedAt?: string | null;
   lastError?: string | null;
   customerCount?: number;
   withPhone?: number;
+  detailDone?: number;
 };
 
 /**
@@ -85,6 +87,10 @@ export function DealposSection() {
                 <small className="truncate font-mono text-[11px] text-muted">
                   {t('dealpos.counts', { total: state.customerCount ?? 0, phone: state.withPhone ?? 0 })} · {lastSync}
                 </small>
+                <small className="truncate font-mono text-[11px] text-muted">
+                  {t('dealpos.detailProgress', { done: state.detailDone ?? 0, total: state.customerCount ?? 0 })}
+                </small>
+                {state.dataHidden ? <small className="text-[11px] font-semibold text-muted">{t('dealpos.hiddenNote')}</small> : null}
               </span>
             </Row>
             {state.lastError ? <StatusLine tone="error">{state.lastError}</StatusLine> : null}
@@ -111,20 +117,60 @@ export function DealposSection() {
               >
                 {t('export.syncNow')}
               </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={async () => {
-                  try {
-                    await api('/v1/integrations/dealpos', { method: 'PATCH', body: { enabled: !state.enabled } });
-                    await load();
-                  } catch (error) {
-                    await confirm.error(error);
-                  }
-                }}
-              >
-                {state.enabled ? t('export.turnOff') : t('export.turnOn')}
-              </Button>
+              {state.enabled ? (
+                <>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={async () => {
+                      try {
+                        await api('/v1/integrations/dealpos', { method: 'PATCH', body: { enabled: false } });
+                        await load();
+                      } catch (error) {
+                        await confirm.error(error);
+                      }
+                    }}
+                  >
+                    {t('dealpos.turnOffKeep')}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={async () => {
+                      const ok = await confirm.confirm({
+                        title: t('dealpos.turnOffHideTitle'),
+                        message: t('dealpos.turnOffHideCopy', { total: state.customerCount ?? 0 }),
+                        confirmLabel: t('dealpos.turnOffHide'),
+                        danger: false,
+                      });
+                      if (!ok) return;
+                      try {
+                        await api('/v1/integrations/dealpos/turn-off-hide', { method: 'POST' });
+                        await load();
+                      } catch (error) {
+                        await confirm.error(error);
+                      }
+                    }}
+                  >
+                    {t('dealpos.turnOffHide')}
+                  </Button>
+                </>
+              ) : (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={async () => {
+                    try {
+                      await api('/v1/integrations/dealpos', { method: 'PATCH', body: { enabled: true } });
+                      await load();
+                    } catch (error) {
+                      await confirm.error(error);
+                    }
+                  }}
+                >
+                  {t('export.turnOn')}
+                </Button>
+              )}
               <Button
                 size="sm"
                 variant="ghost"

@@ -4567,7 +4567,8 @@ class Database {
     const result = await this.pool.query(`
       SELECT company_id AS "companyId", host, client_id AS "clientId",
              pgp_sym_decrypt(client_secret_enc, $2) AS "clientSecret",
-             enabled, last_synced_at AS "lastSyncedAt", last_error AS "lastError"
+             enabled, data_hidden AS "dataHidden",
+             last_synced_at AS "lastSyncedAt", last_error AS "lastError"
       FROM dealpos_connections WHERE company_id = $1
     `, [companyId, this.credentialsEncryptionKey]);
     return result.rows[0] || null;
@@ -4618,10 +4619,20 @@ class Database {
   async setDealposEnabled(companyId, enabled) {
     if (!this.enabled) return null;
     const result = await this.pool.query(
-      'UPDATE dealpos_connections SET enabled = $2, updated_at = NOW() WHERE company_id = $1 RETURNING enabled',
+      'UPDATE dealpos_connections SET enabled = $2, data_hidden = CASE WHEN $2 THEN false ELSE data_hidden END, updated_at = NOW() WHERE company_id = $1 RETURNING enabled',
       [companyId, enabled],
     );
     return result.rows[0] || null;
+  }
+
+  /** Sembunyikan (true) atau tampilkan lagi (false) customer DealPOS di Lead List dan broadcast; datanya tidak dihapus. */
+  async setDealposDataHidden(companyId, hidden) {
+    if (!this.enabled) return false;
+    const result = await this.pool.query(
+      'UPDATE dealpos_connections SET data_hidden = $2, updated_at = NOW() WHERE company_id = $1',
+      [companyId, hidden],
+    );
+    return result.rowCount > 0;
   }
 
   async deleteDealposConnection(companyId) {
@@ -4635,10 +4646,49 @@ class Database {
   async countDealposCustomers(companyId) {
     if (!this.enabled) return { total: 0, withPhone: 0 };
     const result = await this.pool.query(`
-      SELECT COUNT(*)::int AS total, COUNT(phone)::int AS "withPhone"
+      SELECT COUNT(*)::int AS total, COUNT(phone)::int AS "withPhone",
+             COUNT(detail_synced_at)::int AS "detailDone"
       FROM dealpos_customers WHERE company_id = $1
     `, [companyId]);
-    return result.rows[0] || { total: 0, withPhone: 0 };
+    return result.rows[0] || { total: 0, withPhone: 0, detailDone: 0 };
+  }
+
+  /** Customer yang detailnya (alamat dst.) belum ditarik; yang punya nomor WhatsApp lebih dulu. */
+  async listDealposPendingDetail(companyId, limit = 200) {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(`
+      SELECT dealpos_customer_id AS id FROM dealpos_customers
+      WHERE company_id = $1 AND detail_synced_at IS NULL
+      ORDER BY (phone IS NULL), joined_at DESC NULLS LAST
+      LIMIT $2
+    `, [companyId, limit]);
+    return result.rows.map((row) => row.id);
+  }
+
+  async saveDealposDetail(companyId, dealposCustomerId, detail) {
+    if (!this.enabled) return false;
+    const result = await this.pool.query(`
+      UPDATE dealpos_customers SET
+        address = $3, city = $4, phone_alt = $5, gender = $6, birth_date = $7,
+        member_group = $8, loyalty_points = $9, detail_synced_at = NOW()
+      WHERE company_id = $1 AND dealpos_customer_id = $2
+    `, [
+      companyId, dealposCustomerId, detail.address, detail.city, detail.phoneAlt,
+      detail.gender, detail.birthDate, detail.memberGroup, detail.loyaltyPoints,
+    ]);
+    return result.rowCount > 0;
+  }
+
+  /** Company yang punya koneksi DealPOS aktif dan masih ada detail yang belum ditarik (untuk melanjutkan setelah restart). */
+  async listDealposCompaniesPendingDetail() {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(`
+      SELECT DISTINCT d.company_id AS "companyId"
+      FROM dealpos_connections d
+      JOIN dealpos_customers c ON c.company_id = d.company_id AND c.detail_synced_at IS NULL
+      WHERE d.enabled
+    `);
+    return result.rows.map((row) => row.companyId);
   }
 
   /** Upsert massal lewat unnest: puluhan ribu customer tidak layak di-insert satu per satu. */
@@ -4649,17 +4699,19 @@ class Database {
       const chunk = customers.slice(from, from + BATCH);
       await this.pool.query(`
         INSERT INTO dealpos_customers
-          (company_id, dealpos_customer_id, code, name, email, phone, joined_at, synced_at)
-        SELECT $1, t.id, t.code, t.name, t.email, t.phone, t.joined_at, NOW()
-        FROM unnest($2::text[], $3::text[], $4::text[], $5::text[], $6::text[], $7::timestamptz[])
-          AS t(id, code, name, email, phone, joined_at)
+          (company_id, dealpos_customer_id, code, name, email, phone, joined_at, phone_extra, synced_at)
+        SELECT $1, t.id, t.code, t.name, t.email, t.phone, t.joined_at, t.phone_extra, NOW()
+        FROM unnest($2::text[], $3::text[], $4::text[], $5::text[], $6::text[], $7::timestamptz[], $8::text[])
+          AS t(id, code, name, email, phone, joined_at, phone_extra)
         ON CONFLICT (company_id, dealpos_customer_id) DO UPDATE SET
           code = EXCLUDED.code, name = EXCLUDED.name, email = EXCLUDED.email,
-          phone = EXCLUDED.phone, joined_at = EXCLUDED.joined_at, synced_at = NOW()
+          phone = EXCLUDED.phone, phone_extra = EXCLUDED.phone_extra,
+          joined_at = EXCLUDED.joined_at, synced_at = NOW()
       `, [
         companyId,
         chunk.map((c) => c.dealposCustomerId), chunk.map((c) => c.code), chunk.map((c) => c.name),
         chunk.map((c) => c.email), chunk.map((c) => c.phone), chunk.map((c) => c.joinedAt),
+        chunk.map((c) => c.phoneExtra || null),
       ]);
     }
     return customers.length;
@@ -4816,7 +4868,7 @@ class Database {
    * baris chat lewat nomor HP, atau tampil sendiri lewat `dealpos_only`
    * (`source = 'dealpos'`) kalau nomornya belum pernah chat dan bukan lead Mayar.
    */
-  async listContactExportRows(companyId, limit = 5000) {
+  async listContactExportRows(companyId, limit = 20000) {
     if (!this.enabled) return [];
     const result = await this.pool.query(`
       WITH chats AS (
@@ -4894,6 +4946,12 @@ class Database {
           COALESCE(imp.wa_labels, '[]'::jsonb) AS "waLabels",
           imp.email AS "email",
           imp.note AS "importNote",
+          dc.address AS "address",
+          dc.city AS "city",
+          dc.other_phone AS "otherPhone",
+          dc.gender AS "gender",
+          dc.birth_date::text AS "birthDate",
+          dc.member_group AS "memberGroup",
           COALESCE(GREATEST(inbound.timestamp, imp.last_message_at), 0) AS "sortAt"
         FROM chats c
         JOIN chat_phones cp ON cp.chat_id = c.chat_id
@@ -4949,8 +5007,10 @@ class Database {
         -- Satu customer DealPOS per nomor (LIMIT 1): nomor yang sama bisa
         -- dimiliki beberapa customer POS, dan JOIN biasa menggandakan baris chat.
         LEFT JOIN LATERAL (
-          SELECT d.id, d.name FROM dealpos_customers d
-          WHERE d.company_id = $1 AND d.phone = cp.phone
+          SELECT d.id, d.name, d.address, d.city, d.gender, d.birth_date, d.member_group,
+                 NULLIF(concat_ws(' / ', d.phone_extra, NULLIF(d.phone_alt, d.phone_extra)), '') AS other_phone
+          FROM dealpos_customers d
+          WHERE d.company_id = $1 AND d.phone = cp.phone AND NOT EXISTS (SELECT 1 FROM dealpos_connections hc WHERE hc.company_id = d.company_id AND hc.data_hidden)
           ORDER BY d.joined_at DESC NULLS LAST LIMIT 1
         ) dc ON TRUE
       ),
@@ -4982,7 +5042,7 @@ class Database {
           NULL::text AS "servedByNumber",
           0::integer AS "inboundCount",
           0::integer AS "outboundCount",
-          CASE WHEN EXISTS (SELECT 1 FROM dealpos_customers d WHERE d.company_id = $1 AND d.phone = ml.phone)
+          CASE WHEN EXISTS (SELECT 1 FROM dealpos_customers d WHERE d.company_id = $1 AND d.phone = ml.phone AND NOT EXISTS (SELECT 1 FROM dealpos_connections hc WHERE hc.company_id = d.company_id AND hc.data_hidden))
                THEN 'mayar+dealpos' ELSE 'mayar' END AS "source",
           ml.products AS "mayarProducts",
           ml.total_amount AS "mayarTotalAmount",
@@ -4991,6 +5051,12 @@ class Database {
           NULL::jsonb AS "waLabels",
           NULL::text AS "email",
           NULL::text AS "importNote",
+          NULL::text AS "address",
+          NULL::text AS "city",
+          NULL::text AS "otherPhone",
+          NULL::text AS "gender",
+          NULL::text AS "birthDate",
+          NULL::text AS "memberGroup",
           COALESCE(extract(epoch FROM ml.last_transaction_at)::bigint, 0) AS "sortAt"
         FROM mayar_leads ml
         WHERE ml.company_id = $1
@@ -5038,9 +5104,16 @@ class Database {
             NULL::jsonb AS "waLabels",
             dc.email AS "email",
             NULL::text AS "importNote",
+            dc.address AS "address",
+            dc.city AS "city",
+            NULLIF(concat_ws(' / ', dc.phone_extra, NULLIF(dc.phone_alt, dc.phone_extra)), '') AS "otherPhone",
+            dc.gender AS "gender",
+            dc.birth_date::text AS "birthDate",
+            dc.member_group AS "memberGroup",
             -1::bigint AS "sortAt"
           FROM dealpos_customers dc
           WHERE dc.company_id = $1
+            AND NOT EXISTS (SELECT 1 FROM dealpos_connections hc WHERE hc.company_id = dc.company_id AND hc.data_hidden)
             AND dc.phone IS NOT NULL
             AND NOT EXISTS (SELECT 1 FROM chat_phones cp2 WHERE cp2.phone = dc.phone)
             AND NOT EXISTS (SELECT 1 FROM mayar_leads ml2 WHERE ml2.company_id = $1 AND ml2.phone = dc.phone)
@@ -5222,7 +5295,7 @@ class Database {
         UNION ALL
         SELECT phone FROM mayar_leads WHERE company_id = $1
         UNION ALL
-        SELECT phone FROM dealpos_customers WHERE company_id = $1
+        SELECT phone FROM dealpos_customers dc WHERE dc.company_id = $1 AND NOT EXISTS (SELECT 1 FROM dealpos_connections hc WHERE hc.company_id = dc.company_id AND hc.data_hidden)
       ) p WHERE phone ~ '^[0-9]{8,15}$'
     `, [companyId]);
     return result.rows.map((row) => row.phone);
@@ -5884,6 +5957,7 @@ class Database {
           FROM dealpos_customers dc
           LEFT JOIN broadcast_opt_outs oo ON oo.company_id = $1 AND oo.chat_id = dc.phone || '@c.us'
           WHERE dc.company_id = $1
+            AND NOT EXISTS (SELECT 1 FROM dealpos_connections hc WHERE hc.company_id = dc.company_id AND hc.data_hidden)
             AND dc.phone ~ '^[0-9]{8,15}$'
             AND NOT EXISTS (
               SELECT 1 FROM chat_rows cr WHERE cr."phone" = dc.phone OR cr."chatId" = dc.phone || '@c.us'

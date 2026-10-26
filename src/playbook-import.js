@@ -183,7 +183,14 @@ async function extractImportText(buffer, mimeType, filename) {
   if (mimeType.startsWith('text/') || ['md', 'markdown', 'txt'].includes(ext)) {
     return buffer.toString('utf8');
   }
-  throw Object.assign(new Error(`Tipe file tidak didukung untuk impor playbook: ${mimeType}`), { statusCode: 415 });
+  // Excel, PowerPoint, OpenDocument, CSV, dan file teks lain lewat pembaca umum.
+  const { extractPlaybookText } = require('./playbook-extractor');
+  const extracted = await extractPlaybookText(buffer, mimeType, filename, { maxChars: Infinity });
+  if (extracted.status === 'ready') return extracted.text;
+  const hint = ['image', 'video', 'audio'].includes(extracted.kind)
+    ? ' Isi gambar, video, atau audio tidak bisa dibaca; simpan sebagai file rujukan.'
+    : '';
+  throw Object.assign(new Error(`Tipe file tidak didukung untuk impor playbook: ${mimeType}.${hint}`), { statusCode: 415 });
 }
 
 module.exports = {

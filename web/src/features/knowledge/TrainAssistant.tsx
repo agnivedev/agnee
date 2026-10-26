@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
-import { MessageSquarePlus, X, RotateCcw } from 'lucide-react';
+import { MessageSquarePlus, X, RotateCcw, Paperclip } from 'lucide-react';
 import { api, messageFromError } from '@/lib/api';
 import { useI18n } from '@/lib/i18n';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { Markdown, diffLines } from './DocMarkdown';
 import { productQuery } from './PlaybookProducts';
+import { uploadReference } from './BriefSection';
 
 /**
  * Satu obrolan untuk mengubah semua tab Latih AI.
@@ -16,6 +17,9 @@ import { productQuery } from './PlaybookProducts';
  * berlaku. Dokumen yang dibaca AI ke semua customer tidak berubah karena
  * mengobrol.
  */
+
+// Sama dengan batas server: isi lampiran ikut terkirim tiap giliran.
+const MAX_ATTACHMENTS = 3;
 
 type Base = { id: string; summary: string };
 export type Proposal =
@@ -32,7 +36,16 @@ export type Proposal =
 
 type Turn = { role: 'user' | 'assistant'; content: string };
 export type Question = { id: string; question: string; multiple: boolean; options: { label: string; recommended: boolean }[] };
-type Message = { role: 'user' | 'assistant'; text: string; proposals?: Proposal[]; question?: Question | null };
+type Message = { role: 'user' | 'assistant'; text: string; files?: string[]; proposals?: Proposal[]; question?: Question | null };
+/**
+ * File apa pun boleh dilampirkan. Yang teksnya terbaca (PDF, Word, Excel,
+ * PowerPoint, CSV, teks) dibaca AI; sisanya hanya bisa disimpan sebagai file
+ * rujukan. `sent` = sudah disebut di gelembung pesan pemilik.
+ */
+type Attachment = {
+  id: string; file: File; name: string; kind: string; text: string | null; readable: boolean;
+  sent: boolean; saved?: 'saving' | 'saved' | 'failed';
+};
 type Outcome = { state: 'applying' | 'applied' | 'failed' | 'discarded'; note?: string };
 
 /** Menerapkan satu usulan lewat rute yang sama dengan layar biasa. */
@@ -220,7 +233,11 @@ export function TrainAssistant({ onChanged }: { onChanged: () => void }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [outcomes, setOutcomes] = useState<Record<string, Outcome>>({});
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [reading, setReading] = useState('');
+  const [dragging, setDragging] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const el = listRef.current;
@@ -237,19 +254,65 @@ export function TrainAssistant({ onChanged }: { onChanged: () => void }) {
     void submit(draft);
   }
 
+  async function addFiles(list: FileList | File[]) {
+    const files = Array.from(list);
+    if (!files.length || reading) return;
+    setError('');
+    const room = MAX_ATTACHMENTS - attachments.length;
+    if (files.length > room) setError(t('trainChat.attachLimit', { n: MAX_ATTACHMENTS }));
+    for (const file of files.slice(0, Math.max(room, 0))) {
+      setReading(file.name);
+      const body = new FormData();
+      body.append('file', file);
+      try {
+        const data = await api<{ name: string; kind: string; status: string; text: string | null }>('/v1/train/attachment', { method: 'POST', body });
+        const readable = data.status === 'ready' && Boolean(data.text);
+        setAttachments((current) => [...current, {
+          id: crypto.randomUUID(), file, name: data.name, kind: data.kind, text: readable ? data.text : null, readable, sent: false,
+        }]);
+      } catch (failure) {
+        setError(t('admin.uploadFailed', { name: file.name, message: messageFromError(failure, '') }));
+      }
+    }
+    setReading('');
+    if (fileRef.current) fileRef.current.value = '';
+  }
+
+  async function saveAsReference(attachment: Attachment) {
+    const mark = (saved: Attachment['saved']) => setAttachments((current) => current.map((a) => (a.id === attachment.id ? { ...a, saved } : a)));
+    mark('saving');
+    try {
+      await uploadReference(attachment.file);
+      mark('saved');
+      onChanged();
+    } catch (failure) {
+      mark('failed');
+      setError(t('admin.uploadFailed', { name: attachment.name, message: messageFromError(failure, '') }));
+    }
+  }
+
   async function submit(raw: string) {
-    const message = raw.trim();
-    if (!message || busy) return;
+    const fresh = attachments.filter((a) => !a.sent);
+    const message = raw.trim() || (fresh.length ? t('trainChat.readAttachment') : '');
+    if (!message || busy || reading) return;
     setBusy(true);
     setError('');
     setDraft('');
-    setMessages((current) => [...current, { role: 'user', text: message }]);
+    const files = fresh.map((a) => a.name);
+    setMessages((current) => [...current, { role: 'user', text: message, files }]);
+    setAttachments((current) => current.map((a) => ({ ...a, sent: true })));
     try {
       const result = await api<{ reply: string; memo: string; proposals: Proposal[]; question: Question | null }>('/v1/train/chat', {
-        method: 'POST', body: { message, history: history.slice(-20) },
+        method: 'POST',
+        body: {
+          message,
+          history: history.slice(-20),
+          ...(attachments.length ? { attachments: attachments.map((a) => ({ name: a.name, kind: a.kind, ...(a.text ? { text: a.text } : {}) })) } : {}),
+        },
       });
       setMessages((current) => [...current, { role: 'assistant', text: result.reply, proposals: result.proposals, question: result.question }]);
-      setHistory((current) => [...current, { role: 'user', content: message }, { role: 'assistant', content: result.memo }]);
+      const content = files.length ? `${message}\n[Lampiran: ${files.join(', ')}]` : message;
+      setHistory((current) => [...current, { role: 'user', content }, { role: 'assistant', content: result.memo }]);
     } catch (failure) {
       setError(messageFromError(failure, t('trainChat.failed')));
     } finally {
@@ -278,6 +341,7 @@ export function TrainAssistant({ onChanged }: { onChanged: () => void }) {
     setMessages([]);
     setHistory([]);
     setOutcomes({});
+    setAttachments([]);
     setError('');
   }
 
@@ -298,9 +362,18 @@ export function TrainAssistant({ onChanged }: { onChanged: () => void }) {
       <aside
         aria-label={t('trainChat.title')}
         aria-hidden={!open}
+        onDragOver={(event) => { if (event.dataTransfer.types.includes('Files')) { event.preventDefault(); setDragging(true); } }}
+        onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragging(false); }}
+        onDrop={(event) => {
+          if (!event.dataTransfer.files.length) return;
+          event.preventDefault();
+          setDragging(false);
+          if (!busy) void addFiles(event.dataTransfer.files);
+        }}
         className={cn(
           'fixed top-0 right-0 z-50 flex h-dvh w-[min(440px,100vw)] flex-col border-l border-border bg-background shadow-2xl transition-transform duration-200',
           open ? 'translate-x-0' : 'pointer-events-none translate-x-full',
+          dragging && 'ring-2 ring-green ring-inset',
         )}
       >
         <header className="flex items-center justify-between gap-2 border-b border-border px-4 py-3">
@@ -339,6 +412,13 @@ export function TrainAssistant({ onChanged }: { onChanged: () => void }) {
                   )}
                 >
                   {message.text}
+                  {message.files?.length ? (
+                    <span className="mt-1 flex flex-wrap gap-x-2 text-[11px] text-muted">
+                      {message.files.map((name) => (
+                        <span key={name} className="inline-flex items-center gap-1"><Paperclip aria-hidden className="size-3" />{name}</span>
+                      ))}
+                    </span>
+                  ) : null}
                 </div>
               ) : null}
               {message.question ? (
@@ -364,7 +444,55 @@ export function TrainAssistant({ onChanged }: { onChanged: () => void }) {
           {error ? <p className="m-0 text-[12px] text-danger">{error}</p> : null}
         </div>
 
-        <form onSubmit={send} className="flex gap-2 border-t border-border p-3">
+        <form onSubmit={send} className="flex flex-wrap gap-2 border-t border-border p-3">
+          {attachments.length || reading ? (
+            <ul className="m-0 grid w-full list-none gap-1.5 p-0">
+              {attachments.map((attachment) => (
+                <li key={attachment.id} className="flex items-center gap-2 rounded-lg border border-border bg-white px-2 py-1.5 text-[12px]">
+                  <Paperclip aria-hidden className="size-3.5 shrink-0 text-muted" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate">{attachment.name}</span>
+                    <span className={cn('block text-[11px]', attachment.readable ? 'text-green-dark' : 'text-muted')}>
+                      {attachment.readable ? t('trainChat.attachReadable') : t('trainChat.attachUnreadable')}
+                    </span>
+                  </span>
+                  {!attachment.readable ? (
+                    <Button
+                      size="sm" variant="outline" disabled={attachment.saved === 'saving' || attachment.saved === 'saved'}
+                      onClick={() => void saveAsReference(attachment)}
+                    >
+                      {attachment.saved === 'saved' ? t('trainChat.attachSaved') : attachment.saved === 'saving' ? t('trainChat.attachSaving') : t('trainChat.attachSave')}
+                    </Button>
+                  ) : null}
+                  <button
+                    type="button" disabled={busy} title={t('trainChat.attachRemove')} aria-label={t('trainChat.attachRemove')}
+                    onClick={() => setAttachments((current) => current.filter((a) => a.id !== attachment.id))}
+                    className="cursor-pointer rounded-md border-0 bg-transparent p-1 text-muted hover:text-ink disabled:opacity-40"
+                  >
+                    <X aria-hidden className="size-3.5" />
+                  </button>
+                </li>
+              ))}
+              {reading ? <li className="animate-pulse text-[12px] text-muted">{t('trainChat.attachReading', { name: reading })}</li> : null}
+            </ul>
+          ) : null}
+          <input
+            ref={fileRef}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={(event) => { if (event.target.files) void addFiles(event.target.files); }}
+          />
+          <button
+            type="button"
+            onClick={() => fileRef.current?.click()}
+            disabled={busy || Boolean(reading) || attachments.length >= MAX_ATTACHMENTS}
+            title={t('trainChat.attach')}
+            aria-label={t('trainChat.attach')}
+            className="cursor-pointer rounded-xl border border-border bg-white px-2.5 text-muted hover:text-ink disabled:opacity-40"
+          >
+            <Paperclip aria-hidden className="size-4" />
+          </button>
           <input
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
@@ -373,7 +501,7 @@ export function TrainAssistant({ onChanged }: { onChanged: () => void }) {
             disabled={busy}
             className="min-w-0 flex-1 rounded-xl border border-border bg-white px-3 py-2 text-[13px]"
           />
-          <Button type="submit" size="sm" disabled={busy || !draft.trim()}>{t('trainChat.send')}</Button>
+          <Button type="submit" size="sm" disabled={busy || Boolean(reading) || (!draft.trim() && !attachments.some((a) => !a.sent))}>{t('trainChat.send')}</Button>
         </form>
       </aside>
     </>

@@ -358,7 +358,6 @@ export function ImportPanel({ productId, targetLabel, initialMode = 'playbook', 
           <input
             ref={referenceRef}
             type="file"
-            accept=".pdf,.doc,.docx,.md,.markdown,.txt,image/*,video/*,audio/*"
             className="hidden"
             onChange={(event) => {
               const file = event.target.files?.[0];
@@ -380,7 +379,6 @@ export function ImportPanel({ productId, targetLabel, initialMode = 'playbook', 
       <input
         ref={fileRef}
         type="file"
-        accept=".md,.markdown,.txt,.docx,.pdf,text/markdown,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         className="hidden"
         onChange={(event) => {
           const file = event.target.files?.[0];

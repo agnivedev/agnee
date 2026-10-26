@@ -4857,17 +4857,6 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
 
   // ── Playbook: per-company AI brief + reference documents/media ─────────────
   const playbookStorageDir = process.env.PLAYBOOK_STORAGE_PATH || path.join(__dirname, '..', 'data', 'playbooks');
-  const ALLOWED_PLAYBOOK_MIME_PREFIXES = ['text/', 'image/', 'video/', 'audio/'];
-  const ALLOWED_PLAYBOOK_MIME_TYPES = new Set([
-    'application/pdf',
-    'application/msword',
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  ]);
-
-  function isAllowedPlaybookMime(mimeType) {
-    return ALLOWED_PLAYBOOK_MIME_TYPES.has(mimeType) || ALLOWED_PLAYBOOK_MIME_PREFIXES.some((prefix) => mimeType.startsWith(prefix));
-  }
-
   app.get('/v1/admin/playbook', async (request, reply) => {
     if (!database.status().connected) return reply.code(503).send({ error: 'Tidak tersedia.' });
     const companyId = request.agneeSession.companyId;
@@ -4898,10 +4887,8 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     }
     const file = await request.file().catch(() => null);
     if (!file) return reply.code(400).send({ error: 'Tidak ada file yang diunggah.' });
-    if (!isAllowedPlaybookMime(file.mimetype)) {
-      file.file.resume();
-      return reply.code(415).send({ error: `Tipe file tidak didukung: ${file.mimetype}` });
-    }
+    // Semua jenis file diterima: file rujukan tidak pernah dikirim balik ke
+    // browser, dan yang tak bisa dibaca hanya disimpan (status 'unsupported').
     const buffer = await file.toBuffer().catch(() => null);
     if (!buffer) return reply.code(400).send({ error: 'Gagal membaca file.' });
     if (file.file.truncated) return reply.code(413).send({ error: 'File maksimal 19 MB.' });

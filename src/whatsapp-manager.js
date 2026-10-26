@@ -40,7 +40,8 @@ function resolveBrowserExecutable() {
  *   { client, state, sseClients, qrMirrorTimer, restoredSessionTimer }
  *
  * Callbacks passed to startFor / _createClient:
- *   { log, onMessage(companyId, message, { connectionId }), onStatusUpdate(companyId, status, phoneNumber, connectionId) }
+ *   { log, onMessage(companyId, message, { connectionId }), onStatusUpdate(companyId, status, phoneNumber, connectionId),
+ *     findDuplicate(companyId, account, connectionId) -> { companyName, connectionId } | null }
  */
 const PAIRING_COOLDOWN_MS = 20_000;
 
@@ -58,6 +59,13 @@ function normalizePairingPhone(raw) {
   if (digits.startsWith('00')) digits = digits.slice(2);
   else if (digits.startsWith('0')) digits = `62${digits.slice(1)}`;
   return digits.length >= 8 && digits.length <= 15 ? digits : null;
+}
+
+/** "Beweix Digital" -> "Be*** Di***": cukup untuk dikenali pemiliknya, tidak untuk orang lain. */
+function maskCompanyName(name) {
+  const words = String(name || '').trim().split(/\s+/).filter(Boolean);
+  if (!words.length) return '***';
+  return words.map((w) => `${[...w].slice(0, w.length > 3 ? 2 : 1).join('')}***`).join(' ');
 }
 
 class WhatsappManager {
@@ -169,10 +177,20 @@ class WhatsappManager {
    * watchdog lupa membersihkan `qrDataUrl`/`syncPercent` — sehingga status
    * publik masih melaporkan `hasQr: true` padahal sudah tersambung.
    */
-  _markReady(connectionId, account, log, onStatusUpdate) {
+  _markReady(connectionId, account, log, onStatusUpdate, findDuplicate) {
     const entry = this._getEntry(connectionId);
     const state = entry.state;
     const resolved = account || null;
+    if (resolved && findDuplicate) {
+      if (entry.rejecting) return;
+      entry.rejecting = true; // menahan 'ready' ganda dari watchdog selama pengecekan
+      Promise.resolve(findDuplicate(entry.companyId, resolved, connectionId)).catch(() => null).then((holder) => {
+        if (holder) return this._rejectDuplicate(connectionId, holder, log, onStatusUpdate);
+        entry.rejecting = false;
+        return this._markReady(connectionId, account, log, onStatusUpdate, null);
+      });
+      return;
+    }
     // Watchdog dan event 'ready' bawaan whatsapp-web.js bisa sampai duluan
     // bergantian. Tanpa penjaga ini keduanya menyiarkan 'ready', dan setiap
     // browser yang terhubung memuat ulang workspace dua kali.
@@ -196,6 +214,35 @@ class WhatsappManager {
       phase: 'ready', account: state.account, connectionId,
     });
     onStatusUpdate?.(entry.companyId, 'ready', state.account, connectionId)?.catch?.(() => {});
+  }
+
+  /**
+   * Nomor yang sama sudah dipakai company lain: putuskan perangkat tertaut ini
+   * dari WhatsApp dan minta pengguna sign out di tempat lain dulu.
+   */
+  async _rejectDuplicate(connectionId, holder, log, onStatusUpdate) {
+    const entry = this._getEntry(connectionId);
+    const state = entry.state;
+    const message = `Nomor ini masih tersambung di akun ${maskCompanyName(holder.companyName)}. `
+      + 'Satu nomor hanya boleh dipakai di satu akun Agnee. '
+      + `Sign out dulu nomor ini dari WhatsApp di akun ${maskCompanyName(holder.companyName)}, lalu sambungkan lagi di sini.`;
+    log?.warn({ connectionId, holderConnectionId: holder.connectionId }, 'WhatsApp number already connected in another company; rejecting');
+    entry.rejecting = true;
+    clearTimeout(entry.restoredSessionTimer);
+    entry.restoredSessionTimer = null;
+    try { await entry.client?.logout(); } catch { /* sudah putus */ }
+    await this.stopClient(connectionId).catch(() => {});
+    this._clearQrMirror(connectionId);
+    state.phase = 'error';
+    state.account = null;
+    state.connectedAt = null;
+    state.qrDataUrl = null;
+    state.syncPercent = null;
+    state.lastError = message;
+    this.broadcast(entry.companyId, 'whatsapp_phase', { phase: 'error', error: message, connectionId });
+    onStatusUpdate?.(entry.companyId, 'disconnected', null, connectionId)?.catch?.(() => {});
+    // 'disconnected' dari logout bisa datang terlambat; jangan biarkan memulai ulang client.
+    setTimeout(() => { entry.rejecting = false; }, 8000).unref?.();
   }
 
   /** Broadcast an SSE event to every listener of a company. */
@@ -403,7 +450,7 @@ class WhatsappManager {
   _createClient(connectionId, clientId, sessionPath, callbacks) {
     const entry = this._getEntry(connectionId);
     const companyId = entry.companyId;
-    const { log, onMessage, onOwnMessage, onStatusUpdate } = callbacks;
+    const { log, onMessage, onOwnMessage, onStatusUpdate, findDuplicate } = callbacks;
     const state = entry.state;
 
     // Remove Chromium singleton locks left over from container restarts
@@ -479,7 +526,7 @@ class WhatsappManager {
     });
 
     wa.on('ready', () => {
-      this._markReady(connectionId, wa.info?.wid?._serialized, log, onStatusUpdate);
+      this._markReady(connectionId, wa.info?.wid?._serialized, log, onStatusUpdate, findDuplicate);
     });
 
     wa.on('auth_failure', (msg) => {
@@ -491,6 +538,7 @@ class WhatsappManager {
     });
 
     wa.on('disconnected', (reason) => {
+      if (entry.rejecting) return;
       this._clearQrMirror(connectionId);
       state.phase = 'disconnected';
       state.pairingCode = null;
@@ -740,6 +788,7 @@ class WhatsappManager {
             entry.client.info?.wid?._serialized,
             log,
             callbacks.onStatusUpdate,
+            callbacks.findDuplicate,
           );
         }
       } catch (error) {
@@ -802,4 +851,4 @@ class WhatsappManager {
   }
 }
 
-module.exports = { WhatsappManager, resolveBrowserExecutable, normalizePairingPhone };
+module.exports = { WhatsappManager, maskCompanyName, resolveBrowserExecutable, normalizePairingPhone };

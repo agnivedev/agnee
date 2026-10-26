@@ -4242,6 +4242,26 @@ class Database {
     `, params);
   }
 
+  /**
+   * Company LAIN yang memegang nomor WhatsApp yang sama (status tersambung).
+   * Satu nomor hanya boleh aktif di satu company; pemanggil memverifikasi
+   * bahwa client-nya benar-benar hidup supaya baris basi tidak memblokir.
+   */
+  async findWhatsappNumberHolders(phoneNumber, companyId) {
+    if (!this.enabled || !phoneNumber) return [];
+    const digits = String(phoneNumber).replace(/\D/g, '');
+    if (!digits) return [];
+    const result = await this.pool.query(`
+      SELECT wc.id AS "connectionId", c.name AS "companyName"
+      FROM whatsapp_connections wc
+      JOIN companies c ON c.id = wc.company_id
+      WHERE wc.company_id <> $2
+        AND wc.status IN ('ready', 'authenticated')
+        AND regexp_replace(COALESCE(wc.phone_number, ''), '\\D', '', 'g') = $1
+    `, [digits, companyId]);
+    return result.rows;
+  }
+
   async listAllWhatsappConnections() {
     if (!this.enabled) return [];
     const result = await this.pool.query(`

@@ -1298,6 +1298,12 @@ async function buildApp(overrides = {}) {
       log: app.log,
       onMessage: handleInboundMessage,
       onOwnMessage: handleOwnMessage,
+      findDuplicate: async (companyId, account) => {
+        if (!database.enabled || !database.connected || config.demoMode) return null;
+        const holders = await database.findWhatsappNumberHolders(account, companyId);
+        // Hanya baris yang clientnya benar-benar hidup; baris basi tidak memblokir.
+        return holders.find((h) => ['ready', 'authenticated', 'syncing'].includes(manager.getState(h.connectionId).phase)) || null;
+      },
       onStatusUpdate: async (companyId, status, phoneNumber, connectionId) => {
         if (database.enabled && database.connected) {
           await database.updateWhatsappStatus(companyId, status, phoneNumber, connectionId).catch(() => {});

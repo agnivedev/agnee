@@ -575,7 +575,15 @@ function conversationRules(identity = 'team_member') {
     diterima: katakan fotonya sudah masuk dan akan dilihat tim. Jangan
     meminta customer mengirim ulang, jangan berpura-pura tahu isinya, dan
     jangan menanyakan lagi hal yang sudah dijawab lewat berkas itu. Yang kamu
-    butuhkan dari customer, minta lewat tulisan (misalnya nama produknya).`;
+    butuhkan dari customer, minta lewat tulisan (misalnya nama produknya).
+
+14. Penanda "[Isi link Google Maps dari customer: …]" atau "[Customer
+    membagikan lokasi WhatsApp: …]" berisi lokasi yang dikirim customer,
+    sudah dibaca dari link atau pin-nya. Pakai nama tempat dan alamatnya
+    seperti customer menuliskannya sendiri; jangan tanya alamatnya lagi dan
+    jangan menyalin koordinat ke customer kecuali diminta. Kalau penandanya
+    bilang link "tidak bisa dibaca", jangan menebak tempatnya: minta customer
+    menuliskan alamat atau nama tempatnya.`;
 }
 
 const AGNEE_CONVERSATION_RULES = conversationRules();

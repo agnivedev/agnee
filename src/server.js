@@ -48,6 +48,7 @@ const handoffCard = require('./handoff-card.js');
 const supervisorReport = require('./supervisor-report.js');
 const reportChats = require('./report-chats.js');
 const { createTypingHooks } = require('./typing-indicator.js');
+const mapsLink = require('./maps-link.js');
 const { buildXlsx } = require('./xlsx-writer.js');
 const Database = require('./database.js');
 const { extractPlaybookText } = require('./playbook-extractor.js');
@@ -281,7 +282,7 @@ function messagePreviewForUi(type, body, hasMedia = false, caption = '') {
   const labels = {
     call_log: 'Panggilan WhatsApp', image: 'Foto', sticker: 'Stiker', video: 'Video',
     audio: 'Audio', ptt: 'Pesan suara', document: 'Dokumen', interactive: 'Pesan interaktif WhatsApp',
-    revoked: 'Pesan dihapus',
+    revoked: 'Pesan dihapus', location: 'Lokasi',
   };
   if (inlineImageFromBody(body)) {
     const captionText = typeof caption === 'string' && !inlineImageFromBody(caption) ? caption.trim() : '';
@@ -1842,8 +1843,16 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       }
     }
 
+    // Link Google Maps dan pesan Lokasi dibaca dulu: tanpa ini model hanya
+    // melihat link pendek yang tidak bisa dibukanya (atau base64 pratinjau peta
+    // untuk pesan Lokasi), lalu menanyakan alamat yang sudah dikirim customer.
+    const customerText = await mapsLink.readCustomerText(message).catch(() => message.body);
+    if (customerText !== message.body) {
+      app.log.info({ companyId, chatId: message.from, type: message.type }, 'Lokasi dari customer dibaca untuk AI');
+    }
+
     // Use this company's own knowledge client from DB — never another tenant's
-    const ctx = await buildReplyContext({ companyId, text: message.body, chatId: message.from, allowDepartments: true, agentMode, sender: opsSender });
+    const ctx = await buildReplyContext({ companyId, text: customerText, chatId: message.from, allowDepartments: true, agentMode, sender: opsSender });
 
     // Fetch recent conversation history so the AI knows what was already said.
     //
@@ -1869,10 +1878,13 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
         const { messages: recent } = await getMessagesForUi(wa, message.from, 20);
         const currentId = inboundMessageId(message);
         conversationHistory = recent
-          .filter(m => !hiddenTypes.has(m.type) && (m.body || mediaMarker(m))
+          .filter(m => !hiddenTypes.has(m.type) && (m.body || mediaMarker(m) || (m.type === 'location' && !m.fromMe))
             && (!currentId || inboundMessageId(m) !== currentId))
           .slice(ctx.ks ? -14 : -10)
-          .map(m => ({ role: m.fromMe ? 'assistant' : 'user', content: m.body || mediaMarker(m) }));
+          .map(m => ({
+            role: m.fromMe ? 'assistant' : 'user',
+            content: (m.fromMe ? m.body : mapsLink.readCustomerTextCached(m)) || mediaMarker(m),
+          }));
       }
       // wa null berarti Cloud API — pesannya tidak lewat client whatsapp-web.js
       // sama sekali, jadi tanpa riwayat di sini memang keadaan yang benar.
@@ -1943,7 +1955,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       // Klarifikasi gagal dibuat — lanjut ke jalur normal daripada diam.
     }
 
-    const result = await llmService.generateReply(message.body, {
+    const result = await llmService.generateReply(customerText, {
       systemPrompt: ctx.systemPrompt,
       relevantFaqs: ctx.relevantFaqs,
       leadState: ctx.leadState,
@@ -1971,7 +1983,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     const enforced = await enforceReplyContract(llmService, {
       text: result.text,
       systemPrompt: ctx.systemPrompt,
-      userMessage: message.body,
+      userMessage: customerText,
       history: conversationHistory,
     });
     if (!enforced) {
@@ -2250,6 +2262,10 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
         timestamp: message.timestamp,
         type: message.type,
         ack: Number(message.ack ?? 0),
+        location: message.location ? {
+          latitude: message.location.latitude, longitude: message.location.longitude,
+          name: message.location.name || null, address: message.location.address || null,
+        } : null,
         senderName,
         senderId: senderSerialized,
         quoted: quotedMessage ? {
@@ -2321,6 +2337,11 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
             timestamp: Number(message.t || message.timestamp || 0),
             type: message.type || 'chat',
             ack: Number(message.ack ?? message.__x_ack ?? 0),
+            location: message.type === 'location' ? {
+              latitude: message.lat, longitude: message.lng,
+              name: typeof message.loc === 'string' ? message.loc.split('\n')[0] : null,
+              address: typeof message.loc === 'string' ? message.loc.split('\n')[1] || null : null,
+            } : null,
             senderName: author?.formattedName || author?.pushname || message.notifyName || null,
             senderId: authorId,
             quoted: quoted ? {
@@ -3880,6 +3901,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
             body,
             type: msg.type || 'text',
             hasMedia: msg.type !== 'text',
+            location: msg.location || undefined,
             id: { _serialized: waMessageId },
             timestamp,
             reply: async (text) => {

@@ -1,4 +1,4 @@
-import { Clock, Inbox, User } from 'lucide-react';
+import { BookOpen, Clock, Inbox, User } from 'lucide-react';
 import { Avatar } from '@/features/inbox/Avatar';
 import { notificationVerbKey } from '@/lib/notification-link';
 import { useI18n } from '@/lib/i18n';
@@ -12,13 +12,16 @@ import { cn } from '@/lib/utils';
  */
 export function NotificationItemBody({ item }: { item: Notification }) {
   const { t, dateLocale } = useI18n();
-  const isSystem = item.kind === 'sla' || (item.kind !== 'hub' && !item.actorName);
+  // Usulan knowledge menjelaskan dirinya sendiri di isi pesannya (siapa, apa), jadi tanpa aktor di depan.
+  const isSystem = item.kind === 'sla' || item.kind === 'knowledge' || (item.kind !== 'hub' && !item.actorName);
   const actor = item.kind === 'hub' ? 'Agnive Hub' : item.actorName;
 
   return (
     <span className="flex w-full items-start gap-2.5">
       {item.kind === 'hub' ? (
         <TriggerBadge label="Agnive Hub"><Inbox className="size-[18px]" aria-hidden /></TriggerBadge>
+      ) : item.kind === 'knowledge' ? (
+        <TriggerBadge label={t('notif.knowledge')}><BookOpen className="size-[18px]" aria-hidden /></TriggerBadge>
       ) : isSystem ? (
         <TriggerBadge label={t('routing.system')}><Clock className="size-[18px]" aria-hidden /></TriggerBadge>
       ) : (

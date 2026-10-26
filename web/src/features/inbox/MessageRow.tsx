@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Pencil, Trash2, Check, X, FileText, Download, Eye } from 'lucide-react';
+import { Pencil, Trash2, Check, X, FileText, Download, Eye, Lightbulb } from 'lucide-react';
 import { useI18n } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { InlineMarkdown } from './InlineMarkdown';
@@ -46,6 +46,7 @@ export function MessageRow({
   onDeleteForMe,
   onDeleteForEveryone,
   onReply,
+  onMakeKnowledge,
   onOpenMedia,
   onOpenQuoted,
 }: {
@@ -62,6 +63,8 @@ export function MessageRow({
   onDeleteForMe: () => void;
   onDeleteForEveryone: () => void;
   onReply: (message: Message) => void;
+  /** Ada hanya bila "AI belajar dari chat" menyala; membuka dialog usulan dari bubble ini. */
+  onMakeKnowledge?: (message: Message) => void;
   onOpenMedia: (target: MediaTarget) => void;
   onOpenQuoted: (messageId: string) => void;
 }) {
@@ -276,6 +279,9 @@ export function MessageRow({
         <MessageActions
           canEdit={canEdit}
           canDeleteForEveryone={canDeleteForEveryone}
+          onMakeKnowledge={mine && message.authorKind !== 'ai' && message.authorKind !== 'broadcast' && Boolean(message.body) && !hasImage && !hasVideo && onMakeKnowledge
+            ? () => onMakeKnowledge(message)
+            : undefined}
           onEdit={onStartEdit}
           onDeleteForMe={onDeleteForMe}
           onDeleteForEveryone={onDeleteForEveryone}
@@ -296,6 +302,7 @@ export function MessageRow({
 function MessageActions({
   canEdit,
   canDeleteForEveryone,
+  onMakeKnowledge,
   onEdit,
   onDeleteForMe,
   onDeleteForEveryone,
@@ -303,6 +310,7 @@ function MessageActions({
 }: {
   canEdit: boolean;
   canDeleteForEveryone: boolean;
+  onMakeKnowledge?: () => void;
   onEdit: () => void;
   onDeleteForMe: () => void;
   onDeleteForEveryone: () => void;
@@ -312,6 +320,17 @@ function MessageActions({
   const iconButton = 'grid size-[30px] shrink-0 place-items-center rounded-[10px] border-0 bg-white/80 opacity-0 transition hover:bg-white focus-visible:opacity-100 group-hover:opacity-100';
   return (
     <div className={cn('flex shrink-0 gap-1', className)}>
+      {onMakeKnowledge ? (
+        <button
+          type="button"
+          aria-label={t('kp.makeKnowledge')}
+          title={t('kp.makeKnowledge')}
+          onClick={(event) => { event.stopPropagation(); onMakeKnowledge(); }}
+          className={cn(iconButton, 'text-green-dark')}
+        >
+          <Lightbulb aria-hidden className="size-[15px]" strokeWidth={2} />
+        </button>
+      ) : null}
       {canEdit ? (
         <button
           type="button"

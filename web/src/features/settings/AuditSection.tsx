@@ -70,6 +70,9 @@ const AUDIT_ACTIONS = [
   'promo.enabled',
   'promo.disabled',
   'promo.deleted',
+  'knowledge.applied',
+  'knowledge.rejected',
+  'knowledge.learning_toggled',
 ] as const;
 
 /**

@@ -7,6 +7,10 @@ import { cn } from '@/lib/utils';
 import { Avatar } from './Avatar';
 import { Composer } from './Composer';
 import { MessageRow } from './MessageRow';
+import { KnowledgeChip } from '../knowledge-proposals/KnowledgeChip';
+import { ProposalDialog, type ProposalDraft, type SubmitOutcome } from '../knowledge-proposals/ProposalDialog';
+import { useKnowledgeSuggestions } from '../knowledge-proposals/useKnowledgeSuggestions';
+import type { Proposal } from '../knowledge-proposals/types';
 import { dayKey, dayLabel, formatPhone, messagePreview, phoneFromChatId, runPosition } from './format';
 import type { Chat, MediaTarget, Message, WhatsappStatus } from './types';
 import type { InboxApi } from './useInbox';
@@ -38,6 +42,48 @@ export function ConversationPane({
   const chat = inbox.activeChat;
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const knowledge = useKnowledgeSuggestions(chat?.id ?? null);
+  const [knowledgeDraft, setKnowledgeDraft] = useState<ProposalDraft | null>(null);
+  const [knowledgeBusy, setKnowledgeBusy] = useState(false);
+
+  function teachProposal(proposal: Proposal) {
+    setKnowledgeDraft({
+      proposalId: proposal.id,
+      chatId: proposal.chatId,
+      sourceMessageId: proposal.sourceMessageId,
+      question: proposal.question,
+      answer: proposal.answer,
+      category: proposal.category,
+    });
+  }
+
+  async function dismissProposal(proposal: Proposal) {
+    setKnowledgeBusy(true);
+    try {
+      await api(`/v1/knowledge-proposals/${proposal.id}/dismiss`, { method: 'POST', body: {} });
+      await knowledge.reload();
+    } catch (error) {
+      await confirm.error(error);
+    } finally {
+      setKnowledgeBusy(false);
+    }
+  }
+
+  async function finishKnowledge(result: SubmitOutcome) {
+    setKnowledgeDraft(null);
+    await knowledge.reload();
+    if (result.outcome === 'duplicate') {
+      await confirm.alert({ title: t('kp.duplicateTitle'), message: t('kp.duplicateBody') });
+    }
+  }
+
+  // Chip ditaruh di bawah bubble yang memicunya; kalau bubble itu tidak ada
+  // di riwayat yang termuat, di ujung percakapan.
+  const lastMessageId = inbox.messages[inbox.messages.length - 1]?.id;
+  const chipsAfter = (messageId: string) => knowledge.proposals.filter((proposal) => {
+    const anchored = inbox.messages.some((message) => message.id === proposal.sourceMessageId);
+    return (anchored ? proposal.sourceMessageId : lastMessageId) === messageId;
+  });
 
   /**
    * Edit dan hapus lewat evaluate murni di server — tidak ada API "diff
@@ -256,7 +302,26 @@ export function ConversationPane({
                   onReply={setReplyingTo}
                   onOpenMedia={onOpenMedia}
                   onOpenQuoted={(id) => void focusMessage(id)}
+                  onMakeKnowledge={knowledge.enabled && knowledge.proposals.every((p) => p.status !== 'suggested')
+                    ? (target) => setKnowledgeDraft({
+                      chatId: chat.id,
+                      sourceMessageId: target.id,
+                      question: '',
+                      answer: String(target.body || '').trim().slice(0, 600),
+                      category: 'faq',
+                    })
+                    : undefined}
                 />
+                {chipsAfter(message.id).map((proposal) => (
+                  <KnowledgeChip
+                    key={proposal.id}
+                    proposal={proposal}
+                    isSupervisor={isSupervisor}
+                    busy={knowledgeBusy}
+                    onTeach={teachProposal}
+                    onDismiss={(target) => void dismissProposal(target)}
+                  />
+                ))}
               </div>
             );
           })}
@@ -284,6 +349,7 @@ export function ConversationPane({
       ) : (
         <div />
       )}
+      <ProposalDialog draft={knowledgeDraft} onClose={() => setKnowledgeDraft(null)} onDone={(result) => void finishKnowledge(result)} />
     </section>
   );
 }

@@ -24,6 +24,7 @@ import { SavedTemplates } from './SavedTemplates';
 import { ProductBar, ImportPanel, productQuery, type Product } from './PlaybookProducts';
 import { Markdown, diffLines } from './DocMarkdown';
 import { TrainAssistant } from './TrainAssistant';
+import { ProposalsSection, usePendingProposals } from '../knowledge-proposals/ProposalsSection';
 
 /**
  * Semua yang membentuk jawaban AI, di satu tempat. Dulu tersebar di empat
@@ -35,11 +36,11 @@ import { TrainAssistant } from './TrainAssistant';
  * dan panel Uji AI) dan Template. Tautan lama #coach dan #brief tetap berlaku:
  * keduanya membuka layar Playbook dengan bagian yang bersangkutan.
  */
-type Section = 'playbook' | 'template';
-const SECTIONS: Section[] = ['playbook', 'template'];
+type Section = 'playbook' | 'template' | 'usulan';
+const SECTIONS: Section[] = ['playbook', 'template', 'usulan'];
 function sectionFromHash(): Section {
   const hash = window.location.hash.replace('#', '');
-  return hash === 'template' ? 'template' : 'playbook';
+  return hash === 'template' || hash === 'usulan' ? hash : 'playbook';
 }
 
 /** One icon per document kind, so the list reads at a glance, not just by label text. */
@@ -375,6 +376,7 @@ export function KnowledgePage() {
   const [section, setSection] = useState<Section>(sectionFromHash);
   // Naik tiap kali asisten chat menerapkan usulan, supaya tab yang terbuka memuat ulang.
   const [refreshKey, setRefreshKey] = useState(0);
+  const proposals = usePendingProposals();
 
   useEffect(() => {
     const follow = () => setSection(sectionFromHash());
@@ -409,11 +411,15 @@ export function KnowledgePage() {
               )}
             >
               {t(`knowledge.section.${id}`)}
+              {id === 'usulan' && proposals.pending > 0 ? (
+                <span className="ml-2 rounded-full bg-ink px-1.5 py-0.5 font-mono text-[10px] font-semibold text-white">{proposals.pending}</span>
+              ) : null}
             </button>
           ))}
         </div>
 
         {section === 'playbook' ? <PlaybookDocs refreshKey={refreshKey} /> : null}
+        {section === 'usulan' ? <ProposalsSection onChanged={() => { setRefreshKey((n) => n + 1); void proposals.reload(); }} /> : null}
         {section === 'template' ? <div className="max-w-4xl"><SavedTemplates onApplied={() => setRefreshKey((n) => n + 1)} /><KsSection key={refreshKey} /></div> : null}
       </main>
       <TrainAssistant onChanged={() => setRefreshKey((value) => value + 1)} />

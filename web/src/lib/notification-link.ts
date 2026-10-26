@@ -5,7 +5,7 @@
  * Agnive Hub conversations borrow the notes machinery under a "hub:<id>" chat
  * id; they open the Hub page, not the WhatsApp inbox.
  */
-export type NotificationKind = 'mention' | 'reply' | 'task' | 'sla' | 'hub' | 'credit';
+export type NotificationKind = 'mention' | 'reply' | 'task' | 'sla' | 'hub' | 'credit' | 'knowledge';
 
 export function notificationHref(chatId: string, chatName?: string | null): string {
   if (chatId.startsWith('hub:')) return `/hub?thread=${encodeURIComponent(chatId.slice(4))}`;
@@ -19,5 +19,6 @@ export function notificationVerbKey(kind: NotificationKind): string {
   if (kind === 'reply') return 'notif.replied';
   if (kind === 'hub') return 'notif.hub';
   if (kind === 'credit') return 'notif.credit';
+  if (kind === 'knowledge') return 'notif.knowledge';
   return 'notif.mentioned';
 }

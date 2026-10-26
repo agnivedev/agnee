@@ -85,6 +85,33 @@
     selama koneksi DealPOS menyala.
   - Semua anggota tim boleh melihat; mengubah hanya supervisor (server menegakkan).
   - CSP `img-src` kini mengizinkan `https:` supaya gambar produk dari CDN POS tampil.
+- **AI belajar dari chat (migrasi 090, mati secara bawaan per company).** Balasan CS di inbox
+  yang memuat informasi baru ditawarkan sebagai usulan knowledge; tidak ada yang masuk playbook
+  tanpa persetujuan supervisor dan simulasi.
+  - **Deteksi menumpang di ringkasan chat** (`summary`), bukan panggilan AI baru: transkrip kini
+    memakai label `Tim (AI)` / `Tim (CS)` / `Broadcast` (dari `outbound_replies`; yang diketik di
+    HP dianggap CS) dan prompt ringkasan meminta kolom `knowledge`. Hanya baris `Tim (CS)` yang
+    boleh jadi sumber, supaya karangan AI tidak kembali jadi "pengetahuan". Saklar mati: prompt dan
+    label ringkasan sama persis seperti sebelumnya.
+  - **Saringan di kode** (`src/knowledge-proposals.js`): panjang, data pribadi (telepon, email,
+    deret angka 10+), klaim hasil/risiko (`findClaimViolations`), bukan informasi, sudah ada di
+    Fakta, sidik pertanyaan yang pernah ditolak/ditutup/diajukan, dan jeda 10 menit setelah "Bukan".
+    Satu chip per chat (indeks unik parsial).
+  - **Alur**: chip di bawah bubble CS ("Ajarkan ke AI" / "Bukan") atau tombol manual "Jadikan
+    knowledge" di bubble → dialog sunting → cek bentrok (Fakta serupa lalu model; duplikat ditutup
+    sendiri) → lonceng ke semua supervisor/admin/owner dan satu WhatsApp gabungan per 2 menit
+    ke nomor mereka → tab baru **Latih AI > Usulan dari Chat**: simulasi sebelum vs sesudah
+    (usulan ditempel sementara ke akhir playbook lewat `extraPlaybook`, tidak disimpan), Terapkan
+    hanya setelah ada simulasi (ditegakkan di `applyKnowledgeProposal`, satu transaksi), Tolak
+    dengan alasan. Menyunting usulan menghapus simulasinya. Pengusul dikabari keputusan di lonceng.
+  - Diterapkan sebagai Fakta dengan asal baru `chat` (CHECK `playbook_facts.source` diperluas).
+    Jejak audit: `knowledge.applied`, `knowledge.rejected`, `knowledge.learning_toggled`
+    (metadata hanya id, tanpa isi).
+  - API: `GET/PUT /v1/knowledge/settings`, `GET /v1/chats/:chatId/knowledge-suggestions`,
+    `POST/PATCH /v1/knowledge-proposals`, `/:id/submit|dismiss|simulate|apply|reject`,
+    `GET /v1/knowledge-proposals[/:id]` (agent hanya melihat usulannya sendiri). Event SSE `knowledge`.
+  - Tes: `knowledge-proposals.test.js` (logika), `knowledge-proposals-db.test.js` dan
+    `knowledge-proposals-routes.test.js` (Postgres asli; di-skip tanpa `DATABASE_URL`).
 
 - **Laporan supervisor: tiap chat follow-up kini berisi ringkasan, alur chat, chat terakhir,
   dan usulan Agnee.** Blok per chat: "Ringkasan", "Alur chat" (maksimal 4 giliran terakhir,

@@ -3966,6 +3966,272 @@ class Database {
     return recipients.map((r) => r.userId);
   }
 
+  // ── AI belajar dari chat (migrasi 071) ────────────────────────────────────
+
+  async getKnowledgeLearning(companyId) {
+    if (!this.enabled) return false;
+    const result = await this.pool.query(
+      'SELECT knowledge_learning_enabled AS "enabled" FROM companies WHERE id = $1', [companyId],
+    );
+    return result.rows[0]?.enabled === true;
+  }
+
+  async setKnowledgeLearning(companyId, enabled) {
+    if (!this.enabled) return false;
+    const result = await this.pool.query(
+      'UPDATE companies SET knowledge_learning_enabled = $2 WHERE id = $1 RETURNING knowledge_learning_enabled AS "enabled"',
+      [companyId, enabled === true],
+    );
+    return result.rows[0]?.enabled === true;
+  }
+
+  /** Penulis tiap pesan keluar terakhir di satu chat: pembeda balasan AI dan CS. */
+  async listOutboundReplyAuthors(companyId, chatId, limit = 60) {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(`
+      SELECT message_id AS "messageId", author, body
+      FROM outbound_replies
+      WHERE company_id = $1 AND chat_id = $2
+      ORDER BY created_at DESC
+      LIMIT $3
+    `, [companyId, chatId, limit]);
+    return result.rows;
+  }
+
+  _proposalSelect() {
+    return `
+      p.id, p.chat_id AS "chatId", p.source_message_id AS "sourceMessageId",
+      p.question, p.answer, p.customer_message AS "customerMessage", p.category,
+      p.status, p.origin, p.proposed_by AS "proposedBy", p.reviewed_by AS "reviewedBy",
+      p.reject_reason AS "rejectReason", p.conflict_status AS "conflictStatus",
+      p.conflict_note AS "conflictNote", p.chat_excerpt AS "chatExcerpt",
+      p.simulation, p.simulated_at AS "simulatedAt", p.fact_id AS "factId",
+      p.created_at AS "createdAt", p.submitted_at AS "submittedAt", p.decided_at AS "decidedAt",
+      pu.display_name AS "proposedByName", ru.display_name AS "reviewedByName"`;
+  }
+
+  /** Pernah ditolak, ditutup, diajukan, atau diterapkan: tidak ditawarkan lagi. */
+  async hasKnowledgeFingerprint(companyId, fingerprint) {
+    if (!this.enabled) return false;
+    const result = await this.pool.query(`
+      SELECT 1 FROM knowledge_proposals
+      WHERE company_id = $1 AND fingerprint = $2 AND status IN ('rejected', 'dismissed', 'submitted', 'applied')
+      LIMIT 1
+    `, [companyId, fingerprint]);
+    return result.rowCount > 0;
+  }
+
+  async getLastKnowledgeDismissal(companyId, chatId) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      SELECT MAX(updated_at) AS "at" FROM knowledge_proposals
+      WHERE company_id = $1 AND chat_id = $2 AND status = 'dismissed'
+    `, [companyId, chatId]);
+    return result.rows[0]?.at || null;
+  }
+
+  /** Mengembalikan null kalau chat itu sudah punya satu usulan terbuka. */
+  async createKnowledgeProposal({
+    chatId, sourceMessageId = null, question, answer, customerMessage = '', category = 'faq',
+    origin = 'auto', proposedBy = null, chatExcerpt = '', fingerprint, status = 'suggested',
+  }, companyId) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      INSERT INTO knowledge_proposals
+        (company_id, chat_id, source_message_id, question, answer, customer_message, category,
+         origin, proposed_by, chat_excerpt, fingerprint, status, submitted_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
+              CASE WHEN $12 = 'submitted' THEN NOW() END)
+      ON CONFLICT DO NOTHING
+      RETURNING id
+    `, [companyId, chatId, sourceMessageId, question, answer, customerMessage, category,
+      origin, proposedBy, chatExcerpt, fingerprint, status]);
+    return result.rows[0] ? this.getKnowledgeProposal(result.rows[0].id, companyId) : null;
+  }
+
+  async getKnowledgeProposal(id, companyId) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      SELECT ${this._proposalSelect()}
+      FROM knowledge_proposals p
+      LEFT JOIN users pu ON pu.id = p.proposed_by
+      LEFT JOIN users ru ON ru.id = p.reviewed_by
+      WHERE p.id = $1 AND p.company_id = $2
+    `, [id, companyId]);
+    return result.rows[0] || null;
+  }
+
+  /** Usulan yang masih hidup di satu chat (chip di inbox). */
+  async listOpenKnowledgeForChat(companyId, chatId) {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(`
+      SELECT ${this._proposalSelect()}
+      FROM knowledge_proposals p
+      LEFT JOIN users pu ON pu.id = p.proposed_by
+      LEFT JOIN users ru ON ru.id = p.reviewed_by
+      WHERE p.company_id = $1 AND p.chat_id = $2 AND p.status IN ('suggested', 'submitted')
+      ORDER BY p.created_at DESC
+      LIMIT 5
+    `, [companyId, chatId]);
+    return result.rows;
+  }
+
+  async listKnowledgeProposals(companyId, { statuses, proposedBy, limit = 50 } = {}) {
+    if (!this.enabled) return [];
+    const where = ['p.company_id = $1', "p.status <> 'suggested'"];
+    const values = [companyId];
+    if (statuses?.length) { values.push(statuses); where.push(`p.status = ANY($${values.length}::text[])`); }
+    if (proposedBy) { values.push(proposedBy); where.push(`p.proposed_by = $${values.length}`); }
+    values.push(limit);
+    const result = await this.pool.query(`
+      SELECT ${this._proposalSelect()}
+      FROM knowledge_proposals p
+      LEFT JOIN users pu ON pu.id = p.proposed_by
+      LEFT JOIN users ru ON ru.id = p.reviewed_by
+      WHERE ${where.join(' AND ')}
+      ORDER BY COALESCE(p.submitted_at, p.created_at) DESC
+      LIMIT $${values.length}
+    `, values);
+    return result.rows;
+  }
+
+  /** Menyunting pertanyaan/jawaban membatalkan simulasi dan cek bentrok lama. */
+  async editKnowledgeProposal(id, companyId, { question, answer, category, fingerprint }) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      UPDATE knowledge_proposals SET
+        question = COALESCE($3, question), answer = COALESCE($4, answer), category = COALESCE($5, category),
+        fingerprint = COALESCE($6, fingerprint),
+        simulation = NULL, simulated_at = NULL, conflict_status = NULL, conflict_note = NULL, updated_at = NOW()
+      WHERE id = $1 AND company_id = $2 AND status IN ('suggested', 'submitted')
+      RETURNING id
+    `, [id, companyId, question ?? null, answer ?? null, category ?? null, fingerprint ?? null]);
+    return result.rows[0] ? this.getKnowledgeProposal(id, companyId) : null;
+  }
+
+  async submitKnowledgeProposal(id, companyId, { userId, conflictStatus, conflictNote }) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      UPDATE knowledge_proposals SET
+        status = 'submitted', proposed_by = COALESCE(proposed_by, $3), submitted_at = NOW(),
+        conflict_status = $4, conflict_note = $5, updated_at = NOW()
+      WHERE id = $1 AND company_id = $2 AND status = 'suggested'
+      RETURNING id
+    `, [id, companyId, userId || null, conflictStatus || null, conflictNote || null]);
+    return result.rows[0] ? this.getKnowledgeProposal(id, companyId) : null;
+  }
+
+  async dismissKnowledgeProposal(id, companyId, { reason = null } = {}) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      UPDATE knowledge_proposals SET
+        status = 'dismissed', reject_reason = $3, decided_at = NOW(), updated_at = NOW()
+      WHERE id = $1 AND company_id = $2 AND status IN ('suggested', 'submitted')
+      RETURNING id
+    `, [id, companyId, reason]);
+    return result.rows[0] ? this.getKnowledgeProposal(id, companyId) : null;
+  }
+
+  async saveKnowledgeSimulation(id, companyId, simulation) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      UPDATE knowledge_proposals SET simulation = $3::jsonb, simulated_at = NOW(), updated_at = NOW()
+      WHERE id = $1 AND company_id = $2 AND status = 'submitted'
+      RETURNING id
+    `, [id, companyId, JSON.stringify(simulation)]);
+    return result.rows[0] ? this.getKnowledgeProposal(id, companyId) : null;
+  }
+
+  async rejectKnowledgeProposal(id, companyId, { reviewerId, reason }) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      UPDATE knowledge_proposals SET
+        status = 'rejected', reviewed_by = $3, reject_reason = $4, decided_at = NOW(), updated_at = NOW()
+      WHERE id = $1 AND company_id = $2 AND status = 'submitted'
+      RETURNING id
+    `, [id, companyId, reviewerId || null, reason || null]);
+    return result.rows[0] ? this.getKnowledgeProposal(id, companyId) : null;
+  }
+
+  /**
+   * Menerapkan usulan jadi Fakta. Satu transaksi dengan baris dikunci: dua
+   * supervisor yang menekan Terapkan bersamaan tidak menulis dua kali. Simulasi
+   * wajib sudah ada; menyunting usulan menghapusnya, jadi yang diterapkan
+   * selalu persis yang disimulasikan.
+   */
+  async applyKnowledgeProposal(id, companyId, { reviewerId }) {
+    if (!this.enabled) return null;
+    const fail = (code, message) => Object.assign(new Error(message), { code });
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const row = (await client.query(`
+        SELECT status, question, answer, category, simulation
+        FROM knowledge_proposals WHERE id = $1 AND company_id = $2 FOR UPDATE
+      `, [id, companyId])).rows[0];
+      if (!row) throw fail('NOT_FOUND', 'Usulan tidak ditemukan.');
+      if (row.status !== 'submitted') throw fail('BAD_STATUS', 'Usulan ini sudah diputuskan.');
+      if (!row.simulation) throw fail('NEEDS_SIMULATION', 'Jalankan simulasi dulu sebelum menerapkan.');
+      const fact = (await client.query(`
+        INSERT INTO playbook_facts (company_id, category, question, answer, priority, source, updated_by)
+        VALUES ($1, $2, $3, $4, 2, 'chat', $5)
+        ON CONFLICT (company_id, lower(question)) DO UPDATE SET
+          answer = EXCLUDED.answer, category = EXCLUDED.category, source = 'chat',
+          updated_by = EXCLUDED.updated_by, updated_at = NOW()
+        RETURNING id, category, question, answer, priority, source
+      `, [companyId, row.category, row.question, row.answer, reviewerId || null])).rows[0];
+      await client.query(`
+        UPDATE knowledge_proposals SET
+          status = 'applied', reviewed_by = $3, fact_id = $4, decided_at = NOW(), updated_at = NOW()
+        WHERE id = $1 AND company_id = $2
+      `, [id, companyId, reviewerId || null, fact.id]);
+      await client.query('COMMIT');
+      return { fact, proposal: await this.getKnowledgeProposal(id, companyId) };
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  /** Penerima kabar usulan: pemegang peran istimewa, tanpa si pengusul sendiri. */
+  async listKnowledgeRecipients(companyId, { excludeUserId = null } = {}) {
+    const recipients = await this.listCreditRecipients(companyId);
+    return recipients.filter((r) => r.userId !== excludeUserId);
+  }
+
+  async createKnowledgeNotifications({ userIds, body, chatId = null, actorUserId = null }, companyId) {
+    if (!this.enabled || !userIds?.length) return [];
+    const result = await this.pool.query(`
+      INSERT INTO notifications (company_id, user_id, kind, chat_id, actor_user_id, actor_kind, body)
+      SELECT $1, m.user_id, 'knowledge', $2, $3, 'human', $4
+      FROM company_members m
+      WHERE m.company_id = $1 AND m.status = 'active' AND m.user_id = ANY($5::uuid[])
+      RETURNING user_id AS "userId"
+    `, [companyId, chatId, actorUserId, String(body || '').slice(0, 500), userIds]);
+    return result.rows.map((row) => row.userId);
+  }
+
+  /** Menandai usulan yang menunggu sebagai sudah dikabari lewat WhatsApp; mengembalikan jumlahnya. */
+  async claimKnowledgeDigest(companyId) {
+    if (!this.enabled) return 0;
+    const result = await this.pool.query(`
+      UPDATE knowledge_proposals SET wa_notified_at = NOW()
+      WHERE company_id = $1 AND status = 'submitted' AND wa_notified_at IS NULL
+      RETURNING id
+    `, [companyId]);
+    return result.rowCount;
+  }
+
+  async countSubmittedKnowledge(companyId) {
+    if (!this.enabled) return 0;
+    const result = await this.pool.query(
+      "SELECT COUNT(*)::int AS n FROM knowledge_proposals WHERE company_id = $1 AND status = 'submitted'", [companyId],
+    );
+    return result.rows[0]?.n || 0;
+  }
+
   async updateTeamMemberRole(userId, role, companyId) {
     if (!this.enabled) return null;
     await this.pool.query(`

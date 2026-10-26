@@ -28,7 +28,7 @@ Di Agnee, produk yang sudah tertebak menempel ke chat. Kalau customer pindah pro
 
 ## Harus disiapkan di company ESBEJE sebelum dipakai
 
-1. **Departemen `Gudang` dan `Keuangan`** (Pengaturan, Tim). Playbook menyuruh AI bertanya stok ke Gudang dan cek transfer ke Keuangan. Penerimanya bisa orang, grup WhatsApp, atau keduanya. Nomor WhatsApp ESBEJE harus sudah masuk grupnya.
+1. **Departemen `Management` dan `Finance`** (Pengaturan, Tim). Keputusan ESBEJE Media 26 Oktober: stok, harga di luar daftar, promo, ongkir, spesifikasi, dan merek di luar unggulan ke Management; cek transfer ke Finance. `Finance` belum ada dan harus dibuat. Departemen tanpa penerima tidak ditanya AI. Penerimanya bisa orang, grup WhatsApp, atau keduanya. Nomor WhatsApp ESBEJE harus sudah masuk grupnya.
 2. **Integrasi DealPOS di company ESBEJE.** Per 23 Oktober, koneksi `esbeje.dealpos.co.id` terpasang di company Beweix Digital, bukan ESBEJE. Harga untuk AI dibaca dari koneksi milik company yang sedang membalas.
 3. **Nomor WhatsApp** ESBEJE masih `waiting_for_qr`.
 
@@ -41,9 +41,12 @@ node scripts/load-playbooks.js playbooks/esbeje --apply  # menulis
 
 Di produksi, pakai perintah `docker compose run` di README Beweix (`playbooks/beweix-digital/README.md`).
 
+## Merek unggulan (26 Oktober)
+
+Triplek (tanpa merek), toren Penguin dan Mpoin, Semen Jakarta, mortar Mortar Utama dan Jakarta, pipa Rucika, cat Danapaint, Jotun, Mowilex, Nippon Paint, Propan, Bital Asia, Penta. Di katalog DealPOS, produk Mortar Utama bernama "MU <nomor>" tanpa kata "Mortar Utama", jadi daftar kegunaannya ditulis di tanya jawab.
+
 ## Belum dikonfirmasi pemilik
 
 - Pemetaan tahap ke produk (mis. toren di tahap atap, pipa di pondasi dan finishing).
 - Nama persona. Sekarang "admin penjualan ESBEJE" tanpa nama.
-- Ejaan merek toren "Mpoin".
 - Area kirim, rekening, dan aturan ongkir. Playbook menyerahkan semuanya ke tim.

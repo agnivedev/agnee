@@ -17,6 +17,7 @@ import { useEffect } from 'react';
 const KONTAK_PRIVASI = 'privasi@agnive.co';
 const WA_LINK = 'https://wa.me/6281218700276';
 const BERLAKU_SEJAK = '21 September 2026';
+const PRIVASI_DIPERBARUI = '26 Oktober 2026';
 
 type Blok =
   | { jenis: 'paragraf'; isi: string }
@@ -31,7 +32,7 @@ const PRIVASI: Bagian[] = [
     blok: [
       {
         jenis: 'paragraf',
-        isi: `Agnee adalah produk milik Agnive. Halaman ini menjelaskan data apa yang kami simpan, kenapa, di mana, berapa lama, dan apa yang bisa kamu minta dari kami. Berlaku sejak ${BERLAKU_SEJAK}.`,
+        isi: `Agnee adalah produk milik Agnive. Halaman ini menjelaskan data apa yang kami simpan, kenapa, di mana, berapa lama, dan apa yang bisa kamu minta dari kami. Berlaku sejak ${BERLAKU_SEJAK}, terakhir diperbarui ${PRIVASI_DIPERBARUI}.`,
       },
       {
         jenis: 'paragraf',
@@ -120,6 +121,8 @@ const PRIVASI: Bagian[] = [
           ['Microsoft OneDrive', 'Hanya kalau perusahaanmu menyambungkannya sendiri untuk sinkronisasi kontak.'],
           ['Google Sheets', 'Hanya kalau perusahaanmu menyambungkannya sendiri untuk sinkronisasi kontak.'],
           ['Mayar', 'Memproses pembayaran, bila pembayaran dilakukan lewat jalur itu.'],
+          ['Google Maps', 'Saat customer mengirim link Google Maps pendek, server kami membuka link itu di Google untuk mengetahui tempat yang dituju. Yang dikirim hanya link itu sendiri.'],
+          ['OpenStreetMap (Nominatim)', 'Saat customer mengirim lokasi yang hanya berupa titik koordinat, koordinat itu dikirim ke layanan OpenStreetMap untuk dicari alamatnya. Tidak ada nama, nomor, atau isi percakapan yang ikut dikirim.'],
         ],
       },
     ],

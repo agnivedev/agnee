@@ -4950,6 +4950,67 @@ class Database {
     return customers.length;
   }
 
+  // ── Integrasi Lalamove ────────────────────────────────────────────────────
+  // api_secret dienkripsi pgcrypto, pola yang sama dengan dealpos_connections.
+
+  async getLalamoveConnection(companyId) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      SELECT company_id AS "companyId", environment, market, api_key AS "apiKey",
+             pgp_sym_decrypt(api_secret_enc, $2) AS "apiSecret",
+             enabled, cities, last_checked_at AS "lastCheckedAt", last_error AS "lastError"
+      FROM lalamove_connections WHERE company_id = $1
+    `, [companyId, this.credentialsEncryptionKey]);
+    return result.rows[0] || null;
+  }
+
+  async upsertLalamoveConnection(companyId, { environment, apiKey, apiSecret, cities }) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      INSERT INTO lalamove_connections (company_id, environment, api_key, api_secret_enc, cities, last_checked_at)
+      VALUES ($1, $2, $3, pgp_sym_encrypt($4, $5), $6::jsonb, NOW())
+      ON CONFLICT (company_id) DO UPDATE SET
+        environment = EXCLUDED.environment,
+        api_key = EXCLUDED.api_key,
+        api_secret_enc = EXCLUDED.api_secret_enc,
+        cities = EXCLUDED.cities,
+        last_checked_at = NOW(),
+        enabled = true,
+        last_error = NULL,
+        updated_at = NOW()
+      RETURNING company_id AS "companyId"
+    `, [companyId, environment, apiKey, apiSecret, this.credentialsEncryptionKey, JSON.stringify(cities || [])]);
+    return result.rows[0] || null;
+  }
+
+  /** Hasil pemeriksaan ulang kunci: daftar kota baru, atau galatnya. */
+  async recordLalamoveCheck(companyId, { error = null, cities = null }) {
+    if (!this.enabled) return;
+    await this.pool.query(`
+      UPDATE lalamove_connections SET
+        last_checked_at = CASE WHEN $2::text IS NULL THEN NOW() ELSE last_checked_at END,
+        cities = COALESCE($3::jsonb, cities),
+        last_error = $2,
+        updated_at = NOW()
+      WHERE company_id = $1
+    `, [companyId, error, cities ? JSON.stringify(cities) : null]);
+  }
+
+  async setLalamoveEnabled(companyId, enabled) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(
+      'UPDATE lalamove_connections SET enabled = $2, updated_at = NOW() WHERE company_id = $1 RETURNING enabled',
+      [companyId, enabled],
+    );
+    return result.rows[0] || null;
+  }
+
+  async deleteLalamoveConnection(companyId) {
+    if (!this.enabled) return false;
+    const result = await this.pool.query('DELETE FROM lalamove_connections WHERE company_id = $1', [companyId]);
+    return result.rowCount > 0;
+  }
+
   // ── Tab integrasi yang dinyalakan (Pengaturan > Integrasi) ───────────────
 
   async getIntegrationTabs(companyId) {

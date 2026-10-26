@@ -40,6 +40,7 @@ const gsheets = require('./gsheets-sync.js');
 const { HUB_REPLY_WORKING_DAYS, addWorkingDays, workingDaysSince } = require('./hub-followup.js');
 const mayarSync = require('./mayar-sync.js');
 const dealposSync = require('./dealpos-sync.js');
+const lalamove = require('./lalamove.js');
 const dealposPrices = require('./dealpos-prices.js');
 const { createReplyPacer } = require('./reply-delay.js');
 const handoffNotice = require('./handoff-notice.js');
@@ -9573,9 +9574,125 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     sync: (companyId, conn) => syncDealposFor(companyId, conn),
   });
 
+  // ── Integrasi Lalamove: kurir, lewat kunci Partner API v3 ─────────────────
+  // Tahap pertama: hubungkan + periksa kunci (daftar kota dan kendaraan) dan
+  // uji ongkir dari Pengaturan. Order dari percakapan menyusul.
+
+  function lalamoveStatus(conn) {
+    const cities = Array.isArray(conn.cities) ? conn.cities : [];
+    // apiSecret sengaja tidak dikembalikan; API key cukup ujungnya untuk dikenali.
+    return {
+      connected: true, enabled: conn.enabled, environment: conn.environment, market: conn.market,
+      apiKeyTail: String(conn.apiKey || '').slice(-4),
+      lastCheckedAt: conn.lastCheckedAt, lastError: conn.lastError, cities,
+    };
+  }
+
+  app.get('/v1/integrations/lalamove', async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengatur integrasi.' });
+    if (!canCall('getLalamoveConnection')) return { connected: false };
+    const conn = await database.getLalamoveConnection(request.agneeSession.companyId);
+    return conn ? lalamoveStatus(conn) : { connected: false };
+  });
+
+  app.post('/v1/integrations/lalamove', {
+    schema: {
+      body: {
+        type: 'object', required: ['apiKey', 'apiSecret', 'environment'], additionalProperties: false,
+        properties: {
+          apiKey: { type: 'string', minLength: 8, maxLength: 200 },
+          apiSecret: { type: 'string', minLength: 8, maxLength: 200 },
+          environment: { type: 'string', enum: lalamove.ENVIRONMENTS },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengatur integrasi.' });
+    if (!canCall('upsertLalamoveConnection')) return reply.code(503).send({ error: 'Database tidak tersedia.' });
+    const companyId = request.agneeSession.companyId;
+    const credentials = {
+      environment: request.body.environment,
+      market: lalamove.MARKET,
+      apiKey: request.body.apiKey.trim(),
+      apiSecret: request.body.apiSecret.trim(),
+    };
+    // Kunci sandbox ke host production (atau sebaliknya) selalu ditolak 401;
+    // pesan ini lebih jelas daripada "kunci salah".
+    const keyEnvironment = lalamove.environmentOfKey(credentials.apiKey);
+    if (keyEnvironment && keyEnvironment !== credentials.environment) {
+      return reply.code(422).send({ error: keyEnvironment === 'sandbox'
+        ? 'Ini kunci sandbox (pk_test_). Pilih mode Sandbox, atau tempel kunci production.'
+        : 'Ini kunci production (pk_prod_). Pilih mode Production, atau tempel kunci sandbox.' });
+    }
+    try {
+      // Diverifikasi ke Lalamove SEBELUM disimpan, pola yang sama dengan DealPOS.
+      const { cities } = await lalamove.verifyCredentials(credentials);
+      await database.upsertLalamoveConnection(companyId, { ...credentials, cities });
+      await catatAudit(request, 'integration.connected', {
+        entityType: 'integration', entityId: 'lalamove', metadata: { integration: 'lalamove', environment: credentials.environment },
+      });
+      return reply.code(201).send({ ok: true, cityCount: cities.length });
+    } catch (error) {
+      return reply.code(422).send({ error: publicErrorMessage(error) });
+    }
+  });
+
+  /** "-6.2,106.8" atau link Google Maps -> { lat, lng, address }. */
+  async function lalamoveStop(raw) {
+    const text = String(raw || '').trim();
+    const coords = /^\s*(-?\d{1,2}(?:\.\d+)?)\s*,\s*(-?\d{1,3}(?:\.\d+)?)\s*$/.exec(text);
+    if (coords) return { lat: Number(coords[1]), lng: Number(coords[2]), address: `${coords[1]},${coords[2]}` };
+    const link = mapsLink.findMapsLinks(text)[0];
+    const place = link ? await mapsLink.resolveMapsLink(link) : null;
+    if (!place || place.lat === undefined) return null;
+    return { lat: place.lat, lng: place.lng, address: place.address || place.name || place.query || `${place.lat},${place.lng}` };
+  }
+
+  app.post('/v1/integrations/lalamove/quote', {
+    schema: {
+      body: {
+        type: 'object', required: ['pickup', 'dropoff', 'serviceType'], additionalProperties: false,
+        properties: {
+          pickup: { type: 'string', minLength: 3, maxLength: 600 },
+          dropoff: { type: 'string', minLength: 3, maxLength: 600 },
+          serviceType: { type: 'string', pattern: '^[A-Z0-9_]{2,40}$' },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengatur integrasi.' });
+    if (!canCall('getLalamoveConnection')) return reply.code(503).send({ error: 'Database tidak tersedia.' });
+    const conn = await database.getLalamoveConnection(request.agneeSession.companyId);
+    if (!conn) return reply.code(409).send({ error: 'Hubungkan Lalamove dulu.' });
+    if (!conn.enabled) return reply.code(409).send({ error: 'Lalamove sedang dimatikan.' });
+    const [pickup, dropoff] = await Promise.all([lalamoveStop(request.body.pickup), lalamoveStop(request.body.dropoff)]);
+    if (!pickup || !dropoff) {
+      return reply.code(422).send({ error: `Titik ${!pickup ? 'jemput' : 'antar'} tidak terbaca. Tempel link Google Maps yang memuat pin, atau koordinat seperti -6.1753,106.8271.` });
+    }
+    try {
+      const quote = await lalamove.getQuotation(conn, { serviceType: request.body.serviceType, stops: [pickup, dropoff] });
+      return { ok: true, environment: conn.environment, pickup, dropoff, ...quote };
+    } catch (error) {
+      return reply.code(422).send({ error: publicErrorMessage(error) });
+    }
+  });
+
+  registerIntegrationLifecycle({
+    base: '/v1/integrations/lalamove', integration: 'lalamove',
+    gateMessage: 'Hanya supervisor yang dapat mengatur integrasi.',
+    notConnected: 'Hubungkan Lalamove dulu.', missingForToggle: 'Belum ada Lalamove yang terhubung.',
+    get: 'getLalamoveConnection', record: 'recordLalamoveCheck',
+    setEnabled: 'setLalamoveEnabled', remove: 'deleteLalamoveConnection',
+    sync: async (companyId, conn) => {
+      const { cities } = await lalamove.verifyCredentials(conn);
+      await database.recordLalamoveCheck(companyId, { error: null, cities });
+      return { cityCount: cities.length };
+    },
+  });
+
   // ── Tab integrasi yang dinyalakan di Pengaturan ───────────────────────────
   // Daftar tertutup: kunci di luar ini ditolak, bukan disimpan diam-diam.
-  const INTEGRATION_TAB_KEYS = ['mayar', 'dealpos', 'export', 'webhook', 'mcp', 'sources'];
+  const INTEGRATION_TAB_KEYS = ['mayar', 'dealpos', 'lalamove', 'export', 'webhook', 'mcp', 'sources'];
 
   app.get('/v1/integrations/tabs', async (request, reply) => {
     if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengatur integrasi.' });

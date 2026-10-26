@@ -17,6 +17,7 @@ import { AuditSection } from './AuditSection';
 import { ExportSection } from './ExportSection';
 import { MayarSection } from './MayarSection';
 import { DealposSection } from './DealposSection';
+import { LalamoveSection } from './LalamoveSection';
 import { IntegrationsHome } from './IntegrationsHome';
 import { INTEGRATIONS, INTEGRATION_KEYS, SECTION_INTEGRATION, integrationTabId, type IntegrationKey, type IntegrationTabId } from './integrations';
 import { LeadWebhookSection } from './LeadWebhookSection';
@@ -258,6 +259,7 @@ export function SettingsPage() {
             <IntegrationsHome enabled={integrationsOn} error={integrationsError} onToggle={(key, next) => void toggleIntegration(key, next)} />
           ) : null}
           {activeTab === integrationTabId('dealpos') && isSupervisor ? <DealposSection /> : null}
+          {activeTab === integrationTabId('lalamove') && isSupervisor ? <LalamoveSection /> : null}
           {activeTab === integrationTabId('mayar') && isSupervisor ? <MayarSection /> : null}
           {activeTab === integrationTabId('export') && isSupervisor ? <ExportSection /> : null}
           {activeTab === integrationTabId('webhook') && isSupervisor ? <LeadWebhookSection /> : null}

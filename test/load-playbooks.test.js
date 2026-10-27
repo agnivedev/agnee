@@ -27,6 +27,19 @@ test('bagian dipetakan ke jenis dari judulnya', () => {
   assert.deepEqual([...docs.keys()], ['persona', 'compliance']);
 });
 
+test('semua playbook di repo bisa dimuat: tiap judul dikenali dan tidak melebihi batas', () => {
+  const root = path.join(__dirname, '..', 'playbooks');
+  for (const folder of fs.readdirSync(root)) {
+    const manifestPath = path.join(root, folder, 'produk.json');
+    if (!fs.existsSync(manifestPath)) continue;
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    const files = [manifest.umum, ...(manifest.produk || []).map((p) => p.file)].filter(Boolean);
+    for (const file of files) {
+      assert.doesNotThrow(() => parsePlaybookFile(path.join(root, folder, file)), `${folder}/${file}`);
+    }
+  }
+});
+
 test('simulasi tidak menulis, apply menulis, dan jalan kedua tidak mengubah apa pun', { skip: !DB_URL && 'DATABASE_URL tidak diset' }, async (t) => {
   const db = new Database({ connectionString: DB_URL, logger: { info() {}, warn() {} } });
   await db.connect();

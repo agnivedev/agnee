@@ -6131,20 +6131,24 @@ Aturan:
       return reply.code(429).send({ error: 'Terlalu banyak permintaan AI. Coba lagi nanti.' });
     }
 
+    // Link Google Maps dibaca seperti di chat sungguhan (generateAutoReply);
+    // tanpa ini simulator menguji pesan yang berbeda dari yang diterima AI.
+    const customerRead = await mapsLink.readCustomerText({ type: 'chat', body: customerMessage }).catch(() => customerMessage);
+
     // Same context the live WhatsApp path uses, so results match production.
     const ctx = await buildReplyContext({
-      companyId, text: customerMessage, chatId: request.body.chatId || null, productId: request.body.productId || null,
+      companyId, text: customerRead, chatId: request.body.chatId || null, productId: request.body.productId || null,
       agentMode: request.body.agentMode || 'standard',
     });
     const history = transcript.map((turn) => ({
       role: turn.role === 'customer' ? 'user' : 'assistant',
-      content: turn.text,
+      content: turn.role === 'customer' ? mapsLink.readCustomerTextCached({ body: turn.text }) : turn.text,
     }));
 
     let aiReply = null;
     let aiModel = null;
     if (mode === 'ai' || compareWithAi) {
-      const generated = await llmService.generateReply(customerMessage, {
+      const generated = await llmService.generateReply(customerRead, {
         systemPrompt: ctx.systemPrompt,
         relevantFaqs: ctx.relevantFaqs,
         leadState: ctx.leadState,
@@ -6172,7 +6176,7 @@ Aturan:
         const enforcedSim = await enforceReplyContract(llmService, {
           text: teks,
           systemPrompt: ctx.systemPrompt,
-          userMessage: customerMessage,
+          userMessage: customerRead,
           history,
         });
         teks = enforcedSim ? limitLinks(enforcedSim.text).text : null;

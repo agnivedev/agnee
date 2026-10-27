@@ -15,6 +15,7 @@
 const crypto = require('node:crypto');
 const { extractPlaybookText } = require('./playbook-extractor');
 const capabilities = require('./train-capabilities');
+const automation = require('./automation');
 
 const MAX_PROPOSALS = 8;
 // Catatan permintaan klien per giliran: lebih dari ini hampir pasti model mengulang.
@@ -156,7 +157,7 @@ function compactSchema(schema) {
  * perusahaan ini dan melempar error yang menjelaskan kesalahannya.
  */
 function buildTools({ database, companyId, userId = null, deps, proposals, questions = [], loggedRequests = [] }) {
-  const { kinds, kindBrief, categories, ksSources, ksView, validateSpecific, maxSpecificBytes } = deps;
+  const { kinds, kindBrief, categories, ksSources, ksView, validateSpecific, maxSpecificBytes, pipelineStages = [] } = deps;
 
   // Dua usulan untuk hal yang sama dalam satu giliran (model mengulang karena
   // ragu) tidak boleh jadi dua kartu: yang terakhir menggantikan yang lama.
@@ -256,6 +257,7 @@ function buildTools({ database, companyId, userId = null, deps, proposals, quest
           scenarios: scenarios.slice(0, 40).map((s) => ({ id: s.id, name: s.name })),
           briefChars: (brief.brief || '').length,
           settings: await readSettings(),
+          automation: (await database.listAutomationRules?.(companyId) || []).map((r) => ({ id: r.id, name: r.name, enabled: r.enabled })),
           templates: {
             catalog: ksSources.flatMap((source) => source.list().map((p) => ({ code: p.code, source: source.id, name: p.name, kind: p.kind, installed: installed.has(p.code) }))),
             installed: views.map((i) => ({
@@ -635,6 +637,105 @@ function buildTools({ database, companyId, userId = null, deps, proposals, quest
         });
       },
     },
+    // ── Aturan otomasi ───────────────────────────────────────────────────────
+    {
+      name: 'read_automation',
+      description: 'Aturan otomasi yang ada (id, penjelasan, aktif/tidak, berapa kali memicu), anggota tim aktif beserta id-nya, dan tahap pipeline yang sah. Panggil sebelum membuat aturan yang menyerahkan chat ke seseorang.',
+      parameters: empty,
+      async run() {
+        const [rules, members] = await Promise.all([database.listAutomationRules(companyId), database.listTeamMembers(companyId)]);
+        return {
+          limit: automation.MAX_RULES,
+          triggers: { keyword: 'pesan customer memuat salah satu kata/frasa (kata utuh)', new_chat: 'customer menulis untuk pertama kalinya' },
+          actions: { set_pipeline_stage: pipelineStages, notify_team: 'pemberitahuan ke semua supervisor', assign_to_user: 'serahkan chat ke satu anggota tim (AI berhenti membalas chat itu)' },
+          members: members.filter((m) => m.status === 'active').map((m) => ({ id: m.id, name: m.displayName || m.email, role: m.role, isYou: m.id === userId })),
+          rules: rules.map((r) => ({ id: r.id, name: r.name, enabled: r.enabled, runCount: r.runCount, description: automation.describeRule(r, members) })),
+        };
+      },
+    },
+    {
+      name: 'propose_automation_rule',
+      description: 'Usulkan aturan otomasi baru: pemicu -> aksi. Aksi TIDAK PERNAH mengirim pesan ke customer. Hasil uji pada pesan 7 hari terakhir ikut ditampilkan ke pemilik.',
+      parameters: {
+        type: 'object',
+        properties: {
+          name: { ...text(80), description: 'Nama singkat, mis. "Grosir ke Pak Budi".' },
+          trigger: {
+            type: 'object',
+            properties: {
+              type: { type: 'string', enum: automation.TRIGGER_TYPES },
+              words: { type: 'array', maxItems: 10, items: text(60), description: 'Untuk keyword: kata/frasa pemicu, 3 sampai 60 karakter.' },
+            },
+            required: ['type'],
+          },
+          actions: {
+            type: 'array', maxItems: 3,
+            items: {
+              type: 'object',
+              properties: {
+                type: { type: 'string', enum: automation.ACTION_TYPES },
+                stage: { type: 'string', description: 'set_pipeline_stage: tahap tujuan.' },
+                message: text(200),
+                userId: { type: 'string', description: 'assign_to_user: id dari read_automation.' },
+                priority: { type: 'string', enum: ['low', 'normal', 'high'] },
+              },
+              required: ['type'],
+            },
+          },
+          cooldownHours: { type: 'integer', description: 'Jam sebelum aturan boleh memicu chat yang sama lagi (bawaan 24).' },
+          summary: text(200),
+        },
+        required: ['name', 'trigger', 'actions', 'summary'],
+      },
+      async run({ name, trigger, actions, cooldownHours, summary }) {
+        const members = await database.listTeamMembers(companyId);
+        const rule = automation.normalizeRule({ name, trigger, actions, cooldownHours }, { stages: pipelineStages, members });
+        if ((await database.listAutomationRules(companyId)).length >= automation.MAX_RULES) throw new Error(`Sudah ${automation.MAX_RULES} aturan; hapus yang tidak dipakai dulu.`);
+        const test = await automation.previewTrigger(database, companyId, rule.trigger);
+        const stops = automation.stopsAi(rule);
+        const changes = [
+          { field: 'rule', label: 'Aturan', before: '', after: automation.describeRule(rule, members) },
+          {
+            field: 'preview', label: 'Uji pada pesan 7 hari terakhir', before: '',
+            after: test.supported
+              ? `${test.chats} chat akan terkena${test.samples.length ? `, mis.: ${test.samples.map((x) => `"${x}"`).join(' · ')}` : ''}`
+              : test.note,
+          },
+        ];
+        const proposed = propose({
+          type: 'setting_set', title: 'Aturan otomasi', summary, key: `automation:${rule.name.toLowerCase()}`, risk: stops ? 'high' : 'normal',
+          changes, request: { method: 'POST', path: '/v1/automation/rules', body: rule },
+        });
+        // Hasil uji dikembalikan ke model: tanpa ini ia mengarang angkanya.
+        return { ...proposed, ujiTujuhHari: changes[1].after };
+      },
+    },
+    {
+      name: 'propose_automation_change',
+      description: 'Usulkan menyalakan, mematikan, atau menghapus aturan otomasi yang ada (id dari read_automation).',
+      parameters: {
+        type: 'object',
+        properties: { ruleId: { type: 'string' }, change: { type: 'string', enum: ['enable', 'disable', 'delete'] }, summary: text(200) },
+        required: ['ruleId', 'change', 'summary'],
+      },
+      async run({ ruleId, change, summary }) {
+        const rules = await database.listAutomationRules(companyId);
+        const wanted = String(ruleId || '').trim().toLowerCase();
+        const rule = rules.find((r) => String(r.id).toLowerCase() === wanted)
+          || (rules.filter((r) => r.name.toLowerCase().includes(wanted)).length === 1 && rules.find((r) => r.name.toLowerCase().includes(wanted)));
+        if (!rule) throw new Error(`Aturan tidak ditemukan. Yang ada: ${rules.map((r) => `${r.id} (${r.name})`).join(', ') || 'belum ada'}.`);
+        const labels = { enable: ['Mati', 'Nyala'], disable: ['Nyala', 'Mati'], delete: ['Ada', 'Dihapus'] };
+        if (change === 'enable' && rule.enabled) throw new Error('Aturan itu sudah menyala.');
+        if (change === 'disable' && !rule.enabled) throw new Error('Aturan itu sudah mati.');
+        return propose({
+          type: 'setting_set', title: `Aturan otomasi · ${rule.name}`, summary, key: `automation:${rule.id}`, risk: 'normal',
+          changes: [{ field: 'state', label: 'Status', before: labels[change][0], after: labels[change][1] }],
+          request: change === 'delete'
+            ? { method: 'DELETE', path: `/v1/automation/rules/${rule.id}` }
+            : { method: 'PATCH', path: `/v1/automation/rules/${rule.id}`, body: { enabled: change === 'enable' } },
+        });
+      },
+    },
     {
       name: 'log_request',
       description: 'Catat permintaan pemilik yang TIDAK bisa dipenuhi dengan alat yang ada (fitur, integrasi, laporan, atau otomasi yang belum ada di Agnee), untuk tim Agnee. Ini langsung tersimpan; tidak mengubah apa pun yang dilihat customer.',
@@ -672,7 +773,8 @@ Cara kerja:
 - Memasang atau mengaktifkan template, dan menjalankan simulasi, juga lewat usulan. Aktivasi ditolak server kalau simulasi terakhir belum lulus; sampaikan alasannya.
 - Mengunggah atau menghapus file di "Brief & files" tidak bisa lewat obrolan; arahkan ke tab itu.
 - SETELAN: permintaan tentang perilaku sistem (balasan terlalu cepat, AI mengaku manusia, matikan AI dulu, follow-up, ongkir, dst.) diubah lewat propose_setting, bukan ditulis di playbook. Kirim kolom yang berubah saja. Setelan dengan risk "high" berdampak ke semua customer: di balasanmu WAJIB ada satu kalimat akibatnya (mis. "selama mati, semua chat customer harus dibalas manual"). Setelan dengan "unavailable": sampaikan alasannya.
-- DI LUAR KEMAMPUAN: bila permintaan butuh sistem melakukan sesuatu yang tidak ada di katalog setelan maupun dokumen (fitur atau integrasi baru, laporan khusus, otomasi bersyarat seperti "kalau X maka kirim/pindahkan Y", mengubah tampilan aplikasi), JANGAN berpura-pura bisa dan jangan menuliskannya ke playbook seolah-olah sistem akan menjalankannya. Panggil log_request, lalu katakan terus terang belum bisa dan sudah dicatat untuk tim Agnee. Bila ada pendekatan sah yang mendekati (mis. AI mengarahkan customer lewat playbook), tawarkan sebagai alternatif. Perilaku percakapan AI ("jawab begini", "arahkan ke admin X") tetap urusan playbook, bukan log_request.
+- OTOMASI: permintaan "kalau X maka Y" yang cocok dengan alat otomasi dibuat lewat propose_automation_rule (baca read_automation dulu). Pemicu yang ada: pesan customer memuat kata tertentu, dan customer baru menulis pertama kali. Aksi yang ada: pindahkan tahap pipeline, beri tahu supervisor, serahkan chat ke satu anggota tim. Otomasi TIDAK BISA mengirim pesan ke customer; kalau pemilik mau AI menjawab dengan cara tertentu, itu urusan playbook. Aksi serahkan-chat membuat AI berhenti membalas chat itu: sebut itu. Sebut hasil uji persis seperti yang dikembalikan alat (ujiTujuhHari); jangan mengarang angka. \"Saya\"/\"aku\" dari pemilik = anggota dengan isYou di read_automation: jangan tanya ulang siapa dia. Bila pemilik hanya menyebut topik (mis. \"komplain\"), langsung usulkan 3 sampai 6 kata/frasa yang lazim dipakai customer (mis. komplain, kecewa, refund, rusak, belum sampai) dan jelaskan di balasan; jangan bertanya dulu, pemilik bisa menolaknya di kartu. Kata pemicu pendek atau umum ("harga") akan terlalu sering memicu: sarankan kata yang lebih spesifik.
+- DI LUAR KEMAMPUAN: bila permintaan butuh sistem melakukan sesuatu yang tidak ada di katalog setelan maupun dokumen (fitur atau integrasi baru, laporan khusus, otomasi dengan pemicu atau aksi di luar yang ada (nilai transaksi, jadwal, mengirim pesan ke customer), mengubah tampilan aplikasi), JANGAN berpura-pura bisa dan jangan menuliskannya ke playbook seolah-olah sistem akan menjalankannya. Panggil log_request, lalu katakan terus terang belum bisa dan sudah dicatat untuk tim Agnee. Bila ada pendekatan sah yang mendekati (mis. AI mengarahkan customer lewat playbook), tawarkan sebagai alternatif. Perilaku percakapan AI ("jawab begini", "arahkan ke admin X") tetap urusan playbook, bukan log_request.
 - LAMPIRAN: bila di bawah ada "LAMPIRAN DARI PEMILIK", itu file yang ia lampirkan di obrolan ini. Baca isinya dan pakai sebagai bahan usulan (mis. daftar harga jadi fakta, SOP jadi playbook); bila tujuannya belum jelas, tanyakan mau dimasukkan ke bagian mana lewat ask_choices. Ambil hanya yang tertulis di file; jangan mengarang yang tidak ada. Lampiran yang isinya tidak terbaca (gambar, video, audio, format lama): katakan terus terang kamu tidak bisa melihat isinya, minta pemilik menuliskan inti yang penting, dan sebutkan ia bisa menyimpannya sebagai file rujukan lewat tombol di lampiran itu.
 - Kalau sebuah alat mengembalikan error, perbaiki masukannya dan panggil lagi (sampai dua kali) sebelum bertanya ke pemilik. Tanya hanya hal yang memang belum ia katakan; jangan minta ia mengulang yang sudah disebut.
 - Jangan bilang usulan sudah disiapkan kalau kamu belum memanggil alat propose_*; usulan hanya ada kalau alatnya dipanggil.

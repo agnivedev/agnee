@@ -16,6 +16,7 @@ const broadcast = require('./broadcast');
 const leadImport = require('./lead-import');
 const { compileKsPrompt, validateSpecific, specificHash } = require('./ks-package');
 const { registerTrainAssistant } = require('./train-assistant');
+const automation = require('./automation');
 const { registerCompanyTemplates, install: installCompanyTemplate } = require('./company-templates');
 const { runPackageSimulation, makeLlmGrader } = require('./ks-simulation');
 const { builtinSource } = require('./ks-source');
@@ -1048,6 +1049,16 @@ async function buildApp(overrides = {}) {
       await database.stopFollowUpSequence(message.from, companyId, 'replied').catch(() => {});
     }
     await deliverInboundWebhook(message, companyId);
+    // Aturan otomasi company ini, sebelum AI menyiapkan balasan: chat yang
+    // diserahkan ke seseorang oleh aturan tidak lagi dijawab AI pada pesan ini.
+    // Tidak pernah melempar; lihat src/automation.js.
+    if (!message.from.endsWith('@g.us') && canCall('listAutomationRules')) {
+      const isNewChat = (await database.countInboundMessages(companyId, message.from).catch(() => 0)) <= 1;
+      await automation.runForInbound(
+        { companyId, chatId: message.from, body: message.body, isNewChat },
+        { database, getRouting, saveRouting, log: app.log },
+      );
+    }
     // STOP dijawab sekali dengan kalimat tetap, bukan oleh AI: AI yang
     // menanggapi permintaan berhenti dengan tawaran baru adalah persis hal yang
     // ingin dihentikan customer. Membalas STOP lagi tidak dijawab ulang.
@@ -7412,10 +7423,12 @@ Aturan:
   });
 
   // Satu obrolan untuk mengubah semua tab Latih AI; hanya mengusulkan, tidak menyimpan.
+  automation.registerAutomationRoutes(app, { database, isSupervisor, catatAudit, stages: PIPELINE_STAGES, canCall });
+
   registerTrainAssistant(app, {
     database, llmService, getCompanyAi, aiUnavailable, coachRateLimited, isSupervisor, requireCoachDb,
     kinds: Database.PLAYBOOK_KINDS, kindBrief: PLAYBOOK_KIND_BRIEF, categories: COACH_CATEGORIES,
-    ksSources, ksView, validateSpecific, maxSpecificBytes: KS_MAX_SPECIFIC_BYTES,
+    ksSources, ksView, validateSpecific, maxSpecificBytes: KS_MAX_SPECIFIC_BYTES, pipelineStages: PIPELINE_STAGES,
   });
 
   // Template potret konfigurasi per company: simpan, simpan baru, pasang.

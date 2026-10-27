@@ -47,8 +47,9 @@ function fakeDatabase() {
   const mine = (companyId) => (row) => row.companyId === companyId;
   const requests = [];
   const companyWrites = [];
+  const rules = [];
   return {
-    enabled: true, connected: true, writes, requests, companyWrites,
+    enabled: true, connected: true, writes, requests, companyWrites, rules,
     async connect() {}, async close() {},
     status() { return { driver: 'postgresql', connected: true }; },
     async ping() { return { driver: 'postgresql', connected: true, enabled: true }; },
@@ -85,6 +86,19 @@ function fakeDatabase() {
       requests.push(saved);
       return { id: saved.id, duplicate: false };
     },
+    async listTeamMembers(companyId) {
+      return USERS.filter((u) => u.companyId === companyId).map((u) => ({ id: u.userId, displayName: u.displayName, email: u.email, role: u.role, status: 'active' }));
+    },
+    async listAutomationRules(companyId) { return rules.filter((r) => r.companyId === companyId); },
+    async previewKeywordMatches() {
+      return [
+        { chatId: '1@c.us', body: 'Harga grosir berapa kak?' }, { chatId: '1@c.us', body: 'grosir 10 pcs bisa?' },
+        { chatId: '2@c.us', body: 'ada grosir ga' }, { chatId: '3@c.us', body: 'halo' },
+      ];
+    },
+    async createAutomationRule(companyId, rule) { const saved = { id: `aaaaaaaa-0000-4000-8000-0000000000${String(rules.length + 10)}`, companyId, runCount: 0, ...rule }; rules.push(saved); return saved; },
+    async updateAutomationRule(companyId, id, patch) { const r = rules.find((x) => x.id === id && x.companyId === companyId); if (!r) return null; Object.assign(r, patch); return r; },
+    async deleteAutomationRule(companyId, id) { const i = rules.findIndex((x) => x.id === id && x.companyId === companyId); if (i < 0) return false; rules.splice(i, 1); return true; },
     // Alat tulis tidak boleh sampai ke sini; kalau sampai, tesnya gagal.
     async savePlaybookDoc(...args) { writes.push(['savePlaybookDoc', args]); return null; },
     async upsertPlaybookFact(...args) { writes.push(['upsertPlaybookFact', args]); return null; },
@@ -637,4 +651,83 @@ test('jawaban "belum bisa" tanpa catatan: panggilan khusus boleh mencatat atau m
   state.repairScript = [['log_request', { request: 'Kirim invoice PDF otomatis setelah transfer', reason: 'Belum ada fiturnya' }]];
   const logged = await chat(a, 'kirim invoice otomatis');
   assert.deepEqual(logged.json().loggedRequests, ['Kirim invoice PDF otomatis setelah transfer']);
+});
+
+test('otomasi: usulan aturan membawa hasil uji 7 hari dan rute buat; aksi serah-chat berisiko tinggi; Terapkan lewat rute biasa', async (t) => {
+  const { chat, a, state, database, app } = await setup(t);
+  state.script = [
+    ['read_automation', {}],
+    ['propose_automation_rule', {
+      name: 'Grosir ke pemilik', summary: 'Grosir diserahkan',
+      trigger: { type: 'keyword', words: ['grosir'] },
+      actions: [{ type: 'set_pipeline_stage', stage: 'hot' }, { type: 'assign_to_user', userId: 'owner-company-a' }],
+    }],
+  ];
+  const res = await chat(a, 'kalau ada yang tanya grosir, serahkan ke saya dan jadikan hot');
+  assert.equal(res.statusCode, 200);
+  const [read] = state.results;
+  assert.deepEqual(read.out.members.map((m) => m.id), ['owner-company-a', 'agent-a']);
+  assert.ok(read.out.actions.set_pipeline_stage.includes('hot'));
+  const [proposal] = res.json().proposals;
+  assert.equal(proposal.type, 'setting_set');
+  assert.equal(proposal.risk, 'high');
+  assert.equal(proposal.request.method, 'POST');
+  assert.equal(proposal.request.path, '/v1/automation/rules');
+  assert.match(proposal.changes[0].after, /Pesan customer memuat "grosir" → pindahkan ke tahap Hot, lalu serahkan chat ke Owner company-a/);
+  assert.match(proposal.changes[1].after, /^2 chat akan terkena, mis\.: "Harga grosir berapa kak\?"/);
+  assert.equal(database.rules.length, 0, 'mengobrol tidak membuat aturan');
+
+  const applied = await app.inject({ method: 'POST', url: proposal.request.path, headers: { cookie: a.cookie }, payload: proposal.request.body });
+  assert.equal(applied.statusCode, 201, applied.body);
+  assert.equal(database.rules.length, 1);
+  assert.equal(database.rules[0].companyId, 'company-a');
+
+  // Masukan yang salah dijawab sebagai kalimat; rute menolak yang sama.
+  state.script = [
+    ['propose_automation_rule', { name: 'Kata pendek', summary: 'x', trigger: { type: 'keyword', words: ['ya'] }, actions: [{ type: 'notify_team', message: 'halo tim' }] }],
+    ['propose_automation_rule', { name: 'Kirim pesan', summary: 'x', trigger: { type: 'new_chat' }, actions: [{ type: 'send_message', text: 'halo' }] }],
+    ['propose_automation_rule', { name: 'Orang asing', summary: 'x', trigger: { type: 'new_chat' }, actions: [{ type: 'assign_to_user', userId: 'owner-company-b' }] }],
+  ];
+  await chat(a);
+  assert.match(state.results[0].error, /terlalu pendek/);
+  assert.match(state.results[1].error, /jenis harus salah satu/);
+  assert.match(state.results[2].error, /userId tidak dikenal/);
+  const refused = await app.inject({ method: 'POST', url: '/v1/automation/rules', headers: { cookie: a.cookie }, payload: { name: 'Tolak', trigger: { type: 'new_chat' }, actions: [{ type: 'assign_to_user', userId: 'owner-company-b' }] } });
+  assert.equal(refused.statusCode, 422);
+});
+
+test('otomasi: nyalakan/matikan/hapus lewat usulan; hanya supervisor; company lain tak terlihat', async (t) => {
+  const { chat, a, b, agent, state, database, app } = await setup(t);
+  database.rules.push({ id: 'aaaaaaaa-0000-4000-8000-00000000000a', companyId: 'company-a', name: 'Komplain ke tim', enabled: true, trigger: { type: 'keyword', words: ['komplain'] }, actions: [{ type: 'notify_team', message: 'Ada komplain' }], cooldownHours: 24, runCount: 3 });
+  database.rules.push({ id: 'bbbbbbbb-0000-4000-8000-00000000000b', companyId: 'company-b', name: 'Rahasia B', enabled: true, trigger: { type: 'new_chat' }, actions: [{ type: 'notify_team', message: 'rahasia' }], cooldownHours: 24, runCount: 0 });
+
+  state.script = [['propose_automation_change', { ruleId: 'komplain', change: 'disable', summary: 'Matikan sementara' }]];
+  const off = await chat(a);
+  const [proposal] = off.json().proposals;
+  assert.deepEqual(proposal.changes, [{ field: 'state', label: 'Status', before: 'Nyala', after: 'Mati' }]);
+  const patched = await app.inject({ method: 'PATCH', url: proposal.request.path, headers: { cookie: a.cookie }, payload: proposal.request.body });
+  assert.equal(patched.statusCode, 200);
+  assert.equal(database.rules[0].enabled, false);
+
+  state.script = [
+    ['propose_automation_change', { ruleId: 'komplain', change: 'disable', summary: 'lagi' }],
+    ['propose_automation_change', { ruleId: 'bbbbbbbb-0000-4000-8000-00000000000b', change: 'delete', summary: 'milik B' }],
+  ];
+  await chat(a);
+  assert.match(state.results[0].error, /sudah mati/);
+  assert.match(state.results[1].error, /tidak ditemukan.*aaaaaaaa-0000-4000-8000-00000000000a/);
+  assert.doesNotMatch(JSON.stringify(state.results), /Rahasia B/);
+
+  state.script = [['propose_automation_change', { ruleId: 'aaaaaaaa-0000-4000-8000-00000000000a', change: 'delete', summary: 'Hapus' }]];
+  const del = (await chat(a)).json().proposals[0];
+  assert.deepEqual(del.request, { method: 'DELETE', path: '/v1/automation/rules/aaaaaaaa-0000-4000-8000-00000000000a' });
+  assert.equal((await app.inject({ method: 'DELETE', url: del.request.path, headers: { cookie: b.cookie } })).statusCode, 404, 'company lain tak bisa menghapus');
+  assert.equal((await app.inject({ method: 'DELETE', url: del.request.path, headers: { cookie: a.cookie } })).statusCode, 200);
+
+  for (const [method, url] of [['GET', '/v1/automation/rules'], ['POST', '/v1/automation/preview']]) {
+    const res = await app.inject({ method, url, headers: { cookie: agent.cookie }, payload: method === 'POST' ? { trigger: { type: 'new_chat' } } : undefined });
+    assert.equal(res.statusCode, 403, url);
+  }
+  const listed = await app.inject({ method: 'GET', url: '/v1/automation/rules', headers: { cookie: b.cookie } });
+  assert.deepEqual(listed.json().rules.map((r) => r.name), ['Rahasia B']);
 });

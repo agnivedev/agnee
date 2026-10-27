@@ -9,6 +9,7 @@ import { AppSidebar } from '@/components/AppSidebar';
 import { cn } from '@/lib/utils';
 import { PlanAndPayment } from './PlanAndPayment';
 import { FollowUpSection } from './FollowUpSection';
+import { AutomationSection } from './AutomationSection';
 import { ReplyDelaySection } from './ReplyDelaySection';
 import { ReportSection } from './ReportSection';
 import { AgentModeSection } from './AgentModeSection';
@@ -260,6 +261,7 @@ export function SettingsPage() {
               <AiSettingsSection />
               <ReplyDelaySection />
               <FollowUpSection />
+              <AutomationSection />
             </>
           ) : null}
           {activeTab === 'lokasi' && isSupervisor ? <LocationsSection /> : null}

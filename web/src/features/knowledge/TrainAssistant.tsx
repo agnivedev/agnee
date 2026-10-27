@@ -42,7 +42,7 @@ export type Proposal =
     type: 'setting_set'; key: string; title: string; risk: 'normal' | 'high';
     changes: { field: string; label: string; before: string; after: string }[];
     // Disusun server dari katalog setelan: rute biasa yang sama dengan layar Pengaturan.
-    request: { method: 'PATCH' | 'PUT'; path: string; body: Record<string, unknown> };
+    request: { method: 'PATCH' | 'PUT' | 'POST' | 'DELETE'; path: string; body?: Record<string, unknown> };
   });
 
 type Turn = { role: 'user' | 'assistant'; content: string };
@@ -171,8 +171,12 @@ function ProposalCard({ proposal, outcome, onApply, onDiscard }: {
             <div key={change.field} className="grid gap-0.5">
               <dt className="text-muted">{change.label}</dt>
               <dd className="m-0 max-h-40 overflow-y-auto whitespace-pre-wrap">
-                <span className="text-muted line-through">{change.before}</span>
-                {' → '}
+                {change.before ? (
+                  <>
+                    <span className="text-muted line-through">{change.before}</span>
+                    {' → '}
+                  </>
+                ) : null}
                 <strong>{change.after}</strong>
               </dd>
             </div>

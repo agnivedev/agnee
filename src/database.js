@@ -1117,6 +1117,106 @@ class Database {
     return result.rows[0] || null;
   }
 
+  // ---- Aturan otomasi (migrasi 095) ----------------------------------------
+
+  async listAutomationRules(companyId) {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(`
+      SELECT r.id, r.name, r.trigger, r.actions, r.enabled, r.cooldown_hours AS "cooldownHours",
+             r.created_at AS "createdAt",
+             (SELECT COUNT(*)::int FROM automation_runs a WHERE a.rule_id = r.id) AS "runCount",
+             (SELECT MAX(a.ran_at) FROM automation_runs a WHERE a.rule_id = r.id) AS "lastRunAt"
+      FROM automation_rules r WHERE r.company_id = $1 ORDER BY r.created_at
+    `, [companyId]);
+    return result.rows;
+  }
+
+  async createAutomationRule(companyId, { name, trigger, actions, cooldownHours, enabled }, userId = null) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      INSERT INTO automation_rules (company_id, name, trigger, actions, cooldown_hours, enabled, created_by)
+      VALUES ($1, $2, $3::jsonb, $4::jsonb, $5, $6, $7)
+      RETURNING id, name, trigger, actions, enabled, cooldown_hours AS "cooldownHours", created_at AS "createdAt"
+    `, [companyId, name, JSON.stringify(trigger), JSON.stringify(actions), cooldownHours, enabled !== false, userId]);
+    return result.rows[0] || null;
+  }
+
+  async updateAutomationRule(companyId, id, { enabled, name }) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      UPDATE automation_rules
+      SET enabled = COALESCE($3, enabled), name = COALESCE($4, name), updated_at = NOW()
+      WHERE company_id = $1 AND id = $2
+      RETURNING id, name, enabled
+    `, [companyId, id, enabled ?? null, name ?? null]);
+    return result.rows[0] || null;
+  }
+
+  async deleteAutomationRule(companyId, id) {
+    if (!this.enabled) return false;
+    const result = await this.pool.query('DELETE FROM automation_rules WHERE company_id = $1 AND id = $2', [companyId, id]);
+    return result.rowCount > 0;
+  }
+
+  /**
+   * Mengklaim satu pemicuan: hanya berhasil bila aturan ini belum memicu chat
+   * ini dalam masa jeda. Satu pernyataan, jadi dua pesan beruntun tidak lolos
+   * bersamaan. Mengembalikan { id } atau null.
+   */
+  async claimAutomationRun(ruleId, companyId, chatId, cooldownHours) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      INSERT INTO automation_runs (rule_id, company_id, chat_id)
+      SELECT $1, $2, $3
+      WHERE NOT EXISTS (
+        SELECT 1 FROM automation_runs
+        WHERE rule_id = $1 AND chat_id = $3 AND ran_at > NOW() - make_interval(hours => $4::int)
+      )
+      RETURNING id
+    `, [ruleId, companyId, chatId, cooldownHours]);
+    return result.rows[0] || null;
+  }
+
+  async finishAutomationRun(id, results) {
+    if (!this.enabled) return;
+    await this.pool.query('UPDATE automation_runs SET results = $2::jsonb WHERE id = $1', [id, JSON.stringify(results)]);
+  }
+
+  /** Apakah chat ini sudah pernah mengirim pesan sebelum yang baru saja dicatat? */
+  async countInboundMessages(companyId, chatId) {
+    if (!this.enabled) return 0;
+    const result = await this.pool.query(
+      'SELECT COUNT(*)::int AS n FROM inbound_messages WHERE company_id = $1 AND chat_id = $2', [companyId, chatId],
+    );
+    return result.rows[0].n;
+  }
+
+  /**
+   * Uji aturan kata kunci pada pesan masuk N hari terakhir tanpa menjalankan
+   * apa pun: berapa chat yang akan kena dan beberapa contohnya.
+   */
+  async previewKeywordMatches(companyId, words, days = 7) {
+    if (!this.enabled) return { chats: 0, messages: 0, samples: [] };
+    const result = await this.pool.query(`
+      SELECT chat_id AS "chatId", body, timestamp
+      FROM inbound_messages
+      WHERE company_id = $1 AND body IS NOT NULL AND chat_id NOT LIKE '%@g.us'
+        AND timestamp > EXTRACT(EPOCH FROM NOW() - make_interval(days => $2::int))
+      ORDER BY timestamp DESC LIMIT 5000
+    `, [companyId, days]);
+    return result.rows;
+  }
+
+  /** Pemberitahuan ke semua supervisor, tanpa label "pertanyaan departemen". */
+  async notifySupervisorsAbout({ chatId, body }, companyId) {
+    if (!this.enabled) return;
+    await this.pool.query(`
+      INSERT INTO notifications (company_id, user_id, kind, chat_id, actor_kind, body)
+      SELECT $1, user_id, 'task', $2, 'system', $3 FROM company_members
+      WHERE company_id = $1 AND status = 'active' AND role IN ('owner', 'admin', 'supervisor')
+    `, [companyId, chatId, String(body).slice(0, 500)]);
+  }
+
   // ---- Permintaan klien dari Latih AI (migrasi 075) ------------------------
 
   /**

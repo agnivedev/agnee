@@ -23,6 +23,29 @@ function assertComplete(finishReason, model) {
 const FALLBACK_NOTE = `## CATATAN SISTEM
 Alat pencarian dan pengecekan sedang tidak tersedia untuk balasan ini. Jangan menulis pemanggilan alat atau nama alat apa pun. Jangan mengarang data yang biasanya diambil dari alat (ongkir, stok, harga, alamat, hasil pengecekan). Kalau customer butuh data itu, katakan dengan sopan bahwa tim akan mengeceknya dan menghubunginya kembali.`;
 
+/**
+ * Model dipakai bergantian hanya saat permintaan beralat DIBLOKIR penyedianya
+ * (Gemini: "blocked the request: PROHIBITED_CONTENT"). Selama tidak diblokir,
+ * model bawaan company tetap dipakai; pemblokiran bergantung isi prompt dan
+ * tidak berarti modelnya rusak. Keduanya lolos uji alat dengan prompt yang
+ * sama yang diblokir Gemini.
+ */
+const DEFAULT_TOOL_FALLBACK_MODELS = ['openai/gpt-4o-mini', 'deepseek/deepseek-chat-v3.1'];
+
+const BLOCKED_PATTERN = /blocked the request|PROHIBITED_CONTENT/i;
+
+/** Respons 200 tanpa isi dari OpenRouter membawa alasannya di `error.message`. */
+function emptyReplyError(model, data) {
+  const reason = data?.error?.message;
+  const error = new Error(reason ? `${reason} (${model})` : `No reply content from ${model}`);
+  if (reason && BLOCKED_PATTERN.test(reason)) error.blocked = true;
+  return error;
+}
+
+function isBlocked(error) {
+  return Boolean(error?.blocked) || BLOCKED_PATTERN.test(String(error?.message || ''));
+}
+
 /** Teks balasan yang berisi pemanggilan alat mentah, bukan jawaban untuk customer. */
 function leaksToolCall(text, tools = []) {
   const body = String(text || '');
@@ -38,6 +61,8 @@ class LlmService {
     this.apiKey = config.apiKey || process.env.OPENROUTER_API_KEY;
     this.model = config.model || process.env.OPENROUTER_MODEL || 'google/gemini-2.5-flash';
     this.modelChain = config.modelChain || [];
+    const envFallback = (process.env.OPENROUTER_TOOL_FALLBACK_MODELS || '').split(',').map((m) => m.trim()).filter(Boolean);
+    this.toolFallbackModels = config.toolFallbackModels || (envFallback.length ? envFallback : DEFAULT_TOOL_FALLBACK_MODELS);
     this.baseUrl = 'https://openrouter.ai/api/v1';
     this.contextWindow = config.contextWindow || 8000;
     this.maxTokens = config.maxTokens || 512;
@@ -91,7 +116,7 @@ class LlmService {
 
     const data = await response.json();
     const reply = data.choices?.[0]?.message?.content;
-    if (!reply) throw new Error(`No reply content from ${model}`);
+    if (!reply) throw emptyReplyError(model, data);
     assertComplete(data.choices?.[0]?.finish_reason, model);
 
     if (this.onUsage) {
@@ -174,7 +199,7 @@ class LlmService {
       const message = data.choices?.[0]?.message || {};
       const calls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
       if (!calls.length) {
-        if (!message.content) throw new Error(`No reply content from ${model}`);
+        if (!message.content) throw emptyReplyError(model, data);
         assertComplete(data.choices?.[0]?.finish_reason, model);
         return { text: String(message.content).trim(), model, usage: total, toolCalls };
       }
@@ -218,6 +243,7 @@ class LlmService {
     let lastError;
 
     const withTools = Array.isArray(context.tools) && context.tools.length > 0;
+    let blockedByProvider = false;
     for (const model of chain) {
       for (let attempt = 1; attempt <= 2; attempt += 1) {
         try {
@@ -239,7 +265,24 @@ class LlmService {
             continue;
           }
           console.warn(`Model ${model} failed: ${err.message}${cause ? ` (${cause})` : ''}${chain.length > 1 ? ', trying next...' : ''}`);
+          if (withTools && isBlocked(err)) blockedByProvider = true;
           break;
+        }
+      }
+    }
+
+    // Permintaan beralat diblokir penyedia model: coba model lain DENGAN alat
+    // yang sama sebelum menyerah ke jawaban tanpa alat, yang tidak bisa
+    // mengecek ongkir, stok, atau alamat.
+    if (withTools && blockedByProvider) {
+      for (const model of this.toolFallbackModels.filter((m) => !chain.includes(m))) {
+        try {
+          const result = await this._callModelWithTools(model, userMessage, context);
+          console.warn(`Permintaan beralat diblokir di ${chain.join(',')}; dijawab oleh ${model}`);
+          return result;
+        } catch (err) {
+          lastError = err;
+          console.warn(`Model cadangan beralat ${model} failed: ${err.message}`);
         }
       }
     }

@@ -48,7 +48,7 @@ test('aturan otomasi di Postgres', { skip: !DB_URL && 'DATABASE_URL tidak diset'
     await db.recordInboundMessage(mine, { chatId, provider: 'whatsapp_web', waMessageId: `${tag}-1`, body: 'harga grosir?', timestamp: now });
     assert.equal(await db.countInboundMessages(mine, chatId), 1);
     await db.recordInboundMessage(mine, { chatId, provider: 'whatsapp_web', waMessageId: `${tag}-2`, body: 'lama sekali', timestamp: now - 30 * 86400 });
-    const rows = await db.previewKeywordMatches(mine, ['grosir'], 7);
+    const rows = await db.listRecentInboundBodies(mine, 7);
     assert.ok(rows.some((r) => r.chatId === chatId && /grosir/.test(r.body)));
     assert.equal(rows.some((r) => r.body === 'lama sekali'), false, 'di luar 7 hari tidak ikut');
     const claim = await db.claimAutomationRun(rule.id, mine, `hasil-${chatId}`, 24);

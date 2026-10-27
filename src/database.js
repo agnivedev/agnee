@@ -1192,10 +1192,11 @@ class Database {
   }
 
   /**
-   * Uji aturan kata kunci pada pesan masuk N hari terakhir tanpa menjalankan
-   * apa pun: berapa chat yang akan kena dan beberapa contohnya.
+   * Pesan masuk N hari terakhir (terbaru dulu, maksimal 5000) untuk menguji
+   * aturan kata kunci tanpa menjalankan apa pun. Pencocokan kata dilakukan
+   * pemanggil, dengan aturan yang sama seperti saat pesan sungguhan masuk.
    */
-  async previewKeywordMatches(companyId, words, days = 7) {
+  async listRecentInboundBodies(companyId, days = 7) {
     if (!this.enabled) return { chats: 0, messages: 0, samples: [] };
     const result = await this.pool.query(`
       SELECT chat_id AS "chatId", body, timestamp

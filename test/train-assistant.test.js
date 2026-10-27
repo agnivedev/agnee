@@ -90,7 +90,7 @@ function fakeDatabase() {
       return USERS.filter((u) => u.companyId === companyId).map((u) => ({ id: u.userId, displayName: u.displayName, email: u.email, role: u.role, status: 'active' }));
     },
     async listAutomationRules(companyId) { return rules.filter((r) => r.companyId === companyId); },
-    async previewKeywordMatches() {
+    async listRecentInboundBodies() {
       return [
         { chatId: '1@c.us', body: 'Harga grosir berapa kak?' }, { chatId: '1@c.us', body: 'grosir 10 pcs bisa?' },
         { chatId: '2@c.us', body: 'ada grosir ga' }, { chatId: '3@c.us', body: 'halo' },

@@ -19,6 +19,7 @@ const MAX_WORDS = 10;
 const MAX_ACTIONS = 3;
 const MAX_NAME = 80;
 const MAX_MESSAGE = 200;
+const COOLDOWN_MIN_HOURS = 1;
 const COOLDOWN_MAX_HOURS = 720;
 const DEFAULT_COOLDOWN_HOURS = 24;
 const TRIGGER_TYPES = ['keyword', 'new_chat'];
@@ -114,8 +115,10 @@ function normalizeRule(input, context) {
   let cooldownHours = DEFAULT_COOLDOWN_HOURS;
   if (input.cooldownHours !== undefined) {
     cooldownHours = Number(input.cooldownHours);
-    if (!Number.isInteger(cooldownHours) || cooldownHours < 0 || cooldownHours > COOLDOWN_MAX_HOURS) {
-      throw new Error(`cooldownHours harus bilangan bulat 0 sampai ${COOLDOWN_MAX_HOURS} (jam sebelum aturan boleh memicu chat yang sama lagi).`);
+    if (!Number.isInteger(cooldownHours) || cooldownHours < COOLDOWN_MIN_HOURS || cooldownHours > COOLDOWN_MAX_HOURS) {
+      // Minimal satu jam: jeda 0 membuat tiap pesan customer memicu aturan, dan
+      // notify_team akan membanjiri supervisor.
+      throw new Error(`cooldownHours harus bilangan bulat ${COOLDOWN_MIN_HOURS} sampai ${COOLDOWN_MAX_HOURS} (jam sebelum aturan boleh memicu chat yang sama lagi).`);
     }
   }
   return { name, trigger, actions, cooldownHours, enabled: input.enabled !== false };
@@ -190,6 +193,10 @@ async function runActions(rule, { companyId, chatId }, deps) {
         const routing = await getRouting(chatId, companyId);
         if (routing?.mode === 'human' && routing.assigneeUserId) {
           results.push({ type: action.type, ok: true, skipped: 'sudah dipegang' });
+        } else if (!(await database.listTeamMembers(companyId)).some((m) => m.id === action.userId && m.status === 'active')) {
+          // Anggota yang dipilih saat aturan dibuat bisa sudah dikeluarkan.
+          // Chat yang diserahkan ke orang itu akan diam tanpa pemilik dan AI.
+          results.push({ type: action.type, ok: false, error: 'penerima bukan anggota aktif lagi' });
         } else {
           await saveRouting({
             chatId, mode: 'human', assigneeUserId: action.userId, status: 'open', priority: action.priority || 'normal',
@@ -210,7 +217,7 @@ async function previewTrigger(database, companyId, trigger, days = 7) {
   if (trigger.type === 'new_chat') {
     return { supported: false, note: 'Pemicu "customer baru" tidak bisa diuji pada chat lama.' };
   }
-  const rows = await database.previewKeywordMatches(companyId, trigger.words, days);
+  const rows = await database.listRecentInboundBodies(companyId, days);
   const hits = rows.filter((row) => matchesTrigger(trigger, { body: row.body, isNewChat: false }));
   const chats = new Set(hits.map((row) => row.chatId));
   return {
@@ -307,6 +314,6 @@ function registerAutomationRoutes(app, deps) {
 
 module.exports = {
   registerAutomationRoutes, previewTrigger,
-  MAX_RULES, TRIGGER_TYPES, ACTION_TYPES, DEFAULT_COOLDOWN_HOURS,
-  normalizeRule, describeRule, matchesTrigger, containsWord, stopsAi, runForInbound, runActions,
+  MAX_RULES, TRIGGER_TYPES, ACTION_TYPES,
+  normalizeRule, describeRule, matchesTrigger, stopsAi, runForInbound,
 };

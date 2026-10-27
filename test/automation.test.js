@@ -33,7 +33,8 @@ test('normalizeRule: merapikan masukan, memberi bawaan, dan menolak yang tidak s
   bad({ actions: [{ type: 'assign_to_user', userId: 'u-gone' }] }, /userId tidak dikenal.*u-budi/);
   bad({ actions: [{ type: 'set_pipeline_stage', stage: 'vip' }] }, /stage harus salah satu/);
   bad({ actions: [{ type: 'notify_team', message: 'aaa' }, { type: 'notify_team', message: 'bbb' }] }, /dipakai dua kali/);
-  bad({ cooldownHours: 9999 }, /0 sampai 720/);
+  bad({ cooldownHours: 9999 }, /1 sampai 720/);
+  bad({ cooldownHours: 0 }, /1 sampai 720/);
 });
 
 test('kata dicocokkan utuh, tanpa peduli huruf besar dan tanda baca; frasa dan new_chat', () => {
@@ -50,7 +51,7 @@ test('kata dicocokkan utuh, tanpa peduli huruf besar dan tanda baca; frasa dan n
   assert.ok(automation.matchesTrigger(kw('c++ (promo)'), { body: 'ada c++ (promo) ga' }));
 });
 
-function fakeDeps({ rules, failStage = false, routing = { mode: 'ai' } } = {}) {
+function fakeDeps({ rules, failStage = false, routing = { mode: 'ai' }, members = [{ id: 'u-budi', status: 'active' }] } = {}) {
   const calls = [];
   const claimed = new Set();
   const database = {
@@ -64,6 +65,7 @@ function fakeDeps({ rules, failStage = false, routing = { mode: 'ai' } } = {}) {
     async finishAutomationRun(id, results) { calls.push(['finish', id, results]); },
     async setPipelineStage(...args) { if (failStage) throw new Error('db down'); calls.push(['stage', ...args]); },
     async notifySupervisorsAbout(...args) { calls.push(['notify', ...args]); },
+    async listTeamMembers() { return members; },
   };
   return {
     calls,
@@ -113,6 +115,12 @@ test('aksi yang gagal tidak menggagalkan aksi lain; chat yang sudah dipegang ora
   const [skipped] = await automation.runForInbound({ companyId: 'c1', chatId: 'x@c.us', body: 'grosir' }, held.deps);
   assert.equal(skipped.results[0].skipped, 'sudah dipegang');
   assert.equal(held.calls.some(([k]) => k === 'route'), false);
+
+  // Penerima yang sudah dikeluarkan dari tim: chat tidak diserahkan ke orang itu.
+  const gone = fakeDeps({ members: [{ id: 'u-budi', status: 'removed' }], rules: [rule({ actions: [{ type: 'assign_to_user', userId: 'u-budi' }] })] });
+  const [refused] = await automation.runForInbound({ companyId: 'c1', chatId: 'x@c.us', body: 'grosir' }, gone.deps);
+  assert.deepEqual([refused.results[0].ok, refused.results[0].error], [false, 'penerima bukan anggota aktif lagi']);
+  assert.equal(gone.calls.some(([k]) => k === 'route'), false);
 });
 
 test('runForInbound tidak pernah melempar, walau database rusak', async () => {

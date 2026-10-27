@@ -52,6 +52,7 @@ function fakeDatabase(rules) {
       return { id: claims.size };
     },
     async finishAutomationRun() {},
+    async listTeamMembers() { return [{ id: AGENT, status: 'active' }]; },
     async setPipelineStage(chatId, stage, by, companyId) { events.push(['stage', companyId, chatId, stage]); },
     async notifySupervisorsAbout({ chatId, body }, companyId) { events.push(['notify', companyId, chatId, body]); },
     async incrementAiMessageCount() { return { exceeded: false }; },

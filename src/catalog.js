@@ -62,7 +62,10 @@ function mapDealposProduct(row) {
   for (const v of variants) {
     if (!v || v.Discontinued === true) continue;
     const id = text(v.ID) || text(v.Code);
-    const price = num(v.UnitPrice ?? v.SellingPrice ?? v.Price);
+    // Harga jual didahulukan, sama dengan dealpos-prices.js: UnitPrice di sebagian
+    // respons DealPOS adalah harga dasar/beli. Harga jual 0 berarti dilewati, bukan
+    // jatuh ke UnitPrice.
+    const price = [v.SellingPrice, v.SellPrice, v.UnitPrice, v.Price, v.SalesPrice].map(num).find((n) => n !== null) ?? null;
     if (!id || price === null || price <= 0) continue;
     const model = text(v.Model ?? v.Name);
     const name = model && !/^default$/i.test(model) && !model.toLowerCase().includes(productName.toLowerCase())

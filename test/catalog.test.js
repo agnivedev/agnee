@@ -29,6 +29,15 @@ test('produk DealPOS dipecah per varian; tanpa harga, discontinued, dan URL berb
   assert.deepEqual(catalog.mapDealposProduct({ ...PRODUCT, Discontinued: true }), []);
 });
 
+test('harga jual (SellingPrice) didahulukan dari UnitPrice yang bisa berupa harga beli', () => {
+  const [item] = catalog.mapDealposProduct({ Name: 'Semen MU', Variants: [{ ID: 'a', Model: '480', UnitPrice: 51000, SellingPrice: 62500 }] });
+  assert.equal(item.price, 62500);
+  // Tanpa SellingPrice, UnitPrice tetap dipakai.
+  assert.equal(catalog.mapDealposProduct({ Name: 'Pipa', Variants: [{ ID: 'b', UnitPrice: 30000 }] })[0].price, 30000);
+  // Harga jual 0: item dilewati, tidak jatuh ke harga beli.
+  assert.deepEqual(catalog.mapDealposProduct({ Name: 'Sample', Variants: [{ ID: 'c', SellingPrice: 0, UnitPrice: 51000 }] }), []);
+});
+
 test('tarikan katalog: halaman produk + laporan terjual; laporan ditolak tidak menggagalkan katalog', async () => {
   const paths = [];
   const get = async (path) => {

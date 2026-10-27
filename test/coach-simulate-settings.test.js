@@ -3,6 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { buildApp } = require('../src/server');
+const esbeje = require('./fixtures/esbeje-catalog.js');
 
 /*
  * Audit setelan -> balasan AI lewat /v1/coach/simulate. Setiap setelan yang
@@ -106,6 +107,28 @@ test('katalog: saklar "dipakai AI" menentukan apakah harga sampai ke model', asy
   assert.match(on.prompt, /Semen Jakarta 40kg \[SJ40\]: Rp 62\.000/);
   const off = await (await setup(t, { ai: { enabled: false, items: [item], tags: [] } })).simulate('harga semen jakarta?');
   assert.ok(!/Semen Jakarta 40kg/.test(off.prompt));
+});
+
+test('katalog besar (ESBEJE asli): harga barang yang ditanya customer sampai ke prompt', async (t) => {
+  const tags = [{ id: 't-pk', name: 'Perekat Keramik', autoRule: null, highlight: false, aiNote: 'disebut juga lem keramik', active: true }];
+  const items = esbeje.catalogItems((name) => (/CERAFIX|GRANITFIX|RENOFIX/.test(name) ? [{ id: 't-pk', name: 'Perekat Keramik' }] : []));
+  const { simulate } = await setup(t, { ai: { enabled: true, items, tags, syncedAt: '2026-10-28T01:00:00Z' } });
+
+  const toren = await simulate('toren penguin 1050 liter brp kak');
+  const cocok = toren.prompt.split('### Cocok dengan percakapan ini\n')[1] || '';
+  assert.match(cocok, /^- PENGUIN TB110 1050L BIRU TUA \[1000015169\] \(merek PENGUIN\): Rp 2\.619\.000 per pcs/);
+  // Harga karangan simulasi 28 Okt berasal dari toren 550 liter; ukuran yang diminta harus di atasnya.
+  const asked = cocok.indexOf('PENGUIN TB110 1050L');
+  const other = cocok.indexOf('TOREN EXCEL AL-550');
+  assert.ok(other === -1 || asked < other);
+  const kit = cocok.indexOf('PLUMBING KIT');
+  assert.ok(kit === -1 || kit > cocok.lastIndexOf('1050L'), 'varian Rp 1 tidak di atas toren');
+
+  const perekat = await simulate('perekat keramik yg bagus apa ya kak');
+  assert.match(perekat.prompt, /- MU 420 CERAFIX 25KG \[1000005368\] \(merek MORTAR UTAMA\): Rp 118\.000 per zak · ribbon: Perekat Keramik/);
+
+  const mu = await simulate('kak MU 301 ada?');
+  assert.match(mu.prompt, /### Cocok dengan percakapan ini\n- MU 301 PLASTERPLUS 40KG \[1000011476\] \(merek MORTAR UTAMA\): Rp 104\.000 per zak/);
 });
 
 test('lokasi: gudang tertutup tidak sampai ke model; toko terbuka ya', async (t) => {

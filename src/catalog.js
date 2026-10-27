@@ -341,7 +341,11 @@ function catalogSection({ items, tags, syncedAt = null }, { text: message = '', 
 
   const highlighted = items.filter((i) => i.tags?.some((t) => highlightIds.has(t.id))).slice(0, MAX_HIGHLIGHT);
   const shown = new Set(highlighted.map((i) => i.id));
-  const matched = matchProducts(items.filter((i) => !shown.has(i.id)), { text: message, context }, MAX_MATCHES);
+  // Nama dan catatan AI ribbon menjadi sinonim barang yang memakainya: toko
+  // mengajari kegunaan barang lewat ribbon ("Perekat Keramik" pada
+  // "MU 420 CERAFIX") tanpa mengubah nama barang di POS.
+  const tagText = new Map(activeTags.map((t) => [t.id, `${t.name} ${t.aiNote || ''}`]));
+  const matched = matchProducts(items.filter((i) => !shown.has(i.id)), { text: message, context }, MAX_MATCHES, { tagText });
   if (highlighted.length) {
     lines.push('', '### Diutamakan (boleh ditawarkan saat customer minta rekomendasi)', ...highlighted.map(itemLine));
   }

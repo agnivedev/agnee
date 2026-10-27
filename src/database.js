@@ -5848,6 +5848,73 @@ class Database {
     return result.rowCount > 0;
   }
 
+  // ── Aturan promo (Pengaturan > Promo) ────────────────────────────────────
+
+  static PROMO_COLUMNS = `
+    id, kind, name, enabled, starts_at AS "startsAt", ends_at AS "endsAt", areas, conditions,
+    max_subsidy::float8 AS "maxSubsidy", notes, created_at AS "createdAt", updated_at AS "updatedAt"`;
+
+  async listPromoRules(companyId) {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(
+      `SELECT ${Database.PROMO_COLUMNS} FROM promo_rules WHERE company_id = $1 ORDER BY enabled DESC, id DESC`,
+      [companyId],
+    );
+    return result.rows.map((row) => ({ ...row, id: String(row.id) }));
+  }
+
+  async getPromoRule(companyId, id) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(
+      `SELECT ${Database.PROMO_COLUMNS} FROM promo_rules WHERE company_id = $1 AND id = $2`,
+      [companyId, id],
+    );
+    return result.rows[0] ? { ...result.rows[0], id: String(result.rows[0].id) } : null;
+  }
+
+  async countPromoRules(companyId) {
+    if (!this.enabled) return 0;
+    const result = await this.pool.query('SELECT COUNT(*)::int AS n FROM promo_rules WHERE company_id = $1', [companyId]);
+    return result.rows[0].n;
+  }
+
+  /** Simpan promo baru (id kosong) atau ubah yang ada. `rule` sudah dinormalkan promo-rules.normalizeRule. */
+  async savePromoRule(companyId, id, rule, userId = null) {
+    if (!this.enabled) return null;
+    const values = [
+      companyId, rule.kind, rule.name, rule.enabled !== false, rule.startsAt || null, rule.endsAt || null,
+      JSON.stringify(rule.areas || []), JSON.stringify(rule.conditions || {}), rule.maxSubsidy || null, rule.notes || null,
+    ];
+    const result = id
+      ? await this.pool.query(`
+          UPDATE promo_rules SET kind = $2, name = $3, enabled = $4, starts_at = $5, ends_at = $6,
+            areas = $7::jsonb, conditions = $8::jsonb, max_subsidy = $9, notes = $10, updated_at = NOW()
+          WHERE company_id = $1 AND id = $11
+          RETURNING ${Database.PROMO_COLUMNS}
+        `, [...values, id])
+      : await this.pool.query(`
+          INSERT INTO promo_rules (company_id, kind, name, enabled, starts_at, ends_at, areas, conditions, max_subsidy, notes, created_by)
+          VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9, $10, $11)
+          RETURNING ${Database.PROMO_COLUMNS}
+        `, [...values, userId]);
+    return result.rows[0] ? { ...result.rows[0], id: String(result.rows[0].id) } : null;
+  }
+
+  async setPromoRuleEnabled(companyId, id, enabled) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(
+      `UPDATE promo_rules SET enabled = $3, updated_at = NOW() WHERE company_id = $1 AND id = $2 RETURNING ${Database.PROMO_COLUMNS}`,
+      [companyId, id, Boolean(enabled)],
+    );
+    return result.rows[0] ? { ...result.rows[0], id: String(result.rows[0].id) } : null;
+  }
+
+  async deletePromoRule(companyId, id) {
+    if (!this.enabled) return false;
+    const result = await this.pool.query('DELETE FROM promo_rules WHERE company_id = $1 AND id = $2', [companyId, id]);
+    return result.rowCount > 0;
+  }
+
   // ── Tab integrasi yang dinyalakan (Pengaturan > Integrasi) ───────────────
 
   async getIntegrationTabs(companyId) {

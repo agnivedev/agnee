@@ -65,6 +65,11 @@ const AUDIT_ACTIONS = [
   'report.template_changed',
   'delivery.order_placed',
   'delivery.order_canceled',
+  'promo.created',
+  'promo.updated',
+  'promo.enabled',
+  'promo.disabled',
+  'promo.deleted',
 ] as const;
 
 /**

@@ -43,6 +43,7 @@ const dealposSync = require('./dealpos-sync.js');
 const lalamove = require('./lalamove.js');
 const deliveryQuote = require('./delivery-quote.js');
 const storeLocations = require('./store-locations.js');
+const promoRules = require('./promo-rules.js');
 const dealposPrices = require('./dealpos-prices.js');
 const catalog = require('./catalog.js');
 const { createReplyPacer } = require('./reply-delay.js');
@@ -1708,8 +1709,17 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       : [];
     const stores = storeLocations.customerFacing(locations);
     const nearestTool = storeLocations.isUsable(locations);
-    const deliveryTools = deliveryQuote.isUsable(lalamoveConn, { realChat: Boolean(chatId) })
-      ? [deliveryQuote.toolSpec({ conn: lalamoveConn, stores: stores.length > 1 ? stores : [], run: (args = {}) => deliveryQuote.quote(lalamoveConn, args, { stores }) })]
+    // Promo gratis ongkir aktif ikut menentukan alat cek_ongkir; bisa berdiri
+    // sendiri tanpa Lalamove (hanya menjawab berlaku atau tidaknya promo).
+    const promos = !ops && !ks && dbLive && canCall('listPromoRules')
+      ? promoRules.activeRules(await database.listPromoRules(companyId).catch(() => []))
+      : [];
+    const lalamoveReady = deliveryQuote.lalamoveUsable(lalamoveConn, { realChat: Boolean(chatId) });
+    const deliveryTools = deliveryQuote.isUsable(lalamoveConn, { realChat: Boolean(chatId), promos })
+      ? [deliveryQuote.toolSpec({
+        conn: lalamoveConn, promos, lalamoveReady, stores: stores.length > 1 ? stores : [],
+        run: (args = {}) => deliveryQuote.quote(lalamoveConn, args, { stores, promos, lalamoveReady }),
+      })]
       : [];
     const locationTools = nearestTool
       ? [storeLocations.toolSpec({ locations: stores, run: (args = {}) => storeLocations.findNearest(stores, args) })]
@@ -1775,7 +1785,8 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       priceContext,
       hubTools.length ? HUB_TOOLS_GUIDE : '',
       storeLocations.section(stores, { withNearestTool: nearestTool }),
-      deliveryTools.length ? deliveryQuote.GUIDE : '',
+      deliveryTools.length && lalamoveReady ? deliveryQuote.GUIDE : '',
+      promoRules.section(promos),
       // Mode agent: blok peran + panduan tambahan company. 'standard' kosong,
       // jadi nomor lama persis seperti sebelum ada mode.
       modeBlock,
@@ -10613,6 +10624,127 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     }
     await database.deleteCompanyLocation(companyId, existing.id);
     return { ok: true };
+  });
+
+  // ── Aturan promo (Pengaturan > Promo) ─────────────────────────────────────
+  // Membaca boleh semua anggota; mengubah hanya supervisor. Promo ikut menentukan
+  // apa yang dijanjikan AI ke customer, jadi perubahannya masuk jejak audit.
+
+  const MAX_PROMO_RULES = 30;
+  const promoBody = {
+    type: 'object', required: ['name'], additionalProperties: false,
+    properties: {
+      name: { type: 'string', minLength: 1, maxLength: 120 },
+      kind: { type: 'string', enum: promoRules.KINDS },
+      enabled: { type: 'boolean' },
+      startsAt: { type: ['string', 'null'], maxLength: 40 },
+      endsAt: { type: ['string', 'null'], maxLength: 40 },
+      areas: {
+        type: 'array', maxItems: 300,
+        items: {
+          type: 'object', additionalProperties: false,
+          properties: { province: { type: 'string', maxLength: 80 }, city: { type: 'string', maxLength: 80 }, district: { type: 'string', maxLength: 80 } },
+        },
+      },
+      conditions: {
+        type: 'object', additionalProperties: false,
+        properties: {
+          minSubtotal: { type: ['number', 'string', 'null'] },
+          minQty: { type: ['number', 'string', 'null'] },
+          products: { type: 'array', maxItems: 50, items: { type: 'string', maxLength: 80 } },
+        },
+      },
+      maxSubsidy: { type: ['number', 'string', 'null'] },
+      notes: { type: 'string', maxLength: 1000 },
+    },
+  };
+  const promoIdParams = { type: 'object', properties: { id: { type: 'string', pattern: '^[0-9]{1,18}$' } } };
+
+  app.get('/v1/promo-rules', async (request) => {
+    if (!canCall('listPromoRules')) return { rules: [] };
+    return { rules: await database.listPromoRules(request.agneeSession.companyId) };
+  });
+
+  async function savePromoRule(request, reply, existing) {
+    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengatur promo.' });
+    if (!canCall('savePromoRule')) return reply.code(503).send({ error: 'Database tidak tersedia.' });
+    const { rule, error } = promoRules.normalizeRule(request.body);
+    if (error) return reply.code(422).send({ error });
+    const companyId = request.agneeSession.companyId;
+    const saved = await database.savePromoRule(companyId, existing?.id || null, rule, request.agneeSession.userId);
+    await catatAudit(request, existing ? 'promo.updated' : 'promo.created', {
+      entityType: 'promo_rule', entityId: saved.id,
+      metadata: { name: saved.name, enabled: saved.enabled, areas: saved.areas.length },
+    });
+    return reply.code(existing ? 200 : 201).send({ rule: saved });
+  }
+
+  app.post('/v1/promo-rules', { schema: { body: promoBody } }, async (request, reply) => {
+    if (canCall('countPromoRules') && await database.countPromoRules(request.agneeSession.companyId) >= MAX_PROMO_RULES) {
+      return reply.code(422).send({ error: `Maksimal ${MAX_PROMO_RULES} promo per company.` });
+    }
+    return savePromoRule(request, reply, null);
+  });
+
+  app.put('/v1/promo-rules/:id', { schema: { params: promoIdParams, body: promoBody } }, async (request, reply) => {
+    if (!canCall('getPromoRule')) return reply.code(503).send({ error: 'Database tidak tersedia.' });
+    const existing = await database.getPromoRule(request.agneeSession.companyId, request.params.id);
+    if (!existing) return reply.code(404).send({ error: 'Promo tidak ditemukan.' });
+    return savePromoRule(request, reply, existing);
+  });
+
+  app.patch('/v1/promo-rules/:id', {
+    schema: { params: promoIdParams, body: { type: 'object', required: ['enabled'], additionalProperties: false, properties: { enabled: { type: 'boolean' } } } },
+  }, async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengatur promo.' });
+    if (!canCall('setPromoRuleEnabled')) return reply.code(503).send({ error: 'Database tidak tersedia.' });
+    const saved = await database.setPromoRuleEnabled(request.agneeSession.companyId, request.params.id, request.body.enabled);
+    if (!saved) return reply.code(404).send({ error: 'Promo tidak ditemukan.' });
+    await catatAudit(request, saved.enabled ? 'promo.enabled' : 'promo.disabled', {
+      entityType: 'promo_rule', entityId: saved.id, metadata: { name: saved.name },
+    });
+    return { rule: saved };
+  });
+
+  app.delete('/v1/promo-rules/:id', { schema: { params: promoIdParams } }, async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengatur promo.' });
+    if (!canCall('deletePromoRule')) return reply.code(503).send({ error: 'Database tidak tersedia.' });
+    const companyId = request.agneeSession.companyId;
+    const existing = await database.getPromoRule(companyId, request.params.id);
+    if (!existing) return reply.code(404).send({ error: 'Promo tidak ditemukan.' });
+    await database.deletePromoRule(companyId, existing.id);
+    await catatAudit(request, 'promo.deleted', { entityType: 'promo_rule', entityId: existing.id, metadata: { name: existing.name } });
+    return { ok: true };
+  });
+
+  // Uji alamat: menjalankan penilaian yang sama dengan alat AI terhadap semua
+  // promo aktif, supaya supervisor melihat hasilnya sebelum customer.
+  app.post('/v1/promo-rules/check', {
+    schema: {
+      body: {
+        type: 'object', required: ['destination'], additionalProperties: false,
+        properties: {
+          destination: { type: 'string', minLength: 1, maxLength: 300 },
+          subtotal: { type: ['number', 'null'], minimum: 0 },
+          qty: { type: ['integer', 'null'], minimum: 0 },
+          products: { type: 'array', maxItems: 20, items: { type: 'string', maxLength: 120 } },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat menguji promo.' });
+    if (!canCall('listPromoRules')) return reply.code(503).send({ error: 'Database tidak tersedia.' });
+    const rules = promoRules.activeRules(await database.listPromoRules(request.agneeSession.companyId));
+    if (!rules.length) return reply.code(422).send({ error: 'Belum ada promo aktif untuk diuji.' });
+    const destination = await deliveryQuote.resolveDestination(request.body.destination, { withAdmin: true }).catch(() => null);
+    if (!destination) return reply.code(422).send({ error: 'Alamat tidak terbaca. Coba nama kecamatan dan kota, link Google Maps, atau koordinat.' });
+    const { subtotal, qty, products } = request.body;
+    const results = promoRules.evaluate(rules, destination, { subtotal, qty, products });
+    return {
+      summary: promoRules.summarize(results),
+      results: results.map((r) => ({ id: r.rule.id, name: r.rule.name, status: r.status, kurang: r.kurang, perluInfo: r.perlu_info })),
+      destination: { address: destination.address, accuracy: destination.accuracy, segments: [...promoRules.placeSegments(destination)] },
+    };
   });
 
   // ── Tab integrasi yang dinyalakan di Pengaturan ───────────────────────────

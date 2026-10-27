@@ -231,6 +231,32 @@ async function reverseGeocode(lat, lng, fetchImpl) {
 }
 
 /**
+ * Komponen alamat (kecamatan, kota, provinsi) dari koordinat, untuk mencocokkan
+ * wilayah promo. null kalau gagal.
+ */
+async function reverseAdmin(lat, lng, { fetchImpl = globalThis.fetch } = {}) {
+  const key = `admin:${lat.toFixed(5)},${lng.toFixed(5)}`;
+  const cached = cacheGet(key);
+  if (cached !== undefined) return cached;
+  let value = null;
+  try {
+    const url = `${NOMINATIM}?format=jsonv2&zoom=18&addressdetails=1&accept-language=id&lat=${lat}&lon=${lng}`;
+    const response = await fetchWithTimeout(fetchImpl, url, {
+      headers: { 'user-agent': USER_AGENT, accept: 'application/json' },
+    });
+    if (response.ok) {
+      const data = await response.json();
+      const address = typeof data?.display_name === 'string' ? data.display_name.trim() : '';
+      if (address || data?.address) value = { address, components: data.address && typeof data.address === 'object' ? data.address : {} };
+    }
+  } catch {
+    value = null;
+  }
+  cacheSet(key, value);
+  return value;
+}
+
+/**
  * Nama tempat atau alamat yang diketik customer ("Foresta BSD", "Kembangan,
  * Jakarta Barat") menjadi koordinat lewat Nominatim, dibatasi ke Indonesia.
  * Hasilnya perkiraan area, bukan titik antar: dipakai untuk estimasi ongkir,
@@ -244,7 +270,7 @@ async function searchPlace(query, { fetchImpl = globalThis.fetch } = {}) {
   if (cached !== undefined) return cached;
   let place = null;
   try {
-    const url = `${NOMINATIM_SEARCH}?format=jsonv2&limit=1&countrycodes=id&accept-language=id&q=${encodeURIComponent(text)}`;
+    const url = `${NOMINATIM_SEARCH}?format=jsonv2&limit=1&countrycodes=id&addressdetails=1&accept-language=id&q=${encodeURIComponent(text)}`;
     const response = await fetchWithTimeout(fetchImpl, url, {
       headers: { 'user-agent': USER_AGENT, accept: 'application/json' },
     });
@@ -252,7 +278,7 @@ async function searchPlace(query, { fetchImpl = globalThis.fetch } = {}) {
       const rows = await response.json();
       const hit = Array.isArray(rows) ? rows[0] : null;
       const coords = hit ? validCoords(hit.lat, hit.lon) : null;
-      if (coords) place = { ...coords, address: String(hit.display_name || text).trim() };
+      if (coords) place = { ...coords, address: String(hit.display_name || text).trim(), components: hit.address && typeof hit.address === 'object' ? hit.address : {} };
     }
   } catch {
     place = null;
@@ -384,6 +410,7 @@ module.exports = {
   parseMapsUrl,
   resolveMapsLink,
   searchPlace,
+  reverseAdmin,
   readCustomerText,
   readCustomerTextCached,
   placeFromLocationMessage,

@@ -44,6 +44,8 @@ const mayarSync = require('./mayar-sync.js');
 const dealposSync = require('./dealpos-sync.js');
 const lalamove = require('./lalamove.js');
 const deliveryQuote = require('./delivery-quote.js');
+const orderSummary = require('./order-summary.js');
+const dealposOrders = require('./dealpos-orders.js');
 const storeLocations = require('./store-locations.js');
 const promoRules = require('./promo-rules.js');
 const dealposPrices = require('./dealpos-prices.js');
@@ -1742,6 +1744,26 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
         run: (args = {}) => deliveryQuote.quote(lalamoveConn, args, { stores, promos, lalamoveReady }),
       })]
       : [];
+    // Rincian WhatsApp sebelum closing: semua company, hanya untuk customer.
+    const summaryTools = !ops && !ks ? [orderSummary.toolSpec()] : [];
+    // Proforma + invoice DealPOS + kurir Lalamove: hanya chat sungguhan, saklar
+    // per company, dan setelan dokumen lengkap.
+    let orderTools = [];
+    if (!ops && !ks && chatId && dbLive && canCall('getDealposConnection') && canCall('listDealposProducts')) {
+      const posConn = await database.getDealposConnection(companyId).catch(() => null);
+      if (dealposOrders.isUsable(posConn)) {
+        const { products } = await database.listDealposProducts(companyId).catch(() => ({ products: [] }));
+        const idPart = String(chatId).split('@')[0];
+        const phone = String(chatId).endsWith('@lid') ? await database.phoneForLid(companyId, chatId).catch(() => null) : idPart.replace(/\D/g, '');
+        const pickupRow = locations.find((l) => l.isPickup) || null;
+        orderTools = dealposOrders.createTools({
+          database, companyId, chatId, phone, dealposConn: posConn, products,
+          lalamoveConn, lalamoveReady, pickup: pickupRow,
+          quote: (args) => deliveryQuote.quote(lalamoveConn, args, { stores, promos, lalamoveReady }),
+          onAudit: (event, metadata) => app.log.info({ companyId, chatId, event, ...metadata }, 'Pesanan AI'),
+        });
+      }
+    }
     const locationTools = nearestTool
       ? [storeLocations.toolSpec({ locations: stores, run: (args = {}) => storeLocations.findNearest(stores, args) })]
       : [];
@@ -1810,6 +1832,8 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       hubTools.length ? HUB_TOOLS_GUIDE : '',
       storeLocations.section(stores, { withNearestTool: nearestTool }),
       deliveryTools.length && lalamoveReady ? deliveryQuote.GUIDE : '',
+      summaryTools.length ? orderSummary.GUIDE : '',
+      orderTools.length ? dealposOrders.GUIDE : '',
       addressTools.length ? addressCheck.GUIDE : '',
       promoRules.section(promos),
       // Mode agent: blok peran + panduan tambahan company. 'standard' kosong,
@@ -1835,7 +1859,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       playbookContext,
       paymentContext,
       companyConfig,
-      tools: [...hubTools, ...deliveryTools, ...locationTools, ...addressTools, ...departmentTools],
+      tools: [...hubTools, ...deliveryTools, ...summaryTools, ...orderTools, ...locationTools, ...addressTools, ...departmentTools],
       departmentAsked,
       leadState: latestSummary?.summary
         ? { ...(leadStateRaw || {}), conversationSummary: latestSummary.summary }
@@ -10394,7 +10418,47 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
       lastSyncedAt: conn.lastSyncedAt, lastError: conn.lastError, dataHidden: Boolean(conn.dataHidden),
       customerCount: counts.total, withPhone: counts.withPhone, detailDone: counts.detailDone,
       productCount, productsSyncedAt: conn.productsSyncedAt || null, productsError: conn.productsError || null,
+      orders: {
+        enabled: Boolean(conn.aiOrdersEnabled), outlet: conn.orderOutlet || '', tag: conn.orderTag || '',
+        taxType: conn.orderTaxType || '', shippingVariantCode: conn.shippingVariantCode || '',
+      },
     };
+  });
+
+  // Proforma/invoice otomatis oleh AI: setelan dokumen dan saklar (mati bawaan).
+  app.put('/v1/integrations/dealpos/orders', {
+    schema: {
+      body: {
+        type: 'object', required: ['enabled'], additionalProperties: false,
+        properties: {
+          enabled: { type: 'boolean' },
+          outlet: { type: 'string', maxLength: 120 },
+          tag: { type: 'string', maxLength: 120 },
+          taxType: { type: 'string', maxLength: 60 },
+          shippingVariantCode: { type: 'string', maxLength: 60 },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengatur integrasi.' });
+    if (!canCall('saveDealposOrderSettings')) return reply.code(503).send({ error: 'Database tidak tersedia.' });
+    const companyId = request.agneeSession.companyId;
+    const conn = await database.getDealposConnection(companyId);
+    if (!conn) return reply.code(409).send({ error: 'Hubungkan DealPOS dulu.' });
+    const settings = {
+      aiOrdersEnabled: request.body.enabled,
+      orderOutlet: (request.body.outlet || '').trim(),
+      orderTag: (request.body.tag || '').trim(),
+      orderTaxType: (request.body.taxType || '').trim(),
+      shippingVariantCode: (request.body.shippingVariantCode || '').trim(),
+    };
+    const gap = dealposOrders.missingSetup(settings);
+    if (settings.aiOrdersEnabled && gap) return reply.code(422).send({ error: gap });
+    await database.saveDealposOrderSettings(companyId, settings);
+    await catatAudit(request, 'dealpos.ai_orders_settings', {
+      entityType: 'integration', entityId: 'dealpos', metadata: { enabled: settings.aiOrdersEnabled },
+    });
+    return { enabled: settings.aiOrdersEnabled };
   });
 
   app.post('/v1/integrations/dealpos', {

@@ -5162,7 +5162,9 @@ class Database {
              pgp_sym_decrypt(client_secret_enc, $2) AS "clientSecret",
              enabled, data_hidden AS "dataHidden",
              last_synced_at AS "lastSyncedAt", last_error AS "lastError",
-             products_synced_at AS "productsSyncedAt", products_error AS "productsError"
+             products_synced_at AS "productsSyncedAt", products_error AS "productsError",
+             ai_orders_enabled AS "aiOrdersEnabled", order_outlet AS "orderOutlet", order_tag AS "orderTag",
+             order_tax_type AS "orderTaxType", shipping_variant_code AS "shippingVariantCode"
       FROM dealpos_connections WHERE company_id = $1
     `, [companyId, this.credentialsEncryptionKey]);
     return result.rows[0] || null;
@@ -5307,6 +5309,64 @@ class Database {
       WHERE p.company_id = $1
     `, [companyId]);
     return { products: result.rows, syncedAt: result.rows[0]?.syncedAt || null };
+  }
+
+  async saveDealposOrderSettings(companyId, { aiOrdersEnabled, orderOutlet, orderTag, orderTaxType, shippingVariantCode }) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      UPDATE dealpos_connections SET ai_orders_enabled = $2, order_outlet = $3, order_tag = $4,
+        order_tax_type = $5, shipping_variant_code = $6, updated_at = NOW()
+      WHERE company_id = $1 RETURNING ai_orders_enabled AS "aiOrdersEnabled"
+    `, [companyId, Boolean(aiOrdersEnabled), orderOutlet || null, orderTag || null, orderTaxType || null, shippingVariantCode || null]);
+    return result.rows[0] || null;
+  }
+
+  /** Customer DealPOS dengan nomor WhatsApp ini (62xxx), untuk mengisi Customer di proforma/invoice. */
+  async findDealposCustomerByPhone(companyId, phone) {
+    if (!this.enabled || !phone) return null;
+    const result = await this.pool.query(
+      'SELECT code, name, email FROM dealpos_customers WHERE company_id = $1 AND phone = $2 ORDER BY synced_at DESC LIMIT 1',
+      [companyId, phone],
+    );
+    return result.rows[0] || null;
+  }
+
+  async createAiSalesDocument(companyId, doc) {
+    if (!this.enabled) return null;
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      if (doc.kind === 'proforma') {
+        await client.query("UPDATE ai_sales_documents SET status = 'superseded' WHERE company_id = $1 AND chat_id = $2 AND kind = 'proforma' AND status = 'open'", [companyId, doc.chatId]);
+      }
+      const result = await client.query(`
+        INSERT INTO ai_sales_documents (company_id, chat_id, kind, dealpos_id, number, status, total, payload)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        RETURNING id::text AS id, kind, dealpos_id AS "dealposId", number, status, total::float8 AS total, payload, created_at AS "createdAt"
+      `, [companyId, doc.chatId, doc.kind, doc.dealposId || null, doc.number, doc.kind === 'invoice' ? 'invoiced' : 'open', doc.total, JSON.stringify(doc.payload || {})]);
+      if (doc.kind === 'invoice' && doc.proformaId) {
+        await client.query("UPDATE ai_sales_documents SET status = 'invoiced' WHERE company_id = $1 AND id = $2", [companyId, doc.proformaId]);
+      }
+      await client.query('COMMIT');
+      return result.rows[0];
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  /** Dokumen terbaru satu chat; `status` menyaring (mis. 'open' untuk proforma yang belum jadi invoice). */
+  async latestAiSalesDocument(companyId, chatId, kind, status = null) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      SELECT id::text AS id, kind, dealpos_id AS "dealposId", number, status, total::float8 AS total, payload, created_at AS "createdAt"
+      FROM ai_sales_documents
+      WHERE company_id = $1 AND chat_id = $2 AND kind = $3 AND ($4::text IS NULL OR status = $4)
+      ORDER BY created_at DESC LIMIT 1
+    `, [companyId, chatId, kind, status]);
+    return result.rows[0] || null;
   }
 
   /** Koneksi menyala yang harganya belum ditarik atau sudah lebih tua dari `hours`. */

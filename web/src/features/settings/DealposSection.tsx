@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { api, messageFromError } from '@/lib/api';
 import { useI18n } from '@/lib/i18n';
 import { Button } from '@/components/ui/button';
+import { Switch } from '@/components/ui/switch';
 import { useConfirm } from '@/components/ui/confirm';
 import { Row, SecretField, SettingCard, StatusLine, TextField } from './parts';
 
@@ -19,6 +20,7 @@ type Dealpos = {
   productCount?: number | null;
   productsSyncedAt?: string | null;
   productsError?: string | null;
+  orders?: { enabled?: boolean; outlet?: string; tag?: string; taxType?: string; shippingVariantCode?: string };
 };
 
 /**
@@ -43,6 +45,9 @@ export function DealposSection() {
 
   useEffect(() => { void load(); }, [load]);
 
+  const [ordersOn, setOrdersOn] = useState(false);
+  useEffect(() => { setOrdersOn(state.orders?.enabled === true); }, [state.orders?.enabled]);
+
   async function connect(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
@@ -60,6 +65,31 @@ export function DealposSection() {
       });
       setStatus('');
       element.reset();
+      await load();
+    } catch (error) {
+      setStatus(messageFromError(error, ''));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveOrders(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    setBusy(true);
+    setStatus('');
+    try {
+      await api('/v1/integrations/dealpos/orders', {
+        method: 'PUT',
+        body: {
+          enabled: ordersOn,
+          outlet: String(form.get('outlet') || '').trim(),
+          tag: String(form.get('tag') || '').trim(),
+          taxType: String(form.get('taxType') || '').trim(),
+          shippingVariantCode: String(form.get('shippingVariantCode') || '').trim(),
+        },
+      });
+      setStatus(t('dealpos.ordersSaved'));
       await load();
     } catch (error) {
       setStatus(messageFromError(error, ''));
@@ -202,6 +232,32 @@ export function DealposSection() {
                 {t('export.disconnect')}
               </Button>
             </div>
+            <form onSubmit={saveOrders} autoComplete="off" className="mt-4 rounded-xl border border-border p-4">
+              <div className="flex items-start gap-3">
+                <Switch checked={ordersOn} onChange={setOrdersOn} label={t('dealpos.ordersToggle')} className="mt-0.5" />
+                <span className="grid gap-0.5">
+                  <strong className="text-[13px]">{t('dealpos.ordersToggle')}</strong>
+                  <small className="text-[12px] text-muted">{t('dealpos.ordersCopy')}</small>
+                </span>
+              </div>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <TextField label={t('dealpos.ordersOutlet')} name="outlet" maxLength={120} defaultValue={state.orders?.outlet || ''} key={`o${state.orders?.outlet}`} />
+                <TextField label={t('dealpos.ordersTag')} name="tag" maxLength={120} defaultValue={state.orders?.tag || ''} key={`t${state.orders?.tag}`} />
+                <TextField label={t('dealpos.ordersTax')} name="taxType" maxLength={60} defaultValue={state.orders?.taxType || ''} key={`x${state.orders?.taxType}`} />
+                <TextField
+                  label={t('dealpos.ordersShipping')}
+                  name="shippingVariantCode"
+                  maxLength={60}
+                  hint={t('dealpos.ordersShippingHint')}
+                  defaultValue={state.orders?.shippingVariantCode || ''}
+                  key={`s${state.orders?.shippingVariantCode}`}
+                />
+              </div>
+              <div className="mt-3 flex items-center gap-3">
+                <Button type="submit" size="sm" disabled={busy}>{t('dealpos.ordersSave')}</Button>
+                <StatusLine>{status}</StatusLine>
+              </div>
+            </form>
           </>
         ) : (
           <form onSubmit={connect} autoComplete="off">

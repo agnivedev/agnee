@@ -11142,8 +11142,8 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
 
   // ── Lokasi company: toko dan gudang ──────────────────────────────────────
   // Bukan integrasi: satu daftar alamat yang dipakai Lalamove (titik jemput)
-  // dan fitur lain. Membaca boleh semua anggota company (agen kelak memilih
-  // titik jemput dari chat); mengubah hanya supervisor.
+  // dan fitur lain. Membaca boleh semua anggota company (agen menyisipkan
+  // lokasi dari Inbox); mengubah hanya supervisor.
 
   const MAX_LOCATIONS = 50;
 
@@ -11194,7 +11194,8 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
       if (!point) {
         return reply.code(422).send({ error: 'Titik peta tidak terbaca. Tempel link Google Maps yang memuat pin, atau koordinat seperti -6.1753,106.8271.' });
       }
-      mapsUrl = /^https?:\/\//i.test(placeText) ? placeText : `https://www.google.com/maps?q=${point.lat},${point.lng}`;
+      // Hanya link Maps yang terbaca yang disimpan, bukan seluruh teks yang ditempel.
+      mapsUrl = mapsLink.findMapsLinks(placeText)[0] || `https://www.google.com/maps?q=${point.lat},${point.lng}`;
     }
     if (!point) return reply.code(422).send({ error: 'Tempel link Google Maps lokasi ini, atau koordinatnya.' });
     // Field yang tidak dikirim saat mengubah = tetap; string kosong = dikosongkan.
@@ -11433,6 +11434,7 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
   });
 
   app.post('/v1/locations', { schema: { body: locationBody(true) } }, async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengatur lokasi.' });
     if (canCall('countCompanyLocations') && await database.countCompanyLocations(request.agneeSession.companyId) >= MAX_LOCATIONS) {
       return reply.code(422).send({ error: `Maksimal ${MAX_LOCATIONS} lokasi per company.` });
     }

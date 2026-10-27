@@ -27,8 +27,8 @@ type DealposOutlet = { id: string; name: string; code: string | null };
 
 /**
  * Toko dan gudang company. Bukan integrasi: satu daftar alamat yang dipakai
- * Lalamove sebagai titik jemput, dan fitur lain kelak (AI menyebut alamat,
- * toko terdekat). Titik peta wajib, dari link Google Maps atau koordinat.
+ * Lalamove sebagai titik jemput, AI (alamat, jam buka, toko terdekat), dan
+ * tombol sisip lokasi di Inbox. Titik peta wajib, dari link Google Maps atau koordinat.
  */
 export function LocationsSection() {
   const { t } = useI18n();

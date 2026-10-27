@@ -3,8 +3,7 @@
 -- AI bisa menyebut harga dan memberi link beli, sama seperti item DealPOS.
 --
 -- `url` = link checkout/halaman produk. Milik sumbernya: ditimpa tiap sinkron.
--- Item manual boleh kosong. Nomor 085 sengaja melompati 082-084 (dipakai
--- cabang lain yang belum masuk main).
+-- Item manual boleh kosong.
 ALTER TABLE catalog_items DROP CONSTRAINT IF EXISTS catalog_items_source_check;
 ALTER TABLE catalog_items ADD CONSTRAINT catalog_items_source_check
   CHECK (source IN ('manual', 'dealpos', 'mayar'));

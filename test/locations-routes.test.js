@@ -90,6 +90,15 @@ test('tambah lokasi: supervisor saja, titik peta wajib terbaca, lokasi pertama j
   assert.equal(store.rows.length, 2);
 });
 
+test('link peta yang disimpan hanya link Maps yang terbaca, bukan seluruh teks yang ditempel', async (t) => {
+  const { call, owner } = await setup(t);
+  const pasted = 'https://www.google.com/maps?q=-6.3012,106.6523 https://evil.example/x?y=1';
+  const { location } = (await call(owner, 'POST', '/v1/locations', { ...TOKO, place: pasted })).json();
+  assert.equal(location.lat, -6.3012);
+  assert.ok(location.mapsUrl.startsWith('https://www.google.com/maps'));
+  assert.ok(!/evil\.example|\s/.test(location.mapsUrl), location.mapsUrl);
+});
+
 test('daftar lokasi: agen boleh membaca, company lain tidak melihat', async (t) => {
   const { call, owner, agent, other } = await setup(t);
   await call(owner, 'POST', '/v1/locations', TOKO);

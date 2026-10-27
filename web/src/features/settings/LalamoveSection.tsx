@@ -3,6 +3,7 @@ import { api, messageFromError } from '@/lib/api';
 import { useI18n } from '@/lib/i18n';
 import { Button } from '@/components/ui/button';
 import { useConfirm } from '@/components/ui/confirm';
+import { Switch } from '@/components/ui/switch';
 import { Row, SecretField, SelectField, SettingCard, StatusLine, TextField } from './parts';
 
 type City = { locode: string; name: string; services: { key: string; description: string }[] };
@@ -16,6 +17,10 @@ type Lalamove = {
   lastCheckedAt?: string | null;
   lastError?: string | null;
   cities?: City[];
+  pickupAddress?: string | null;
+  pickupSet?: boolean;
+  defaultService?: string | null;
+  aiQuotesEnabled?: boolean;
 };
 
 type Quote = {
@@ -44,6 +49,10 @@ export function LalamoveSection() {
   const [quote, setQuote] = useState<Quote | null>(null);
   const [quoting, setQuoting] = useState(false);
   const [quoteError, setQuoteError] = useState('');
+  const [aiOn, setAiOn] = useState(false);
+  const [aiStatus, setAiStatus] = useState('');
+  const [aiError, setAiError] = useState('');
+  const [aiSaving, setAiSaving] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -54,6 +63,7 @@ export function LalamoveSection() {
   }, []);
 
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => { setAiOn(state.aiQuotesEnabled === true); }, [state.aiQuotesEnabled]);
 
   // Jenis kendaraan dari semua kota, tanpa kembar: Lalamove menentukan kota dari koordinat titik jemput.
   const services = useMemo(() => {
@@ -110,6 +120,33 @@ export function LalamoveSection() {
       setQuoteError(messageFromError(error, ''));
     } finally {
       setQuoting(false);
+    }
+  }
+
+  async function saveAi(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const pickupInput = event.currentTarget.elements.namedItem('pickup') as HTMLInputElement | null;
+    const form = new FormData(event.currentTarget);
+    const pickup = String(form.get('pickup') || '').trim();
+    setAiSaving(true);
+    setAiStatus('');
+    setAiError('');
+    try {
+      const next = await api<Lalamove>('/v1/integrations/lalamove/ai', {
+        method: 'PUT',
+        body: {
+          aiQuotesEnabled: aiOn,
+          ...(pickup ? { pickup } : {}),
+          ...(form.get('defaultService') ? { defaultService: String(form.get('defaultService')) } : {}),
+        },
+      });
+      setState(next);
+      if (pickupInput) pickupInput.value = '';
+      setAiStatus(t('lalamove.aiSaved'));
+    } catch (error) {
+      setAiError(messageFromError(error, ''));
+    } finally {
+      setAiSaving(false);
     }
   }
 
@@ -241,6 +278,48 @@ export function LalamoveSection() {
           </>
         )}
       </div>
+
+      {state.connected && state.enabled && !editing ? (
+        <div className="mt-4 rounded-xl border border-border bg-white/40 p-4">
+          <h3 className="m-0 mb-1 text-[15px]">{t('lalamove.aiTitle')}</h3>
+          <p className="m-0 mb-3 text-[12px] leading-[1.5] text-muted">{t('lalamove.aiCopy')}</p>
+          <form onSubmit={saveAi} autoComplete="off">
+            <div className="grid gap-4 md:grid-cols-2">
+              <TextField
+                label={t('lalamove.aiPickup')}
+                name="pickup"
+                maxLength={600}
+                required={!state.pickupSet}
+                placeholder={t('lalamove.pointPlaceholder', { coords: '-6.1753,106.8271' })}
+                hint={state.pickupSet ? t('lalamove.aiPickupNow', { address: state.pickupAddress || '' }) : t('lalamove.aiPickupHint')}
+              />
+              <SelectField
+                label={t('lalamove.aiService')}
+                name="defaultService"
+                defaultValue={state.defaultService || (services.some((s) => s.key === 'MOTORCYCLE') ? 'MOTORCYCLE' : services[0]?.key)}
+                hint={t('lalamove.aiServiceHint')}
+              >
+                {services.map((service) => (
+                  <option key={service.key} value={service.key}>{service.description || service.key}</option>
+                ))}
+              </SelectField>
+            </div>
+            <label className="mt-4 flex items-start gap-3">
+              <Switch checked={aiOn} onChange={setAiOn} label={t('lalamove.aiToggle')} className="mt-0.5" />
+              <span className="grid gap-0.5">
+                <strong className="text-[13px]">{t('lalamove.aiToggle')}</strong>
+                <small className="text-[12px] leading-[1.5] text-muted">
+                  {state.environment === 'production' ? t('lalamove.aiToggleProd') : t('lalamove.aiToggleSandbox')}
+                </small>
+              </span>
+            </label>
+            <div className="mt-4 flex items-center gap-3">
+              <Button type="submit" size="sm" disabled={aiSaving || !services.length}>{t('lalamove.aiSave')}</Button>
+              {aiError ? <StatusLine tone="error">{aiError}</StatusLine> : <StatusLine>{aiStatus}</StatusLine>}
+            </div>
+          </form>
+        </div>
+      ) : null}
 
       {state.connected && state.enabled && !editing ? (
         <div className="mt-4 rounded-xl border border-border bg-white/40 p-4">

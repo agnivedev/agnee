@@ -66,3 +66,17 @@ test('kode pertanyaan grup: dibuat dari id dan dikenali di teks jawaban', () => 
   const personal = departmentAsk.buildQuestionNotice({ department: 'Gudang', question: 'x', customerLabel: 'Budi' });
   assert.doesNotMatch(personal, /grup/);
 });
+
+test('harga jual (SellingPrice) didahulukan di atas UnitPrice', () => {
+  assert.equal(prices.mapVariant({ ID: 11, Name: 'MU 480', UnitPrice: 90000, SellingPrice: 120000 }).unitPrice, 120000);
+  assert.equal(prices.mapVariant({ ID: 12, Name: 'MU 480', UnitPrice: 90000 }).unitPrice, 90000, 'tanpa SellingPrice tetap terbaca');
+});
+
+test('kode barang dua huruf ("MU 480") tertangkap, kata dua huruf obrolan tidak', () => {
+  const mu = [
+    { variantId: 'a', name: 'MU 480 Renofix 25 kg', unitPrice: 120000 },
+    { variantId: 'b', name: 'MU 400 Granitfix 25 kg', unitPrice: 110000 },
+  ];
+  assert.equal(prices.matchProducts(mu, { text: 'jadi berapa harganya?', context: 'pesan 10 sak MU 480 ke Foresta BSD' })[0].name, 'MU 480 Renofix 25 kg');
+  assert.deepEqual(prices.tokens('ok kak di ke ya mu 480'), ['mu', '480']);
+});

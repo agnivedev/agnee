@@ -30,6 +30,7 @@ const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const CACHE_MAX = 500;
 const USER_AGENT = 'Agnee/1.0 (+https://agnee.agnive.co)';
 const NOMINATIM = 'https://nominatim.openstreetmap.org/reverse';
+const NOMINATIM_SEARCH = 'https://nominatim.openstreetmap.org/search';
 
 const cache = new Map();
 
@@ -230,6 +231,37 @@ async function reverseGeocode(lat, lng, fetchImpl) {
 }
 
 /**
+ * Nama tempat atau alamat yang diketik customer ("Foresta BSD", "Kembangan,
+ * Jakarta Barat") menjadi koordinat lewat Nominatim, dibatasi ke Indonesia.
+ * Hasilnya perkiraan area, bukan titik antar: dipakai untuk estimasi ongkir,
+ * dan pemanggil harus menyebutnya perkiraan. null kalau tidak ketemu.
+ */
+async function searchPlace(query, { fetchImpl = globalThis.fetch } = {}) {
+  const text = String(query || '').replace(/\s+/g, ' ').trim().slice(0, 200);
+  if (text.length < 3) return null;
+  const key = `search:${text.toLowerCase()}`;
+  const cached = cacheGet(key);
+  if (cached !== undefined) return cached;
+  let place = null;
+  try {
+    const url = `${NOMINATIM_SEARCH}?format=jsonv2&limit=1&countrycodes=id&accept-language=id&q=${encodeURIComponent(text)}`;
+    const response = await fetchWithTimeout(fetchImpl, url, {
+      headers: { 'user-agent': USER_AGENT, accept: 'application/json' },
+    });
+    if (response.ok) {
+      const rows = await response.json();
+      const hit = Array.isArray(rows) ? rows[0] : null;
+      const coords = hit ? validCoords(hit.lat, hit.lon) : null;
+      if (coords) place = { ...coords, address: String(hit.display_name || text).trim() };
+    }
+  } catch {
+    place = null;
+  }
+  cacheSet(key, place);
+  return place;
+}
+
+/**
  * Satu link Google Maps menjadi keterangan lokasi.
  *
  * @returns {Promise<{ name?: string, query?: string, address?: string, lat?: number, lng?: number } | null>}
@@ -351,6 +383,7 @@ module.exports = {
   findMapsLinks,
   parseMapsUrl,
   resolveMapsLink,
+  searchPlace,
   readCustomerText,
   readCustomerTextCached,
   placeFromLocationMessage,

@@ -41,6 +41,7 @@ const { HUB_REPLY_WORKING_DAYS, addWorkingDays, workingDaysSince } = require('./
 const mayarSync = require('./mayar-sync.js');
 const dealposSync = require('./dealpos-sync.js');
 const lalamove = require('./lalamove.js');
+const deliveryQuote = require('./delivery-quote.js');
 const dealposPrices = require('./dealpos-prices.js');
 const { createReplyPacer } = require('./reply-delay.js');
 const handoffNotice = require('./handoff-notice.js');
@@ -1683,6 +1684,14 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       : '';
 
     const hubTools = companyConfig?.hubToolsEnabled && !ops ? hubListingTools() : [];
+    // Ongkir Lalamove otomatis: di chat sungguhan hanya mode production
+    // (harga sandbox bukan harga asli); simulator tanpa chatId boleh sandbox.
+    const lalamoveConn = !ops && !ks && dbLive && canCall('getLalamoveConnection')
+      ? await database.getLalamoveConnection(companyId).catch(() => null)
+      : null;
+    const deliveryTools = deliveryQuote.isUsable(lalamoveConn, { realChat: Boolean(chatId) })
+      ? [deliveryQuote.toolSpec({ conn: lalamoveConn, run: (args = {}) => deliveryQuote.quote(lalamoveConn, args) })]
+      : [];
     // Departemen hanya dipakai pada chat nyata (ada chatId): simulator Coach
     // tidak boleh membangunkan anggota departemen sungguhan.
     let departmentTools = [];
@@ -1742,6 +1751,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       paymentContext,
       priceContext,
       hubTools.length ? HUB_TOOLS_GUIDE : '',
+      deliveryTools.length ? deliveryQuote.GUIDE : '',
       // Mode agent: blok peran + panduan tambahan company. 'standard' kosong,
       // jadi nomor lama persis seperti sebelum ada mode.
       modeBlock,
@@ -1765,7 +1775,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       playbookContext,
       paymentContext,
       companyConfig,
-      tools: [...hubTools, ...departmentTools],
+      tools: [...hubTools, ...deliveryTools, ...departmentTools],
       departmentAsked,
       leadState: latestSummary?.summary
         ? { ...(leadStateRaw || {}), conversationSummary: latestSummary.summary }
@@ -9587,6 +9597,10 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
       connected: true, enabled: conn.enabled, environment: conn.environment, market: conn.market,
       apiKeyTail: String(conn.apiKey || '').slice(-4),
       lastCheckedAt: conn.lastCheckedAt, lastError: conn.lastError, cities,
+      pickupAddress: conn.pickupAddress || null,
+      pickupSet: conn.pickupLat != null && conn.pickupLng != null,
+      defaultService: conn.defaultService || null,
+      aiQuotesEnabled: conn.aiQuotesEnabled === true,
     };
   }
 
@@ -9677,6 +9691,47 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     } catch (error) {
       return reply.code(422).send({ error: publicErrorMessage(error) });
     }
+  });
+
+  // Ongkir otomatis di chat: titik jemput toko, kendaraan bawaan, dan saklar.
+  app.put('/v1/integrations/lalamove/ai', {
+    schema: {
+      body: {
+        type: 'object', required: ['aiQuotesEnabled'], additionalProperties: false,
+        properties: {
+          pickup: { type: 'string', maxLength: 600 },
+          defaultService: { type: 'string', pattern: '^[A-Z0-9_]{2,40}$' },
+          aiQuotesEnabled: { type: 'boolean' },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengatur integrasi.' });
+    if (!canCall('saveLalamoveAiSettings')) return reply.code(503).send({ error: 'Database tidak tersedia.' });
+    const companyId = request.agneeSession.companyId;
+    const conn = await database.getLalamoveConnection(companyId);
+    if (!conn) return reply.code(409).send({ error: 'Hubungkan Lalamove dulu.' });
+    let pickup = conn.pickupLat != null ? { lat: conn.pickupLat, lng: conn.pickupLng, address: conn.pickupAddress } : null;
+    const pickupText = String(request.body.pickup || '').trim();
+    if (pickupText) {
+      pickup = await lalamoveStop(pickupText);
+      if (!pickup) {
+        return reply.code(422).send({ error: 'Lokasi toko tidak terbaca. Tempel link Google Maps yang memuat pin, atau koordinat seperti -6.1753,106.8271.' });
+      }
+    }
+    const keys = deliveryQuote.servicesOf(conn).map((s) => s.key);
+    const defaultService = request.body.defaultService ?? conn.defaultService ?? null;
+    if (defaultService && !keys.includes(defaultService)) {
+      return reply.code(422).send({ error: 'Kendaraan itu tidak tersedia di akun Lalamove ini. Periksa ulang kunci untuk memperbarui daftarnya.' });
+    }
+    if (request.body.aiQuotesEnabled && !pickup) {
+      return reply.code(422).send({ error: 'Isi lokasi toko dulu sebelum menyalakan ongkir otomatis.' });
+    }
+    await database.saveLalamoveAiSettings(companyId, {
+      pickupAddress: pickup?.address || null, pickupLat: pickup?.lat ?? null, pickupLng: pickup?.lng ?? null,
+      defaultService, aiQuotesEnabled: request.body.aiQuotesEnabled,
+    });
+    return lalamoveStatus(await database.getLalamoveConnection(companyId));
   });
 
   registerIntegrationLifecycle({

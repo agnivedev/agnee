@@ -51,7 +51,9 @@ function mapVariant(row) {
   const name = productName && variantName && !variantName.toLowerCase().includes(productName.toLowerCase())
     ? `${productName} ${variantName}`
     : variantName || productName;
-  const unitPrice = firstNumber(row.UnitPrice, row.Price, row.SellingPrice, row.SalesPrice);
+  // Harga jual (selling price) didahulukan: UnitPrice di sebagian respons
+  // DealPOS adalah harga dasar/beli, bukan harga yang boleh disebut ke customer.
+  const unitPrice = firstNumber(row.SellingPrice, row.SellPrice, row.UnitPrice, row.Price, row.SalesPrice);
   if (!id || !name || unitPrice === null || unitPrice <= 0) return null;
   return {
     variantId: String(id),
@@ -103,6 +105,9 @@ const STOP = new Set([
   'untuk', 'dengan', 'dari', 'saya', 'aku', 'kami', 'kita', 'tolong', 'info', 'stok', 'ready', 'beli', 'pesan',
   'order', 'butuh', 'perlu', 'buat', 'pakai', 'sama', 'juga', 'aja', 'saja', 'dong', 'nya', 'per', 'customer',
   'pelanggan', 'tanya', 'menanyakan', 'kirim', 'lokasi', 'tahap', 'pembangunan',
+  // Kata dua huruf yang sering muncul di chat; kode barang dua huruf ("MU 480")
+  // tetap dihitung.
+  'di', 'ke', 'ya', 'ga', 'gk', 'yg', 'ok', 'dg', 'sy', 'tp', 'dr', 'kk', 'ka', 'pa', 'bu', 'se', 'aj', 'si', 'an', 'kg', 'mm', 'cm',
 ]);
 
 function tokens(text) {
@@ -110,7 +115,7 @@ function tokens(text) {
     .replace(/[^a-z0-9.,/ ]+/g, ' ')
     .split(/\s+/)
     .map((t) => t.replace(/^[.,/]+|[.,/]+$/g, ''))
-    .filter((t) => (t.length >= 3 || /\d/.test(t)) && !STOP.has(t));
+    .filter((t) => (t.length >= 2 || /\d/.test(t)) && !STOP.has(t));
 }
 
 /**

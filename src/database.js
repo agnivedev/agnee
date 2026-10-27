@@ -4958,7 +4958,9 @@ class Database {
     const result = await this.pool.query(`
       SELECT company_id AS "companyId", environment, market, api_key AS "apiKey",
              pgp_sym_decrypt(api_secret_enc, $2) AS "apiSecret",
-             enabled, cities, last_checked_at AS "lastCheckedAt", last_error AS "lastError"
+             enabled, cities, last_checked_at AS "lastCheckedAt", last_error AS "lastError",
+             pickup_address AS "pickupAddress", pickup_lat AS "pickupLat", pickup_lng AS "pickupLng",
+             default_service AS "defaultService", ai_quotes_enabled AS "aiQuotesEnabled"
       FROM lalamove_connections WHERE company_id = $1
     `, [companyId, this.credentialsEncryptionKey]);
     return result.rows[0] || null;
@@ -4994,6 +4996,18 @@ class Database {
         updated_at = NOW()
       WHERE company_id = $1
     `, [companyId, error, cities ? JSON.stringify(cities) : null]);
+  }
+
+  /** Titik jemput toko, kendaraan bawaan, dan saklar ongkir otomatis di chat. */
+  async saveLalamoveAiSettings(companyId, { pickupAddress, pickupLat, pickupLng, defaultService, aiQuotesEnabled }) {
+    if (!this.enabled) return false;
+    const result = await this.pool.query(`
+      UPDATE lalamove_connections SET
+        pickup_address = $2, pickup_lat = $3, pickup_lng = $4, default_service = $5,
+        ai_quotes_enabled = $6, updated_at = NOW()
+      WHERE company_id = $1
+    `, [companyId, pickupAddress ?? null, pickupLat ?? null, pickupLng ?? null, defaultService ?? null, aiQuotesEnabled === true]);
+    return result.rowCount > 0;
   }
 
   async setLalamoveEnabled(companyId, enabled) {

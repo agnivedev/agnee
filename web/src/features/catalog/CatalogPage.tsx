@@ -299,10 +299,11 @@ export function CatalogPage() {
               <option value="hidden">{t('catalog.hidden')}</option>
               <option value="missing">{t('catalog.missing')}</option>
             </select>
-            {summary?.pos || summary?.counts.dealpos ? (
+            {summary?.pos || summary?.counts.dealpos || summary?.counts.mayar ? (
               <select value={filters.source} onChange={(event) => setFilter('source', event.target.value as CatalogFilters['source'])} aria-label={t('catalog.sourceFilter')} className={SELECT}>
                 <option value="">{t('catalog.sourceAll')}</option>
                 <option value="dealpos">DealPOS</option>
+                {summary?.counts.mayar ? <option value="mayar">Mayar</option> : null}
                 <option value="manual">{t('catalog.sourceManual')}</option>
               </select>
             ) : null}
@@ -457,7 +458,7 @@ function ItemCard({ item, onOpen }: { item: CatalogItem; onOpen: () => void }) {
           {item.price !== null && item.unit ? <span className="text-[12px] text-muted"> / {item.unit}</span> : null}
         </p>
         <p className="m-0 mt-1 flex flex-wrap gap-1.5 text-[11px] font-semibold text-muted">
-          {item.source === 'dealpos' ? <span className="rounded bg-ink/[.06] px-1.5 py-0.5">DealPOS</span> : null}
+          {item.source !== 'manual' ? <span className="rounded bg-ink/[.06] px-1.5 py-0.5">{item.source === 'mayar' ? 'Mayar' : 'DealPOS'}</span> : null}
           {item.missingFromSource ? <span className="rounded bg-danger/10 px-1.5 py-0.5 text-danger">{t('catalog.missing')}</span> : null}
           {!item.active ? <span className="rounded bg-ink/[.06] px-1.5 py-0.5">{t('catalog.hidden')}</span> : null}
         </p>

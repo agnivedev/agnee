@@ -29,7 +29,8 @@ export function ItemDialog({ item, tags, canEdit, onClose, onSaved }: {
 }) {
   const { t } = useI18n();
   const confirm = useConfirm();
-  const fromPos = item?.source === 'dealpos';
+  // Item dari sumber luar (DealPOS, Mayar): field milik sumber dikunci, sisanya milik Agnee.
+  const fromPos = Boolean(item) && item?.source !== 'manual';
   const locked = !canEdit;
   const [form, setForm] = useState({
     kind: item?.kind || 'product',
@@ -124,7 +125,7 @@ export function ItemDialog({ item, tags, canEdit, onClose, onSaved }: {
       <form onSubmit={save} className="grid max-h-[88dvh] gap-4 overflow-y-auto p-5">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <p className="eyebrow">{fromPos ? 'DealPOS' : t('catalog.sourceManual')}</p>
+            <p className="eyebrow">{fromPos ? (item?.source === 'mayar' ? 'Mayar' : 'DealPOS') : t('catalog.sourceManual')}</p>
             <h2 id="catalog-item-title" className="m-0 text-xl tracking-[-.02em]">
               {item ? (canEdit ? t('catalog.item.editTitle') : item.name) : t('catalog.item.newTitle')}
             </h2>

@@ -111,7 +111,7 @@ function Row({ item, onOpen, onTag }: { item: CatalogItem; onOpen: (item: Catalo
       </td>
       <td className="px-3 py-2 text-[11px] font-semibold text-muted max-lg:hidden">
         <span className="flex flex-wrap gap-1">
-          {item.source === 'dealpos' ? <span className="rounded bg-ink/[.06] px-1.5 py-0.5">DealPOS</span> : <span className="rounded bg-ink/[.06] px-1.5 py-0.5">{t('catalog.sourceManual')}</span>}
+          <span className="rounded bg-ink/[.06] px-1.5 py-0.5">{item.source === 'dealpos' ? 'DealPOS' : item.source === 'mayar' ? 'Mayar' : t('catalog.sourceManual')}</span>
           {item.missingFromSource ? <span className="rounded bg-danger/10 px-1.5 py-0.5 text-danger">{t('catalog.missing')}</span> : null}
           {!item.active ? <span className="rounded bg-ink/[.06] px-1.5 py-0.5">{t('catalog.hidden')}</span> : null}
         </span>

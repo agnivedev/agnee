@@ -5531,7 +5531,7 @@ class Database {
              i.price::float8 AS price, i.price_note AS "priceNote", i.discount_pct::float8 AS "discountPct",
              i.description, i.image_url AS "imageUrl", i.active, i.missing_from_source AS "missingFromSource",
              i.released_at AS "releasedAt", i.sold_qty::float8 AS "soldQty", i.synced_at AS "syncedAt",
-             i.updated_at AS "updatedAt", i.brand, i.pos_tags AS "posTags",
+             i.updated_at AS "updatedAt", i.brand, i.pos_tags AS "posTags", i.url,
              COALESCE((
                SELECT json_agg(json_build_object('id', t.id, 'name', t.name, 'color', t.color,
                                                  'manual', x.manual, 'auto', x.auto) ORDER BY t.sort_order, t.name)
@@ -5759,10 +5759,11 @@ class Database {
   }
 
   async countCatalogItems(companyId) {
-    if (!this.enabled) return { total: 0, manual: 0, dealpos: 0 };
+    if (!this.enabled) return { total: 0, manual: 0, dealpos: 0, mayar: 0 };
     const result = await this.pool.query(`
       SELECT COUNT(*)::int AS total, COUNT(*) FILTER (WHERE source = 'manual')::int AS manual,
-             COUNT(*) FILTER (WHERE source = 'dealpos')::int AS dealpos
+             COUNT(*) FILTER (WHERE source = 'dealpos')::int AS dealpos,
+             COUNT(*) FILTER (WHERE source = 'mayar')::int AS mayar
       FROM catalog_items WHERE company_id = $1
     `, [companyId]);
     return result.rows[0];
@@ -5847,7 +5848,7 @@ class Database {
    * POS ditandai `missing_from_source`. Ribbon otomatis diganti per aturan;
    * aturan bernilai null (mis. laporan penjualan tidak terbaca) dibiarkan.
    */
-  async syncPosCatalog(companyId, source, items, { assignments = {}, soldQty = new Map(), note = null } = {}) {
+  async syncPosCatalog(companyId, source, items, { assignments = {}, soldQty = new Map(), note = null, touchSettings = true } = {}) {
     if (!this.enabled) return 0;
     await this.getCatalogSettings(companyId);
     const client = await this.pool.connect();
@@ -5857,22 +5858,27 @@ class Database {
         const chunk = items.slice(i, i + 500);
         await client.query(`
           INSERT INTO catalog_items (company_id, source, external_id, name, code, category, price, discount_pct,
-                                     image_url, released_at, sold_qty, pos_product_id, synced_at, missing_from_source)
+                                     image_url, released_at, sold_qty, pos_product_id, description, url,
+                                     synced_at, missing_from_source)
           SELECT $1, $2, u.*, NOW(), false
           FROM unnest($3::text[], $4::text[], $5::text[], $6::text[], $7::numeric[], $8::numeric[],
-                      $9::text[], $10::timestamptz[], $11::numeric[], $12::text[])
-            AS u(external_id, name, code, category, price, discount_pct, image_url, released_at, sold_qty, pos_product_id)
+                      $9::text[], $10::timestamptz[], $11::numeric[], $12::text[], $13::text[], $14::text[])
+            AS u(external_id, name, code, category, price, discount_pct, image_url, released_at, sold_qty, pos_product_id,
+                 description, url)
           ON CONFLICT (company_id, source, external_id) WHERE external_id IS NOT NULL DO UPDATE SET
             name = EXCLUDED.name, code = EXCLUDED.code, category = EXCLUDED.category, price = EXCLUDED.price,
             discount_pct = EXCLUDED.discount_pct, image_url = EXCLUDED.image_url, released_at = EXCLUDED.released_at,
-            sold_qty = EXCLUDED.sold_qty, pos_product_id = EXCLUDED.pos_product_id, synced_at = NOW(), missing_from_source = false,
+            sold_qty = EXCLUDED.sold_qty, pos_product_id = EXCLUDED.pos_product_id, url = EXCLUDED.url,
+            synced_at = NOW(), missing_from_source = false,
             updated_at = CASE WHEN catalog_items.price IS DISTINCT FROM EXCLUDED.price
                                 OR catalog_items.name IS DISTINCT FROM EXCLUDED.name
                               THEN NOW() ELSE catalog_items.updated_at END
         `, [companyId, source, chunk.map((x) => x.externalId), chunk.map((x) => x.name), chunk.map((x) => x.code),
           chunk.map((x) => x.category), chunk.map((x) => x.price), chunk.map((x) => x.discountPct || 0),
           chunk.map((x) => x.imageUrl), chunk.map((x) => x.releasedAt), chunk.map((x) => soldQty.get(x.externalId) ?? null),
-          chunk.map((x) => x.productId || null)]);
+          chunk.map((x) => x.productId || null),
+          // Deskripsi hanya mengisi item baru (milik tim Agnee setelah itu, tidak ditimpa sinkron).
+          chunk.map((x) => x.description || ''), chunk.map((x) => x.url || null)]);
       }
       await client.query(`
         UPDATE catalog_items SET missing_from_source = true, updated_at = NOW()
@@ -5893,7 +5899,11 @@ class Database {
           ON CONFLICT DO NOTHING
         `, [companyId, tag.id, source, ids]);
       }
-      await client.query('UPDATE catalog_settings SET pos_synced_at = NOW(), pos_error = $2 WHERE company_id = $1', [companyId, note]);
+      // Sumber selain POS kasir (Mayar) tidak menyentuh status sinkron POS: kalau tidak,
+      // sinkron Mayar yang sukses menghapus galat DealPOS dari layar Katalog.
+      if (touchSettings) {
+        await client.query('UPDATE catalog_settings SET pos_synced_at = NOW(), pos_error = $2 WHERE company_id = $1', [companyId, note]);
+      }
       await client.query('COMMIT');
       return items.length;
     } catch (error) {
@@ -6076,14 +6086,17 @@ class Database {
     const [items, tags] = await Promise.all([
       this.pool.query(`
         SELECT i.id, i.kind, i.name, i.code, i.category, i.unit, i.price::float8 AS price, i.price_note AS "priceNote",
-               i.discount_pct::float8 AS "discountPct", i.description, i.source, i.brand,
+               i.discount_pct::float8 AS "discountPct", i.description, i.source, i.brand, i.url,
                COALESCE((SELECT json_agg(DISTINCT jsonb_build_object('id', t.id, 'name', t.name))
                          FROM catalog_item_tags it JOIN catalog_tags t ON t.id = it.tag_id AND t.active
                          WHERE it.item_id = i.id), '[]'::json) AS tags
         FROM catalog_items i
         WHERE i.company_id = $1 AND i.active AND NOT i.missing_from_source
-          AND (i.source = 'manual' OR EXISTS (
-            SELECT 1 FROM dealpos_connections d WHERE d.company_id = i.company_id AND d.enabled AND i.source = 'dealpos'))
+          AND (i.source = 'manual'
+            OR (i.source = 'dealpos' AND EXISTS (
+              SELECT 1 FROM dealpos_connections d WHERE d.company_id = i.company_id AND d.enabled))
+            OR (i.source = 'mayar' AND EXISTS (
+              SELECT 1 FROM mayar_connections m WHERE m.company_id = i.company_id AND m.enabled)))
         ORDER BY lower(i.name)
       `, [companyId]),
       this.pool.query(`

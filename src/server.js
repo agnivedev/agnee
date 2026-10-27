@@ -9466,7 +9466,48 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     const leads = await mayarSync.fetchMayarLeads(apiKey);
     const count = await database.upsertMayarLeads(companyId, leads);
     await database.recordMayarSync(companyId, { error: null });
-    return { count };
+    // Produk Mayar ke Katalog. Terpisah dari lead: gagal di sini tidak menggagalkan sinkron lead.
+    const catalogResult = await runMayarCatalogJob(companyId, apiKey);
+    return { count, productCount: catalogResult.count ?? null };
+  }
+
+  // ── Katalog dari Mayar ────────────────────────────────────────────────────
+  // Produk `active` Mayar jadi item katalog source 'mayar' (harga, deskripsi,
+  // link beli). Berjalan setelah sinkron Mayar dan tiap beberapa jam, karena
+  // sinkron lead sendiri tidak dijadwalkan. Tidak pernah melempar.
+  const mayarCatalogRunning = new Set();
+  const MAYAR_CATALOG_REFRESH_MS = 6 * 60 * 60_000;
+
+  async function runMayarCatalogJob(companyId, apiKey) {
+    if (!canCall('syncPosCatalog')) return { status: 'unavailable' };
+    if (mayarCatalogRunning.has(companyId)) return { status: 'running' };
+    mayarCatalogRunning.add(companyId);
+    try {
+      const rows = await mayarSync.fetchMayarProducts(apiKey);
+      // Tarikan kosong dilewati: bisa saja salah baca respons, dan menandai seluruh
+      // katalog Mayar hilang lebih mahal daripada menunda satu putaran.
+      if (!rows.length) return { status: 'empty', count: 0 };
+      const items = catalog.mapMayarProducts(rows);
+      const count = await database.syncPosCatalog(companyId, 'mayar', items, { touchSettings: false });
+      catalogCache.delete(companyId);
+      app.log.info({ companyId, count, rows: rows.length }, 'Katalog Mayar ditarik');
+      return { status: 'ok', count };
+    } catch (error) {
+      app.log.warn({ err: error, companyId }, 'Penarikan katalog Mayar gagal');
+      return { status: 'error', error: error.message };
+    } finally {
+      mayarCatalogRunning.delete(companyId);
+    }
+  }
+
+  function startMayarCatalogRefresher() {
+    const jalankan = async () => {
+      const connections = await database.listEnabledMayarConnections().catch(() => []);
+      for (const { companyId, apiKey } of connections) await runMayarCatalogJob(companyId, apiKey);
+    };
+    void jalankan();
+    const timer = setInterval(() => { jalankan().catch(() => {}); }, MAYAR_CATALOG_REFRESH_MS);
+    timer.unref?.();
   }
 
   // ── Percakapan dari luar WhatsApp (Agnive Hub, …) — baca saja ─────────────
@@ -9926,11 +9967,11 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
       await database.upsertMayarConnection(companyId, apiKey, {
         accountName: identity?.name || null, accountEmail: identity?.email || null,
       });
-      const { count } = await syncMayarFor(companyId, apiKey);
+      const { count, productCount } = await syncMayarFor(companyId, apiKey);
       await catatAudit(request, 'integration.connected', {
         entityType: 'integration', entityId: 'mayar', metadata: { integration: 'mayar' },
       });
-      return reply.code(201).send({ ok: true, customerTotal: total, leadCount: count, accountName: identity?.name || null });
+      return reply.code(201).send({ ok: true, customerTotal: total, leadCount: count, productCount, accountName: identity?.name || null });
     } catch (error) {
       return reply.code(422).send({ error: publicErrorMessage(error) });
     }
@@ -9943,8 +9984,8 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     get: 'getMayarConnection', record: 'recordMayarSync',
     setEnabled: 'setMayarEnabled', remove: 'deleteMayarConnection',
     sync: async (companyId, conn) => {
-      const { count } = await syncMayarFor(companyId, conn.apiKey);
-      return { leadCount: count };
+      const { count, productCount } = await syncMayarFor(companyId, conn.apiKey);
+      return { leadCount: count, productCount };
     },
   });
 
@@ -10495,7 +10536,7 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
         properties: {
           q: { type: 'string', maxLength: 100 },
           tag: { type: 'string', format: 'uuid' },
-          source: { type: 'string', enum: ['manual', 'dealpos'] },
+          source: { type: 'string', enum: ['manual', 'dealpos', 'mayar'] },
           kind: { type: 'string', enum: ['product', 'service'] },
           category: { type: 'string', maxLength: 200 },
           status: { type: 'string', enum: ['visible', 'hidden', 'missing'] },
@@ -13444,6 +13485,7 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     if (canCall('listCompaniesPendingPosTags')) void resumePosTagJobs();
     if (canCall('listDealposProductsDue')) startDealposPriceRefresher();
     if (canCall('listDealposSyncDue')) startDealposCustomerRefresher();
+    if (canCall('listEnabledMayarConnections') && canCall('syncPosCatalog')) startMayarCatalogRefresher();
     if (database.enabled && database.connected) startBroadcastSender();
     if (database.enabled && database.connected) startWedgeWatch();
 

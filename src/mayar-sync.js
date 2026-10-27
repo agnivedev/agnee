@@ -151,4 +151,12 @@ async function fetchMayarLeads(apiKey, fetchImpl = fetch) {
     }));
 }
 
-module.exports = { normalizePhone, decodeApiKeyIdentity, verifyApiKey, fetchAllPages, fetchMayarLeads, MAYAR };
+/**
+ * Semua produk Mayar (webinar, ebook, link pembayaran, ...), mentah. Pemetaan
+ * ke item katalog ada di catalog.js; di sini hanya halaman-halaman API-nya.
+ */
+async function fetchMayarProducts(apiKey, fetchImpl = fetch) {
+  return fetchAllPages('/hl/v2/products', apiKey, fetchImpl);
+}
+
+module.exports = { normalizePhone, decodeApiKeyIdentity, verifyApiKey, fetchAllPages, fetchMayarLeads, fetchMayarProducts, MAYAR };

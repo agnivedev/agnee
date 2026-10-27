@@ -20,7 +20,8 @@ export type ItemTag = { id: string; name: string; color: TagColor; manual: boole
 
 export type CatalogItem = {
   id: string;
-  source: 'manual' | 'dealpos';
+  source: 'manual' | 'dealpos' | 'mayar';
+  url?: string | null;
   externalId: string | null;
   kind: 'product' | 'service';
   name: string;
@@ -55,7 +56,7 @@ export type CatalogSettings = {
 export type CatalogSummary = {
   settings: CatalogSettings;
   tags: CatalogTag[];
-  counts: { total: number; manual: number; dealpos: number };
+  counts: { total: number; manual: number; dealpos: number; mayar: number };
   detailPending: number;
   canEdit: boolean;
   pos: { provider: 'dealpos'; host: string; enabled: boolean; syncing: boolean } | null;
@@ -91,7 +92,7 @@ export type SortDir = 'asc' | 'desc';
 export type CatalogFilters = {
   query: string;
   tagId: string | null;
-  source: '' | 'manual' | 'dealpos';
+  source: '' | 'manual' | 'dealpos' | 'mayar';
   kind: '' | 'product' | 'service';
   category: string;
   status: '' | 'visible' | 'hidden' | 'missing';

@@ -87,6 +87,53 @@ function mapDealposProduct(row) {
   return out;
 }
 
+/** Deskripsi Mayar berupa HTML; AI dan tabel hanya butuh teksnya. */
+function stripHtml(value) {
+  const raw = String(value ?? '');
+  if (!raw) return '';
+  return raw
+    .replace(/<\s*(br|\/p|\/li|\/div|\/h[1-6])\s*\/?>/gi, ' ')
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&nbsp;/gi, ' ').replace(/&lt;/gi, '<').replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"').replace(/&#0?39;/g, "'").replace(/&amp;/gi, '&')
+    .replace(/\s+/g, ' ').trim()
+    .slice(0, 2000);
+}
+
+/**
+ * Satu produk Mayar -> satu item katalog. Hanya produk `active`: yang ditutup
+ * (webinar selesai, link dimatikan) hilang dari tarikan dan ditandai
+ * `missing_from_source`, jadi AI berhenti menawarkannya. `amount` 0 dibaca
+ * "tidak dicantumkan", bukan Rp 0: webinar gratis tetap boleh disebut, tapi
+ * AI tidak menyebut harga yang bisa salah.
+ */
+function mapMayarProduct(row) {
+  if (!row || typeof row !== 'object') return null;
+  if (String(row.status || '').toLowerCase() !== 'active') return null;
+  const id = text(row.id);
+  const name = text(row.name);
+  if (!id || !name) return null;
+  const amount = num(row.amount);
+  const created = num(row.createdAt);
+  const cover = row.coverImage && typeof row.coverImage === 'object' ? (row.coverImage.url ?? row.coverImage.link) : row.coverImage;
+  return {
+    externalId: id,
+    code: null,
+    name: name.slice(0, 200),
+    category: (text(row.category) || text(row.type))?.slice(0, 100) || null,
+    price: amount !== null && amount > 0 ? amount : null,
+    discountPct: 0,
+    imageUrl: safeUrl(cover),
+    releasedAt: created !== null ? date(new Date(created)) : null,
+    description: stripHtml(row.description),
+    url: safeUrl(row.linkPayment) || safeUrl(row.linkUrl),
+  };
+}
+
+function mapMayarProducts(rows) {
+  return (Array.isArray(rows) ? rows : []).map(mapMayarProduct).filter(Boolean);
+}
+
 /** Hanya http(s); selain itu (javascript:, data:) dibuang. */
 function safeUrl(value) {
   const raw = text(value);
@@ -252,6 +299,7 @@ function itemLine(item) {
   parts.push(`: ${price}`);
   if (item.tags?.length) parts.push(` · ribbon: ${item.tags.map((t) => t.name).join(', ')}`);
   if (item.description) parts.push(` — ${item.description.replace(/\s+/g, ' ').slice(0, 240)}`);
+  if (item.url) parts.push(` · link: ${item.url}`);
   return parts.join('');
 }
 
@@ -271,6 +319,9 @@ function catalogSection({ items, tags, syncedAt = null }, { text: message = '', 
     `## KATALOG PRODUK & JASA${when ? ` (data POS diperbarui ${when} WIB)` : ''}`,
     'Sebut harga hanya dari katalog ini, apa adanya. Barang, ukuran, atau jasa yang tidak ada di sini: jangan menebak harganya. Katalog ini bukan informasi stok.',
   ];
+  if (items.some((i) => i.url)) {
+    lines.push('Item yang punya "link" boleh dibagikan linknya persis seperti tertulis, hanya saat customer ingin membeli atau mendaftar; jangan mengarang atau mengubah link.');
+  }
   const usedTags = activeTags.filter((t) => items.some((i) => i.tags?.some((x) => x.id === t.id)));
   if (usedTags.length) {
     lines.push('Ribbon adalah label resmi toko. Sebut bila relevan; jangan memberi ribbon pada item yang tidak memilikinya.');
@@ -308,6 +359,9 @@ module.exports = {
   DEFAULT_TAGS,
   mapDealposProduct,
   fetchDealposCatalog,
+  mapMayarProduct,
+  mapMayarProducts,
+  stripHtml,
   autoAssignments,
   soldQtyFor,
   catalogSection,

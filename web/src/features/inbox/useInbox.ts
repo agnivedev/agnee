@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '@/lib/api';
-import type { Chat, Message, WhatsappStatus } from './types';
+import type { Chat, InboxNumber, Message, WhatsappStatus } from './types';
 
 export type InboxTab = 'inbox' | 'archived';
 export type InboxFilter = 'all' | 'unread' | 'qualified';
@@ -37,6 +37,9 @@ export function useInbox() {
   const [tab, setTab] = useState<InboxTab>('inbox');
   const [filter, setFilter] = useState<InboxFilter>('all');
   const [search, setSearch] = useState('');
+  // Tab per nomor: null = semua nomor.
+  const [numberId, setNumberId] = useState<string | null>(null);
+  const [numbers, setNumbers] = useState<InboxNumber[]>([]);
   const [listError, setListError] = useState<string>();
   // Sebelum balasan pertama tiba, daftar kosong BUKAN berarti tidak ada
   // percakapan — tanpa penanda ini layar menulis "belum ada percakapan".
@@ -76,6 +79,7 @@ export function useInbox() {
           q: search.trim(),
           filter: tab === 'archived' ? 'archived' : filter === 'all' ? 'inbox' : filter,
         });
+        if (numberId) params.set('connectionId', numberId);
         const data = await api<ChatsResponse>(`/v1/chats?${params}`, {
           signal: AbortSignal.timeout(CHAT_REQUEST_TIMEOUT_MS),
         });
@@ -105,7 +109,7 @@ export function useInbox() {
         }
       }
     },
-    [chats.length, search, tab, filter],
+    [chats.length, search, tab, filter, numberId],
   );
 
   loadChatsRef.current = loadChats;
@@ -177,11 +181,27 @@ export function useInbox() {
     // loadChats changes identity with chats.length, which would loop; the inputs
     // that must trigger a reload are listed explicitly instead.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, filter, search]);
+  }, [tab, filter, search, numberId]);
 
   useEffect(() => {
     void refreshStatus().catch(() => {});
   }, [refreshStatus]);
+
+  const refreshNumbers = useCallback(async () => {
+    try {
+      const data = await api<{ numbers: InboxNumber[] }>('/v1/inbox/numbers');
+      const list = data.numbers || [];
+      setNumbers(list);
+      // Nomor yang dihapus tidak boleh meninggalkan tab kosong yang terpilih.
+      setNumberId((current) => (current && !list.some((n) => n.id === current) ? null : current));
+    } catch {
+      /* tab nomor hanya pemanis; inbox tetap jalan tanpanya */
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshNumbers();
+  }, [refreshNumbers]);
 
   // Restore the conversation that was open before a reload, or fall back to the
   // newest one, once the first page of chats has arrived.
@@ -213,6 +233,10 @@ export function useInbox() {
     setFilter,
     search,
     setSearch,
+    numberId,
+    setNumberId,
+    numbers,
+    refreshNumbers,
     loadChats,
     loadMessages,
     loadOlderMessages,

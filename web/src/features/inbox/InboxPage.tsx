@@ -156,6 +156,7 @@ export function InboxPage() {
       if (phase === 'waiting_for_qr' && payload.qrDataUrl && (connectionId ? forDialog : forHeader)) {
         setQrFromEvent(String(payload.qrDataUrl));
       }
+      void inbox.refreshNumbers();
       if (phase === 'ready') void inbox.loadChats(true);
     },
   });
@@ -342,6 +343,36 @@ export function InboxPage() {
             className="w-full border-0 bg-transparent text-ink outline-none"
           />
         </label>
+
+        {inbox.numbers.length > 1 ? (
+          <div
+            role="tablist"
+            aria-label={t('inbox.numbers')}
+            className="mb-2.5 flex gap-1.5 overflow-x-auto pb-1"
+          >
+            {[{ id: null, label: t('inbox.allNumbers'), phase: 'ready' }, ...inbox.numbers].map((number) => (
+              <button
+                key={number.id ?? 'all'}
+                type="button"
+                role="tab"
+                aria-selected={inbox.numberId === number.id}
+                onClick={() => inbox.setNumberId(number.id)}
+                className={cn(
+                  'flex shrink-0 cursor-pointer items-center gap-1.5 rounded-[9px] border border-border px-[11px] py-[6px] text-xs',
+                  inbox.numberId === number.id ? 'bg-ink text-white' : 'bg-transparent text-muted hover:text-ink',
+                )}
+              >
+                {number.id ? (
+                  <span
+                    aria-hidden="true"
+                    className={cn('size-1.5 rounded-full', number.phase === 'ready' ? 'bg-green' : 'bg-muted/50')}
+                  />
+                ) : null}
+                {number.label}
+              </button>
+            ))}
+          </div>
+        ) : null}
 
         <div className="mb-2.5 flex border-b border-border" aria-label={t('inbox.tabs')}>
           {(['inbox', 'archived'] as InboxTab[]).map((tab) => (

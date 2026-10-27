@@ -1381,7 +1381,9 @@ class Database {
       }
 
       const limits = plan === 'company'
-        ? { maxUsers: 5, maxPlaybooks: 0, maxWhatsapp: 0, aiMessageLimit: 0 }
+        // Paket 5 pengguna inbox: 3 nomor dalam satu inbox bertab. Paket di atasnya
+        // diatur lewat /superhuman (max_whatsapp 0 = tanpa batas).
+        ? { maxUsers: 5, maxPlaybooks: 0, maxWhatsapp: 3, aiMessageLimit: 0 }
         : { maxUsers: 1, maxPlaybooks: 1, maxWhatsapp: 1, aiMessageLimit: 500 };
 
       const companyResult = await client.query(`

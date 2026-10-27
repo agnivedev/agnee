@@ -33,6 +33,7 @@ export function ChatList({ inbox, demoMode }: { inbox: InboxApi; demoMode: boole
               key={chat.id}
               chat={chat}
               demoMode={demoMode}
+              showNumber={inbox.numbers.length > 1 && !inbox.numberId}
               active={inbox.activeChat?.id === chat.id}
               onSelect={() => void inbox.openChat(chat)}
             />
@@ -107,11 +108,13 @@ function ChatItem({
   chat,
   active,
   demoMode,
+  showNumber,
   onSelect,
 }: {
   chat: Chat;
   active: boolean;
   demoMode: boolean;
+  showNumber: boolean;
   onSelect: () => void;
 }) {
   const { t } = useI18n();
@@ -132,7 +135,14 @@ function ChatItem({
         src={demoMode ? null : `/v1/chats/${encodeURIComponent(chat.id)}/avatar`}
       />
       <span className="min-w-0">
-        <strong className="block truncate text-[13px]">{chat.name}</strong>
+        <strong className="block truncate text-[13px]">
+          {chat.name}
+          {showNumber && chat.connectionLabel ? (
+            <span className="ml-1.5 rounded-[5px] bg-ink/[.06] px-1.5 py-px align-middle text-[10px] font-medium text-muted">
+              {chat.connectionLabel}
+            </span>
+          ) : null}
+        </strong>
         <span className="mt-[3px] block truncate text-[11px] text-muted">
           {chat.isGroup && chat.lastSenderName ? `${chat.lastSenderName} ▸ ${preview}` : preview}
         </span>

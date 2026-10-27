@@ -11633,12 +11633,29 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     return { ok: true };
   });
 
+  // Daftar nomor untuk tab inbox. Terbuka untuk semua peran (supervisor-only
+  // hanya /v1/whatsapp/numbers); isinya sengaja minim: tanpa nomor telepon.
+  app.get('/v1/inbox/numbers', async (request) => {
+    const companyId = request.agneeSession.companyId;
+    if (config.demoMode) return { numbers: [] };
+    const rows = (await listWaConns(companyId)).filter((row) => row.isActive !== false);
+    return {
+      numbers: rows.map((row) => ({
+        id: row.id,
+        label: row.label || (row.connectionKey === 'whatsapp-main' ? 'Nomor utama' : row.connectionKey),
+        phase: manager.getState(row.id).phase,
+      })),
+    };
+  });
+
   app.get('/v1/chats', {
     schema: { querystring: { type: 'object', properties: {
       limit: { type: 'integer', minimum: 1, maximum: 50, default: 12 },
       offset: { type: 'integer', minimum: 0, maximum: 5000, default: 0 },
       q: { type: 'string', maxLength: 100, default: '' },
       filter: { type: 'string', enum: ['all', 'unread', 'qualified', 'archived', 'inbox'], default: 'inbox' },
+      // Tab per nomor di inbox: hanya percakapan dari satu nomor.
+      connectionId: { type: 'string', maxLength: 64 },
     } } },
   }, async (request) => {
     const companyId = request.agneeSession.companyId;
@@ -11647,8 +11664,10 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     // Inbox menampilkan SEMUA nomor company. Kalau hanya nomor utama yang
     // dibaca, percakapan yang masuk lewat nomor kedua tidak terlihat sama
     // sekali — itu justru menghapus gunanya punya beberapa nomor.
+    const onlyConnection = request.query.connectionId || null;
     const liveConns = conns.filter((conn) => manager.getClient(conn.id)
-      && manager.getState(conn.id).phase === 'ready');
+      && manager.getState(conn.id).phase === 'ready'
+      && (!onlyConnection || conn.id === onlyConnection));
     const waState = conns.length
       ? manager.getState((conns.find((c) => c.connectionKey === 'whatsapp-main') || conns[0]).id)
       : { phase: 'disabled' };

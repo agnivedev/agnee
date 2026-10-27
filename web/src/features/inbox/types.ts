@@ -10,7 +10,12 @@ export type Chat = {
   isGroup: boolean;
   pinned: boolean;
   archived: boolean;
+  /** Nomor yang menerima percakapan ini (kosong untuk Cloud API/demo). */
+  connectionId?: string | null;
+  connectionLabel?: string | null;
 };
+
+export type InboxNumber = { id: string; label: string; phase: string };
 
 export type QuotedMessage = {
   id: string | null;

@@ -158,6 +158,41 @@ function composeDocs(sections) {
   return byKind;
 }
 
+function plainTextOf(element) {
+  if (!element) return '';
+  if (typeof element.value === 'string') return element.value;
+  return (element.children || []).map(plainTextOf).join(element.type === 'paragraph' ? ' ' : '');
+}
+
+/**
+ * Markdown mammoth tidak punya tabel: tiap sel keluar sebagai paragraf sendiri
+ * dan susunan baris/kolomnya hilang. Tabel Word diganti baris Markdown berpagar
+ * ("| a | b |") dengan garis pemisah di bawah baris pertama, yang dibaca
+ * tampilan playbook sebagai tabel.
+ */
+function tablesToPipeRows(documentElement) {
+  const paragraph = (text) => ({ type: 'paragraph', children: [{ type: 'run', children: [{ type: 'text', value: text }] }] });
+  const walk = (element) => {
+    if (!element || !Array.isArray(element.children)) return element;
+    const children = [];
+    for (const child of element.children) {
+      if (child.type !== 'table') {
+        children.push(walk(child));
+        continue;
+      }
+      const rows = (child.children || []).filter((row) => row.type === 'tableRow');
+      rows.forEach((row, index) => {
+        const cells = (row.children || []).filter((cell) => cell.type === 'tableCell');
+        const texts = cells.map((cell) => plainTextOf(cell).replace(/\s+/g, ' ').replace(/\|/g, '/').trim());
+        children.push(paragraph(`| ${texts.join(' | ')} |`));
+        if (index === 0) children.push(paragraph(`|${texts.map(() => ' --- ').join('|')}|`));
+      });
+    }
+    return { ...element, children };
+  };
+  return walk(documentElement);
+}
+
 /** Teks yang bisa dipecah. Word dikonversi ke Markdown supaya heading-nya tidak hilang. */
 async function extractImportText(buffer, mimeType, filename) {
   const ext = String(filename || '').toLowerCase().split('.').pop();
@@ -172,10 +207,13 @@ async function extractImportText(buffer, mimeType, filename) {
   }
   if (ext === 'docx' || mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
     const mammoth = require('mammoth');
-    const result = await mammoth.convertToMarkdown({ buffer });
+    const result = await mammoth.convertToMarkdown({ buffer }, { transformDocument: tablesToPipeRows });
     // mammoth meng-escape tanda baca Markdown di teks biasa ("1\." , "\-");
     // di sini kita butuh teksnya, bukan Markdown yang aman ditampilkan ulang.
-    return result.value.replace(/\\([\\`*_{}[\]()#+\-.!>])/g, '$1');
+    return result.value
+      .replace(/\\([\\`*_{}[\]()#+\-.!>])/g, '$1')
+      // mammoth memisahkan paragraf dengan baris kosong; baris tabel harus rapat.
+      .replace(/\|[ \t]*\n\n(?=\|)/g, '|\n');
   }
   if (ext === 'doc') {
     throw Object.assign(new Error('Format .doc lama tidak bisa dibaca. Simpan ulang sebagai .docx, .md, atau .pdf.'), { statusCode: 415 });
@@ -202,4 +240,5 @@ module.exports = {
   splitSections,
   composeDocs,
   extractImportText,
+  tablesToPipeRows,
 };

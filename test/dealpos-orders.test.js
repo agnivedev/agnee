@@ -46,6 +46,27 @@ test('isUsable butuh saklar dan setelan dokumen lengkap', () => {
   assert.equal(orders.isUsable(null), false);
 });
 
+test('proforma: harga yang disebut ke customer beda dari daftar = tidak terbit', async () => {
+  const fetchLog = [];
+  const { tools, docs } = setup({ fetchLog });
+  const out = await tools.buat_proforma.run({ barang: [{ kode: 'MU480', jumlah: 1, harga_satuan: 1550000 }], tujuan: '-6.3,106.6' });
+  assert.equal(out.status, 'harga_beda');
+  assert.deepEqual(out.barang[0], { kode: 'MU480', nama: 'MU 480 RENOFIX 25KG', harga_disebut: 1550000, harga_daftar: 313000 });
+  assert.equal(docs.length, 0);
+  assert.ok(!fetchLog.some((f) => f.url.includes('/Estimate')), 'tidak ada Estimate ke DealPOS');
+  const ok = await tools.buat_proforma.run({ barang: [{ kode: 'MU480', jumlah: 1, harga_satuan: 313000 }], tujuan: '-6.3,106.6' });
+  assert.equal(ok.status, 'ok');
+});
+
+test('proforma: varian berharga Rp 1 ditolak, nama persis diterima sebagai kode', () => {
+  const products = [...PRODUCTS, { variantId: 'v2', code: 'KIT1', name: 'PENGUIN PLUMBING KIT 1 INCH', unitPrice: 1 }];
+  const kit = orders.resolveItems(products, [{ kode: 'KIT1', jumlah: 1 }]);
+  assert.deepEqual(kit.invalidPrice, ['PENGUIN PLUMBING KIT 1 INCH']);
+  assert.equal(kit.lines.length, 0);
+  const byName = orders.resolveItems(products, [{ kode: 'mu 480 renofix 25kg', jumlah: 2 }]);
+  assert.equal(byName.lines[0].code, 'MU480');
+});
+
 test('proforma: kendaraan dari rincian diteruskan ke cek_ongkir', async () => {
   const asked = [];
   const { tools } = setup({ quote: async (args) => { asked.push(args); return { status: 'ok', ketepatan: 'titik', ongkir_angka: 165000, ongkir_dibayar_angka: 165000, layanan: 'TRUCK175', kendaraan: 'TRUCK175 (Pickup)', titik_antar: { lat: -6.3, lng: 106.6, address: 'BSD' } }; } });

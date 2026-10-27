@@ -25,7 +25,8 @@ const INVOICE = 'buat_invoice';
 const SHIPPING_DRIFT = 0.1;
 
 const GUIDE = `## PROFORMA & INVOICE DEALPOS (alat ${PROFORMA}, ${INVOICE})
-- Customer sudah deal (barang, jumlah, dan lokasi jelas): panggil ${PROFORMA} dengan "kode" barang dari DAFTAR HARGA DEALPOS dan "kendaraan" yang sama dengan cek_ongkir di rincian yang sudah disetujui, supaya ongkirnya tidak berubah. Kirim "teks" hasilnya persis seperti diberikan, lalu minta customer memeriksa dan menyetujuinya. Alat ini menghitung harga dan ongkir sendiri; jangan menghitung ulang.
+- Customer sudah deal (barang, jumlah, dan lokasi jelas): panggil ${PROFORMA} dengan "kode" barang dari DAFTAR HARGA DEALPOS dan "kendaraan" yang sama dengan cek_ongkir di rincian yang sudah disetujui, supaya ongkirnya tidak berubah. Isi "harga_satuan" tiap barang dengan harga yang sudah kamu sebut ke customer; alat menolak bila beda dari daftar.
+- Hasil selain "ok" berarti TIDAK ADA proforma. Jangan pernah menulis teks proforma sendiri; sampaikan apa yang perlu diperbaiki atau tanyakan ke tim. Kirim "teks" hasilnya persis seperti diberikan, lalu minta customer memeriksa dan menyetujuinya. Alat ini menghitung harga dan ongkir sendiri; jangan menghitung ulang.
 - Setelah customer menyatakan setuju dengan proforma itu (di pesannya sendiri, bukan tebakanmu), panggil ${INVOICE}. Jangan memanggilnya di giliran yang sama dengan ${PROFORMA}.
 - Kalau customer mengubah pesanan (barang, jumlah, lokasi), buat proforma baru; jangan invoice dari yang lama.
 - Setelah ${INVOICE} berhasil, sampaikan nomor invoice dan, bila ada, tautan pelacakan kurir, lalu jelaskan langkah pembayarannya sesuai playbook. Kalau hasilnya "sebagian" atau "gagal", katakan tim akan menindaklanjuti; jangan mengulang pemanggilan dan jangan menjanjikan kurir sudah berangkat.
@@ -34,22 +35,42 @@ const GUIDE = `## PROFORMA & INVOICE DEALPOS (alat ${PROFORMA}, ${INVOICE})
 const todayInJakarta = (now = new Date()) => new Date(now.getTime() + 7 * 3600_000).toISOString().slice(0, 10);
 const stamp = (now = new Date()) => `${todayInJakarta(now).replace(/-/g, '')}${now.getTime().toString(36).toUpperCase().slice(-5)}`;
 
-/** Kode/nama pada permintaan AI -> varian di `dealpos_products` (harga dari DB). */
+// Harga di bawah ini bukan harga jual (DealPOS memakai Rp 1 untuk varian
+// pelengkap/bonus); proforma dengan harga seperti itu tidak boleh terbit.
+const MIN_UNIT_PRICE = 100;
+
+/**
+ * Kode/nama pada permintaan AI -> varian di `dealpos_products` (harga dari DB).
+ * `harga_satuan` = harga yang sudah disebut ke customer; yang berbeda dari
+ * daftar dikembalikan di `priceMismatch` supaya dokumen tidak terbit dengan
+ * angka lain dari yang dijanjikan di chat.
+ */
 function resolveItems(products, requested) {
   const byCode = new Map();
+  const byName = new Map();
   for (const p of products) {
     if (p.code) byCode.set(String(p.code).toLowerCase(), p);
     byCode.set(String(p.variantId).toLowerCase(), p);
+    byName.set(String(p.name).trim().toLowerCase(), p);
   }
   const lines = [];
   const unknown = [];
+  const priceMismatch = [];
+  const invalidPrice = [];
   for (const item of Array.isArray(requested) ? requested : []) {
-    const product = byCode.get(String(item.kode || '').trim().toLowerCase());
+    const key = String(item.kode || '').trim().toLowerCase();
+    const product = byCode.get(key) || byName.get(key);
     const qty = Number(item.jumlah);
     if (!product || !(qty > 0)) { unknown.push(String(item.kode || '?')); continue; }
-    lines.push({ code: product.code || product.variantId, name: product.name, unit: product.unit || '', qty, unitPrice: Number(product.unitPrice) });
+    const unitPrice = Number(product.unitPrice);
+    if (!(unitPrice >= MIN_UNIT_PRICE)) { invalidPrice.push(product.name); continue; }
+    const quoted = item.harga_satuan == null ? null : Number(item.harga_satuan);
+    if (quoted != null && Math.round(quoted) !== Math.round(unitPrice)) {
+      priceMismatch.push({ kode: product.code || product.variantId, nama: product.name, harga_disebut: quoted, harga_daftar: unitPrice });
+    }
+    lines.push({ code: product.code || product.variantId, name: product.name, unit: product.unit || '', qty, unitPrice });
   }
-  return { lines, unknown };
+  return { lines, unknown, priceMismatch, invalidPrice };
 }
 
 function customerBlock({ phone, name, existing }) {
@@ -102,9 +123,18 @@ function createTools(ctx) {
   async function proforma(args = {}) {
     const setupGap = missingSetup(conn.orderOutlet ? { orderOutlet: conn.orderOutlet, orderTag: conn.orderTag, orderTaxType: conn.orderTaxType } : {});
     if (setupGap) return { status: 'gagal', pesan: 'Proforma belum bisa dibuat otomatis. Tim yang akan membuatnya.' };
-    const { lines, unknown } = resolveItems(ctx.products, args.barang);
-    if (unknown.length || !lines.length) {
+    const { lines, unknown, priceMismatch, invalidPrice } = resolveItems(ctx.products, args.barang);
+    if (unknown.length || (!lines.length && !invalidPrice.length)) {
       return { status: 'barang_tidak_dikenal', kode: unknown, pesan: 'Kode barang tidak ada di daftar harga. Pakai kode persis dari DAFTAR HARGA DEALPOS, atau tanyakan barangnya ke customer.' };
+    }
+    if (invalidPrice.length) {
+      return { status: 'harga_belum_valid', barang: invalidPrice, pesan: 'Harga barang ini di DealPOS belum berupa harga jual. Pastikan kode barangnya benar; kalau benar, tanyakan harganya ke departemen Management. Proforma tidak dibuat.' };
+    }
+    if (priceMismatch.length) {
+      return {
+        status: 'harga_beda', barang: priceMismatch,
+        pesan: 'Harga yang sudah kamu sebut ke customer berbeda dengan daftar harga, atau kodenya salah barang. Proforma tidak dibuat. Periksa kodenya; kalau kodenya benar, sampaikan harga daftar ke customer dengan rincian baru dan tunggu persetujuannya.',
+      };
     }
     const pickup = args.ambil_di_toko === true;
     let shipping = 0;
@@ -259,8 +289,12 @@ function createTools(ctx) {
           barang: {
             type: 'array', minItems: 1, maxItems: 30,
             items: {
-              type: 'object', additionalProperties: false, required: ['kode', 'jumlah'],
-              properties: { kode: { type: 'string', maxLength: 60, description: 'Kode barang persis dari DAFTAR HARGA DEALPOS.' }, jumlah: { type: 'number', exclusiveMinimum: 0 } },
+              type: 'object', additionalProperties: false, required: ['kode', 'jumlah', 'harga_satuan'],
+              properties: {
+                kode: { type: 'string', maxLength: 60, description: 'Kode barang persis dari DAFTAR HARGA DEALPOS.' },
+                jumlah: { type: 'number', exclusiveMinimum: 0 },
+                harga_satuan: { type: 'number', minimum: 0, description: 'Harga satuan yang sudah kamu sebut ke customer di rincian, untuk dicocokkan dengan daftar.' },
+              },
             },
           },
           tujuan: { type: 'string', maxLength: 300, description: 'Koordinat "lat,lng" atau link Google Maps dari customer. Tidak perlu bila ambil_di_toko.' },
@@ -286,4 +320,4 @@ function createTools(ctx) {
   ];
 }
 
-module.exports = { PROFORMA, INVOICE, GUIDE, SHIPPING_DRIFT, isUsable, missingSetup, resolveItems, createTools, todayInJakarta };
+module.exports = { PROFORMA, INVOICE, GUIDE, SHIPPING_DRIFT, MIN_UNIT_PRICE, isUsable, missingSetup, resolveItems, createTools, todayInJakarta };

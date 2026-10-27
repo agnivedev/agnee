@@ -4895,6 +4895,12 @@ class Database {
     await this.pool.query('UPDATE dealpos_connections SET products_error = $2 WHERE company_id = $1', [companyId, String(message).slice(0, 300)]);
   }
 
+  /** Katalog menggantikan tarikan /Variant: tandai selesai supaya penjadwal tidak mengulang tiap 30 menit. */
+  async markDealposProductsSynced(companyId) {
+    if (!this.enabled) return;
+    await this.pool.query('UPDATE dealpos_connections SET products_synced_at = NOW(), products_error = NULL WHERE company_id = $1', [companyId]);
+  }
+
   /** Harga untuk balasan AI. Kosong bila koneksi dimatikan. */
   async listDealposProducts(companyId) {
     if (!this.enabled) return { products: [], syncedAt: null };
@@ -5118,7 +5124,7 @@ class Database {
              i.price::float8 AS price, i.price_note AS "priceNote", i.discount_pct::float8 AS "discountPct",
              i.description, i.image_url AS "imageUrl", i.active, i.missing_from_source AS "missingFromSource",
              i.released_at AS "releasedAt", i.sold_qty::float8 AS "soldQty", i.synced_at AS "syncedAt",
-             i.updated_at AS "updatedAt",
+             i.updated_at AS "updatedAt", i.brand, i.pos_tags AS "posTags",
              COALESCE((
                SELECT json_agg(json_build_object('id', t.id, 'name', t.name, 'color', t.color,
                                                  'manual', x.manual, 'auto', x.auto) ORDER BY t.sort_order, t.name)
@@ -5130,13 +5136,29 @@ class Database {
       FROM catalog_items i`;
   }
 
-  async listCatalogItems(companyId, { q = '', tagId = null, source = null, showHidden = true, limit = 50, offset = 0 } = {}) {
+  static CATALOG_SORTS = {
+    name: 'lower(i.name)',
+    category: "lower(COALESCE(i.category, ''))",
+    brand: "lower(COALESCE(i.brand, ''))",
+    price: 'i.price',
+    // Harga setelah diskon: yang dilihat customer.
+    finalPrice: 'i.price * (1 - i.discount_pct / 100)',
+    discount: 'i.discount_pct',
+    sold: 'i.sold_qty',
+    updated: 'i.updated_at',
+  };
+
+  async listCatalogItems(companyId, {
+    q = '', tagId = null, source = null, kind = null, category = null, status = null, priced = null,
+    sort = 'name', dir = 'asc', showHidden = true, limit = 50, offset = 0,
+  } = {}) {
     if (!this.enabled) return { items: [], total: 0 };
     const where = ['i.company_id = $1'];
     const values = [companyId];
     if (q.trim()) {
       values.push(`%${q.trim().toLowerCase()}%`);
-      where.push(`(lower(i.name) LIKE $${values.length} OR lower(COALESCE(i.code, '')) LIKE $${values.length} OR lower(COALESCE(i.category, '')) LIKE $${values.length})`);
+      const p = `$${values.length}`;
+      where.push(`(lower(i.name) LIKE ${p} OR lower(COALESCE(i.code, '')) LIKE ${p} OR lower(COALESCE(i.category, '')) LIKE ${p} OR lower(COALESCE(i.brand, '')) LIKE ${p})`);
     }
     if (tagId) {
       values.push(tagId);
@@ -5146,17 +5168,91 @@ class Database {
       values.push(source);
       where.push(`i.source = $${values.length}`);
     }
+    if (kind) {
+      values.push(kind);
+      where.push(`i.kind = $${values.length}`);
+    }
+    if (category) {
+      values.push(category);
+      where.push(`i.category = $${values.length}`);
+    }
+    if (status === 'visible') where.push('i.active AND NOT i.missing_from_source');
+    else if (status === 'hidden') where.push('NOT i.active');
+    else if (status === 'missing') where.push('i.missing_from_source');
+    if (priced === 'yes') where.push('i.price IS NOT NULL');
+    else if (priced === 'no') where.push('i.price IS NULL');
     if (!showHidden) where.push('i.active AND NOT i.missing_from_source');
     const whereSql = where.join(' AND ');
     const total = await this.pool.query(`SELECT COUNT(*)::int AS n FROM catalog_items i WHERE ${whereSql}`, values);
     values.push(limit, offset);
+    const column = Database.CATALOG_SORTS[sort] || Database.CATALOG_SORTS.name;
+    const direction = dir === 'desc' ? 'DESC' : 'ASC';
     const result = await this.pool.query(`
       ${this.catalogItemSelect()}
       WHERE ${whereSql}
-      ORDER BY i.missing_from_source, NOT i.active, lower(i.name)
+      ORDER BY i.missing_from_source, NOT i.active, ${column} ${direction} NULLS LAST, lower(i.name), i.id
       LIMIT $${values.length - 1} OFFSET $${values.length}
     `, values);
     return { items: result.rows, total: total.rows[0].n };
+  }
+
+  /** Kategori yang ada di katalog beserta jumlahnya, untuk saringan. */
+  async listCatalogCategories(companyId) {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(`
+      SELECT category, COUNT(*)::int AS count FROM catalog_items
+      WHERE company_id = $1 AND category IS NOT NULL AND category <> ''
+      GROUP BY category ORDER BY lower(category) LIMIT 500
+    `, [companyId]);
+    return result.rows;
+  }
+
+  /** Item DealPOS yang satuan/mereknya belum ditarik: yang berribbon dan terlaris lebih dulu. */
+  async listCatalogItemsNeedingDetail(companyId, limit = 20) {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(`
+      SELECT i.id, i.external_id AS "externalId" FROM catalog_items i
+      WHERE i.company_id = $1 AND i.source = 'dealpos' AND i.detail_synced_at IS NULL
+        AND i.active AND NOT i.missing_from_source AND i.external_id IS NOT NULL
+      ORDER BY EXISTS (SELECT 1 FROM catalog_item_tags it WHERE it.item_id = i.id) DESC,
+               i.sold_qty DESC NULLS LAST, lower(i.name), i.id
+      LIMIT $2
+    `, [companyId, limit]);
+    return result.rows;
+  }
+
+  async countCatalogItemsNeedingDetail(companyId) {
+    if (!this.enabled) return 0;
+    const result = await this.pool.query(`
+      SELECT COUNT(*)::int AS n FROM catalog_items
+      WHERE company_id = $1 AND source = 'dealpos' AND detail_synced_at IS NULL AND active AND NOT missing_from_source
+    `, [companyId]);
+    return result.rows[0].n;
+  }
+
+  async listCompaniesPendingCatalogDetail() {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(`
+      SELECT DISTINCT i.company_id AS "companyId" FROM catalog_items i
+      JOIN dealpos_connections d ON d.company_id = i.company_id AND d.enabled
+      WHERE i.source = 'dealpos' AND i.detail_synced_at IS NULL AND i.active AND NOT i.missing_from_source
+    `);
+    return result.rows.map((r) => r.companyId);
+  }
+
+  /**
+   * Satuan dari UOM DealPOS. Satuan yang sudah diisi tim tidak ditimpa;
+   * `detail_synced_at` selalu diisi supaya varian tanpa UOM tidak ditarik berulang.
+   */
+  async saveCatalogItemDetail(companyId, itemId, { unit = null, brand = null } = {}) {
+    if (!this.enabled) return;
+    await this.pool.query(`
+      UPDATE catalog_items SET
+        unit = COALESCE(NULLIF(unit, ''), $3),
+        brand = COALESCE($4, brand),
+        detail_synced_at = NOW()
+      WHERE company_id = $1 AND id = $2
+    `, [companyId, itemId, unit, brand]);
   }
 
   async getCatalogItem(itemId, companyId) {
@@ -5310,6 +5406,69 @@ class Database {
     }
   }
 
+  // ── Order kurir Lalamove dari percakapan ─────────────────────────────────
+
+  static LALAMOVE_ORDER_COLUMNS = `
+    id, chat_id AS "chatId", lalamove_order_id AS "orderId", environment, service_type AS "serviceType",
+    status, share_link AS "shareLink", total::float8 AS total, currency, pickup_name AS "pickupName",
+    pickup_address AS "pickupAddress", dropoff_address AS "dropoffAddress", recipient_name AS "recipientName",
+    recipient_phone AS "recipientPhone", created_at AS "createdAt", updated_at AS "updatedAt"`;
+
+  async createLalamoveOrder(companyId, order) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      INSERT INTO lalamove_orders (company_id, chat_id, lalamove_order_id, environment, service_type, status, share_link,
+        total, currency, pickup_name, pickup_address, dropoff_address, recipient_name, recipient_phone, created_by)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+      RETURNING ${Database.LALAMOVE_ORDER_COLUMNS}
+    `, [companyId, order.chatId, order.orderId, order.environment, order.serviceType, order.status || 'ASSIGNING_DRIVER',
+      order.shareLink || null, order.total ?? null, order.currency || 'IDR', order.pickupName || null,
+      order.pickupAddress || null, order.dropoffAddress || null, order.recipientName, order.recipientPhone, order.createdBy || null]);
+    return { ...result.rows[0], id: String(result.rows[0].id) };
+  }
+
+  async listLalamoveOrders(companyId, chatId) {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(
+      `SELECT ${Database.LALAMOVE_ORDER_COLUMNS} FROM lalamove_orders WHERE company_id = $1 AND chat_id = $2 ORDER BY created_at DESC LIMIT 20`,
+      [companyId, chatId],
+    );
+    return result.rows.map((row) => ({ ...row, id: String(row.id) }));
+  }
+
+  async getLalamoveOrderRow(companyId, chatId, id) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(
+      `SELECT ${Database.LALAMOVE_ORDER_COLUMNS} FROM lalamove_orders WHERE company_id = $1 AND chat_id = $2 AND id = $3`,
+      [companyId, chatId, id],
+    );
+    return result.rows[0] ? { ...result.rows[0], id: String(result.rows[0].id) } : null;
+  }
+
+  async updateLalamoveOrderStatus(companyId, id, { status, shareLink }) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      UPDATE lalamove_orders SET status = $3, share_link = COALESCE($4, share_link), updated_at = NOW()
+      WHERE company_id = $1 AND id = $2 RETURNING ${Database.LALAMOVE_ORDER_COLUMNS}
+    `, [companyId, id, status, shareLink || null]);
+    return result.rows[0] ? { ...result.rows[0], id: String(result.rows[0].id) } : null;
+  }
+
+  /** Merek dan tag bawaan DealPOS untuk item yang detailnya ditarik. `details`: Map externalId -> { brand, tags }. */
+  async savePosCatalogDetails(companyId, source, details) {
+    if (!this.enabled || !details?.size) return 0;
+    const entries = [...details.entries()];
+    let count = 0;
+    for (const [externalId, detail] of entries) {
+      const updated = await this.pool.query(
+        'UPDATE catalog_items SET brand = $4, pos_tags = $5 WHERE company_id = $1 AND source = $2 AND external_id = $3',
+        [companyId, source, externalId, detail.brand || null, detail.tags || []],
+      );
+      count += updated.rowCount;
+    }
+    return count;
+  }
+
   /**
    * Katalog untuk balasan AI: item tampil, ribbon aktif saja. Item POS hanya
    * ikut selama koneksi POS-nya menyala; harga dari koneksi yang dimatikan
@@ -5325,7 +5484,7 @@ class Database {
     const [items, tags] = await Promise.all([
       this.pool.query(`
         SELECT i.id, i.kind, i.name, i.code, i.category, i.unit, i.price::float8 AS price, i.price_note AS "priceNote",
-               i.discount_pct::float8 AS "discountPct", i.description, i.source,
+               i.discount_pct::float8 AS "discountPct", i.description, i.source, i.brand,
                COALESCE((SELECT json_agg(DISTINCT jsonb_build_object('id', t.id, 'name', t.name))
                          FROM catalog_item_tags it JOIN catalog_tags t ON t.id = it.tag_id AND t.active
                          WHERE it.item_id = i.id), '[]'::json) AS tags
@@ -5428,7 +5587,8 @@ class Database {
     id, name, kind, address, lat, lng, maps_url AS "mapsUrl",
     contact_name AS "contactName", contact_phone AS "contactPhone",
     opening_hours AS "openingHours", open_to_customers AS "openToCustomers",
-    is_pickup AS "isPickup", notes, created_at AS "createdAt", updated_at AS "updatedAt"`;
+    is_pickup AS "isPickup", notes, dealpos_outlet_id AS "dealposOutletId", dealpos_outlet_name AS "dealposOutletName",
+    created_at AS "createdAt", updated_at AS "updatedAt"`;
 
   async listCompanyLocations(companyId) {
     if (!this.enabled) return [];
@@ -5474,19 +5634,21 @@ class Database {
         companyId, location.name, location.kind, location.address || '', location.lat, location.lng,
         location.mapsUrl || null, location.contactName || null, location.contactPhone || null,
         location.openingHours || null, location.openToCustomers !== false, location.isPickup === true, location.notes || null,
+        location.dealposOutletId || null, location.dealposOutletName || null,
       ];
       const result = id
         ? await client.query(`
             UPDATE company_locations SET name = $2, kind = $3, address = $4, lat = $5, lng = $6, maps_url = $7,
               contact_name = $8, contact_phone = $9, opening_hours = $10, open_to_customers = $11,
-              is_pickup = $12, notes = $13, updated_at = NOW()
-            WHERE company_id = $1 AND id = $14
+              is_pickup = $12, notes = $13, dealpos_outlet_id = $14, dealpos_outlet_name = $15, updated_at = NOW()
+            WHERE company_id = $1 AND id = $16
             RETURNING ${Database.LOCATION_COLUMNS}
           `, [...values, id])
         : await client.query(`
             INSERT INTO company_locations (company_id, name, kind, address, lat, lng, maps_url,
-              contact_name, contact_phone, opening_hours, open_to_customers, is_pickup, notes)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+              contact_name, contact_phone, opening_hours, open_to_customers, is_pickup, notes,
+              dealpos_outlet_id, dealpos_outlet_name)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
             RETURNING ${Database.LOCATION_COLUMNS}
           `, values);
       await client.query('COMMIT');

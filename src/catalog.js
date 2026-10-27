@@ -62,9 +62,9 @@ function mapDealposProduct(row) {
   for (const v of variants) {
     if (!v || v.Discontinued === true) continue;
     const id = text(v.ID) || text(v.Code);
-    // Harga jual didahulukan, sama dengan dealpos-prices.js: UnitPrice di sebagian
-    // respons DealPOS adalah harga dasar/beli. Harga jual 0 berarti dilewati, bukan
-    // jatuh ke UnitPrice.
+    // Respons DealPOS asli (ESBEJE, 27 Okt) hanya punya UnitPrice, dan itu harga jual:
+    // harga beli ada di UnitCost. SellingPrice/SellPrice didahulukan kalau suatu akun
+    // memakainya; harga 0 berarti dilewati, bukan jatuh ke field berikutnya.
     const price = [v.SellingPrice, v.SellPrice, v.UnitPrice, v.Price, v.SalesPrice].map(num).find((n) => n !== null) ?? null;
     if (!id || price === null || price <= 0) continue;
     const model = text(v.Model ?? v.Name);
@@ -74,6 +74,7 @@ function mapDealposProduct(row) {
     const discount = num(v.Discount);
     out.push({
       externalId: id,
+      productId: text(row.ID),
       code: text(v.Code),
       name: name.slice(0, 200),
       category: text(row.Category)?.slice(0, 100) || null,
@@ -162,6 +163,61 @@ function autoAssignments(items, sold, { bestSellerCount = 10, newDays = 30, now 
   return { best_seller: bestSeller, promo, new: fresh };
 }
 
+/**
+ * Item yang detailnya (merek, tag) ditarik: Best Seller dan Promo saja, paling
+ * banyak `max` produk. `/Product/Detail` satu permintaan per produk di API
+ * ber-rate-limit; menarik ribuan varian tidak mungkin.
+ */
+function detailTargets(items, assignments, max = 80) {
+  const wanted = new Set([...(assignments.best_seller || []), ...(assignments.promo || [])]);
+  const seen = new Set();
+  const out = [];
+  for (const item of items) {
+    if (!wanted.has(item.externalId) || !item.productId || seen.has(item.productId)) continue;
+    seen.add(item.productId);
+    out.push(item);
+    if (out.length >= max) break;
+  }
+  return out;
+}
+
+/**
+ * Tarik merek dan tag untuk `targets`. Map externalId -> { brand, tags }.
+ * Berhenti diam-diam bila kena rate limit: detail hanya pelengkap.
+ */
+async function fetchDealposDetails(get, targets, { sleep = defaultSleep } = {}) {
+  const out = new Map();
+  for (const item of targets) {
+    let data;
+    try {
+      data = await get(`/Product/Detail?ID=${encodeURIComponent(item.productId)}`);
+    } catch (error) {
+      if (error?.rateLimited) break;
+      continue;
+    }
+    const tags = (Array.isArray(data?.Tags) ? data.Tags : []).map((t) => text(t)).filter(Boolean).slice(0, 20);
+    out.set(item.externalId, { brand: text(data?.Brand)?.slice(0, 100) || null, tags });
+    await sleep(PAGE_GAP_MS);
+  }
+  return out;
+}
+
+// Jeda antar varian pada penarikan satuan; laju sebenarnya dibatasi antrean DealPOS bersama.
+const DETAIL_GAP_MS = 150;
+
+/**
+ * Satuan (UOM) dan merek satu varian dari `/Variant/Detail`. Varian tanpa UOM
+ * dikembalikan kosong (bukan galat) supaya tidak ditarik berulang; rate limit
+ * dilempar ke pemanggil, yang berhenti dan melanjutkan nanti.
+ */
+async function fetchVariantDetail(get, variantId) {
+  const data = await get(`/Variant/Detail?ID=${encodeURIComponent(variantId)}`);
+  return {
+    unit: text(data?.UOMName)?.slice(0, 30) || null,
+    brand: text(data?.Brand)?.slice(0, 100) || null,
+  };
+}
+
 const soldQtyFor = (item, sold) => (sold && item.code ? sold.get(item.code.toLowerCase()) || 0 : null);
 
 const rupiah = (value) => `Rp ${Math.round(Number(value)).toLocaleString('id-ID')}`;
@@ -173,7 +229,7 @@ const RULE_NOTE = {
 };
 
 function itemLine(item) {
-  const parts = [`- ${item.name}${item.code ? ` [${item.code}]` : ''}${item.kind === 'service' ? ' (jasa)' : ''}`];
+  const parts = [`- ${item.name}${item.code ? ` [${item.code}]` : ''}${item.kind === 'service' ? ' (jasa)' : ''}${item.brand ? ` (merek ${item.brand})` : ''}`];
   let price = '';
   if (item.price !== null && item.price !== undefined) {
     price = `${rupiah(item.price)}${item.unit ? ` per ${item.unit}` : ''}`;
@@ -246,6 +302,10 @@ module.exports = {
   autoAssignments,
   soldQtyFor,
   catalogSection,
+  detailTargets,
+  fetchVariantDetail,
+  DETAIL_GAP_MS,
+  fetchDealposDetails,
   safeUrl,
   tokens,
 };

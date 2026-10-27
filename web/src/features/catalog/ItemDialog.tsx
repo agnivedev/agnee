@@ -180,8 +180,8 @@ export function ItemDialog({ item, tags, canEdit, onClose, onSaved }: {
               placeholder={t('catalog.item.pricePlaceholder')}
             />
           </Field>
-          <Field label={t('catalog.item.unit')}>
-            <Input className={LOCKED} value={form.unit} onChange={(e) => set('unit', e.target.value)} disabled={locked} maxLength={30} placeholder="sak, pcs, jam" />
+          <Field label={t('catalog.item.unit')} hint={fromPos ? t('catalog.item.unitPosHint') : undefined}>
+            <Input className={LOCKED} value={form.unit} onChange={(e) => set('unit', e.target.value)} disabled={locked} maxLength={30} placeholder={form.kind === 'service' ? t('catalog.item.unitServicePlaceholder') : t('catalog.item.unitProductPlaceholder')} />
           </Field>
           <Field label={t('catalog.item.priceNote')}>
             <Input className={LOCKED} value={form.priceNote} onChange={(e) => set('priceNote', e.target.value)} disabled={locked} maxLength={80} placeholder={t('catalog.item.priceNotePlaceholder')} />
@@ -192,7 +192,8 @@ export function ItemDialog({ item, tags, canEdit, onClose, onSaved }: {
             {t('catalog.item.discount', { pct: item.discountPct, price: rupiah(item.price * (1 - item.discountPct / 100)) })}
           </p>
         ) : null}
-        {item?.soldQty ? <p className="m-0 text-[13px] text-muted">{t('catalog.item.sold', { qty: item.soldQty })}</p> : null}
+        {item?.soldQty && form.kind === 'product' ? <p className="m-0 text-[13px] text-muted">{t('catalog.item.sold', { qty: item.soldQty })}</p> : null}
+        {item?.brand ? <p className="m-0 text-[13px] text-muted">{t('catalog.item.brand', { brand: item.brand })}</p> : null}
 
         <Field label={t('catalog.item.description')} hint={t('catalog.item.descriptionHint')}>
           <Textarea className={LOCKED} value={form.description} onChange={(e) => set('description', e.target.value)} disabled={locked} rows={3} maxLength={2000} />

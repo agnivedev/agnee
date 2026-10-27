@@ -5,6 +5,7 @@ import { useSession } from '@/lib/session';
 import { useConfirm } from '@/components/ui/confirm';
 import { cn } from '@/lib/utils';
 import { AiPausedBar } from './AiPausedBar';
+import { DeliveryMenu } from './DeliveryMenu';
 import { ShareMenu } from './ShareMenu';
 import { formatFileSize, messagePreview } from './format';
 import type { Attachment, Chat, MediaTarget, Message } from './types';
@@ -282,6 +283,15 @@ export function Composer({
         >
           ＋
         </button>
+        <DeliveryMenu
+          chatId={chat.id}
+          onInsert={(snippet) => {
+            setText((current) => `${current.trim() ? `${current.trimEnd()}\n\n` : ''}${snippet}`.slice(0, 4096));
+            requestId.current = null;
+            requestText.current = null;
+            textarea.current?.focus();
+          }}
+        />
         <ShareMenu
           onInsert={(snippet) => {
             setText((current) => `${current.trim() ? `${current.trimEnd()}\n\n` : ''}${snippet}`.slice(0, 4096));

@@ -132,3 +132,45 @@ test('titik jemput yang dipakai ongkir otomatis tidak bisa dilepas atau dihapus'
   assert.equal((await call(owner, 'DELETE', `/v1/locations/${toko.id}`)).statusCode, 200);
   assert.equal(store.rows.length, 0);
 });
+
+test('outlet DealPOS: daftar hanya supervisor, lokasi bisa dihubungkan, id asing ditolak, kosong melepas', async (t) => {
+  const store = { rows: [], seq: 0, lalamove: {} };
+  const database = fakeDatabase(store);
+  database.getDealposConnection = async () => ({ enabled: true, host: 'toko.dealpos.co.id', clientId: 'x', clientSecret: 'y' });
+  const realFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url) => {
+    calls.push(String(url));
+    if (String(url).includes('/Token/OAuth2')) return new Response(JSON.stringify({ access_token: 'tok' }), { status: 200 });
+    if (String(url).includes('/Outlet?Suspended=false')) {
+      return new Response(JSON.stringify([
+        { ID: 'o-1', Name: 'BSD STORE', Code: 'SBJ02', Suspended: false },
+        { ID: 'o-2', Name: 'TUTUP', Code: 'X', Suspended: true },
+      ]), { status: 200 });
+    }
+    return realFetch(url);
+  };
+  const app = await buildApp({ logger: false, startupEnabled: false, demoMode: true, sessionSecret: 'loc-outlet', database });
+  t.after(async () => { globalThis.fetch = realFetch; await app.close(); });
+  const login = async (user) => {
+    const res = await app.inject({ method: 'POST', url: '/v1/auth/login', payload: { email: user.email, password: 'password-123' } });
+    return { cookie: res.headers['set-cookie'].split(';')[0] };
+  };
+  const owner = await login(OWNER);
+  const agent = await login(AGENT);
+  const call = (who, method, url, payload) => app.inject({ method, url, headers: { cookie: who.cookie }, payload });
+
+  assert.equal((await call(agent, 'GET', '/v1/integrations/dealpos/outlets')).statusCode, 403);
+  const list = (await call(owner, 'GET', '/v1/integrations/dealpos/outlets')).json();
+  assert.deepEqual(list.outlets, [{ id: 'o-1', name: 'BSD STORE', code: 'SBJ02' }]);
+
+  assert.match((await call(owner, 'POST', '/v1/locations', { ...TOKO, dealposOutletId: 'o-404' })).json().error, /Outlet DealPOS tidak ditemukan/);
+  const created = await call(owner, 'POST', '/v1/locations', { ...TOKO, dealposOutletId: 'o-1' });
+  assert.equal(created.statusCode, 201);
+  assert.equal(created.json().location.dealposOutletName, 'BSD STORE');
+  const id = created.json().location.id;
+  // Mengubah tanpa menyebut outlet tidak melepasnya; id kosong melepas.
+  assert.equal((await call(owner, 'PUT', `/v1/locations/${id}`, { name: 'Toko BSD', kind: 'store', notes: 'x' })).json().location.dealposOutletId, 'o-1');
+  assert.equal((await call(owner, 'PUT', `/v1/locations/${id}`, { name: 'Toko BSD', kind: 'store', dealposOutletId: '' })).json().location.dealposOutletId, null);
+  assert.equal(calls.filter((u) => u.includes('/Token/OAuth2')).length, 1, 'daftar outlet dipakai ulang dari cache');
+});

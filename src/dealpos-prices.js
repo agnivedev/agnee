@@ -51,8 +51,9 @@ function mapVariant(row) {
   const name = productName && variantName && !variantName.toLowerCase().includes(productName.toLowerCase())
     ? `${productName} ${variantName}`
     : variantName || productName;
-  // Harga jual (selling price) didahulukan: UnitPrice di sebagian respons
-  // DealPOS adalah harga dasar/beli, bukan harga yang boleh disebut ke customer.
+  // Respons DealPOS asli (ESBEJE, 27 Okt): `/Variant` memberi UnitPrice (harga jual)
+  // dan UnitCost (harga beli, tidak dipakai). SellingPrice didahulukan kalau suatu
+  // akun memakainya.
   const unitPrice = firstNumber(row.SellingPrice, row.SellPrice, row.UnitPrice, row.Price, row.SalesPrice);
   if (!id || !name || unitPrice === null || unitPrice <= 0) return null;
   return {

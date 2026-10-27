@@ -1,5 +1,43 @@
 ## [Unreleased]
 
+- **Katalog: tampilan tabel, saringan, urutan, dan satuan dari UOM DealPOS.**
+  - Tombol Kartu/Tabel (pilihan diingat di peramban). Tabel: kolom Nama, Kategori, Merek, Harga
+    (setelah diskon, harga coret, persen), Satuan, Ribbon, Terjual, Sumber; kepala kolom bisa
+    diklik untuk mengurutkan; klik ribbon di baris menyaring ke ribbon itu.
+  - Urutan: nama, harga (setelah diskon), terlaris, diskon terbesar, kategori, terakhir berubah.
+    Saringan: jenis (produk/jasa), kategori (dengan jumlah), ada/tanpa harga, status (tampil ke
+    AI/tersembunyi/hilang dari POS), sumber, plus tombol "Hapus filter". Cari kini juga
+    mencocokkan merek. Chip ribbon berwarna dan berjumlah, satu klik menyaring.
+  - **Satuan dari UOM:** `/Variant/Detail` DealPOS memberi `UOMName` dan merek; ditarik satu
+    permintaan per varian di latar belakang (resumable, yang berribbon dan terlaris lebih dulu,
+    ±13 jam untuk 10.900 varian di ESBEJE). Satuan yang sudah diisi tim tidak ditimpa;
+    varian tanpa UOM ditandai selesai. Halaman menampilkan sisa antrean.
+  - **Jasa disesuaikan:** tanpa angka terjual, satuan manual (placeholder "jam, sesi, paket"),
+    harga kosong menampilkan catatan harga ("mulai dari ...").
+
+- **Pesan kurir Lalamove dari chat (🚚 di kotak balasan).** Agen yang memegang chat menempel
+  link Google Maps atau koordinat customer, memilih titik jemput dan kendaraan, melihat ongkir,
+  mengisi nama dan HP penerima, lalu memesan lewat layar konfirmasi (production: "order
+  sungguhan, memotong saldo"; sandbox: order uji). Pengirim = penanggung jawab lokasi jemput
+  (wajib terisi). Titik antar harus pasti (nama daerah ditolak), satu harga hanya jadi satu order,
+  harga kedaluwarsa 5 menit. Daftar order menyegarkan status dari Lalamove, bisa dibatalkan, dan
+  link pelacakan disisipkan ke kotak balasan. Audit `delivery.order_placed` dan
+  `delivery.order_canceled` (tanpa nomor customer). Tanpa webhook: status disegarkan saat
+  daftar dibuka. Migrasi 078.
+- **Outlet DealPOS dihubungkan ke Lokasi.** `/Outlet` DealPOS hanya berisi ID, nama, dan kode
+  (tanpa alamat), jadi Lokasi tetap sumber alamat; di form Lokasi ada pilihan "Outlet DealPOS"
+  bila DealPOS tersambung. Belum dipakai untuk stok atau harga per toko: API DealPOS yang
+  dicoba tidak punya endpoint stok. Migrasi 077.
+- **Merek dan tag bawaan DealPOS** (`/Product/Detail`) ditarik untuk item Best Seller dan
+  Promo saja (paling banyak 80 permintaan per sinkron), merek tampil di katalog untuk AI.
+  Tag di ESBEJE berjenis stok ("Normal", "Consignment"), jadi tag disimpan tapi tidak jadi ribbon.
+- **Tarikan harga ganda dipensiunkan:** selama katalog dipakai AI, `/Variant` tidak ditarik lagi
+  (puluhan permintaan di batas 48/181 dtk); sinkron katalog `/Product` menggantikannya. Daftar
+  harga lama tetap ditarik bila katalog dimatikan untuk AI.
+- **Harga DealPOS terverifikasi ke respons asli (ESBEJE, 27 Okt):** `UnitPrice` adalah harga
+  jual (harga beli ada di `UnitCost`); `SellingPrice` tidak ada di respons. Komentar yang
+  menyebut UnitPrice bisa harga beli diperbaiki.
+
 - **Inbox: tombol 📍 di kotak balasan menyisipkan lokasi toko atau produk katalog.** Teks
   (nama, alamat, jam buka, link peta; atau nama, harga setelah diskon, catatan harga)
   disisipkan ke kotak balasan, bukan langsung dikirim: agen membaca dan menekan Kirim sendiri.

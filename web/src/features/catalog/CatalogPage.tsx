@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Plus, RefreshCw, Search, Tags, Store, ImageOff } from 'lucide-react';
+import { ImageOff, LayoutGrid, Plus, RefreshCw, Search, Store, Table2, Tags, X } from 'lucide-react';
 import { api, messageFromError } from '@/lib/api';
 import { useI18n, usePageTitle } from '@/lib/i18n';
 import { AppSidebar } from '@/components/AppSidebar';
@@ -9,9 +9,20 @@ import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
 import { ItemDialog } from './ItemDialog';
 import { TagsDialog } from './TagsDialog';
-import { TAG_CLASS, rupiah, type CatalogItem, type CatalogSummary, type ItemTag } from './types';
+import { CatalogTable } from './CatalogTable';
+import { Ribbon } from './Ribbon';
+import { EMPTY_FILTERS, TAG_CLASS, finalPriceOf, rupiah, type CatalogFilters, type CatalogItem, type CatalogSummary, type SortDir, type SortKey } from './types';
+
+export { Ribbon };
 
 const PAGE = 48;
+const SELECT = 'h-11 rounded-app border border-input bg-white px-3 text-sm';
+const SORT_OPTIONS: [SortKey, SortDir, string][] = [
+  ['name', 'asc', 'catalog.sort.nameAsc'], ['name', 'desc', 'catalog.sort.nameDesc'],
+  ['finalPrice', 'asc', 'catalog.sort.priceAsc'], ['finalPrice', 'desc', 'catalog.sort.priceDesc'],
+  ['sold', 'desc', 'catalog.sort.sold'], ['discount', 'desc', 'catalog.sort.discount'],
+  ['category', 'asc', 'catalog.sort.category'], ['updated', 'desc', 'catalog.sort.updated'],
+];
 
 /**
  * Katalog produk & jasa. Berdiri sendiri (item diisi tangan) atau ditarik dari
@@ -25,9 +36,13 @@ export function CatalogPage() {
   const [summary, setSummary] = useState<CatalogSummary | null>(null);
   const [items, setItems] = useState<CatalogItem[]>([]);
   const [total, setTotal] = useState(0);
-  const [query, setQuery] = useState('');
-  const [tagFilter, setTagFilter] = useState<string | null>(null);
-  const [source, setSource] = useState<'' | 'manual' | 'dealpos'>('');
+  const [filters, setFilters] = useState<CatalogFilters>(EMPTY_FILTERS);
+  const [sort, setSort] = useState<SortKey>('name');
+  const [dir, setDir] = useState<SortDir>('asc');
+  const [view, setView] = useState<'cards' | 'table'>(() => {
+    try { return localStorage.getItem('agnee.catalog.view') === 'table' ? 'table' : 'cards'; } catch { return 'cards'; }
+  });
+  const [categories, setCategories] = useState<{ category: string; count: number }[]>([]);
   const [status, setStatus] = useState('');
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<CatalogItem | 'new' | null>(null);
@@ -43,10 +58,14 @@ export function CatalogPage() {
   }, [t]);
 
   const loadItems = useCallback(async (offset = 0) => {
-    const params = new URLSearchParams({ limit: String(PAGE), offset: String(offset) });
-    if (query.trim()) params.set('q', query.trim());
-    if (tagFilter) params.set('tag', tagFilter);
-    if (source) params.set('source', source);
+    const params = new URLSearchParams({ limit: String(PAGE), offset: String(offset), sort, dir });
+    if (filters.query.trim()) params.set('q', filters.query.trim());
+    if (filters.tagId) params.set('tag', filters.tagId);
+    if (filters.source) params.set('source', filters.source);
+    if (filters.kind) params.set('kind', filters.kind);
+    if (filters.category) params.set('category', filters.category);
+    if (filters.status) params.set('status', filters.status);
+    if (filters.priced) params.set('priced', filters.priced);
     setLoading(true);
     try {
       const data = await api<{ items: CatalogItem[]; total: number }>(`/v1/catalog/items?${params}`);
@@ -58,9 +77,35 @@ export function CatalogPage() {
     } finally {
       setLoading(false);
     }
-  }, [query, tagFilter, source, t]);
+  }, [filters, sort, dir, t]);
 
-  useEffect(() => { void loadSummary(); }, [loadSummary]);
+  const loadCategories = useCallback(async () => {
+    try {
+      setCategories((await api<{ categories: { category: string; count: number }[] }>('/v1/catalog/categories')).categories);
+    } catch {
+      setCategories([]);
+    }
+  }, []);
+
+  const setFilter = <K extends keyof CatalogFilters>(key: K, value: CatalogFilters[K]) => setFilters((prev) => ({ ...prev, [key]: value }));
+  const activeFilterCount = Object.entries(filters).filter(([key, value]) => key !== 'query' && Boolean(value)).length;
+
+  function changeView(next: 'cards' | 'table') {
+    setView(next);
+    try { localStorage.setItem('agnee.catalog.view', next); } catch { /* tampilan tetap berganti tanpa penyimpanan */ }
+  }
+
+  // Klik kepala kolom: urutan pertama menurut arah wajar kolomnya, klik lagi membalik.
+  function sortBy(key: SortKey) {
+    if (sort === key) {
+      setDir((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+      return;
+    }
+    setSort(key);
+    setDir(key === 'sold' || key === 'discount' || key === 'updated' ? 'desc' : 'asc');
+  }
+
+  useEffect(() => { void loadSummary(); void loadCategories(); }, [loadSummary, loadCategories]);
   useEffect(() => {
     const timer = window.setTimeout(() => { void loadItems(0); }, 250);
     return () => window.clearTimeout(timer);
@@ -190,53 +235,108 @@ export function CatalogPage() {
             <div className="relative min-w-0 flex-1 basis-56">
               <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted" aria-hidden />
               <Input
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
+                value={filters.query}
+                onChange={(event) => setFilter('query', event.target.value)}
                 placeholder={t('catalog.searchPlaceholder')}
                 aria-label={t('catalog.searchPlaceholder')}
                 className="pl-9"
               />
             </div>
+            <select value={`${sort}:${dir}`} onChange={(event) => { const [k, d] = event.target.value.split(':'); setSort(k as SortKey); setDir(d as SortDir); }} aria-label={t('catalog.sortBy')} className={SELECT}>
+              {SORT_OPTIONS.map(([key, direction, label]) => <option key={`${key}:${direction}`} value={`${key}:${direction}`}>{t(label)}</option>)}
+            </select>
+            <div className="inline-flex overflow-hidden rounded-app border border-input bg-white" role="group" aria-label={t('catalog.viewLabel')}>
+              {([['cards', LayoutGrid, 'catalog.viewCards'], ['table', Table2, 'catalog.viewTable']] as const).map(([value, Icon, label]) => (
+                <button key={value} type="button" aria-pressed={view === value} onClick={() => changeView(value)} className={cn('inline-flex h-11 cursor-pointer items-center gap-1.5 border-0 px-3 text-[13px] font-semibold', view === value ? 'bg-ink text-white' : 'bg-transparent text-ink')}>
+                  <Icon className="size-4" aria-hidden /> {t(label)}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <select value={filters.kind} onChange={(event) => setFilter('kind', event.target.value as CatalogFilters['kind'])} aria-label={t('catalog.kindFilter')} className={SELECT}>
+              <option value="">{t('catalog.kindAll')}</option>
+              <option value="product">{t('catalog.kindProduct')}</option>
+              <option value="service">{t('catalog.kindService')}</option>
+            </select>
+            {categories.length ? (
+              <select value={filters.category} onChange={(event) => setFilter('category', event.target.value)} aria-label={t('catalog.categoryFilter')} className={cn(SELECT, 'max-w-[220px]')}>
+                <option value="">{t('catalog.categoryAll')}</option>
+                {categories.map((c) => <option key={c.category} value={c.category}>{c.category} ({c.count})</option>)}
+              </select>
+            ) : null}
+            <select value={filters.priced} onChange={(event) => setFilter('priced', event.target.value as CatalogFilters['priced'])} aria-label={t('catalog.pricedFilter')} className={SELECT}>
+              <option value="">{t('catalog.pricedAll')}</option>
+              <option value="yes">{t('catalog.pricedYes')}</option>
+              <option value="no">{t('catalog.pricedNo')}</option>
+            </select>
+            <select value={filters.status} onChange={(event) => setFilter('status', event.target.value as CatalogFilters['status'])} aria-label={t('catalog.statusFilter')} className={SELECT}>
+              <option value="">{t('catalog.statusAll')}</option>
+              <option value="visible">{t('catalog.statusVisible')}</option>
+              <option value="hidden">{t('catalog.hidden')}</option>
+              <option value="missing">{t('catalog.missing')}</option>
+            </select>
             {summary?.pos || summary?.counts.dealpos ? (
-              <select
-                value={source}
-                onChange={(event) => setSource(event.target.value as typeof source)}
-                aria-label={t('catalog.sourceFilter')}
-                className="h-11 rounded-app border border-input bg-white px-3 text-sm"
-              >
+              <select value={filters.source} onChange={(event) => setFilter('source', event.target.value as CatalogFilters['source'])} aria-label={t('catalog.sourceFilter')} className={SELECT}>
                 <option value="">{t('catalog.sourceAll')}</option>
                 <option value="dealpos">DealPOS</option>
                 <option value="manual">{t('catalog.sourceManual')}</option>
               </select>
             ) : null}
+            {activeFilterCount || filters.query ? (
+              <Button size="sm" variant="ghost" onClick={() => setFilters(EMPTY_FILTERS)}>
+                <X className="size-4" aria-hidden /> {t('catalog.resetFilters', { n: activeFilterCount + (filters.query ? 1 : 0) })}
+              </Button>
+            ) : null}
           </div>
 
           {tags.length ? (
-            <div className="flex flex-wrap gap-2" role="group" aria-label={t('catalog.tagFilter')}>
-              <FilterChip active={!tagFilter} onClick={() => setTagFilter(null)}>{t('catalog.allTags')}</FilterChip>
-              {tags.filter((tag) => tag.active).map((tag) => (
-                <FilterChip key={tag.id} active={tagFilter === tag.id} onClick={() => setTagFilter(tagFilter === tag.id ? null : tag.id)}>
-                  {tag.name} <span className="font-mono text-[11px] opacity-70">{tag.itemCount}</span>
-                </FilterChip>
-              ))}
+            <div className="flex flex-wrap items-center gap-2" role="group" aria-label={t('catalog.tagFilter')}>
+              <FilterChip active={!filters.tagId} onClick={() => setFilter('tagId', null)}>{t('catalog.allTags')}</FilterChip>
+              {tags.filter((tag) => tag.active).map((tag) => {
+                const active = filters.tagId === tag.id;
+                return (
+                  <button
+                    key={tag.id}
+                    type="button"
+                    aria-pressed={active}
+                    onClick={() => setFilter('tagId', active ? null : tag.id)}
+                    className={cn(
+                      'inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-full px-3 text-[13px] font-bold ring-1 ring-inset transition max-md:h-11',
+                      TAG_CLASS[tag.color] || TAG_CLASS.slate,
+                      active ? 'ring-2 ring-ink' : 'opacity-85 hover:opacity-100',
+                    )}
+                  >
+                    {tag.name} <span className="font-mono text-[11px] opacity-70">{tag.itemCount}</span>
+                  </button>
+                );
+              })}
             </div>
+          ) : null}
+          {summary?.detailPending ? (
+            <p className="m-0 text-[12px] text-muted">{t('catalog.unitPending', { n: summary.detailPending.toLocaleString('id-ID') })}</p>
           ) : null}
         </section>
 
         {status ? <p className="mt-4 mb-0 text-[13px] text-danger">{status}</p> : null}
 
         {items.length ? (
-          <ul className="m-0 mt-5 grid list-none grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-3 p-0">
-            {items.map((item) => (
-              <li key={item.id}>
-                <ItemCard item={item} onOpen={() => setEditing(item)} />
-              </li>
-            ))}
-          </ul>
+          view === 'table' ? (
+            <CatalogTable items={items} sort={sort} dir={dir} onSort={sortBy} onOpen={setEditing} onTag={(id) => setFilter('tagId', id)} />
+          ) : (
+            <ul className="m-0 mt-5 grid list-none grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-3 p-0">
+              {items.map((item) => (
+                <li key={item.id}>
+                  <ItemCard item={item} onOpen={() => setEditing(item)} />
+                </li>
+              ))}
+            </ul>
+          )
         ) : !loading ? (
           <div className="mt-6 rounded-panel border border-dashed border-ink/20 p-8 text-center">
-            <p className="m-0 font-semibold">{query || tagFilter || source ? t('catalog.noMatch') : t('catalog.empty')}</p>
-            {!query && !tagFilter && !source ? <p className="m-0 mt-1 text-sm text-muted">{t('catalog.emptyHint')}</p> : null}
+            <p className="m-0 font-semibold">{filters.query || activeFilterCount ? t('catalog.noMatch') : t('catalog.empty')}</p>
+            {!filters.query && !activeFilterCount ? <p className="m-0 mt-1 text-sm text-muted">{t('catalog.emptyHint')}</p> : null}
           </div>
         ) : null}
 
@@ -288,19 +388,11 @@ function FilterChip({ active, onClick, children }: { active: boolean; onClick: (
   );
 }
 
-export function Ribbon({ tag, className }: { tag: Pick<ItemTag, 'name' | 'color'>; className?: string }) {
-  return (
-    <span className={cn('inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-bold ring-1 ring-inset', TAG_CLASS[tag.color] || TAG_CLASS.slate, className)}>
-      {tag.name}
-    </span>
-  );
-}
-
 function ItemCard({ item, onOpen }: { item: CatalogItem; onOpen: () => void }) {
   const { t } = useI18n();
   const [imageFailed, setImageFailed] = useState(false);
   const dimmed = !item.active || item.missingFromSource;
-  const finalPrice = item.price !== null && item.discountPct > 0 ? item.price * (1 - item.discountPct / 100) : null;
+  const finalPrice = finalPriceOf(item);
   return (
     <button
       type="button"

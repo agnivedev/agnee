@@ -9526,6 +9526,17 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     try {
       const conn = await database.getDealposConnection(companyId);
       if (!conn?.enabled) return;
+      // Katalog (/Product) sudah memuat harga yang sama dan AI memakainya, jadi
+      // /Variant (puluhan permintaan di API ber-rate-limit) tidak ditarik dua
+      // kali. Daftar harga lama tetap jadi cadangan selama katalog tak dipakai AI.
+      const catalogSettings = canCall('syncPosCatalog') && canCall('getCatalogSettings')
+        ? await database.getCatalogSettings(companyId).catch(() => null)
+        : null;
+      if (catalogSettings?.aiEnabled) {
+        const result = await runDealposCatalogJob(companyId);
+        if (result.status === 'ok') await database.markDealposProductsSynced(companyId).catch(() => {});
+        return;
+      }
       const products = await dealposPrices.fetchProducts(conn, {
         dealposGet: (host, token, path) => dealposSync.dealposGet(host, token, path, undefined, false, { patient: true }),
         onRateLimit: (wait) => app.log.info({ companyId, wait }, 'DealPOS membatasi laju, penarikan harga menunggu'),
@@ -9589,8 +9600,18 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
       const soldQty = new Map(items.map((item) => [item.externalId, catalog.soldQtyFor(item, sold)]));
       const note = soldError ? `Laporan penjualan DealPOS tidak terbaca, Best Seller tidak diperbarui: ${soldError}` : null;
       const count = await database.syncPosCatalog(companyId, 'dealpos', items, { assignments, soldQty, note });
+      // Merek dan tag bawaan DealPOS hanya untuk Best Seller dan Promo; gagal tidak membatalkan katalog.
+      try {
+        const targets = catalog.detailTargets(items, assignments);
+        const details = await catalog.fetchDealposDetails(dealposPatientGetter(conn, token, companyId), targets);
+        await database.savePosCatalogDetails(companyId, 'dealpos', details);
+      } catch (error) {
+        app.log.warn({ err: error, companyId }, 'Merek dan tag DealPOS tidak ditarik');
+      }
       catalogCache.delete(companyId);
       app.log.info({ companyId, count, bestSeller: assignments.best_seller?.length ?? null }, 'Katalog DealPOS ditarik');
+      // Satuan (UOM) dan merek per varian menyusul di latar belakang.
+      if (canCall('listCatalogItemsNeedingDetail')) void runCatalogDetailJob(companyId);
       return { status: 'ok', count };
     } catch (error) {
       app.log.warn({ err: error, companyId }, 'Penarikan katalog DealPOS gagal');
@@ -9599,6 +9620,45 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     } finally {
       catalogRunning.delete(companyId);
     }
+  }
+
+  // Satuan (UOM) dari /Variant/Detail: satu permintaan per varian di API ber-rate-limit
+  // (ESBEJE ±10.900 varian ≈ 13 jam), jadi berjalan di latar, bisa dilanjutkan, dan
+  // yang berribbon atau terlaris lebih dulu. Mengikuti jatah laju "patient".
+  const catalogDetailRunning = new Set();
+
+  async function runCatalogDetailJob(companyId) {
+    if (catalogDetailRunning.has(companyId)) return;
+    catalogDetailRunning.add(companyId);
+    try {
+      const conn = await database.getDealposConnection(companyId);
+      if (!conn?.enabled) return;
+      const token = await dealposSync.fetchToken(conn, undefined, { patient: true });
+      const get = dealposPatientGetter(conn, token, companyId);
+      let done = 0;
+      for (;;) {
+        const batch = await database.listCatalogItemsNeedingDetail(companyId, 20);
+        if (!batch.length) break;
+        for (const item of batch) {
+          const detail = await catalog.fetchVariantDetail(get, item.externalId);
+          await database.saveCatalogItemDetail(companyId, item.id, detail);
+          done += 1;
+          await dealposSync.sleep(catalog.DETAIL_GAP_MS);
+        }
+      }
+      catalogCache.delete(companyId);
+      app.log.info({ companyId, done }, 'Satuan dan merek varian DealPOS ditarik');
+    } catch (error) {
+      // Sisanya dilanjutkan sinkron berikutnya atau saat server menyala lagi.
+      app.log.warn({ err: error, companyId }, 'Penarikan satuan DealPOS berhenti');
+    } finally {
+      catalogDetailRunning.delete(companyId);
+    }
+  }
+
+  async function resumeCatalogDetailJobs() {
+    const companies = await database.listCompaniesPendingCatalogDetail().catch(() => []);
+    for (const companyId of companies) void runCatalogDetailJob(companyId);
   }
 
   async function catalogForAi(companyId) {
@@ -9635,6 +9695,32 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     const companies = await database.listDealposCompaniesPendingDetail().catch(() => []);
     for (const companyId of companies) void runDealposDetailJob(companyId);
   }
+
+  // Outlet DealPOS (/Outlet berisi ID, nama, kode; tanpa alamat) untuk dihubungkan ke Lokasi.
+  const dealposOutletCache = new Map();
+  async function dealposOutlets(companyId) {
+    const cached = dealposOutletCache.get(companyId);
+    if (cached && Date.now() - cached.at < 5 * 60_000) return cached.outlets;
+    const conn = await database.getDealposConnection(companyId);
+    if (!conn?.enabled) return null;
+    const token = await dealposSync.fetchToken(conn);
+    const rows = await dealposSync.dealposGet(conn.host, token, '/Outlet?Suspended=false');
+    const outlets = (Array.isArray(rows) ? rows : []).filter((o) => o?.ID && o.Suspended !== true)
+      .map((o) => ({ id: String(o.ID), name: String(o.Name || '').slice(0, 120), code: o.Code ? String(o.Code).slice(0, 40) : null }));
+    dealposOutletCache.set(companyId, { at: Date.now(), outlets });
+    return outlets;
+  }
+
+  app.get('/v1/integrations/dealpos/outlets', async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengatur integrasi.' });
+    if (!canCall('getDealposConnection')) return { connected: false, outlets: [] };
+    try {
+      const outlets = await dealposOutlets(request.agneeSession.companyId);
+      return outlets ? { connected: true, outlets } : { connected: false, outlets: [] };
+    } catch (error) {
+      return reply.code(error.rateLimited ? 429 : 502).send({ error: error.message });
+    }
+  });
 
   app.get('/v1/integrations/dealpos', async (request, reply) => {
     if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengatur integrasi.' });
@@ -9777,6 +9863,8 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     ]);
     return {
       settings, tags, counts,
+      // Item DealPOS yang satuannya (UOM) masih menunggu giliran ditarik.
+      detailPending: canCall('countCatalogItemsNeedingDetail') ? await database.countCatalogItemsNeedingDetail(companyId) : 0,
       canEdit: isSupervisor(request.agneeSession),
       pos: conn
         ? { provider: 'dealpos', host: conn.host, enabled: conn.enabled, syncing: catalogRunning.has(companyId) }
@@ -9792,6 +9880,12 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
           q: { type: 'string', maxLength: 100 },
           tag: { type: 'string', format: 'uuid' },
           source: { type: 'string', enum: ['manual', 'dealpos'] },
+          kind: { type: 'string', enum: ['product', 'service'] },
+          category: { type: 'string', maxLength: 200 },
+          status: { type: 'string', enum: ['visible', 'hidden', 'missing'] },
+          priced: { type: 'string', enum: ['yes', 'no'] },
+          sort: { type: 'string', enum: ['name', 'category', 'brand', 'price', 'finalPrice', 'discount', 'sold', 'updated'] },
+          dir: { type: 'string', enum: ['asc', 'desc'] },
           limit: { type: 'integer', minimum: 1, maximum: 200, default: 50 },
           offset: { type: 'integer', minimum: 0, default: 0 },
         },
@@ -9799,8 +9893,15 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     },
   }, async (request, reply) => {
     if (!catalogGuard(request, reply)) return;
-    const { q = '', tag = null, source = null, limit, offset } = request.query;
-    return database.listCatalogItems(request.agneeSession.companyId, { q, tagId: tag, source, limit, offset });
+    const { q = '', tag = null, source = null, kind = null, category = null, status = null, priced = null, sort, dir, limit, offset } = request.query;
+    return database.listCatalogItems(request.agneeSession.companyId, {
+      q, tagId: tag, source, kind, category, status, priced, sort, dir, limit, offset,
+    });
+  });
+
+  app.get('/v1/catalog/categories', async (request, reply) => {
+    if (!catalogGuard(request, reply)) return;
+    return { categories: await database.listCatalogCategories(request.agneeSession.companyId) };
   });
 
   app.post('/v1/catalog/items', {
@@ -10133,6 +10234,7 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
       address: { type: 'string', maxLength: 500 },
       contactName: { type: 'string', maxLength: 120 },
       contactPhone: { type: 'string', maxLength: 30 },
+      dealposOutletId: { type: 'string', maxLength: 64 },
       openingHours: { type: 'string', maxLength: 300 },
       openToCustomers: { type: 'boolean' },
       isPickup: { type: 'boolean' },
@@ -10174,6 +10276,18 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     }
     // Lokasi pertama otomatis jadi titik jemput: tidak ada pilihan lain.
     const isPickup = body.isPickup ?? (existing ? existing.isPickup : await database.countCompanyLocations(companyId) === 0);
+    // Outlet DealPOS: id kosong melepas, id lain harus ada di akun DealPOS company ini.
+    let outlet = { dealposOutletId: existing?.dealposOutletId ?? null, dealposOutletName: existing?.dealposOutletName ?? null };
+    if (body.dealposOutletId !== undefined) {
+      if (!body.dealposOutletId) {
+        outlet = { dealposOutletId: null, dealposOutletName: null };
+      } else {
+        const outlets = await dealposOutlets(companyId).catch(() => null);
+        const found = outlets?.find((o) => o.id === body.dealposOutletId);
+        if (!found) return reply.code(422).send({ error: 'Outlet DealPOS tidak ditemukan. Muat ulang daftar outlet.' });
+        outlet = { dealposOutletId: found.id, dealposOutletName: found.name };
+      }
+    }
     // Alamat kosong = alamat yang terbaca dari peta.
     const address = text('address') || (placeText || !existing ? point.address : existing.address) || '';
     const location = await database.saveCompanyLocation(companyId, existing?.id || null, {
@@ -10189,6 +10303,7 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
       openToCustomers: body.openToCustomers ?? existing?.openToCustomers ?? body.kind === 'store',
       isPickup,
       notes: text('notes'),
+      ...outlet,
     });
     return reply.code(existing ? 200 : 201).send({ location });
   }
@@ -10199,6 +10314,191 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     const conn = await database.getLalamoveConnection(companyId).catch(() => null);
     return Boolean(conn?.enabled && conn.aiQuotesEnabled);
   }
+
+  // ── Pesan kurir Lalamove dari percakapan ───────────────────────────────────
+  //
+  // Agen yang memegang chat memilih titik jemput, menempel lokasi customer
+  // (pin/link Maps; nama daerah tidak cukup untuk order), melihat harga, lalu
+  // memesan. Order di production memotong saldo Lalamove, jadi pesan butuh
+  // `confirmed: true` dari layar konfirmasi. Status disegarkan dari Lalamove
+  // saat daftar dibuka; tanpa webhook.
+  const DELIVERY_FINAL = new Set(['COMPLETED', 'CANCELED', 'REJECTED', 'EXPIRED']);
+  const DELIVERY_QUOTE_TTL_MS = 5 * 60_000;
+  const deliveryQuotes = new Map();
+
+  function rememberDeliveryQuote(entry) {
+    const now = Date.now();
+    for (const [id, saved] of deliveryQuotes) if (saved.expiresAt <= now) deliveryQuotes.delete(id);
+    deliveryQuotes.set(entry.quotationId, { ...entry, expiresAt: now + DELIVERY_QUOTE_TTL_MS });
+  }
+
+  async function deliveryConnection(request, reply) {
+    if (!canCall('getLalamoveConnection')) { reply.code(503).send({ error: 'Database tidak tersedia.' }); return null; }
+    const conn = await database.getLalamoveConnection(request.agneeSession.companyId);
+    if (!conn || !conn.enabled) { reply.code(409).send({ error: 'Hubungkan Lalamove dulu di Pengaturan > Integrasi.' }); return null; }
+    return conn;
+  }
+
+  app.get('/v1/chats/:chatId/delivery', async (request, reply) => {
+    const companyId = request.agneeSession.companyId;
+    const conn = canCall('getLalamoveConnection') ? await database.getLalamoveConnection(companyId).catch(() => null) : null;
+    if (!conn || !conn.enabled) return { available: false, orders: [], pickups: [], vehicles: [] };
+    let orders = await database.listLalamoveOrders(companyId, request.params.chatId);
+    // Segarkan yang belum selesai (paling banyak 5) supaya status di layar tidak basi.
+    for (const order of orders.filter((o) => !DELIVERY_FINAL.has(o.status) && o.environment === conn.environment).slice(0, 5)) {
+      try {
+        const fresh = await lalamove.getOrder({ ...conn, environment: order.environment }, order.orderId);
+        if (fresh.status && (fresh.status !== order.status || (fresh.shareLink && fresh.shareLink !== order.shareLink))) {
+          await database.updateLalamoveOrderStatus(companyId, order.id, { status: fresh.status, shareLink: fresh.shareLink });
+        }
+      } catch (error) {
+        app.log.warn({ err: error, companyId }, 'Status order Lalamove tidak terbaca');
+      }
+    }
+    orders = await database.listLalamoveOrders(companyId, request.params.chatId);
+    const locations = canCall('listCompanyLocations') ? await database.listCompanyLocations(companyId).catch(() => []) : [];
+    return {
+      available: true,
+      environment: conn.environment,
+      vehicles: deliveryQuote.servicesOf(conn),
+      defaultService: conn.defaultService || null,
+      pickups: locations.map((l) => ({ id: l.id, name: l.name, isPickup: l.isPickup, hasContact: Boolean(l.contactName && l.contactPhone) })),
+      orders,
+    };
+  });
+
+  app.post('/v1/chats/:chatId/delivery/quote', {
+    schema: {
+      body: {
+        type: 'object', required: ['destination'], additionalProperties: false,
+        properties: {
+          destination: { type: 'string', minLength: 3, maxLength: 600 },
+          vehicle: { type: 'string', pattern: '^[A-Z0-9_]{2,40}$' },
+          locationId: { type: 'string', pattern: '^[0-9]{1,18}$' },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    const conn = await deliveryConnection(request, reply);
+    if (!conn) return;
+    const companyId = request.agneeSession.companyId;
+    const locations = await database.listCompanyLocations(companyId).catch(() => []);
+    const pickup = request.body.locationId
+      ? locations.find((l) => l.id === request.body.locationId)
+      : locations.find((l) => l.isPickup);
+    if (!pickup) return reply.code(422).send({ error: 'Pilih titik jemput dari Pengaturan > Lokasi.' });
+    const services = deliveryQuote.servicesOf(conn).map((s) => s.key);
+    const serviceType = request.body.vehicle || (services.includes(conn.defaultService) ? conn.defaultService : services[0]);
+    if (!serviceType || (services.length && !services.includes(serviceType))) {
+      return reply.code(422).send({ error: 'Kendaraan tidak tersedia di akun Lalamove ini.' });
+    }
+    const destination = await deliveryQuote.resolveDestination(request.body.destination).catch(() => null);
+    // Order kurir butuh titik antar yang pasti; perkiraan area dari nama daerah tidak cukup.
+    if (!destination || destination.accuracy !== 'titik') {
+      return reply.code(422).send({ error: 'Titik antar belum terbaca. Tempel link Google Maps atau koordinat dari lokasi yang dikirim customer.' });
+    }
+    try {
+      const quote = await lalamove.getQuotation(conn, {
+        serviceType,
+        stops: [{ lat: pickup.lat, lng: pickup.lng, address: pickup.address }, destination],
+      });
+      if (!quote.quotationId || quote.total == null || quote.stops.length < 2) {
+        return reply.code(502).send({ error: 'Lalamove tidak memberi harga. Coba lagi.' });
+      }
+      rememberDeliveryQuote({ quotationId: quote.quotationId, companyId, chatId: request.params.chatId, quote, pickup, destination, serviceType });
+      return {
+        quotationId: quote.quotationId,
+        total: quote.total,
+        currency: quote.currency,
+        serviceType,
+        distanceKm: quote.distanceMeters != null ? Math.round(quote.distanceMeters / 100) / 10 : null,
+        pickupName: pickup.name,
+        pickupAddress: pickup.address,
+        dropoffAddress: destination.address,
+        environment: conn.environment,
+        validForSeconds: DELIVERY_QUOTE_TTL_MS / 1000,
+      };
+    } catch (error) {
+      return reply.code(422).send({ error: publicErrorMessage(error) });
+    }
+  });
+
+  app.post('/v1/chats/:chatId/delivery/orders', {
+    schema: {
+      body: {
+        type: 'object', required: ['quotationId', 'recipientName', 'recipientPhone', 'confirmed'], additionalProperties: false,
+        properties: {
+          quotationId: { type: 'string', minLength: 1, maxLength: 100 },
+          recipientName: { type: 'string', minLength: 1, maxLength: 120 },
+          recipientPhone: { type: 'string', minLength: 5, maxLength: 30 },
+          confirmed: { type: 'boolean', const: true },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    const conn = await deliveryConnection(request, reply);
+    if (!conn) return;
+    const companyId = request.agneeSession.companyId;
+    const chatId = request.params.chatId;
+    const saved = deliveryQuotes.get(request.body.quotationId);
+    if (!saved || saved.companyId !== companyId || saved.chatId !== chatId || saved.expiresAt <= Date.now()) {
+      return reply.code(410).send({ error: 'Harga sudah kedaluwarsa. Hitung ongkir lagi.' });
+    }
+    const { pickup, quote, destination } = saved;
+    if (!pickup.contactName || !pickup.contactPhone) {
+      return reply.code(422).send({ error: `Isi penanggung jawab dan nomor HP untuk lokasi "${pickup.name}" di Pengaturan > Lokasi. Kurir butuh nomor pengirim.` });
+    }
+    const recipientPhone = locationPhone(request.body.recipientPhone);
+    if (!recipientPhone) return reply.code(422).send({ error: 'Nomor HP penerima tidak valid. Contoh: 081234567890.' });
+    const recipientName = request.body.recipientName.trim();
+    if (!recipientName) return reply.code(422).send({ error: 'Isi nama penerima.' });
+    // Satu quotation hanya boleh jadi satu order, apa pun yang terjadi sesudahnya.
+    deliveryQuotes.delete(request.body.quotationId);
+    let placed;
+    try {
+      placed = await lalamove.placeOrder(conn, {
+        quotationId: quote.quotationId,
+        sender: { stopId: quote.stops[0].stopId, name: pickup.contactName, phone: pickup.contactPhone },
+        recipients: [{ stopId: quote.stops[1].stopId, name: recipientName, phone: recipientPhone }],
+        metadata: { source: 'agnee' },
+      });
+    } catch (error) {
+      return reply.code(422).send({ error: publicErrorMessage(error) });
+    }
+    if (!placed.orderId) return reply.code(502).send({ error: 'Lalamove tidak mengembalikan nomor order. Cek di aplikasi Lalamove sebelum mencoba lagi.' });
+    const order = await database.createLalamoveOrder(companyId, {
+      chatId, orderId: placed.orderId, environment: conn.environment, serviceType: saved.serviceType,
+      status: placed.status || 'ASSIGNING_DRIVER', shareLink: placed.shareLink, total: quote.total, currency: quote.currency,
+      pickupName: pickup.name, pickupAddress: pickup.address, dropoffAddress: destination.address,
+      recipientName, recipientPhone, createdBy: request.agneeSession.userId,
+    });
+    await catatAudit(request, 'delivery.order_placed', {
+      entityType: 'delivery', entityId: placed.orderId,
+      metadata: { environment: conn.environment, serviceType: saved.serviceType, total: quote.total },
+    });
+    return reply.code(201).send({ order });
+  });
+
+  app.post('/v1/chats/:chatId/delivery/orders/:id/cancel', {
+    schema: { params: { type: 'object', properties: { chatId: { type: 'string' }, id: { type: 'string', pattern: '^[0-9]{1,18}$' } } } },
+  }, async (request, reply) => {
+    const conn = await deliveryConnection(request, reply);
+    if (!conn) return;
+    const companyId = request.agneeSession.companyId;
+    const order = await database.getLalamoveOrderRow(companyId, request.params.chatId, request.params.id);
+    if (!order) return reply.code(404).send({ error: 'Order tidak ditemukan.' });
+    if (DELIVERY_FINAL.has(order.status)) return reply.code(409).send({ error: 'Order ini sudah selesai atau dibatalkan.' });
+    try {
+      await lalamove.cancelOrder({ ...conn, environment: order.environment }, order.orderId);
+    } catch (error) {
+      return reply.code(422).send({ error: publicErrorMessage(error) });
+    }
+    const updated = await database.updateLalamoveOrderStatus(companyId, order.id, { status: 'CANCELED' });
+    await catatAudit(request, 'delivery.order_canceled', {
+      entityType: 'delivery', entityId: order.orderId, metadata: { environment: order.environment },
+    });
+    return { order: updated };
+  });
 
   app.post('/v1/locations', { schema: { body: locationBody(true) } }, async (request, reply) => {
     if (canCall('countCompanyLocations') && await database.countCompanyLocations(request.agneeSession.companyId) >= MAX_LOCATIONS) {
@@ -12355,6 +12655,7 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     if (canCall('listActiveSupervisorReports')) startSupervisorReportSweeper();
     if (database.enabled && database.connected) startHubFollowUpSweeper();
     if (canCall('listDealposCompaniesPendingDetail')) void resumeDealposDetailJobs();
+    if (canCall('listCompaniesPendingCatalogDetail')) void resumeCatalogDetailJobs();
     if (canCall('listDealposProductsDue')) startDealposPriceRefresher();
     if (database.enabled && database.connected) startBroadcastSender();
     if (database.enabled && database.connected) startWedgeWatch();

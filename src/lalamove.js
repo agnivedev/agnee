@@ -142,10 +142,7 @@ function e164(phone) {
   return digits ? `+62${digits}` : null;
 }
 
-/**
- * Pesan kurir dari quotation yang masih berlaku. Belum dipanggil dari UI:
- * disiapkan untuk langkah berikutnya (order dari percakapan).
- */
+/** Pesan kurir dari quotation yang masih berlaku (order dari percakapan, `src/server.js`). */
 async function placeOrder(conn, { quotationId, sender, recipients, metadata }, fetchImpl = fetch) {
   const data = await lalamoveRequest(conn, 'POST', '/v3/orders', {
     quotationId,
@@ -157,6 +154,12 @@ async function placeOrder(conn, { quotationId, sender, recipients, metadata }, f
   return { orderId: data?.orderId || null, status: data?.status || null, shareLink: data?.shareLink || null };
 }
 
+/** Batalkan order; Lalamove menolak bila driver sudah ditugaskan terlalu jauh (galatnya diteruskan). */
+async function cancelOrder(conn, orderId, fetchImpl = fetch) {
+  await lalamoveRequest(conn, 'DELETE', `/v3/orders/${encodeURIComponent(orderId)}`, undefined, fetchImpl);
+  return { orderId };
+}
+
 async function getOrder(conn, orderId, fetchImpl = fetch) {
   const data = await lalamoveRequest(conn, 'GET', `/v3/orders/${encodeURIComponent(orderId)}`, undefined, fetchImpl);
   return { orderId: data?.orderId || orderId, status: data?.status || null, shareLink: data?.shareLink || null, driverId: data?.driverId || null };
@@ -164,5 +167,5 @@ async function getOrder(conn, orderId, fetchImpl = fetch) {
 
 module.exports = {
   HOSTS, ENVIRONMENTS, MARKET, environmentOfKey, signature, e164,
-  lalamoveRequest, fetchCities, verifyCredentials, getQuotation, placeOrder, getOrder,
+  lalamoveRequest, fetchCities, verifyCredentials, getQuotation, placeOrder, getOrder, cancelOrder,
 };

@@ -117,3 +117,54 @@ test('bagian prompt: katalog besar hanya memuat yang diutamakan + yang cocok den
   assert.match(section, /### Cocok dengan percakapan ini\n- Semen Jakarta 40 kg: Rp 62\.000/);
   assert.doesNotMatch(section, /Keramik Motif/);
 });
+
+test('detail DealPOS hanya untuk Best Seller dan Promo, satu permintaan per produk, tanpa kembar dan dibatasi', async () => {
+  const items = [
+    { externalId: 'v1', productId: 'p1' }, { externalId: 'v2', productId: 'p1' },
+    { externalId: 'v3', productId: 'p3' }, { externalId: 'v4', productId: 'p4' }, { externalId: 'v5', productId: null },
+  ];
+  const targets = catalog.detailTargets(items, { best_seller: ['v1', 'v5'], promo: ['v2', 'v3'] });
+  assert.deepEqual(targets.map((t) => t.productId), ['p1', 'p3']);
+  assert.equal(catalog.detailTargets(items, { best_seller: ['v1', 'v3', 'v4'], promo: [] }, 2).length, 2);
+  assert.deepEqual(catalog.detailTargets(items, { best_seller: null, promo: [] }), []);
+});
+
+test('merek dan tag dari /Product/Detail dibaca; rate limit menghentikan tarikan tanpa melempar', async () => {
+  const paths = [];
+  const get = async (path) => {
+    paths.push(path);
+    if (path.includes('p3')) { const e = new Error('429'); e.rateLimited = true; throw e; }
+    return { Brand: ' RUCIKA ', Tags: ['Normal', ' ', 'Promo'] };
+  };
+  const out = await catalog.fetchDealposDetails(get, [
+    { externalId: 'v1', productId: 'p1' }, { externalId: 'v3', productId: 'p3' }, { externalId: 'v4', productId: 'p4' },
+  ], { sleep: async () => {} });
+  assert.deepEqual(paths, ['/Product/Detail?ID=p1', '/Product/Detail?ID=p3']);
+  assert.deepEqual(out.get('v1'), { brand: 'RUCIKA', tags: ['Normal', 'Promo'] });
+  assert.equal(out.has('v3'), false);
+});
+
+test('merek tampil di baris katalog untuk AI', () => {
+  const section = catalog.catalogSection({
+    items: [{ id: 'i1', name: 'RUCIKA BACKFLOW VALVE 3"', code: 'RB3', price: 100000, discountPct: 0, brand: 'RUCIKA', tags: [] }],
+    tags: [],
+  });
+  assert.match(section, /RUCIKA BACKFLOW VALVE 3" \[RB3\] \(merek RUCIKA\): Rp 100\.000/);
+});
+
+test('respons /Product asli: UnitPrice adalah harga jual, productId ikut dibawa', () => {
+  const items = catalog.mapDealposProduct({
+    ID: 'prod-9', Name: 'UNICERA BALENCIAGA GREY 50X50 KW1', Code: 'UNCR-00042', Category: 'A/CERAMIC TILES',
+    Variants: [{ ID: 'var-9', Model: 'Default', Code: 'UNCR-00042', UnitPrice: 85000, Discount: 0 }],
+  });
+  assert.equal(items[0].price, 85000);
+  assert.equal(items[0].productId, 'prod-9');
+});
+
+test('satuan dan merek varian dibaca dari UOMName dan Brand; kosong jadi null', async () => {
+  const paths = [];
+  const get = async (path) => { paths.push(path); return path.includes('v2') ? { UOMName: '  ', Brand: null } : { UOMName: ' mtr ', Brand: 'SBJ' }; };
+  assert.deepEqual(await catalog.fetchVariantDetail(get, 'v1'), { unit: 'mtr', brand: 'SBJ' });
+  assert.deepEqual(await catalog.fetchVariantDetail(get, 'v2'), { unit: null, brand: null });
+  assert.deepEqual(paths, ['/Variant/Detail?ID=v1', '/Variant/Detail?ID=v2']);
+});

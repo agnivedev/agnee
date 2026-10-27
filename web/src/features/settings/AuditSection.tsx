@@ -63,6 +63,8 @@ const AUDIT_ACTIONS = [
   'broadcast.opt_out_removed',
   'report.schedule_changed',
   'report.template_changed',
+  'delivery.order_placed',
+  'delivery.order_canceled',
 ] as const;
 
 /**

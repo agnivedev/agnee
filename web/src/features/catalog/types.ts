@@ -35,6 +35,9 @@ export type CatalogItem = {
   releasedAt: string | null;
   soldQty: number | null;
   syncedAt: string | null;
+  brand: string | null;
+  posTags: string[];
+  updatedAt: string | null;
   tags: ItemTag[];
 };
 
@@ -51,6 +54,7 @@ export type CatalogSummary = {
   settings: CatalogSettings;
   tags: CatalogTag[];
   counts: { total: number; manual: number; dealpos: number };
+  detailPending: number;
   canEdit: boolean;
   pos: { provider: 'dealpos'; host: string; enabled: boolean; syncing: boolean } | null;
 };
@@ -78,3 +82,22 @@ export const SWATCH_CLASS: Record<TagColor, string> = {
 };
 
 export const rupiah = (value: number) => `Rp ${Math.round(value).toLocaleString('id-ID')}`;
+
+export type SortKey = 'name' | 'category' | 'brand' | 'price' | 'finalPrice' | 'discount' | 'sold' | 'updated';
+export type SortDir = 'asc' | 'desc';
+
+export type CatalogFilters = {
+  query: string;
+  tagId: string | null;
+  source: '' | 'manual' | 'dealpos';
+  kind: '' | 'product' | 'service';
+  category: string;
+  status: '' | 'visible' | 'hidden' | 'missing';
+  priced: '' | 'yes' | 'no';
+};
+
+export const EMPTY_FILTERS: CatalogFilters = { query: '', tagId: null, source: '', kind: '', category: '', status: '', priced: '' };
+
+/** Harga setelah diskon, atau null bila tanpa harga/diskon. */
+export const finalPriceOf = (item: Pick<CatalogItem, 'price' | 'discountPct'>) =>
+  item.price !== null && item.discountPct > 0 ? item.price * (1 - item.discountPct / 100) : null;

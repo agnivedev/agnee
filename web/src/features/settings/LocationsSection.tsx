@@ -19,7 +19,11 @@ export type CompanyLocation = {
   openToCustomers: boolean;
   isPickup: boolean;
   notes: string | null;
+  dealposOutletId: string | null;
+  dealposOutletName: string | null;
 };
+
+type DealposOutlet = { id: string; name: string; code: string | null };
 
 /**
  * Toko dan gudang company. Bukan integrasi: satu daftar alamat yang dipakai
@@ -35,6 +39,7 @@ export function LocationsSection() {
   const [editing, setEditing] = useState<string | null>(null);
   const [status, setStatus] = useState('');
   const [busy, setBusy] = useState(false);
+  const [outlets, setOutlets] = useState<DealposOutlet[]>([]);
 
   const load = useCallback(async () => {
     try {
@@ -48,6 +53,14 @@ export function LocationsSection() {
   }, []);
 
   useEffect(() => { void load(); }, [load]);
+
+  // Outlet DealPOS hanya ditawarkan kalau DealPOS tersambung; gagal memuat = pilihan disembunyikan.
+  useEffect(() => {
+    if (!editing) return;
+    api<{ connected: boolean; outlets: DealposOutlet[] }>('/v1/integrations/dealpos/outlets')
+      .then((data) => setOutlets(data.connected ? data.outlets : []))
+      .catch(() => setOutlets([]));
+  }, [editing]);
 
   const current = editing && editing !== 'new' ? locations.find((l) => l.id === editing) : undefined;
 
@@ -72,6 +85,7 @@ export function LocationsSection() {
           notes: value('notes'),
           openToCustomers: form.get('openToCustomers') === 'on',
           isPickup: form.get('isPickup') === 'on',
+          ...(outlets.length ? { dealposOutletId: value('dealposOutletId') } : {}),
         },
       });
       setStatus('');
@@ -130,6 +144,14 @@ export function LocationsSection() {
           <option value="store">{t('locations.kind.store')}</option>
           <option value="warehouse">{t('locations.kind.warehouse')}</option>
         </SelectField>
+        {outlets.length ? (
+          <SelectField label={t('locations.outlet')} name="dealposOutletId" defaultValue={current?.dealposOutletId ?? ''} hint={t('locations.outletHint')}>
+            <option value="">{t('locations.outletNone')}</option>
+            {outlets.map((outlet) => (
+              <option key={outlet.id} value={outlet.id}>{outlet.name}{outlet.code ? ` (${outlet.code})` : ''}</option>
+            ))}
+          </SelectField>
+        ) : null}
         <TextField
           label={t('locations.place')}
           name="place"
@@ -236,6 +258,7 @@ export function LocationsSection() {
                 </span>
                 <small className="text-[12px] leading-[1.5]">{location.address}</small>
                 {location.openingHours ? <small className="text-[12px] text-muted">{location.openingHours}</small> : null}
+                {location.dealposOutletName ? <small className="text-[12px] text-muted">{t('locations.outletLinked', { name: location.dealposOutletName })}</small> : null}
                 {location.contactName || location.contactPhone ? (
                   <small className="text-[12px] text-muted">
                     {[location.contactName, location.contactPhone ? `+${location.contactPhone}` : null].filter(Boolean).join(' · ')}

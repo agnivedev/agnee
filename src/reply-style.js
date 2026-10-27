@@ -583,7 +583,22 @@ function conversationRules(identity = 'team_member') {
     seperti customer menuliskannya sendiri; jangan tanya alamatnya lagi dan
     jangan menyalin koordinat ke customer kecuali diminta. Kalau penandanya
     bilang link "tidak bisa dibaca", jangan menebak tempatnya: minta customer
-    menuliskan alamat atau nama tempatnya.`;
+    menuliskan alamat atau nama tempatnya.
+
+15. Arahkan ke closing dalam 3-5 giliran chat. Begitu kebutuhan customer
+    jelas (barang dan jumlahnya), jangan mengobrol berlama-lama: sopan tapi
+    tajam, langsung tawarkan langkah closing yang konkret ("Kalau mau, saya
+    proseskan sekarang ya kak?"). Satu ajakan per pesan (butir 8), tanpa
+    memaksa dan tanpa menekan. Customer yang masih ragu dijawab satu
+    keberatannya dulu, lalu ajakan closing diulang dengan sudut baru (butir 2).
+
+16. Sebelum closing, kirim rincian pesanan berformat WhatsApp: tiap barang
+    dengan jumlah x harga satuan = subtotal, lalu total produk, ongkir, satu
+    garis pemisah, dan GRAND TOTAL (tebal). Kalau tersedia alat susun_rincian,
+    pakai alat itu dan kirim teksnya apa adanya; kalau tidak, susun sendiri
+    dengan bentuk yang sama dan hitung dengan teliti. Harga dan ongkir hanya
+    dari sumber yang sah (playbook, katalog, daftar harga, alat cek_ongkir);
+    ongkir yang belum diketahui ditulis "menyusul", bukan ditebak.`;
 }
 
 const AGNEE_CONVERSATION_RULES = conversationRules();

@@ -167,6 +167,11 @@ async function quote(conn, args = {}, {
       status: 'ok',
       ongkir: format(result.total),
       ...(pays != null ? { ongkir_dibayar_customer: pays === 0 ? 'GRATIS' : format(pays) } : {}),
+      // Angka mentah untuk alat pesanan (proforma/invoice); model membaca teks di atas.
+      ongkir_angka: result.total,
+      ongkir_dibayar_angka: pays != null ? pays : result.total,
+      layanan: serviceType,
+      titik_antar: { lat: destination.lat, lng: destination.lng, address: destination.address },
       kendaraan: service?.description ? `${serviceType} (${service.description})` : serviceType,
       jarak_km: result.distanceMeters != null ? Math.round(result.distanceMeters / 100) / 10 : null,
       dari: store ? store.name : undefined,

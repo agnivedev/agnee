@@ -178,6 +178,24 @@ async function dealposGet(host, token, path, fetchImpl = fetch, retried = false,
   return data;
 }
 
+/**
+ * Tulis ke DealPOS (POST/PUT). Tanpa percobaan ulang: permintaan tulis yang
+ * diulang bisa membuat dokumen ganda, jadi 429 langsung dilaporkan.
+ */
+async function dealposSend(host, token, method, path, body, fetchImpl = fetch, { headers = {} } = {}) {
+  await limiter.acquire(host);
+  const response = await fetchImpl(`https://${host}/api/v3${path}`, {
+    method,
+    headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json', ...headers },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(30_000),
+  });
+  const data = await readJson(response);
+  if (response.status === 429) limiter.blockFor(host, retryAfterSeconds(data, response));
+  if (!response.ok) throw failure(data, response);
+  return data;
+}
+
 /** Dipanggil sebelum kredensial disimpan: kunci salah harus gagal di sini. */
 async function verifyCredentials(credentials, fetchImpl = fetch) {
   const token = await fetchToken(credentials, fetchImpl);
@@ -236,4 +254,4 @@ async function fetchCustomerDetail(host, token, id, fetchImpl = fetch) {
 }
 
 module.exports = {
-  createRateLimiter, dealposGet, fetchCustomerDetail, otherPhone, cleanText, sleep, PAGE_GAP_MS, normalizeHost, normalizePhone, fetchToken, verifyCredentials, fetchCustomers };
+  createRateLimiter, dealposGet, dealposSend, fetchCustomerDetail, otherPhone, cleanText, sleep, PAGE_GAP_MS, normalizeHost, normalizePhone, fetchToken, verifyCredentials, fetchCustomers };

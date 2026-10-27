@@ -66,6 +66,7 @@ const AUDIT_ACTIONS = [
   'broadcast.opt_out_removed',
   'report.schedule_changed',
   'report.template_changed',
+  'dealpos.ai_orders_settings',
   'delivery.order_placed',
   'delivery.order_canceled',
   'promo.created',

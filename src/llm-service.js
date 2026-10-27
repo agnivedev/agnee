@@ -13,6 +13,26 @@ function assertComplete(finishReason, model) {
   throw error;
 }
 
+/**
+ * Jawaban cadangan tanpa alat dipakai saat model gagal membawa alatnya
+ * (mis. Gemini memblokir permintaan beralat dengan PROHIBITED_CONTENT). Prompt
+ * yang sama tetap menyuruh "panggil alat X", jadi tanpa catatan ini model
+ * menulis pemanggilan itu sebagai teks — dan teksnya sampai ke customer — atau
+ * mengarang hasil yang seharusnya datang dari alat.
+ */
+const FALLBACK_NOTE = `## CATATAN SISTEM
+Alat pencarian dan pengecekan sedang tidak tersedia untuk balasan ini. Jangan menulis pemanggilan alat atau nama alat apa pun. Jangan mengarang data yang biasanya diambil dari alat (ongkir, stok, harga, alamat, hasil pengecekan). Kalau customer butuh data itu, katakan dengan sopan bahwa tim akan mengeceknya dan menghubunginya kembali.`;
+
+/** Teks balasan yang berisi pemanggilan alat mentah, bukan jawaban untuk customer. */
+function leaksToolCall(text, tools = []) {
+  const body = String(text || '');
+  if (/<\/?tool_?call>|\btool_code\b|^\s*```\s*(?:tool|json)?\s*\n?\s*\{?\s*"?name"?\s*:/i.test(body)) return true;
+  return tools.some((tool) => {
+    const name = String(tool?.name || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return name && new RegExp(`(^|[^a-z0-9_])${name}\\s*(\\(|:|\\{|$)`, 'i').test(body);
+  });
+}
+
 class LlmService {
   constructor(config = {}) {
     this.apiKey = config.apiKey || process.env.OPENROUTER_API_KEY;
@@ -230,9 +250,18 @@ class LlmService {
     // Latih AI): jawaban tanpa alat di sana berarti usulan yang diklaim tapi tak ada.
     if (withTools && !context.requireTools) {
       const { tools: _ignored, ...plain } = context;
+      const fallbackContext = { ...plain, systemPrompt: `${context.systemPrompt || this.getDefaultSystemPrompt()}\n\n${FALLBACK_NOTE}` };
       for (const model of chain) {
         try {
-          return await this._callModel(model, userMessage, plain);
+          const reply = await this._callModel(model, userMessage, fallbackContext);
+          // Teks yang isinya pemanggilan alat tidak boleh sampai ke customer;
+          // lebih baik tanpa balasan (jatuh ke agent manusia) daripada itu.
+          if (leaksToolCall(reply?.text, context.tools)) {
+            lastError = new Error(`Fallback reply from ${model} contained a raw tool call`);
+            console.warn(lastError.message);
+            continue;
+          }
+          return reply;
         } catch (err) {
           lastError = err;
         }

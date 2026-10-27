@@ -77,6 +77,10 @@ const AUDIT_ACTIONS = [
   'knowledge.applied',
   'knowledge.rejected',
   'knowledge.learning_toggled',
+  'payment_account.created',
+  'payment_account.updated',
+  'payment_account.deleted',
+  'payment_proof.reviewed',
 ] as const;
 
 /**

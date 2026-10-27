@@ -5,6 +5,7 @@ import { useSession } from '@/lib/session';
 import { useConfirm } from '@/components/ui/confirm';
 import { cn } from '@/lib/utils';
 import { AiPausedBar } from './AiPausedBar';
+import { PaymentProofBar } from './PaymentProofBar';
 import { DeliveryMenu } from './DeliveryMenu';
 import { ShareMenu } from './ShareMenu';
 import { formatFileSize, messagePreview } from './format';
@@ -187,6 +188,7 @@ export function Composer({
 
   return (
     <div className="min-w-0">
+      <PaymentProofBar chatId={chat.id} />
       <AiPausedBar chatId={chat.id} reloadToken={routingToken} />
       <form
         onSubmit={submit}

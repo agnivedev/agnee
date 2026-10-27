@@ -115,3 +115,37 @@ test('aturan lokasi ada untuk kedua identitas', () => {
     assert.match(conversationRules(identity), /Isi link Google Maps dari customer/);
   }
 });
+
+test('domain mirip Google yang bukan milik Google tidak dianggap host Google', () => {
+  for (const url of [
+    'https://google.xyz.co/maps/place/X/@-6.1,106.8,17z',
+    'https://evilgoogle.com/maps/place/X/@-6.1,106.8,17z',
+    'https://google.com.evil.id/maps/place/X/@-6.1,106.8,17z',
+    'https://www.google.com@evil.example/maps/place/X/@-6.1,106.8,17z',
+  ]) assert.equal(mapsLink.parseMapsUrl(url), null, url);
+  for (const url of [
+    'https://www.google.com/maps/place/X/@-6.1,106.8,17z',
+    'https://maps.google.co.id/maps?q=-6.1,106.8',
+    'https://www.google.com.sg/maps/place/X/@-6.1,106.8,17z',
+  ]) assert.ok(mapsLink.parseMapsUrl(url), url);
+});
+
+test('redirect ke domain mirip Google tidak diambil', async () => {
+  const { impl, calls } = fakeFetch({
+    'https://maps.app.goo.gl/Palsu': { status: 302, location: 'https://google.xyz.co/maps' },
+  });
+  const text = await mapsLink.readCustomerText({ type: 'chat', body: 'https://maps.app.goo.gl/Palsu' }, { fetchImpl: impl });
+  assert.deepEqual(calls, ['https://maps.app.goo.gl/Palsu']);
+  assert.match(text, /tidak bisa dibaca/);
+});
+
+test('link pendek yang menjawab 200: URL Google di isi halaman dipakai, URL domain lain diabaikan', async () => {
+  const page = (url) => `<html><a href="${url}">buka</a></html>`;
+  const ok = fakeFetch({ 'https://maps.app.goo.gl/Halaman': { status: 200, text: page(MONAS_LONG) } });
+  assert.match(await mapsLink.readCustomerText({ type: 'chat', body: 'https://maps.app.goo.gl/Halaman' }, { fetchImpl: ok.impl }), /Monumen Nasional/);
+  mapsLink.clearCache();
+  const palsu = fakeFetch({ 'https://maps.app.goo.gl/Halaman': { status: 200, text: page('https://google.xyz.co/maps/place/Palsu/@-6.1,106.8,17z') } });
+  const text = await mapsLink.readCustomerText({ type: 'chat', body: 'https://maps.app.goo.gl/Halaman' }, { fetchImpl: palsu.impl });
+  assert.match(text, /tidak bisa dibaca/);
+  assert.doesNotMatch(text, /Palsu/);
+});

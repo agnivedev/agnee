@@ -4,10 +4,10 @@
  * Alat cek_alamat: alamat yang diketik customer dicari di peta SEBELUM AI
  * meminta customer memperjelas.
  *
- * Tanpa ini AI condong menjawab "boleh kirim alamat lengkapnya kak?" untuk
- * alamat yang sebenarnya sudah cukup, atau menerima alamat yang ngawur. Yang
- * diinginkan: alamat diterima dulu, dicek ke peta, dan hanya bagian yang
- * memang tidak ketemu yang ditanyakan.
+ * Tanpa pengecekan, tidak ada yang membedakan alamat yang sudah cukup jelas
+ * dari yang belum, jadi AI meminta ulang yang sudah jelas atau menerima yang
+ * ngawur. Yang diinginkan: alamat diterima dulu, dicek ke peta, dan hanya
+ * bagian yang memang tidak ketemu yang ditanyakan.
  *
  * Petanya OpenStreetMap (Nominatim), bukan Google Maps: gratis dan tanpa
  * kunci, tapi sering tidak mengenal nama perumahan atau nomor rumah. Karena

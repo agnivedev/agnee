@@ -14,11 +14,12 @@
  * seperti `mediaMarker` untuk foto, supaya model membaca nama tempat, alamat,
  * dan koordinatnya.
  *
- * Jaringan hanya disentuh untuk dua hal: membuka link pendek (maps.app.goo.gl,
+ * Jaringan disentuh untuk dua hal: membuka link pendek (maps.app.goo.gl,
  * goo.gl/maps) — hanya ke host Google di daftar, mengikuti redirect satu per
- * satu tanpa pernah mengambil host lain — dan reverse geocoding koordinat yang
- * datang tanpa nama tempat lewat Nominatim (OpenStreetMap). Keduanya diberi
- * batas waktu; gagal berarti penanda "tidak terbaca", bukan balasan yang macet.
+ * satu tanpa pernah mengambil host lain — dan Nominatim (OpenStreetMap) untuk
+ * alamat dari koordinat, koordinat dari teks, dan komponen wilayah. Semuanya
+ * diberi batas waktu; gagal berarti penanda "tidak terbaca", bukan balasan
+ * yang macet.
  */
 
 const SHORT_HOSTS = new Set(['maps.app.goo.gl', 'goo.gl', 'g.co']);
@@ -49,9 +50,13 @@ function cacheSet(key, value) {
   cache.set(key, { at: Date.now(), value });
 }
 
+// Daftar tertutup domain milik Google. Pola longgar seperti google.[a-z]{2,3}
+// menerima google.xyz.co, yang bisa didaftarkan siapa saja; hostnya lolos
+// sebagai "Google" dan server membukanya.
+const GOOGLE_DOMAIN = /^(?:www\.|maps\.)?google\.(?:com|co\.id|com\.(?:sg|my|au|hk|ph|vn|tw|br|mx|ar|tr|eg|pk|ng|ua)|co\.(?:uk|jp|th|in|kr|nz|za|il|ve)|de|fr|nl|es|it|ca|ru|pl|se|ch|at|be|pt|gr)$/;
+
 function isGoogleMapsHost(hostname) {
-  const host = hostname.toLowerCase();
-  return /^(?:www\.|maps\.)?google\.(?:com|co\.id|[a-z]{2,3}(?:\.[a-z]{2})?)$/.test(host);
+  return GOOGLE_DOMAIN.test(hostname.toLowerCase());
 }
 
 function isAllowedHost(hostname) {
@@ -200,11 +205,13 @@ async function expandShortLink(raw, fetchImpl) {
       continue;
     }
     if (!response.ok) return null;
-    // Sebagian link pendek menjawab 200 dengan halaman yang memuat URL
-    // tujuannya, bukan redirect.
+    // Link pendek yang menjawab 200, bukan redirect: ambil URL tujuan dari isi
+    // halamannya. Jalur ini belum pernah teramati dengan link asli; kalau tak
+    // ada URL Google di dalamnya hasilnya "tidak terbaca".
     const html = String(await response.text()).slice(0, 200_000);
     const embedded = html.match(/https:\/\/(?:www\.|maps\.)?google\.[a-z.]{2,8}\/maps[^"'\s<>\\]*/);
-    return embedded ? embedded[0].replace(/&amp;/g, '&') : null;
+    const target = embedded ? embedded[0].replace(/&amp;/g, '&') : null;
+    return target && isAllowedHost(new URL(target).hostname) ? target : null;
   }
   return null;
 }

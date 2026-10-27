@@ -138,8 +138,8 @@ export function CatalogPage() {
     setSyncNote('');
     setCategorizing(true);
     try {
-      const { counts } = await api<{ counts: { best_seller: number | null; promo: number | null; new: number | null } }>('/v1/catalog/auto-tags', { method: 'POST' });
-      const base = t('catalog.autoTagsDone', { best: counts.best_seller ?? 0, promo: counts.promo ?? 0, fresh: counts.new ?? 0 });
+      const { counts } = await api<{ counts: { best_seller: number | null; promo: number | null; new: number | null; keyword?: number } }>('/v1/catalog/auto-tags', { method: 'POST' });
+      const base = t('catalog.autoTagsDone', { best: counts.best_seller ?? 0, promo: counts.promo ?? 0, fresh: counts.new ?? 0, keyword: counts.keyword ?? 0 });
       setTagsNote(counts.best_seller === null ? `${base} (${t('catalog.autoTagsNoSales')})` : base);
       refreshAll();
     } catch (error) {

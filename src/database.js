@@ -19,6 +19,12 @@ const SYSTEM_TYPES_SQL = `'{${SYSTEM_MESSAGE_TYPES.join(',')}}'::text[]`;
 /** Syarat SQL "bukan pesan sistem" untuk kolom message_type dengan alias `alias`. */
 const notSystem = (alias) => `${alias ? `${alias}.` : ''}message_type <> ALL(${SYSTEM_TYPES_SQL})`;
 
+/** Kata kunci ribbon: huruf kecil, tanpa duplikat, paling banyak 60 kata @ 40 huruf. */
+function cleanMatchTerms(terms) {
+  const list = Array.isArray(terms) ? terms : [];
+  return [...new Set(list.map((term) => String(term).toLowerCase().replace(/\s+/g, ' ').trim().slice(0, 40)).filter(Boolean))].slice(0, 60);
+}
+
 function slugify(value) {
   return String(value || '')
     .toLowerCase()
@@ -5073,7 +5079,7 @@ class Database {
   async listCatalogTags(companyId) {
     if (!this.enabled) return [];
     const result = await this.pool.query(`
-      SELECT t.id, t.name, t.color, t.auto_rule AS "autoRule", t.pos_tag AS "posTag", t.highlight, t.ai_note AS "aiNote", t.active,
+      SELECT t.id, t.name, t.color, t.auto_rule AS "autoRule", t.pos_tag AS "posTag", t.match_terms AS "matchTerms", t.highlight, t.ai_note AS "aiNote", t.active,
              t.sort_order AS "sortOrder",
              (SELECT COUNT(DISTINCT it.item_id)::int FROM catalog_item_tags it WHERE it.tag_id = t.id) AS "itemCount"
       FROM catalog_tags t WHERE t.company_id = $1
@@ -5082,27 +5088,31 @@ class Database {
     return result.rows;
   }
 
-  async createCatalogTag(companyId, { name, color = 'slate', highlight = false, aiNote = '', posTag = null }) {
+  async createCatalogTag(companyId, { name, color = 'slate', highlight = false, aiNote = '', posTag = null, matchTerms = [] }) {
     if (!this.enabled) return null;
     const result = await this.pool.query(`
-      INSERT INTO catalog_tags (company_id, name, color, highlight, ai_note, pos_tag, sort_order)
-      VALUES ($1, $2, $3, $4, $5, $6, (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM catalog_tags WHERE company_id = $1))
+      INSERT INTO catalog_tags (company_id, name, color, highlight, ai_note, pos_tag, match_terms, sort_order)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM catalog_tags WHERE company_id = $1))
       RETURNING id
-    `, [companyId, name.trim(), color, highlight, aiNote, posTag ? posTag.trim() || null : null]);
+    `, [companyId, name.trim(), color, highlight, aiNote, posTag ? posTag.trim() || null : null, posTag?.trim() ? [] : cleanMatchTerms(matchTerms)]);
     return (await this.listCatalogTags(companyId)).find((t) => t.id === result.rows[0].id) || null;
   }
 
   async updateCatalogTag(tagId, companyId, patch) {
     if (!this.enabled) return null;
-    const columns = { name: 'name', color: 'color', highlight: 'highlight', aiNote: 'ai_note', active: 'active', posTag: 'pos_tag' };
+    const columns = { name: 'name', color: 'color', highlight: 'highlight', aiNote: 'ai_note', active: 'active', posTag: 'pos_tag', matchTerms: 'match_terms' };
     const sets = [];
     const values = [tagId, companyId];
     for (const [key, column] of Object.entries(columns)) {
       if (patch[key] === undefined) continue;
       // Tag POS kosong = lepas dari tag POS.
-      values.push(key === 'name' ? patch[key].trim() : key === 'posTag' ? (patch[key] || '').trim() || null : patch[key]);
+      values.push(key === 'name' ? patch[key].trim() : key === 'posTag' ? (patch[key] || '').trim() || null
+        : key === 'matchTerms' ? cleanMatchTerms(patch[key]) : patch[key]);
       sets.push(`${column} = $${values.length}`);
     }
+    // Satu ribbon mengikuti tag POS atau kata kunci, tidak keduanya: yang terakhir diisi menang.
+    if (patch.matchTerms !== undefined && cleanMatchTerms(patch.matchTerms).length && patch.posTag === undefined) sets.push('pos_tag = NULL');
+    if (patch.posTag !== undefined && (patch.posTag || '').trim() && patch.matchTerms === undefined) sets.push("match_terms = '{}'");
     if (sets.length) {
       const result = await this.pool.query(
         `UPDATE catalog_tags SET ${sets.join(', ')}, updated_at = NOW() WHERE id = $1 AND company_id = $2`, values,
@@ -5111,7 +5121,7 @@ class Database {
       // Ribbon dilepas dari tag POS: pasangan otomatisnya ikut hilang (yang manual tetap).
       if (patch.posTag !== undefined && !(patch.posTag || '').trim()) {
         await this.pool.query(
-          "DELETE FROM catalog_item_tags WHERE tag_id = $1 AND company_id = $2 AND source = 'auto' AND tag_id IN (SELECT id FROM catalog_tags WHERE id = $1 AND auto_rule IS NULL)",
+          "DELETE FROM catalog_item_tags WHERE tag_id = $1 AND company_id = $2 AND source = 'auto' AND tag_id IN (SELECT id FROM catalog_tags WHERE id = $1 AND auto_rule IS NULL AND match_terms = '{}')",
           [tagId, companyId],
         );
       }
@@ -5227,6 +5237,43 @@ class Database {
       LIMIT $2
     `, [companyId, limit]);
     return result.rows;
+  }
+
+  /**
+   * Ribbon kata kunci: item aktif yang nama atau mereknya memuat salah satu kata
+   * (awal kata, huruf besar/kecil diabaikan) mendapat ribbon. Pasangan 'auto' milik
+   * ribbon ini diganti seluruhnya tiap kali; ribbon manual tidak disentuh.
+   */
+  async applyKeywordRibbons(companyId) {
+    if (!this.enabled) return {};
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const tags = await client.query(
+        'SELECT id, active, match_terms AS "terms" FROM catalog_tags WHERE company_id = $1 AND match_terms <> \'{}\'', [companyId],
+      );
+      const counts = {};
+      for (const tag of tags.rows) {
+        await client.query("DELETE FROM catalog_item_tags WHERE company_id = $1 AND tag_id = $2 AND source = 'auto'", [companyId, tag.id]);
+        if (!tag.active) { counts[tag.id] = 0; continue; }
+        const patterns = tag.terms.map((term) => `(^|[^a-z0-9])${term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`);
+        const inserted = await client.query(`
+          INSERT INTO catalog_item_tags (company_id, item_id, tag_id, source)
+          SELECT $1, i.id, $2, 'auto' FROM catalog_items i
+          WHERE i.company_id = $1 AND i.active AND NOT i.missing_from_source
+            AND (i.name ~* ANY($3::text[]) OR COALESCE(i.brand, '') ~* ANY($3::text[]))
+          ON CONFLICT DO NOTHING
+        `, [companyId, tag.id, patterns]);
+        counts[tag.id] = inserted.rowCount;
+      }
+      await client.query('COMMIT');
+      return counts;
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   /**

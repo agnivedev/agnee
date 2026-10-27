@@ -63,3 +63,36 @@ test('kategorikan otomatis: tanpa data penjualan, Best Seller lama dibiarkan', {
   assert.deepEqual(await tagged('best_seller'), []);
   assert.deepEqual(await tagged('new'), ['Manual baru']);
 });
+
+test('ribbon kata kunci: nama atau merek, awal kata, item manual ikut, yang tersembunyi tidak', { skip }, async (t) => {
+  const { db, companyId, add } = await setup(t);
+  await db.getCatalogSettings(companyId);
+  const tag = await db.createCatalogTag(companyId, { name: 'Unggulan Merek', matchTerms: [' Jotun ', 'TRIPLEK', 'semen jakarta', 'jotun', ''] });
+  assert.deepEqual(tag.matchTerms, ['jotun', 'triplek', 'semen jakarta']);
+  await add({ name: 'JOTUN Jotashield 20L' });
+  await add({ name: 'Triplek 9mm 122x244' });
+  await add({ name: 'Semen Jakarta 40kg', source: 'manual' });
+  await add({ name: 'Cat Tembok Dulux 5kg' });
+  await add({ name: 'Lembar Triplek Lama', missing: true });
+  await add({ name: 'Triplek tersembunyi', active: false });
+  await add({ name: 'Antijotunx jangan cocok' });
+  const brandId = await add({ name: 'Cat Emulsi 5kg' });
+  await db.pool.query("UPDATE catalog_items SET brand = 'JOTUN' WHERE id = $1", [brandId]);
+
+  await db.applyKeywordRibbons(companyId);
+  const names = async () => (await db.pool.query(`
+    SELECT i.name FROM catalog_item_tags it JOIN catalog_items i ON i.id = it.item_id WHERE it.tag_id = $1 ORDER BY i.name`, [tag.id])).rows.map((r) => r.name);
+  assert.deepEqual(await names(), ['Cat Emulsi 5kg', 'JOTUN Jotashield 20L', 'Semen Jakarta 40kg', 'Triplek 9mm 122x244']);
+
+  // Kata kunci diganti: pasangan lama hilang, item baru ikut; dimatikan: kosong.
+  await db.updateCatalogTag(tag.id, companyId, { matchTerms: ['dulux'] });
+  await db.applyKeywordRibbons(companyId);
+  assert.deepEqual(await names(), ['Cat Tembok Dulux 5kg']);
+  await db.updateCatalogTag(tag.id, companyId, { active: false });
+  await db.applyKeywordRibbons(companyId);
+  assert.deepEqual(await names(), []);
+
+  // Mengisi tag POS melepas kata kunci (satu ribbon, satu cara).
+  const switched = await db.updateCatalogTag(tag.id, companyId, { posTag: 'Consignment' });
+  assert.deepEqual(switched.matchTerms, []);
+});

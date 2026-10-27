@@ -9620,6 +9620,7 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
       } catch (error) {
         app.log.warn({ err: error, companyId }, 'Merek dan tag DealPOS tidak ditarik');
       }
+      if (canCall('applyKeywordRibbons')) await database.applyKeywordRibbons(companyId).catch(() => {});
       catalogCache.delete(companyId);
       app.log.info({ companyId, count, bestSeller: assignments.best_seller?.length ?? null }, 'Katalog DealPOS ditarik');
       // Satuan (UOM) dan merek per varian menyusul di latar belakang.
@@ -9717,6 +9718,8 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
           done += 1;
           await dealposSync.sleep(catalog.DETAIL_GAP_MS);
         }
+        // Merek baru tiba per batch: ribbon kata kunci yang memakai merek ikut diperbarui.
+        if (canCall('applyKeywordRibbons')) await database.applyKeywordRibbons(companyId).catch(() => {});
       }
       catalogCache.delete(companyId);
       app.log.info({ companyId, done }, 'Satuan dan merek varian DealPOS ditarik');
@@ -9900,6 +9903,8 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     active: { type: 'boolean' },
     // Nama tag bawaan DealPOS yang diikuti ribbon ini; string kosong = tidak mengikuti.
     posTag: { type: 'string', maxLength: 60 },
+    // Kata kunci nama/merek item; item yang memuatnya otomatis mendapat ribbon ini.
+    matchTerms: { type: 'array', maxItems: 60, items: { type: 'string', maxLength: 40 } },
   };
 
   function catalogGuard(request, reply, { write = false } = {}) {
@@ -10062,6 +10067,7 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
       const tag = await database.createCatalogTag(companyId, request.body);
       catalogCache.delete(companyId);
       if (tag?.posTag) void refreshPosTagRibbons(companyId);
+      if (tag?.matchTerms?.length) await database.applyKeywordRibbons(companyId).catch((e) => app.log.warn({ err: e, companyId }, 'Ribbon kata kunci tidak dipasang'));
       return reply.code(201).send({ tag });
     } catch (error) {
       if (error.code === '23505') return reply.code(409).send({ error: 'Sudah ada ribbon dengan nama itu.' });
@@ -10083,7 +10089,10 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
       if (!tag) return reply.code(404).send({ error: 'Ribbon tidak ditemukan.' });
       catalogCache.delete(companyId);
       if (request.body.posTag !== undefined || request.body.active !== undefined) void refreshPosTagRibbons(companyId);
-      return { tag };
+      if (request.body.matchTerms !== undefined || request.body.active !== undefined) {
+        await database.applyKeywordRibbons(companyId).catch((e) => app.log.warn({ err: e, companyId }, 'Ribbon kata kunci tidak dipasang'));
+      }
+      return { tag: (await database.listCatalogTags(companyId)).find((x) => x.id === tag.id) || tag };
     } catch (error) {
       if (error.code === '23505') return reply.code(409).send({ error: 'Sudah ada ribbon dengan nama itu.' });
       throw error;
@@ -10125,6 +10134,10 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     if (!catalogGuard(request, reply, { write: true })) return;
     const companyId = request.agneeSession.companyId;
     const counts = await database.applyCatalogAutoTags(companyId);
+    if (counts && canCall('applyKeywordRibbons')) {
+      const keyword = await database.applyKeywordRibbons(companyId);
+      counts.keyword = Object.values(keyword || {}).reduce((a, b) => a + b, 0);
+    }
     catalogCache.delete(companyId);
     return { counts };
   });

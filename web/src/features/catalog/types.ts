@@ -7,6 +7,7 @@ export type CatalogTag = {
   color: TagColor;
   autoRule: AutoRule | null;
   posTag: string | null;
+  matchTerms: string[];
   highlight: boolean;
   aiNote: string;
   active: boolean;

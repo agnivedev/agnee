@@ -43,7 +43,7 @@ export function TagsDialog({ tags, settings, hasPos, onClose, onChanged }: {
       .catch(() => { /* saran opsional */ });
   }, [hasPos, tags]);
 
-  async function patch(tag: CatalogTag, body: Partial<Pick<CatalogTag, 'name' | 'color' | 'highlight' | 'aiNote' | 'active' | 'posTag'>>) {
+  async function patch(tag: CatalogTag, body: Partial<Pick<CatalogTag, 'name' | 'color' | 'highlight' | 'aiNote' | 'active' | 'posTag' | 'matchTerms'>>) {
     setStatus('');
     try {
       await api(`/v1/catalog/tags/${tag.id}`, { method: 'PATCH', body });
@@ -103,6 +103,7 @@ export function TagsDialog({ tags, settings, hasPos, onClose, onChanged }: {
     if (tag.autoRule === 'promo') return t('catalog.rule.promo');
     if (tag.autoRule === 'new') return t('catalog.rule.new', { days: settings.newDays });
     if (tag.posTag) return t('catalog.rule.posTag', { tag: tag.posTag });
+    if (tag.matchTerms?.length) return t('catalog.rule.terms', { terms: tag.matchTerms.join(', ') });
     return t('catalog.rule.manual');
   };
 
@@ -166,13 +167,14 @@ function TagRow({ tag, hasPos, posTags, ruleText, onPatch, onDelete }: {
   hasPos: boolean;
   posTags: { tag: string; count: number }[];
   ruleText: string;
-  onPatch: (body: Partial<Pick<CatalogTag, 'name' | 'color' | 'highlight' | 'aiNote' | 'active' | 'posTag'>>) => void;
+  onPatch: (body: Partial<Pick<CatalogTag, 'name' | 'color' | 'highlight' | 'aiNote' | 'active' | 'posTag' | 'matchTerms'>>) => void;
   onDelete: () => void;
 }) {
   const { t } = useI18n();
   const [name, setName] = useState(tag.name);
   const [aiNote, setAiNote] = useState(tag.aiNote);
   const [posTag, setPosTag] = useState(tag.posTag || '');
+  const [terms, setTerms] = useState((tag.matchTerms || []).join(', '));
   const listId = `pos-tags-${tag.id}`;
   return (
     <li className={cn('grid gap-2 rounded-app border border-border bg-white/70 p-3', !tag.active && 'opacity-70')}>
@@ -222,6 +224,21 @@ function TagRow({ tag, hasPos, posTags, ruleText, onPatch, onDelete }: {
             {posTags.map((p) => <option key={p.tag} value={p.tag}>{p.count}</option>)}
           </datalist>
           <span className="text-[11px] font-normal text-muted">{t('catalog.tags.posTagHint')}</span>
+        </label>
+      ) : null}
+      {!tag.autoRule ? (
+        <label className="grid gap-1 text-[12px] font-semibold">
+          {t('catalog.tags.terms')}
+          <Input
+            value={terms}
+            onChange={(e) => setTerms(e.target.value)}
+            onBlur={() => {
+              const next = terms.split(/[,\n]/).map((x) => x.trim()).filter(Boolean);
+              if (next.join(',').toLowerCase() !== (tag.matchTerms || []).join(',')) onPatch({ matchTerms: next });
+            }}
+            placeholder={t('catalog.tags.termsPlaceholder')}
+          />
+          <span className="text-[11px] font-normal text-muted">{t('catalog.tags.termsHint')}</span>
         </label>
       ) : null}
       <label className="flex items-center gap-2 text-[12px] font-semibold">

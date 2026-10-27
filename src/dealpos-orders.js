@@ -25,7 +25,7 @@ const INVOICE = 'buat_invoice';
 const SHIPPING_DRIFT = 0.1;
 
 const GUIDE = `## PROFORMA & INVOICE DEALPOS (alat ${PROFORMA}, ${INVOICE})
-- Customer sudah deal (barang, jumlah, dan lokasi jelas): panggil ${PROFORMA} dengan "kode" barang dari DAFTAR HARGA DEALPOS. Kirim "teks" hasilnya persis seperti diberikan, lalu minta customer memeriksa dan menyetujuinya. Alat ini menghitung harga dan ongkir sendiri; jangan menghitung ulang.
+- Customer sudah deal (barang, jumlah, dan lokasi jelas): panggil ${PROFORMA} dengan "kode" barang dari DAFTAR HARGA DEALPOS dan "kendaraan" yang sama dengan cek_ongkir di rincian yang sudah disetujui, supaya ongkirnya tidak berubah. Kirim "teks" hasilnya persis seperti diberikan, lalu minta customer memeriksa dan menyetujuinya. Alat ini menghitung harga dan ongkir sendiri; jangan menghitung ulang.
 - Setelah customer menyatakan setuju dengan proforma itu (di pesannya sendiri, bukan tebakanmu), panggil ${INVOICE}. Jangan memanggilnya di giliran yang sama dengan ${PROFORMA}.
 - Kalau customer mengubah pesanan (barang, jumlah, lokasi), buat proforma baru; jangan invoice dari yang lama.
 - Setelah ${INVOICE} berhasil, sampaikan nomor invoice dan, bila ada, tautan pelacakan kurir, lalu jelaskan langkah pembayarannya sesuai playbook. Kalau hasilnya "sebagian" atau "gagal", katakan tim akan menindaklanjuti; jangan mengulang pemanggilan dan jangan menjanjikan kurir sudah berangkat.
@@ -114,7 +114,7 @@ function createTools(ctx) {
       shippingLabel = 'Ambil di toko';
     } else {
       if (!ctx.lalamoveReady) return { status: 'gagal', pesan: 'Ongkir otomatis belum aktif. Ongkir dipastikan dulu oleh tim.' };
-      const quote = await ctx.quote({ tujuan: args.tujuan, total_belanja: lines.reduce((s, l) => s + l.qty * l.unitPrice, 0), jumlah_barang: lines.reduce((s, l) => s + l.qty, 0), produk: lines.map((l) => l.name) });
+      const quote = await ctx.quote({ tujuan: args.tujuan, kendaraan: args.kendaraan, total_belanja: lines.reduce((s, l) => s + l.qty * l.unitPrice, 0), jumlah_barang: lines.reduce((s, l) => s + l.qty, 0), produk: lines.map((l) => l.name) });
       if (quote.status !== 'ok' || quote.ongkir_angka == null) return { status: 'gagal', pesan: quote.pesan || 'Ongkir belum bisa dihitung. Pastikan lokasi customer berupa share location atau link Google Maps.' };
       if (quote.ketepatan !== 'titik') return { status: 'butuh_lokasi', pesan: 'Lokasi baru berupa perkiraan area. Minta customer share location WhatsApp atau kirim link Google Maps supaya kurir bisa dipesan.' };
       shipping = quote.ongkir_dibayar_angka;
@@ -265,6 +265,7 @@ function createTools(ctx) {
           },
           tujuan: { type: 'string', maxLength: 300, description: 'Koordinat "lat,lng" atau link Google Maps dari customer. Tidak perlu bila ambil_di_toko.' },
           ambil_di_toko: { type: 'boolean', description: 'true bila customer mengambil sendiri di toko (tanpa ongkir dan kurir).' },
+          kendaraan: { type: 'string', maxLength: 30, description: 'Kode kendaraan Lalamove yang sama dengan cek_ongkir di rincian yang disetujui customer (mis. "TRUCK175").' },
           nama_penerima: { type: 'string', maxLength: 120 },
           telepon_penerima: { type: 'string', maxLength: 30, description: 'Nomor HP penerima untuk kurir, bila berbeda dari nomor chat.' },
         },

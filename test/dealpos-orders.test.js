@@ -46,6 +46,14 @@ test('isUsable butuh saklar dan setelan dokumen lengkap', () => {
   assert.equal(orders.isUsable(null), false);
 });
 
+test('proforma: kendaraan dari rincian diteruskan ke cek_ongkir', async () => {
+  const asked = [];
+  const { tools } = setup({ quote: async (args) => { asked.push(args); return { status: 'ok', ketepatan: 'titik', ongkir_angka: 165000, ongkir_dibayar_angka: 165000, layanan: 'TRUCK175', kendaraan: 'TRUCK175 (Pickup)', titik_antar: { lat: -6.3, lng: 106.6, address: 'BSD' } }; } });
+  const out = await tools.buat_proforma.run({ barang: [{ kode: 'MU480', jumlah: 14 }], tujuan: '-6.3,106.6', kendaraan: 'TRUCK175' });
+  assert.equal(asked[0].kendaraan, 'TRUCK175');
+  assert.match(out.teks, /Ongkir \(Lalamove, TRUCK175 \(Pickup\)\): Rp 165\.000/);
+});
+
 test('proforma: harga dari DB, Estimate dikirim, rincian WhatsApp keluar', async () => {
   const log = [];
   const { tools, docs } = setup({ fetchLog: log });

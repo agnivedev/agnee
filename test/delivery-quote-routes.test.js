@@ -27,6 +27,12 @@ function fakeDatabase(conn) {
       Object.assign(conn.value, settings);
       return true;
     },
+    async setPickupLocation(companyId, id) {
+      const location = (conn.locations || []).find((l) => l.id === id);
+      if (companyId !== 'company-a' || !location) return false;
+      Object.assign(conn.value, { pickupLocationId: id, pickupLat: location.lat, pickupLng: location.lng, pickupAddress: location.address });
+      return true;
+    },
   };
   return new Proxy(known, {
     get(target, prop) {
@@ -37,8 +43,8 @@ function fakeDatabase(conn) {
   });
 }
 
-async function setup(t, connValue) {
-  const conn = { value: connValue };
+async function setup(t, connValue, locations = []) {
+  const conn = { value: connValue, locations };
   const seen = [];
   const llm = {
     enabled: true, model: 'tiruan',
@@ -77,20 +83,23 @@ const BASE = {
   pickupLat: null, pickupLng: null, pickupAddress: null, defaultService: null, aiQuotesEnabled: false,
 };
 
-test('pengaturan ongkir otomatis: supervisor saja, wajib lokasi toko, kendaraan harus tersedia', async (t) => {
-  const { call, owner, agent, conn } = await setup(t, { ...BASE });
+test('pengaturan ongkir otomatis: supervisor saja, wajib titik jemput dari Lokasi, kendaraan harus tersedia', async (t) => {
+  const { call, owner, agent, conn } = await setup(t, { ...BASE }, [{ id: '7', lat: -6.2, lng: 106.7, address: 'Toko BSD' }]);
   assert.equal((await call(agent, 'PUT', '/v1/integrations/lalamove/ai', { aiQuotesEnabled: true })).statusCode, 403);
-  assert.match((await call(owner, 'PUT', '/v1/integrations/lalamove/ai', { aiQuotesEnabled: true })).json().error, /lokasi toko/);
-  assert.equal((await call(owner, 'PUT', '/v1/integrations/lalamove/ai', { aiQuotesEnabled: true, pickup: 'jalan entah' })).statusCode, 422);
-  assert.match((await call(owner, 'PUT', '/v1/integrations/lalamove/ai', { aiQuotesEnabled: true, pickup: '-6.2,106.7', defaultService: 'TRUCK999' })).json().error, /Kendaraan/);
+  assert.match((await call(owner, 'PUT', '/v1/integrations/lalamove/ai', { aiQuotesEnabled: true })).json().error, /titik jemput.*Lokasi/);
+  // Teks bebas tidak lagi diterima: titik jemput dipilih dari daftar lokasi.
+  assert.match((await call(owner, 'PUT', '/v1/integrations/lalamove/ai', { aiQuotesEnabled: true, pickup: '-6.2,106.7' })).json().error, /titik jemput/);
+  assert.equal((await call(owner, 'PUT', '/v1/integrations/lalamove/ai', { aiQuotesEnabled: true, pickupLocationId: '99' })).statusCode, 404);
+  assert.match((await call(owner, 'PUT', '/v1/integrations/lalamove/ai', { aiQuotesEnabled: true, pickupLocationId: '7', defaultService: 'TRUCK999' })).json().error, /Kendaraan/);
 
-  const ok = await call(owner, 'PUT', '/v1/integrations/lalamove/ai', { aiQuotesEnabled: true, pickup: '-6.2,106.7', defaultService: 'VAN' });
+  const ok = await call(owner, 'PUT', '/v1/integrations/lalamove/ai', { aiQuotesEnabled: true, pickupLocationId: '7', defaultService: 'VAN' });
   assert.equal(ok.statusCode, 200);
   assert.equal(ok.json().aiQuotesEnabled, true);
   assert.equal(ok.json().pickupSet, true);
+  assert.equal(ok.json().pickupLocationId, '7');
   assert.equal(conn.value.pickupLat, -6.2);
   assert.equal(conn.value.defaultService, 'VAN');
-  // Mematikan tanpa mengirim lokasi lagi tidak menghapus lokasi toko.
+  // Mematikan tanpa mengirim lokasi lagi tidak melepas titik jemput.
   await call(owner, 'PUT', '/v1/integrations/lalamove/ai', { aiQuotesEnabled: false });
   assert.equal(conn.value.pickupLat, -6.2);
 });

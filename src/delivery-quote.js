@@ -5,7 +5,7 @@
  *
  * Tanpa ini AI hanya bisa berkata "ongkirnya saya pastikan dulu" dan customer
  * menunggu sampai ada orang yang membuka aplikasi Lalamove. Titik jemput
- * diatur sekali di Pengaturan > Integrasi > Lalamove; titik antar diambil
+ * = lokasi bertanda titik jemput di Pengaturan > Lokasi; titik antar diambil
  * dari lokasi yang dikirim customer (pin WhatsApp atau link Google Maps, yang
  * sudah dibaca maps-link.js menjadi koordinat), atau dari nama tempat yang
  * diketiknya sebagai perkiraan area.

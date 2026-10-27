@@ -9597,7 +9597,11 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
       connected: true, enabled: conn.enabled, environment: conn.environment, market: conn.market,
       apiKeyTail: String(conn.apiKey || '').slice(-4),
       lastCheckedAt: conn.lastCheckedAt, lastError: conn.lastError, cities,
+      pickupLocationId: conn.pickupLocationId != null ? String(conn.pickupLocationId) : null,
+      pickupName: conn.pickupName || null,
       pickupAddress: conn.pickupAddress || null,
+      pickupLat: conn.pickupLat ?? null,
+      pickupLng: conn.pickupLng ?? null,
       pickupSet: conn.pickupLat != null && conn.pickupLng != null,
       defaultService: conn.defaultService || null,
       aiQuotesEnabled: conn.aiQuotesEnabled === true,
@@ -9693,13 +9697,14 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     }
   });
 
-  // Ongkir otomatis di chat: titik jemput toko, kendaraan bawaan, dan saklar.
+  // Ongkir otomatis di chat: titik jemput (salah satu lokasi di Pengaturan >
+  // Lokasi), kendaraan bawaan, dan saklar.
   app.put('/v1/integrations/lalamove/ai', {
     schema: {
       body: {
         type: 'object', required: ['aiQuotesEnabled'], additionalProperties: false,
         properties: {
-          pickup: { type: 'string', maxLength: 600 },
+          pickupLocationId: { type: 'string', pattern: '^[0-9]{1,18}$' },
           defaultService: { type: 'string', pattern: '^[A-Z0-9_]{2,40}$' },
           aiQuotesEnabled: { type: 'boolean' },
         },
@@ -9707,30 +9712,25 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     },
   }, async (request, reply) => {
     if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengatur integrasi.' });
-    if (!canCall('saveLalamoveAiSettings')) return reply.code(503).send({ error: 'Database tidak tersedia.' });
+    if (!canCall('saveLalamoveAiSettings') || !canCall('setPickupLocation')) return reply.code(503).send({ error: 'Database tidak tersedia.' });
     const companyId = request.agneeSession.companyId;
     const conn = await database.getLalamoveConnection(companyId);
     if (!conn) return reply.code(409).send({ error: 'Hubungkan Lalamove dulu.' });
-    let pickup = conn.pickupLat != null ? { lat: conn.pickupLat, lng: conn.pickupLng, address: conn.pickupAddress } : null;
-    const pickupText = String(request.body.pickup || '').trim();
-    if (pickupText) {
-      pickup = await lalamoveStop(pickupText);
-      if (!pickup) {
-        return reply.code(422).send({ error: 'Lokasi toko tidak terbaca. Tempel link Google Maps yang memuat pin, atau koordinat seperti -6.1753,106.8271.' });
-      }
-    }
     const keys = deliveryQuote.servicesOf(conn).map((s) => s.key);
     const defaultService = request.body.defaultService ?? conn.defaultService ?? null;
     if (defaultService && !keys.includes(defaultService)) {
       return reply.code(422).send({ error: 'Kendaraan itu tidak tersedia di akun Lalamove ini. Periksa ulang kunci untuk memperbarui daftarnya.' });
     }
-    if (request.body.aiQuotesEnabled && !pickup) {
-      return reply.code(422).send({ error: 'Isi lokasi toko dulu sebelum menyalakan ongkir otomatis.' });
+    const pickupLocationId = request.body.pickupLocationId;
+    if (request.body.aiQuotesEnabled && !pickupLocationId && conn.pickupLat == null) {
+      return reply.code(422).send({ error: 'Pilih titik jemput dulu sebelum menyalakan ongkir otomatis. Tambahkan toko atau gudang di Pengaturan > Lokasi.' });
     }
-    await database.saveLalamoveAiSettings(companyId, {
-      pickupAddress: pickup?.address || null, pickupLat: pickup?.lat ?? null, pickupLng: pickup?.lng ?? null,
-      defaultService, aiQuotesEnabled: request.body.aiQuotesEnabled,
-    });
+    if (pickupLocationId && pickupLocationId !== String(conn.pickupLocationId ?? '')) {
+      if (!await database.setPickupLocation(companyId, pickupLocationId)) {
+        return reply.code(404).send({ error: 'Lokasi itu tidak ditemukan. Muat ulang halaman.' });
+      }
+    }
+    await database.saveLalamoveAiSettings(companyId, { defaultService, aiQuotesEnabled: request.body.aiQuotesEnabled });
     return lalamoveStatus(await database.getLalamoveConnection(companyId));
   });
 
@@ -9745,6 +9745,130 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
       await database.recordLalamoveCheck(companyId, { error: null, cities });
       return { cityCount: cities.length };
     },
+  });
+
+  // ── Lokasi company: toko dan gudang ──────────────────────────────────────
+  // Bukan integrasi: satu daftar alamat yang dipakai Lalamove (titik jemput)
+  // dan fitur lain. Membaca boleh semua anggota company (agen kelak memilih
+  // titik jemput dari chat); mengubah hanya supervisor.
+
+  const MAX_LOCATIONS = 50;
+
+  /** Nomor HP ke 62xxx, atau null kalau bukan nomor Indonesia yang masuk akal. */
+  function locationPhone(raw) {
+    const digits = String(raw || '').replace(/\D/g, '');
+    if (!digits) return null;
+    const normalized = digits.startsWith('62') ? digits : digits.startsWith('0') ? `62${digits.slice(1)}` : `62${digits}`;
+    return /^62\d{8,13}$/.test(normalized) ? normalized : undefined;
+  }
+
+  const locationBody = (requireName) => ({
+    type: 'object', required: requireName ? ['name', 'kind', 'place'] : ['name', 'kind'], additionalProperties: false,
+    properties: {
+      name: { type: 'string', minLength: 1, maxLength: 120 },
+      kind: { type: 'string', enum: ['store', 'warehouse'] },
+      // Link Google Maps yang memuat pin, atau "lat,lng". Saat mengubah,
+      // kosong berarti titik peta tidak berubah.
+      place: { type: 'string', maxLength: 600 },
+      address: { type: 'string', maxLength: 500 },
+      contactName: { type: 'string', maxLength: 120 },
+      contactPhone: { type: 'string', maxLength: 30 },
+      openingHours: { type: 'string', maxLength: 300 },
+      openToCustomers: { type: 'boolean' },
+      isPickup: { type: 'boolean' },
+      notes: { type: 'string', maxLength: 1000 },
+    },
+  });
+
+  app.get('/v1/locations', async (request) => {
+    if (!canCall('listCompanyLocations')) return { locations: [] };
+    return { locations: await database.listCompanyLocations(request.agneeSession.companyId) };
+  });
+
+  async function saveLocation(request, reply, existing) {
+    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengatur lokasi.' });
+    if (!canCall('saveCompanyLocation')) return reply.code(503).send({ error: 'Database tidak tersedia.' });
+    const companyId = request.agneeSession.companyId;
+    const body = request.body;
+    const name = body.name.trim();
+    if (!name) return reply.code(422).send({ error: 'Isi nama lokasi.' });
+    let point = existing ? { lat: existing.lat, lng: existing.lng, address: existing.address } : null;
+    let mapsUrl = existing?.mapsUrl || null;
+    const placeText = String(body.place || '').trim();
+    if (placeText) {
+      point = await lalamoveStop(placeText);
+      if (!point) {
+        return reply.code(422).send({ error: 'Titik peta tidak terbaca. Tempel link Google Maps yang memuat pin, atau koordinat seperti -6.1753,106.8271.' });
+      }
+      mapsUrl = /^https?:\/\//i.test(placeText) ? placeText : `https://www.google.com/maps?q=${point.lat},${point.lng}`;
+    }
+    if (!point) return reply.code(422).send({ error: 'Tempel link Google Maps lokasi ini, atau koordinatnya.' });
+    // Field yang tidak dikirim saat mengubah = tetap; string kosong = dikosongkan.
+    const text = (key) => (body[key] !== undefined ? String(body[key]).trim() || null : existing?.[key] ?? null);
+    const contactPhone = body.contactPhone !== undefined ? locationPhone(body.contactPhone) : existing?.contactPhone ?? null;
+    if (contactPhone === undefined) return reply.code(422).send({ error: 'Nomor HP penanggung jawab tidak valid. Contoh: 081234567890.' });
+    // Titik jemput ongkir otomatis tidak boleh lepas diam-diam: AI akan
+    // berhenti menyebut ongkir tanpa ada yang tahu sebabnya.
+    if (existing?.isPickup && body.isPickup === false && await pickupInUse(companyId)) {
+      return reply.code(409).send({ error: 'Lokasi ini titik jemput ongkir otomatis Lalamove. Jadikan lokasi lain titik jemput dulu.' });
+    }
+    // Lokasi pertama otomatis jadi titik jemput: tidak ada pilihan lain.
+    const isPickup = body.isPickup ?? (existing ? existing.isPickup : await database.countCompanyLocations(companyId) === 0);
+    // Alamat kosong = alamat yang terbaca dari peta.
+    const address = text('address') || (placeText || !existing ? point.address : existing.address) || '';
+    const location = await database.saveCompanyLocation(companyId, existing?.id || null, {
+      name,
+      kind: body.kind,
+      address,
+      lat: point.lat,
+      lng: point.lng,
+      mapsUrl,
+      contactName: text('contactName'),
+      contactPhone,
+      openingHours: text('openingHours'),
+      openToCustomers: body.openToCustomers ?? existing?.openToCustomers ?? body.kind === 'store',
+      isPickup,
+      notes: text('notes'),
+    });
+    return reply.code(existing ? 200 : 201).send({ location });
+  }
+
+  /** Ongkir otomatis Lalamove sedang menyala dan bergantung pada titik jemput. */
+  async function pickupInUse(companyId) {
+    if (!canCall('getLalamoveConnection')) return false;
+    const conn = await database.getLalamoveConnection(companyId).catch(() => null);
+    return Boolean(conn?.enabled && conn.aiQuotesEnabled);
+  }
+
+  app.post('/v1/locations', { schema: { body: locationBody(true) } }, async (request, reply) => {
+    if (canCall('countCompanyLocations') && await database.countCompanyLocations(request.agneeSession.companyId) >= MAX_LOCATIONS) {
+      return reply.code(422).send({ error: `Maksimal ${MAX_LOCATIONS} lokasi per company.` });
+    }
+    return saveLocation(request, reply, null);
+  });
+
+  app.put('/v1/locations/:id', {
+    schema: { params: { type: 'object', properties: { id: { type: 'string', pattern: '^[0-9]{1,18}$' } } }, body: locationBody(false) },
+  }, async (request, reply) => {
+    if (!canCall('getCompanyLocation')) return reply.code(503).send({ error: 'Database tidak tersedia.' });
+    const existing = await database.getCompanyLocation(request.agneeSession.companyId, request.params.id);
+    if (!existing) return reply.code(404).send({ error: 'Lokasi tidak ditemukan.' });
+    return saveLocation(request, reply, existing);
+  });
+
+  app.delete('/v1/locations/:id', {
+    schema: { params: { type: 'object', properties: { id: { type: 'string', pattern: '^[0-9]{1,18}$' } } } },
+  }, async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengatur lokasi.' });
+    if (!canCall('deleteCompanyLocation')) return reply.code(503).send({ error: 'Database tidak tersedia.' });
+    const companyId = request.agneeSession.companyId;
+    const existing = await database.getCompanyLocation(companyId, request.params.id);
+    if (!existing) return reply.code(404).send({ error: 'Lokasi tidak ditemukan.' });
+    if (existing.isPickup && await pickupInUse(companyId)) {
+      return reply.code(409).send({ error: 'Lokasi ini titik jemput ongkir otomatis Lalamove. Jadikan lokasi lain titik jemput, atau matikan ongkir otomatis, dulu.' });
+    }
+    await database.deleteCompanyLocation(companyId, existing.id);
+    return { ok: true };
   });
 
   // ── Tab integrasi yang dinyalakan di Pengaturan ───────────────────────────

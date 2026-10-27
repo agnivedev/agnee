@@ -4956,12 +4956,17 @@ class Database {
   async getLalamoveConnection(companyId) {
     if (!this.enabled) return null;
     const result = await this.pool.query(`
-      SELECT company_id AS "companyId", environment, market, api_key AS "apiKey",
-             pgp_sym_decrypt(api_secret_enc, $2) AS "apiSecret",
-             enabled, cities, last_checked_at AS "lastCheckedAt", last_error AS "lastError",
-             pickup_address AS "pickupAddress", pickup_lat AS "pickupLat", pickup_lng AS "pickupLng",
-             default_service AS "defaultService", ai_quotes_enabled AS "aiQuotesEnabled"
-      FROM lalamove_connections WHERE company_id = $1
+      SELECT c.company_id AS "companyId", c.environment, c.market, c.api_key AS "apiKey",
+             pgp_sym_decrypt(c.api_secret_enc, $2) AS "apiSecret",
+             c.enabled, c.cities, c.last_checked_at AS "lastCheckedAt", c.last_error AS "lastError",
+             l.id AS "pickupLocationId", l.name AS "pickupName",
+             l.address AS "pickupAddress", l.lat AS "pickupLat", l.lng AS "pickupLng",
+             l.contact_name AS "pickupContactName", l.contact_phone AS "pickupContactPhone",
+             c.default_service AS "defaultService", c.ai_quotes_enabled AS "aiQuotesEnabled"
+      FROM lalamove_connections c
+      -- Titik jemput = lokasi company yang ditandai is_pickup (Pengaturan > Lokasi).
+      LEFT JOIN company_locations l ON l.company_id = c.company_id AND l.is_pickup
+      WHERE c.company_id = $1
     `, [companyId, this.credentialsEncryptionKey]);
     return result.rows[0] || null;
   }
@@ -4998,15 +5003,13 @@ class Database {
     `, [companyId, error, cities ? JSON.stringify(cities) : null]);
   }
 
-  /** Titik jemput toko, kendaraan bawaan, dan saklar ongkir otomatis di chat. */
-  async saveLalamoveAiSettings(companyId, { pickupAddress, pickupLat, pickupLng, defaultService, aiQuotesEnabled }) {
+  /** Kendaraan bawaan dan saklar ongkir otomatis di chat. Titik jemput: setPickupLocation. */
+  async saveLalamoveAiSettings(companyId, { defaultService, aiQuotesEnabled }) {
     if (!this.enabled) return false;
     const result = await this.pool.query(`
-      UPDATE lalamove_connections SET
-        pickup_address = $2, pickup_lat = $3, pickup_lng = $4, default_service = $5,
-        ai_quotes_enabled = $6, updated_at = NOW()
+      UPDATE lalamove_connections SET default_service = $2, ai_quotes_enabled = $3, updated_at = NOW()
       WHERE company_id = $1
-    `, [companyId, pickupAddress ?? null, pickupLat ?? null, pickupLng ?? null, defaultService ?? null, aiQuotesEnabled === true]);
+    `, [companyId, defaultService ?? null, aiQuotesEnabled === true]);
     return result.rowCount > 0;
   }
 
@@ -5022,6 +5025,114 @@ class Database {
   async deleteLalamoveConnection(companyId) {
     if (!this.enabled) return false;
     const result = await this.pool.query('DELETE FROM lalamove_connections WHERE company_id = $1', [companyId]);
+    return result.rowCount > 0;
+  }
+
+  // ── Lokasi company: toko dan gudang (Pengaturan > Lokasi) ────────────────
+
+  static LOCATION_COLUMNS = `
+    id, name, kind, address, lat, lng, maps_url AS "mapsUrl",
+    contact_name AS "contactName", contact_phone AS "contactPhone",
+    opening_hours AS "openingHours", open_to_customers AS "openToCustomers",
+    is_pickup AS "isPickup", notes, created_at AS "createdAt", updated_at AS "updatedAt"`;
+
+  async listCompanyLocations(companyId) {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(
+      `SELECT ${Database.LOCATION_COLUMNS} FROM company_locations WHERE company_id = $1 ORDER BY is_pickup DESC, kind, name, id`,
+      [companyId],
+    );
+    return result.rows.map((row) => ({ ...row, id: String(row.id) }));
+  }
+
+  async getCompanyLocation(companyId, id) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(
+      `SELECT ${Database.LOCATION_COLUMNS} FROM company_locations WHERE company_id = $1 AND id = $2`,
+      [companyId, id],
+    );
+    return result.rows[0] ? { ...result.rows[0], id: String(result.rows[0].id) } : null;
+  }
+
+  async countCompanyLocations(companyId) {
+    if (!this.enabled) return 0;
+    const result = await this.pool.query('SELECT COUNT(*)::int AS n FROM company_locations WHERE company_id = $1', [companyId]);
+    return result.rows[0].n;
+  }
+
+  /**
+   * Simpan lokasi baru (id kosong) atau ubah yang ada. Menandai is_pickup
+   * melepas tanda dari lokasi lain dalam satu transaksi: titik jemput
+   * paling banyak satu per company (indeks unik parsial).
+   */
+  async saveCompanyLocation(companyId, id, location) {
+    if (!this.enabled) return null;
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      if (location.isPickup) {
+        await client.query(
+          'UPDATE company_locations SET is_pickup = FALSE, updated_at = NOW() WHERE company_id = $1 AND is_pickup AND id IS DISTINCT FROM $2',
+          [companyId, id || null],
+        );
+      }
+      const values = [
+        companyId, location.name, location.kind, location.address || '', location.lat, location.lng,
+        location.mapsUrl || null, location.contactName || null, location.contactPhone || null,
+        location.openingHours || null, location.openToCustomers !== false, location.isPickup === true, location.notes || null,
+      ];
+      const result = id
+        ? await client.query(`
+            UPDATE company_locations SET name = $2, kind = $3, address = $4, lat = $5, lng = $6, maps_url = $7,
+              contact_name = $8, contact_phone = $9, opening_hours = $10, open_to_customers = $11,
+              is_pickup = $12, notes = $13, updated_at = NOW()
+            WHERE company_id = $1 AND id = $14
+            RETURNING ${Database.LOCATION_COLUMNS}
+          `, [...values, id])
+        : await client.query(`
+            INSERT INTO company_locations (company_id, name, kind, address, lat, lng, maps_url,
+              contact_name, contact_phone, opening_hours, open_to_customers, is_pickup, notes)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+            RETURNING ${Database.LOCATION_COLUMNS}
+          `, values);
+      await client.query('COMMIT');
+      return result.rows[0] ? { ...result.rows[0], id: String(result.rows[0].id) } : null;
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  /** Jadikan satu lokasi titik jemput; false kalau lokasinya bukan milik company ini. */
+  async setPickupLocation(companyId, id) {
+    if (!this.enabled) return false;
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const target = await client.query('SELECT 1 FROM company_locations WHERE company_id = $1 AND id = $2 FOR UPDATE', [companyId, id]);
+      if (!target.rowCount) {
+        await client.query('ROLLBACK');
+        return false;
+      }
+      // Dua langkah, bukan satu UPDATE: indeks unik parsial diperiksa per baris,
+      // jadi menyalakan yang baru sebelum yang lama mati bisa bentrok.
+      await client.query('UPDATE company_locations SET is_pickup = FALSE, updated_at = NOW() WHERE company_id = $1 AND is_pickup AND id <> $2', [companyId, id]);
+      await client.query('UPDATE company_locations SET is_pickup = TRUE, updated_at = NOW() WHERE company_id = $1 AND id = $2', [companyId, id]);
+      await client.query('COMMIT');
+      return true;
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async deleteCompanyLocation(companyId, id) {
+    if (!this.enabled) return false;
+    const result = await this.pool.query('DELETE FROM company_locations WHERE company_id = $1 AND id = $2', [companyId, id]);
     return result.rowCount > 0;
   }
 

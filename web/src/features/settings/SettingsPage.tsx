@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { CreditCard, MessageCircle, Sparkles, Database, Users, ScrollText, type LucideIcon } from 'lucide-react';
+import { CreditCard, MessageCircle, Sparkles, MapPin, Database, Users, ScrollText, type LucideIcon } from 'lucide-react';
 import { api, messageFromError } from '@/lib/api';
 import { useI18n, usePageTitle } from '@/lib/i18n';
 import { useSession } from '@/lib/session';
@@ -18,6 +18,7 @@ import { ExportSection } from './ExportSection';
 import { MayarSection } from './MayarSection';
 import { DealposSection } from './DealposSection';
 import { LalamoveSection } from './LalamoveSection';
+import { LocationsSection } from './LocationsSection';
 import { IntegrationsHome } from './IntegrationsHome';
 import { INTEGRATIONS, INTEGRATION_KEYS, SECTION_INTEGRATION, integrationTabId, type IntegrationKey, type IntegrationTabId } from './integrations';
 import { LeadWebhookSection } from './LeadWebhookSection';
@@ -27,7 +28,7 @@ import { WhatsappNumbersSection, CloudApiSection } from './WhatsappSections';
 import { AccountSection, TeamSection } from './TeamSection';
 import { DepartmentQuestionsSection, DepartmentSection, ThirdPartySection } from './DepartmentSection';
 
-type BaseTabId = 'paket' | 'whatsapp' | 'ai' | 'data' | 'tim' | 'audit';
+type BaseTabId = 'paket' | 'whatsapp' | 'ai' | 'lokasi' | 'data' | 'tim' | 'audit';
 // 'data' adalah beranda Integrasi; tiap integrasi yang dinyalakan menambah tab `int:<kunci>`.
 type TabId = BaseTabId | IntegrationTabId;
 
@@ -44,6 +45,7 @@ const SECTION_TAB: Record<string, TabId> = {
   aiSection: 'ai',
   followUpSection: 'ai',
   replyDelaySection: 'ai',
+  locationsSection: 'lokasi',
   teamSection: 'tim',
   departmentSection: 'tim',
   departmentQuestions: 'tim',
@@ -53,18 +55,19 @@ const SECTION_TAB: Record<string, TabId> = {
   auditSection: 'audit',
 };
 
-const TAB_IDS: BaseTabId[] = ['paket', 'whatsapp', 'ai', 'data', 'tim', 'audit'];
+const TAB_IDS: BaseTabId[] = ['paket', 'whatsapp', 'ai', 'lokasi', 'data', 'tim', 'audit'];
 const TAB_ICON: Record<BaseTabId, LucideIcon> = {
   paket: CreditCard,
   whatsapp: MessageCircle,
   ai: Sparkles,
+  lokasi: MapPin,
   data: Database,
   tim: Users,
   audit: ScrollText,
 };
 // 'paket' is supervisor-only too: /v1/admin/company answers 403 to an agent, so
 // showing the tab would only offer an empty card and a save button that fails.
-const SUPERVISOR_ONLY: BaseTabId[] = ['paket', 'whatsapp', 'ai', 'data', 'audit'];
+const SUPERVISOR_ONLY: BaseTabId[] = ['paket', 'whatsapp', 'ai', 'lokasi', 'data', 'audit'];
 
 const isIntegrationTab = (id: string): id is IntegrationTabId => id.startsWith('int:');
 
@@ -255,6 +258,7 @@ export function SettingsPage() {
               <FollowUpSection />
             </>
           ) : null}
+          {activeTab === 'lokasi' && isSupervisor ? <LocationsSection /> : null}
           {activeTab === 'data' && isSupervisor ? (
             <IntegrationsHome enabled={integrationsOn} error={integrationsError} onToggle={(key, next) => void toggleIntegration(key, next)} />
           ) : null}

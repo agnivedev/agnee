@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { useConfirm } from '@/components/ui/confirm';
 import { Switch } from '@/components/ui/switch';
 import { Row, SecretField, SelectField, SettingCard, StatusLine, TextField } from './parts';
+import type { CompanyLocation } from './LocationsSection';
 
 type City = { locode: string; name: string; services: { key: string; description: string }[] };
 
@@ -17,7 +18,11 @@ type Lalamove = {
   lastCheckedAt?: string | null;
   lastError?: string | null;
   cities?: City[];
+  pickupLocationId?: string | null;
+  pickupName?: string | null;
   pickupAddress?: string | null;
+  pickupLat?: number | null;
+  pickupLng?: number | null;
   pickupSet?: boolean;
   defaultService?: string | null;
   aiQuotesEnabled?: boolean;
@@ -53,12 +58,19 @@ export function LalamoveSection() {
   const [aiStatus, setAiStatus] = useState('');
   const [aiError, setAiError] = useState('');
   const [aiSaving, setAiSaving] = useState(false);
+  const [locations, setLocations] = useState<CompanyLocation[]>([]);
 
   const load = useCallback(async () => {
     try {
       setState(await api<Lalamove>('/v1/integrations/lalamove'));
     } catch {
       setState({ connected: false });
+    }
+    // Titik jemput dipilih dari Pengaturan > Lokasi.
+    try {
+      setLocations((await api<{ locations: CompanyLocation[] }>('/v1/locations')).locations || []);
+    } catch {
+      setLocations([]);
     }
   }, []);
 
@@ -125,9 +137,8 @@ export function LalamoveSection() {
 
   async function saveAi(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const pickupInput = event.currentTarget.elements.namedItem('pickup') as HTMLInputElement | null;
     const form = new FormData(event.currentTarget);
-    const pickup = String(form.get('pickup') || '').trim();
+    const pickupLocationId = String(form.get('pickupLocationId') || '');
     setAiSaving(true);
     setAiStatus('');
     setAiError('');
@@ -136,12 +147,11 @@ export function LalamoveSection() {
         method: 'PUT',
         body: {
           aiQuotesEnabled: aiOn,
-          ...(pickup ? { pickup } : {}),
+          ...(pickupLocationId ? { pickupLocationId } : {}),
           ...(form.get('defaultService') ? { defaultService: String(form.get('defaultService')) } : {}),
         },
       });
       setState(next);
-      if (pickupInput) pickupInput.value = '';
       setAiStatus(t('lalamove.aiSaved'));
     } catch (error) {
       setAiError(messageFromError(error, ''));
@@ -285,14 +295,30 @@ export function LalamoveSection() {
           <p className="m-0 mb-3 text-[12px] leading-[1.5] text-muted">{t('lalamove.aiCopy')}</p>
           <form onSubmit={saveAi} autoComplete="off">
             <div className="grid gap-4 md:grid-cols-2">
-              <TextField
-                label={t('lalamove.aiPickup')}
-                name="pickup"
-                maxLength={600}
-                required={!state.pickupSet}
-                placeholder={t('lalamove.pointPlaceholder', { coords: '-6.1753,106.8271' })}
-                hint={state.pickupSet ? t('lalamove.aiPickupNow', { address: state.pickupAddress || '' }) : t('lalamove.aiPickupHint')}
-              />
+              {locations.length ? (
+                <SelectField
+                  label={t('lalamove.aiPickup')}
+                  name="pickupLocationId"
+                  defaultValue={state.pickupLocationId ?? ''}
+                  required
+                  hint={t('lalamove.aiPickupHint')}
+                >
+                  {!state.pickupLocationId ? <option value="">{t('lalamove.aiPickupChoose')}</option> : null}
+                  {locations.map((location) => (
+                    <option key={location.id} value={location.id}>
+                      {location.name} · {location.address}
+                    </option>
+                  ))}
+                </SelectField>
+              ) : (
+                <div className="grid content-start gap-1.5 text-[13px]">
+                  <strong>{t('lalamove.aiPickup')}</strong>
+                  <span className="text-[12px] leading-[1.5] text-muted">{t('lalamove.aiPickupNone')}</span>
+                  <a href="#locationsSection" className="w-fit text-[12px] font-semibold text-green-dark hover:underline">
+                    {t('lalamove.aiPickupManage')}
+                  </a>
+                </div>
+              )}
               <SelectField
                 label={t('lalamove.aiService')}
                 name="defaultService"
@@ -327,7 +353,16 @@ export function LalamoveSection() {
           <p className="m-0 mb-3 text-[12px] leading-[1.5] text-muted">{t('lalamove.quoteCopy')}</p>
           <form onSubmit={testQuote} autoComplete="off">
             <div className="grid gap-4 md:grid-cols-2">
-              <TextField label={t('lalamove.pickup')} name="pickup" required maxLength={600} placeholder={t('lalamove.pointPlaceholder', { coords: '-6.1753,106.8271' })} />
+              <TextField
+                key={state.pickupLocationId ?? 'none'}
+                label={t('lalamove.pickup')}
+                name="pickup"
+                required
+                maxLength={600}
+                defaultValue={state.pickupSet ? `${state.pickupLat},${state.pickupLng}` : ''}
+                placeholder={t('lalamove.pointPlaceholder', { coords: '-6.1753,106.8271' })}
+                hint={state.pickupSet && state.pickupName ? t('lalamove.pickupFrom', { name: state.pickupName }) : undefined}
+              />
               <TextField label={t('lalamove.dropoff')} name="dropoff" required maxLength={600} placeholder={t('lalamove.pointPlaceholder', { coords: '-6.2297,106.8295' })} />
               <SelectField label={t('lalamove.service')} name="serviceType" defaultValue={services.some((s) => s.key === 'MOTORCYCLE') ? 'MOTORCYCLE' : services[0]?.key}>
                 {services.map((service) => (

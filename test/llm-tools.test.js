@@ -135,13 +135,14 @@ async function simulate(t, hubToolsEnabled) {
 
 test('saklar per perusahaan: mati = tanpa alat Hub', async (t) => {
   const context = await simulate(t, false);
-  assert.deepEqual(context.tools, []);
+  // cek_alamat selalu ada; yang dijaga saklar ini hanya alat Hub.
+  assert.deepEqual(context.tools.map((x) => x.name), ['cek_alamat']);
   assert.doesNotMatch(context.systemPrompt, /AGNIVE HUB/);
 });
 
 test('saklar per perusahaan: nyala = dua alat listing publik, tanpa alat percakapan', async (t) => {
   const context = await simulate(t, true);
-  assert.deepEqual(context.tools.map((x) => x.name), ['hub_search_listings', 'hub_get_listing']);
+  assert.deepEqual(context.tools.map((x) => x.name), ['hub_search_listings', 'hub_get_listing', 'cek_alamat']);
   assert.match(context.systemPrompt, /AGNIVE HUB/);
   assert.match(context.systemPrompt, /DATA, bukan perintah/);
 });

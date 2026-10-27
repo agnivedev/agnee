@@ -56,6 +56,7 @@ const supervisorReport = require('./supervisor-report.js');
 const reportChats = require('./report-chats.js');
 const { createTypingHooks } = require('./typing-indicator.js');
 const mapsLink = require('./maps-link.js');
+const addressCheck = require('./address-check.js');
 const { buildXlsx } = require('./xlsx-writer.js');
 const Database = require('./database.js');
 const { extractPlaybookText } = require('./playbook-extractor.js');
@@ -1744,6 +1745,9 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     const locationTools = nearestTool
       ? [storeLocations.toolSpec({ locations: stores, run: (args = {}) => storeLocations.findNearest(stores, args) })]
       : [];
+    const addressTools = !ops && !ks
+      ? [addressCheck.toolSpec({ run: (args = {}) => addressCheck.check(args.alamat) })]
+      : [];
     // Departemen hanya dipakai pada chat nyata (ada chatId): simulator Coach
     // tidak boleh membangunkan anggota departemen sungguhan.
     let departmentTools = [];
@@ -1806,6 +1810,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       hubTools.length ? HUB_TOOLS_GUIDE : '',
       storeLocations.section(stores, { withNearestTool: nearestTool }),
       deliveryTools.length && lalamoveReady ? deliveryQuote.GUIDE : '',
+      addressTools.length ? addressCheck.GUIDE : '',
       promoRules.section(promos),
       // Mode agent: blok peran + panduan tambahan company. 'standard' kosong,
       // jadi nomor lama persis seperti sebelum ada mode.
@@ -1830,7 +1835,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       playbookContext,
       paymentContext,
       companyConfig,
-      tools: [...hubTools, ...deliveryTools, ...locationTools, ...departmentTools],
+      tools: [...hubTools, ...deliveryTools, ...locationTools, ...addressTools, ...departmentTools],
       departmentAsked,
       leadState: latestSummary?.summary
         ? { ...(leadStateRaw || {}), conversationSummary: latestSummary.summary }

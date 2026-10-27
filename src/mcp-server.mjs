@@ -65,6 +65,7 @@ export function buildMcpServer() {
     {
       instructions: [
         'Reports: report_summary and agent_performance are for supervisors; quote only the numbers returned and their notes, never invent metrics that are not in the result. WhatsApp: read a conversation before replying. Ask for confirmation before sending consequential or promotional messages.',
+        'Catalog and locations: search_catalog and list_locations are read-only; quote prices and opening hours exactly as returned and never invent stock.',
         'Agnive Hub: hub_search_listings / hub_get_listing read the public marketplace (research ready to fund).',
         'hub_list_threads / hub_read_thread / hub_draft_reply are for Agnive staff (supervisors) and cover conversations between funders and research teams.',
         'There is no tool that sends anything to a funder: hub_draft_reply only drafts. The research team sends replies from Agnive Insight.',
@@ -87,6 +88,23 @@ export function buildMcpServer() {
     inputSchema: z.object({ days: z.number().int().min(1).max(90).default(7) }),
     annotations: { readOnlyHint: true, openWorldHint: false },
   }, async ({ days }) => result(await agneeApi(`/v1/reports/agents?days=${days}`)));
+
+  server.registerTool('search_catalog', {
+    title: 'Search product catalog',
+    description: 'Search the company product and service catalog (name, code, category, price, discount, ribbons such as Best Seller or Promo). Prices are as last synced from the POS or typed in manually; the catalog is not stock information, so never state that an item is in stock.',
+    inputSchema: z.object({
+      query: z.string().max(100).optional().describe('Words from the item name or code.'),
+      limit: z.number().int().min(1).max(50).default(10),
+    }),
+    annotations: { readOnlyHint: true, openWorldHint: false },
+  }, async ({ query, limit }) => result(await agneeApi(`/v1/catalog/items?limit=${limit}${query ? `&q=${encodeURIComponent(query)}` : ''}`)));
+
+  server.registerTool('list_locations', {
+    title: 'List store and warehouse locations',
+    description: 'The company stores and warehouses from Settings > Locations: address, map point, opening hours, whether customers may visit, and which one is the courier pickup point. Warehouses (open to customers = false) are internal and must not be given to customers.',
+    inputSchema: z.object({}),
+    annotations: { readOnlyHint: true, openWorldHint: false },
+  }, async () => result(await agneeApi('/v1/locations')));
 
   server.registerTool('hub_search_listings', {
     title: 'Search Agnive Hub listings',

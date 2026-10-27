@@ -121,6 +121,8 @@ const PRIVASI: Bagian[] = [
           ['Microsoft OneDrive', 'Hanya kalau perusahaanmu menyambungkannya sendiri untuk sinkronisasi kontak.'],
           ['Google Sheets', 'Hanya kalau perusahaanmu menyambungkannya sendiri untuk sinkronisasi kontak.'],
           ['Mayar', 'Memproses pembayaran, bila pembayaran dilakukan lewat jalur itu.'],
+          ['DealPOS', 'Hanya kalau perusahaanmu menyambungkannya sendiri. Agnee membaca katalog, harga, dan data penjualan produk dari akun DealPOS perusahaanmu; tidak ada percakapan yang dikirim ke DealPOS.'],
+          ['Lalamove', 'Hanya kalau perusahaanmu menyambungkannya sendiri. Saat ongkir dihitung, titik jemput toko dan titik antar customer dikirim ke Lalamove untuk mendapatkan harga. Nama, nomor, dan isi percakapan tidak ikut dikirim.'],
           ['Google Maps', 'Saat customer mengirim link Google Maps pendek, server kami membuka link itu di Google untuk mengetahui tempat yang dituju. Yang dikirim hanya link itu sendiri.'],
           ['OpenStreetMap (Nominatim)', 'Saat customer mengirim lokasi yang hanya berupa titik koordinat, koordinat itu dikirim ke layanan OpenStreetMap untuk dicari alamatnya. Tidak ada nama, nomor, atau isi percakapan yang ikut dikirim.'],
         ],

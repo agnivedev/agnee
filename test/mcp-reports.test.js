@@ -50,3 +50,27 @@ test('alat report_summary dan agent_performance terdaftar, hanya-baca, dan meman
   await assert.rejects(() => tools.agent_performance.handler({ days: 7 }, {}), /No Agnee account/);
   assert.equal(calls.length, 2);
 });
+
+test('alat search_catalog dan list_locations: hanya-baca, rute benar, tanpa identitas tak memanggil backend', async (t) => {
+  const { buildMcpServer, mcpContext } = await setup();
+  const calls = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options) => {
+    calls.push({ url: String(url), headers: options.headers });
+    return new Response(JSON.stringify({ items: [] }), { status: 200, headers: { 'content-type': 'application/json' } });
+  };
+  t.after(() => { globalThis.fetch = realFetch; });
+  const tools = buildMcpServer()._registeredTools || {};
+  for (const name of ['search_catalog', 'list_locations']) {
+    assert.ok(tools[name], `${name} harus terdaftar`);
+    assert.equal(tools[name].annotations?.readOnlyHint, true);
+  }
+  const identity = { userId: 'u-1', companyId: 'c-1', scopes: ['whatsapp:read'] };
+  const run = (name, args) => mcpContext.run(identity, () => tools[name].handler(args, {}));
+  await run('search_catalog', { query: 'semen jakarta', limit: 5 });
+  assert.equal(calls[0].url, 'http://backend.internal/v1/catalog/items?limit=5&q=semen%20jakarta');
+  await run('list_locations', {});
+  assert.equal(calls[1].url, 'http://backend.internal/v1/locations');
+  await assert.rejects(() => tools.list_locations.handler({}, {}), /No Agnee account/);
+  assert.equal(calls.length, 2);
+});

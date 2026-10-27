@@ -4134,6 +4134,9 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     // Laporan performa untuk alat MCP; handlernya hanya melayani supervisor.
     'GET /v1/reports/summary',
     'GET /v1/reports/agents',
+    // Katalog dan lokasi toko untuk alat MCP, hanya baca.
+    'GET /v1/catalog/items',
+    'GET /v1/locations',
     // Agnive Hub (9c): the public listing feed, and — for supervisors only, the
     // handlers check — the copies of Hub conversations and a reply draft.
     'GET /v1/hub/listings',

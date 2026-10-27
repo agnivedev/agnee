@@ -1,5 +1,13 @@
 ## [Unreleased]
 
+- **Inbox: tombol 📍 di kotak balasan menyisipkan lokasi toko atau produk katalog.** Teks
+  (nama, alamat, jam buka, link peta; atau nama, harga setelah diskon, catatan harga)
+  disisipkan ke kotak balasan, bukan langsung dikirim: agen membaca dan menekan Kirim sendiri.
+  Hanya lokasi "Customer boleh datang langsung"; nomor penanggung jawab tidak ikut.
+- **Alat MCP `search_catalog` dan `list_locations`** (hanya baca; rute `GET /v1/catalog/items`
+  dan `GET /v1/locations` masuk daftar rute kunci layanan).
+- **/privasi menyebut DealPOS dan Lalamove** di tabel pihak ketiga, lengkap dengan data yang dikirim.
+
 - **AI membaca Pengaturan > Lokasi.** Alamat, jam buka, link peta, dan catatan toko masuk
   prompt (bagian "LOKASI TOKO"), jadi customer yang tanya "alamatnya di mana / buka jam
   berapa" dijawab dari data, bukan "saya pastikan dulu". Hanya lokasi "Customer boleh datang

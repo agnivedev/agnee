@@ -191,7 +191,7 @@ export function SettingsPage() {
           <div
             role="tablist"
             aria-label={t('settings.tabsLabel')}
-            className={cn('-mx-5 mt-7 gap-1 overflow-x-auto border-b border-border px-5 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0', tabs.length > 1 ? 'flex' : 'hidden')}
+            className={cn('-mx-5 mt-7 gap-1 overflow-x-auto overscroll-x-contain border-b border-border px-5 [scrollbar-width:none] sm:mx-0 sm:px-0 [&::-webkit-scrollbar]:hidden', tabs.length > 1 ? 'flex' : 'hidden')}
           >
             {baseTabs.map((id) => {
               const Icon = TAB_ICON[id as BaseTabId];
@@ -216,7 +216,7 @@ export function SettingsPage() {
 
           {/* Sub tab Integrasi: Ikhtisar + tiap integrasi yang dinyalakan. */}
           {mainActive === 'data' && isSupervisor && subTabs.length > 1 ? (
-            <div role="tablist" aria-label={t('integrations.subtabsLabel')} className="mt-4 flex flex-wrap gap-2">
+            <div role="tablist" aria-label={t('integrations.subtabsLabel')} className="mt-4 flex gap-2 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               {subTabs.map((id) => {
                 const integration = isIntegrationTab(id) ? INTEGRATIONS.find(({ key }) => integrationTabId(key) === id) : undefined;
                 const Icon = integration?.Icon;

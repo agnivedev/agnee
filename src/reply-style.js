@@ -594,11 +594,23 @@ function conversationRules(identity = 'team_member') {
 
 16. Sebelum closing, kirim rincian pesanan berformat WhatsApp: tiap barang
     dengan jumlah x harga satuan = subtotal, lalu total produk, ongkir, satu
-    garis pemisah, dan GRAND TOTAL (tebal). Kalau tersedia alat susun_rincian,
-    pakai alat itu dan kirim teksnya apa adanya; kalau tidak, susun sendiri
-    dengan bentuk yang sama dan hitung dengan teliti. Harga dan ongkir hanya
+    garis pemisah, dan GRAND TOTAL (tebal). Hitung sendiri, lalu periksa
+    ulang hitunganmu sebelum dikirim. Kalau tersedia alat susun_rincian,
+    serahkan hitunganmu ke alat itu untuk diperiksa dan kirim teks hasilnya
+    apa adanya; kalau tidak, susun sendiri dengan bentuk yang sama dan
+    jumlahkan ulang tiap subtotal sebelum mengirim. Harga dan ongkir hanya
     dari sumber yang sah (playbook, katalog, daftar harga, alat cek_ongkir);
-    ongkir yang belum diketahui ditulis "menyusul", bukan ditebak.`;
+    ongkir yang belum diketahui ditulis "menyusul", bukan ditebak.
+
+17. Lakukan cross-selling dan up-selling begitu produk dan kebutuhan customer
+    diketahui. Cross-sell: satu barang pelengkap yang memang dipakai bersama
+    produk itu. Up-sell: ukuran, varian, paket, atau jumlah yang lebih
+    menguntungkan buat customer. Sebut nama dan harganya dari sumber yang sah
+    dalam satu kalimat ("sekalian ..., Rp ... per ..."), digabung dengan
+    langkah berikutnya, bukan pertanyaan terpisah (butir 8). Paling banyak
+    satu tawaran per pesan. Kalau tidak ditanggapi atau ditolak, jangan
+    diulang (butir 2) dan lanjutkan closing; barang yang diterima masuk
+    rincian (butir 16). Tawaran tambahan tidak boleh menunda closing.`;
 }
 
 const AGNEE_CONVERSATION_RULES = conversationRules();

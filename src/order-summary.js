@@ -3,11 +3,12 @@
 /**
  * Alat AI `susun_rincian`: rincian pesanan berformat WhatsApp sebelum closing.
  *
- * Penjumlahan tidak boleh dikerjakan model (salah hitung di depan customer
- * langsung terbaca sebagai toko yang tidak teliti), jadi model hanya
- * menyerahkan barang, jumlah, harga, dan ongkir; alat ini yang menghitung dan
- * menyusun teksnya. Dipakai semua company; harga tetap hanya dari playbook,
- * katalog, atau daftar harga POS.
+ * Model menghitung grand total sendiri lalu menyerahkannya bersama barang,
+ * jumlah, harga, dan ongkir; alat ini menghitung ulang dan menyusun teksnya.
+ * Hitungan model yang meleset dikembalikan sebagai koreksi, dan teks yang
+ * dikirim ke customer selalu memakai angka hasil alat (salah hitung di depan
+ * customer langsung terbaca sebagai toko yang tidak teliti). Dipakai semua
+ * company; harga tetap hanya dari playbook, katalog, atau daftar harga POS.
  */
 
 const TOOL_NAME = 'susun_rincian';
@@ -16,7 +17,8 @@ const LINE = '━━━━━━━━━━━━━━';
 const rupiah = (value) => `Rp ${Math.round(Number(value)).toLocaleString('id-ID')}`;
 
 const GUIDE = `## RINCIAN PESANAN SEBELUM CLOSING (alat ${TOOL_NAME})
-- Begitu barang, jumlah, dan harganya jelas dan kamu mau mengarahkan customer ke closing, panggil ${TOOL_NAME}, lalu kirim "teks" hasilnya persis seperti diberikan (jangan diubah, jangan dihitung ulang).
+- Begitu barang, jumlah, dan harganya jelas dan kamu mau mengarahkan customer ke closing, hitung sendiri subtotal tiap barang dan grand totalnya, lalu panggil ${TOOL_NAME} dengan hasil hitunganmu di "grand_total_hitunganmu". Alat memeriksa ulang hitungan itu.
+- Status "ok": hitunganmu benar, kirim "teks" persis seperti diberikan. Status "koreksi": hitunganmu meleset, kirim "teks" dari alat (angkanya sudah diperiksa), jangan angkamu sendiri.
 - Isi "barang" hanya dengan harga dari playbook, katalog, atau daftar harga. Jangan mengarang harga.
 - Ongkir: isi dari hasil cek_ongkir ("ongkir_dibayar_customer" bila ada, kalau tidak "ongkir"). Kalau ongkir belum bisa dihitung, kosongkan dan tulis di pesan bahwa ongkir menyusul; jangan menebak angkanya.
 - Setelah rincian terkirim, tutup dengan satu ajakan konfirmasi ("Kalau sudah sesuai, saya proses ya kak").`;
@@ -59,7 +61,7 @@ function toolSpec() {
     parameters: {
       type: 'object',
       additionalProperties: false,
-      required: ['barang'],
+      required: ['barang', 'grand_total_hitunganmu'],
       properties: {
         barang: {
           type: 'array', minItems: 1, maxItems: 30,
@@ -76,6 +78,7 @@ function toolSpec() {
         ongkir: { type: 'number', minimum: 0, description: 'Rupiah yang dibayar customer; 0 = gratis. Kosongkan bila belum diketahui.' },
         keterangan_ongkir: { type: 'string', maxLength: 80, description: 'Mis. "Ongkir (Lalamove, Motor)".' },
         diskon: { type: 'number', minimum: 0 },
+        grand_total_hitunganmu: { type: 'number', minimum: 0, description: 'Grand total hasil hitunganmu sendiri (produk - diskon + ongkir) untuk diperiksa alat.' },
       },
     },
     run: (args = {}) => run(args),
@@ -93,7 +96,16 @@ function run(args) {
     shippingLabel: args.keterangan_ongkir || 'Ongkir',
     discount: args.diskon,
   });
-  return { status: 'ok', teks: summary.text, total_produk: summary.productTotal, ongkir: summary.shipping, grand_total: summary.grandTotal };
+  const result = { status: 'ok', teks: summary.text, total_produk: summary.productTotal, ongkir: summary.shipping, grand_total: summary.grandTotal };
+  const claimed = args.grand_total_hitunganmu == null ? null : Number(args.grand_total_hitunganmu);
+  if (claimed != null && Math.round(claimed) !== Math.round(summary.grandTotal)) {
+    return {
+      ...result,
+      status: 'koreksi',
+      pesan: `Hitunganmu ${rupiah(claimed)}, hasil periksa ${rupiah(summary.grandTotal)}. Kirim "teks" ini, bukan angkamu.`,
+    };
+  }
+  return result;
 }
 
 module.exports = { TOOL_NAME, GUIDE, LINE, rupiah, buildSummary, toolSpec, run };

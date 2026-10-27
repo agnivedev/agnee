@@ -30,6 +30,18 @@ test('rincian: ongkir kosong = menyusul, 0 = GRATIS', () => {
   assert.equal(free.grand_total, 1000);
 });
 
+test('rincian: hitungan AI diperiksa ulang, yang meleset dikoreksi dengan angka alat', () => {
+  const base = { barang: [{ nama: 'MU 480 RENOFIX 25KG', jumlah: 3, harga_satuan: 313000, satuan: 'sak' }], ongkir: 45000 };
+  const benar = summary.run({ ...base, grand_total_hitunganmu: 984000 });
+  assert.equal(benar.status, 'ok');
+  assert.equal(benar.pesan, undefined);
+  const meleset = summary.run({ ...base, grand_total_hitunganmu: 939000 });
+  assert.equal(meleset.status, 'koreksi');
+  assert.equal(meleset.grand_total, 984000);
+  assert.match(meleset.pesan, /Rp 939\.000.*Rp 984\.000/);
+  assert.match(meleset.teks, /\*GRAND TOTAL: Rp 984\.000\*/);
+});
+
 test('rincian: data tidak lengkap ditolak', () => {
   assert.equal(summary.run({ barang: [{ nama: 'A', jumlah: 0, harga_satuan: 1 }] }).status, 'gagal');
   assert.equal(summary.run({}).status, 'gagal');
@@ -40,4 +52,6 @@ test('aturan bawaan memuat arahan closing 3-5 giliran dan rincian WhatsApp', () 
   assert.match(rules, /3-5 giliran/);
   assert.match(rules, /GRAND TOTAL/);
   assert.match(rules, /susun_rincian/);
+  assert.match(rules, /periksa\s+ulang hitunganmu/);
+  assert.match(rules, /cross-selling dan up-selling/);
 });

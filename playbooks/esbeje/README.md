@@ -48,4 +48,5 @@ Triplek (tanpa merek), toren Penguin dan Mpoin, Semen Jakarta, mortar Mortar Uta
 ## Belum dikonfirmasi pemilik
 
 - Pemetaan tahap ke produk (mis. toren di tahap atap, pipa di pondasi dan finishing).
-- Area kirim, rekening, dan aturan ongkir. Playbook menyerahkan semuanya ke tim.
+- Pasangan cross-sell (mis. plester MU 301 dengan acian MU 200, keramik dengan nat MU 408) dan tebakan pekerjaan dari barang (28 Oktober).
+- Area kirim dan aturan ongkir. Rekening diambil dari Pengaturan > Paket & Pembayaran; selama belum diisi, Agnes menyerahkan total final dan rekening ke tim.

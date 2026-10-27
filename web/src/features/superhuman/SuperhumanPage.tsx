@@ -24,6 +24,28 @@ import { cn } from '@/lib/utils';
 import { QuotaBar } from '@/components/QuotaBar';
 import { AreaChart, BarList, ColumnChart } from './charts';
 
+type ConsoleView = 'dashboard' | 'tenants' | 'requests';
+
+type ClientRequest = {
+  id: string;
+  request: string;
+  reason: string | null;
+  area: string | null;
+  status: 'open' | 'planned' | 'done' | 'declined';
+  note: string | null;
+  createdAt: string;
+  companyId: string;
+  companyName: string;
+  userName: string | null;
+};
+
+const REQUEST_STATUS: Record<ClientRequest['status'], { label: string; tone: 'ok' | 'warn' | 'bad' | 'neutral' }> = {
+  open: { label: 'Baru', tone: 'warn' },
+  planned: { label: 'Direncanakan', tone: 'neutral' },
+  done: { label: 'Sudah ada', tone: 'ok' },
+  declined: { label: 'Tidak dikerjakan', tone: 'bad' },
+};
+
 type CompanyRow = {
   id: string;
   slug: string;
@@ -171,7 +193,7 @@ function toDateInput(value: string | null | undefined) {
 export function SuperhumanPage() {
   usePageTitle('Agnee — Superhuman');
   const { status, user, isPlatformAdmin } = useSession();
-  const [view, setView] = useState<'dashboard' | 'tenants'>('dashboard');
+  const [view, setView] = useState<ConsoleView>('dashboard');
   const [selected, setSelected] = useState<string | null>(null);
 
   if (status === 'loading') {
@@ -203,6 +225,8 @@ export function SuperhumanPage() {
         <CompanyDetailView companyId={selected} onBack={() => setSelected(null)} />
       ) : view === 'dashboard' ? (
         <DashboardView onOpen={setSelected} onSeeAll={() => setView('tenants')} />
+      ) : view === 'requests' ? (
+        <ClientRequestsView onOpen={setSelected} />
       ) : (
         <CompanyListView onOpen={setSelected} />
       )}
@@ -227,8 +251,8 @@ function ConsoleFrame({
 }: {
   children: React.ReactNode;
   email?: string;
-  view?: 'dashboard' | 'tenants';
-  onView?: (next: 'dashboard' | 'tenants') => void;
+  view?: ConsoleView;
+  onView?: (next: ConsoleView) => void;
 }) {
   return (
     <div className="min-h-dvh bg-background">
@@ -242,6 +266,7 @@ function ConsoleFrame({
             <span className="flex gap-1">
               <ConsoleTab active={view === 'dashboard'} onClick={() => onView('dashboard')}>Beranda</ConsoleTab>
               <ConsoleTab active={view === 'tenants'} onClick={() => onView('tenants')}>Tenant</ConsoleTab>
+              <ConsoleTab active={view === 'requests'} onClick={() => onView('requests')}>Permintaan</ConsoleTab>
             </span>
           ) : null}
         </span>
@@ -1136,6 +1161,135 @@ function UsageCard({ usage }: { usage: CompanyDetail['usage'] }) {
 }
 
 // ── Bagian tampilan kecil ───────────────────────────────────────────────────
+
+/**
+ * Permintaan yang dicatat asisten Latih AI karena belum bisa dipenuhi lewat
+ * playbook atau setelan. Bahan backlog: yang paling sering muncul pantas jadi
+ * fitur atau entri katalog setelan berikutnya.
+ */
+function ClientRequestsView({ onOpen }: { onOpen: (companyId: string) => void }) {
+  const [status, setStatus] = useState<'' | ClientRequest['status']>('open');
+  const [rows, setRows] = useState<ClientRequest[] | null>(null);
+  const [error, setError] = useState('');
+
+  const load = useCallback(async () => {
+    try {
+      const data = await api<{ requests: ClientRequest[] }>(`/v1/superhuman/client-requests${status ? `?status=${status}` : ''}`);
+      setRows(data.requests);
+      setError('');
+    } catch (caught) {
+      setRows([]);
+      setError(messageFromError(caught, 'Gagal memuat permintaan.'));
+    }
+  }, [status]);
+
+  useEffect(() => { void load(); }, [load]);
+
+  async function update(id: string, patch: { status?: ClientRequest['status']; note?: string }) {
+    try {
+      await api(`/v1/superhuman/client-requests/${id}`, { method: 'PATCH', body: patch });
+      setRows((current) => (current || []).map((row) => (row.id === id ? { ...row, ...patch } : row)));
+    } catch (caught) {
+      setError(messageFromError(caught, 'Gagal menyimpan.'));
+    }
+  }
+
+  return (
+    <>
+      <header className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <p className="eyebrow">DARI LATIH AI</p>
+          <h1 className="m-0 text-[28px] tracking-[-.03em]">Permintaan klien</h1>
+          <p className="mt-1.5 max-w-2xl text-sm text-muted">
+            Yang diminta pemilik bisnis tapi belum bisa dipenuhi lewat playbook atau setelan. Asisten mencatatnya alih-alih berpura-pura bisa.
+          </p>
+        </div>
+        <Button variant="outline" size="sm" onClick={() => void load()}>Muat ulang</Button>
+      </header>
+
+      <div className="mt-5 flex flex-wrap items-end gap-3">
+        <label className="grid gap-1.5 text-[13px] font-semibold">
+          <span>Status</span>
+          <select
+            value={status}
+            onChange={(event) => setStatus(event.target.value as typeof status)}
+            className="rounded-app border border-input bg-white/60 px-3 py-2.5 text-sm outline-none focus:border-green"
+          >
+            <option value="">Semua</option>
+            {Object.entries(REQUEST_STATUS).map(([key, meta]) => <option key={key} value={key}>{meta.label}</option>)}
+          </select>
+        </label>
+        {rows ? <p className="m-0 pb-2.5 text-[12px] text-muted">{rows.length} permintaan</p> : null}
+      </div>
+
+      {error ? <p role="status" className="mt-4 text-[13px] text-danger">{error}</p> : null}
+
+      <div className="mt-4 overflow-x-auto rounded-panel border border-border bg-card">
+        <table className="w-full min-w-[860px] border-collapse text-[13px]">
+          <thead>
+            <tr className="border-b border-border text-left">
+              <Th>Tanggal</Th>
+              <Th>Tenant</Th>
+              <Th>Permintaan</Th>
+              <Th>Area</Th>
+              <Th>Status</Th>
+              <Th>Catatan tim</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows === null ? (
+              <tr><Td colSpan={6}><span className="text-muted">Memuat…</span></Td></tr>
+            ) : rows.length === 0 ? (
+              <tr><Td colSpan={6}><span className="text-muted">Belum ada permintaan.</span></Td></tr>
+            ) : rows.map((row) => (
+              <tr key={row.id} className="border-b border-border last:border-0">
+                <Td><span className="font-mono text-[12px] whitespace-nowrap">{formatDate(row.createdAt)}</span></Td>
+                <Td>
+                  <button
+                    type="button"
+                    onClick={() => onOpen(row.companyId)}
+                    className="cursor-pointer border-0 bg-transparent p-0 text-left font-semibold text-green-dark hover:underline"
+                  >
+                    {row.companyName}
+                  </button>
+                  {row.userName ? <span className="block text-[12px] text-muted">{row.userName}</span> : null}
+                </Td>
+                <Td>
+                  <span className="block max-w-md">{row.request}</span>
+                  {row.reason ? <span className="block max-w-md text-[12px] text-muted">{row.reason}</span> : null}
+                </Td>
+                <Td><span className="font-mono text-[12px]">{row.area || '—'}</span></Td>
+                <Td>
+                  <select
+                    aria-label="Status permintaan"
+                    value={row.status}
+                    onChange={(event) => void update(row.id, { status: event.target.value as ClientRequest['status'] })}
+                    className="rounded-[8px] border border-input bg-white/60 px-2 py-1.5 text-[12px] outline-none focus:border-green"
+                  >
+                    {Object.entries(REQUEST_STATUS).map(([key, meta]) => <option key={key} value={key}>{meta.label}</option>)}
+                  </select>
+                  <span className="mt-1 block"><Pill tone={REQUEST_STATUS[row.status].tone}>{REQUEST_STATUS[row.status].label}</Pill></span>
+                </Td>
+                <Td>
+                  <Input
+                    aria-label="Catatan tim"
+                    defaultValue={row.note || ''}
+                    placeholder="mis. masuk sprint Nov"
+                    onBlur={(event) => {
+                      const note = event.target.value.trim();
+                      if (note !== (row.note || '')) void update(row.id, { note });
+                    }}
+                    className="w-48 py-1.5 text-[12px]"
+                  />
+                </Td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+}
 
 function BackLink({ onBack }: { onBack: () => void }) {
   return (

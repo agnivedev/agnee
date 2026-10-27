@@ -37,11 +37,21 @@ export type Proposal =
   | (Base & { type: 'ks_install'; code: string; source: string })
   | (Base & { type: 'ks_fill'; installId: string; categories: string[]; specific: Record<string, unknown>; problemsAfter: string[] })
   | (Base & { type: 'ks_simulate'; installId: string })
-  | (Base & { type: 'ks_activate'; installId: string; active: boolean });
+  | (Base & { type: 'ks_activate'; installId: string; active: boolean })
+  | (Base & {
+    type: 'setting_set'; key: string; title: string; risk: 'normal' | 'high';
+    changes: { field: string; label: string; before: string; after: string }[];
+    // Disusun server dari katalog setelan: rute biasa yang sama dengan layar Pengaturan.
+    request: { method: 'PATCH' | 'PUT'; path: string; body: Record<string, unknown> };
+  });
 
 type Turn = { role: 'user' | 'assistant'; content: string };
 export type Question = { id: string; question: string; multiple: boolean; options: { label: string; recommended: boolean }[] };
-type Message = { role: 'user' | 'assistant'; text: string; files?: string[]; proposals?: Proposal[]; question?: Question | null };
+type Message = {
+  role: 'user' | 'assistant'; text: string; files?: string[]; proposals?: Proposal[]; question?: Question | null;
+  // Permintaan yang belum bisa dipenuhi dan dicatat untuk tim Agnee.
+  logged?: string[];
+};
 /**
  * File apa pun boleh dilampirkan. Yang teksnya terbaca (PDF, Word, Excel,
  * PowerPoint, CSV, teks) dibaca AI; sisanya hanya bisa disimpan sebagai file
@@ -86,6 +96,9 @@ async function applyProposal(p: Proposal): Promise<string | undefined> {
     case 'ks_activate':
       await api(`/v1/ks/installs/${encodeURIComponent(p.installId)}/activate`, { method: 'POST', body: { active: p.active } });
       return undefined;
+    case 'setting_set':
+      await api(p.request.path, { method: p.request.method, body: p.request.body });
+      return undefined;
   }
 }
 
@@ -96,6 +109,8 @@ function ProposalCard({ proposal, outcome, onApply, onDiscard }: {
   onDiscard: () => void;
 }) {
   const { t } = useI18n();
+  // Setelan berisiko tinggi (mis. mematikan AI) butuh klik kedua.
+  const [confirming, setConfirming] = useState(false);
   const textDiff = proposal.type === 'playbook_edit' || proposal.type === 'brief_set'
     ? diffLines(proposal.before, proposal.after)
     : null;
@@ -103,9 +118,12 @@ function ProposalCard({ proposal, outcome, onApply, onDiscard }: {
   const label = proposal.type === 'ks_activate'
     ? t(`trainChat.type.ks_activate_${proposal.active ? 'on' : 'off'}`)
     : t(`trainChat.type.${proposal.type}`);
-  const heading = proposal.type === 'playbook_edit' ? `${label} · ${t(`playbook.kind.${proposal.kind}`)}` : label;
+  const heading = proposal.type === 'playbook_edit' ? `${label} · ${t(`playbook.kind.${proposal.kind}`)}`
+    : proposal.type === 'setting_set' ? `${label} · ${proposal.title}` : label;
   const live = proposal.type === 'playbook_edit' || proposal.type === 'brief_set' || proposal.type === 'fact_upsert'
-    || proposal.type === 'fact_delete' || proposal.type === 'ks_activate' || proposal.type === 'ks_fill';
+    || proposal.type === 'fact_delete' || proposal.type === 'ks_activate' || proposal.type === 'ks_fill'
+    || proposal.type === 'setting_set';
+  const risky = proposal.type === 'setting_set' && proposal.risk === 'high';
   const settled = outcome?.state === 'applied' || outcome?.state === 'discarded';
 
   return (
@@ -147,6 +165,20 @@ function ProposalCard({ proposal, outcome, onApply, onDiscard }: {
           </span>
         </div>
       ) : null}
+      {proposal.type === 'setting_set' ? (
+        <dl className="m-0 grid gap-1.5 rounded-lg bg-white p-2">
+          {proposal.changes.map((change) => (
+            <div key={change.field} className="grid gap-0.5">
+              <dt className="text-muted">{change.label}</dt>
+              <dd className="m-0 max-h-40 overflow-y-auto whitespace-pre-wrap">
+                <span className="text-muted line-through">{change.before}</span>
+                {' → '}
+                <strong>{change.after}</strong>
+              </dd>
+            </div>
+          ))}
+        </dl>
+      ) : null}
       {textDiff && (proposal.type === 'playbook_edit' || proposal.type === 'brief_set') ? (
         <details className="rounded-lg bg-white">
           <summary className="cursor-pointer px-2 py-1.5 text-[11px] font-medium">{t('trainChat.showResult')}</summary>
@@ -156,7 +188,11 @@ function ProposalCard({ proposal, outcome, onApply, onDiscard }: {
         </details>
       ) : null}
 
-      {live && !settled ? <p className="m-0 text-[11px] text-amber-900/80">{t('trainChat.liveWarn')}</p> : null}
+      {live && !settled ? (
+        <p className={cn('m-0 text-[11px]', risky ? 'font-medium text-danger' : 'text-amber-900/80')}>
+          {t(risky ? 'trainChat.settingRiskWarn' : proposal.type === 'setting_set' ? 'trainChat.settingWarn' : 'trainChat.liveWarn')}
+        </p>
+      ) : null}
 
       {outcome?.state === 'applied' ? (
         <p className="m-0 font-medium text-green-dark">
@@ -166,8 +202,17 @@ function ProposalCard({ proposal, outcome, onApply, onDiscard }: {
         <p className="m-0 text-muted">{t('trainChat.discarded')}</p>
       ) : (
         <div className="flex flex-wrap items-center gap-2">
-          <Button size="sm" disabled={outcome?.state === 'applying'} onClick={onApply}>
-            {outcome?.state === 'applying' ? t('trainChat.applying') : t('trainChat.apply')}
+          <Button
+            size="sm"
+            variant={confirming ? 'danger' : 'primary'}
+            disabled={outcome?.state === 'applying'}
+            onClick={() => {
+              if (risky && !confirming) { setConfirming(true); return; }
+              setConfirming(false);
+              onApply();
+            }}
+          >
+            {outcome?.state === 'applying' ? t('trainChat.applying') : confirming ? t('trainChat.confirmApply') : t('trainChat.apply')}
           </Button>
           <Button size="sm" variant="outline" disabled={outcome?.state === 'applying'} onClick={onDiscard}>
             {t('trainChat.discard')}
@@ -321,7 +366,7 @@ export function TrainAssistant({ onChanged }: { onChanged: () => void }) {
     setMessages((current) => [...current, { role: 'user', text: message, files }]);
     setAttachments((current) => current.map((a) => ({ ...a, sent: true })));
     try {
-      const result = await api<{ reply: string; memo: string; proposals: Proposal[]; question: Question | null }>('/v1/train/chat', {
+      const result = await api<{ reply: string; memo: string; proposals: Proposal[]; question: Question | null; loggedRequests?: string[] }>('/v1/train/chat', {
         method: 'POST',
         body: {
           message,
@@ -329,7 +374,9 @@ export function TrainAssistant({ onChanged }: { onChanged: () => void }) {
           ...(attachments.length ? { attachments: attachments.map((a) => ({ name: a.name, kind: a.kind, ...(a.text ? { text: a.text } : {}) })) } : {}),
         },
       });
-      setMessages((current) => [...current, { role: 'assistant', text: result.reply, proposals: result.proposals, question: result.question }]);
+      setMessages((current) => [...current, {
+        role: 'assistant', text: result.reply, proposals: result.proposals, question: result.question, logged: result.loggedRequests,
+      }]);
       const content = files.length ? `${message}\n[Lampiran: ${files.join(', ')}]` : message;
       setHistory((current) => [...current, { role: 'user', content }, { role: 'assistant', content: result.memo }]);
     } catch (failure) {
@@ -439,6 +486,11 @@ export function TrainAssistant({ onChanged }: { onChanged: () => void }) {
                     </span>
                   ) : null}
                 </div>
+              ) : null}
+              {message.logged?.length ? (
+                <p className="m-0 justify-self-start rounded-lg border border-dashed border-border px-2.5 py-1.5 text-[11px] text-muted">
+                  {t('trainChat.loggedRequest', { items: message.logged.join('; ') })}
+                </p>
               ) : null}
               {message.question ? (
                 <QuestionCard

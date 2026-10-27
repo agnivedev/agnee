@@ -45,8 +45,10 @@ function fakeDatabase() {
   }];
   const brief = new Map([['company-a', 'Kami AL Gold FX. Kelas gold scalping.']]);
   const mine = (companyId) => (row) => row.companyId === companyId;
+  const requests = [];
+  const companyWrites = [];
   return {
-    enabled: true, connected: true, writes,
+    enabled: true, connected: true, writes, requests, companyWrites,
     async connect() {}, async close() {},
     status() { return { driver: 'postgresql', connected: true }; },
     async ping() { return { driver: 'postgresql', connected: true, enabled: true }; },
@@ -67,6 +69,22 @@ function fakeDatabase() {
     async listSimulationScenarios(companyId) { return scenarios.filter(mine(companyId)); },
     async listKsInstalls(companyId) { return installs.filter(mine(companyId)); },
     async getKsInstall(id, companyId) { return installs.find((i) => i.id === id && i.companyId === companyId) || null; },
+    async getReplyDelaySettings(companyId) {
+      return companyId === 'company-a' ? { replyDelayEnabled: true, replyDelayMinSeconds: 5, replyDelayMaxSeconds: 60 } : null;
+    },
+    async getFollowUpSettings() { return null; },
+    async getLalamoveConnection() { return null; },
+    async getAgentModeInstructions() { return { sales: 'Arahkan ke order.' }; },
+    // Rute biasa yang dijalankan layar saat pemilik menekan Terapkan.
+    async updateCompanyConfig(patch, companyId) { companyWrites.push(['updateCompanyConfig', companyId, patch]); return {}; },
+    async setAiSettings(companyId, patch) { companyWrites.push(['setAiSettings', companyId, patch]); return { enabled: true, modelChain: [], identity: 'team_member', ...patch }; },
+    async recordClientRequest(entry, companyId) {
+      const dup = requests.find((r) => r.companyId === companyId && r.request.toLowerCase() === entry.request.toLowerCase());
+      if (dup) return { id: dup.id, duplicate: true };
+      const saved = { id: `r${requests.length + 1}`, companyId, ...entry };
+      requests.push(saved);
+      return { id: saved.id, duplicate: false };
+    },
     // Alat tulis tidak boleh sampai ke sini; kalau sampai, tesnya gagal.
     async savePlaybookDoc(...args) { writes.push(['savePlaybookDoc', args]); return null; },
     async upsertPlaybookFact(...args) { writes.push(['upsertPlaybookFact', args]); return null; },
@@ -82,7 +100,7 @@ function fakeLlm(state) {
   return {
     enabled: true, model: 'tiruan',
     async generateReply(message, options) {
-      const repair = (options.tools || []).length === 1 && options.maxToolCalls === 1;
+      const repair = options.maxToolCalls === 1;
       state.calls = (state.calls || 0) + 1;
       if (repair) state.repairMessage = message; else state.last = { message, ...options };
       state.results = [];
@@ -126,7 +144,7 @@ async function setup(t) {
       headers: { cookie: who.cookie, 'content-type': `multipart/form-data; boundary=${boundary}` },
     });
   };
-  return { state, database, chat, attach, a, b, agent };
+  return { state, database, chat, attach, a, b, agent, app };
 }
 
 test('applyEdits: ganti, sisip, hapus, tambah di akhir; teks yang tak unik atau tak ada ditolak', () => {
@@ -485,4 +503,138 @@ test('lampiran panjang: total yang dikirim ke AI dibatasi, file pendek tetap utu
   assert.ok(run('a') + run('b') + 15 <= 60000, `total ${run('a') + run('b')}`);
   assert.ok(run('a') > 25000 && run('b') > 25000);
   assert.match(prompt, /\[\.\.\.dipotong, lampiran terlalu panjang\.\.\.\]/);
+});
+
+test('setelan: usulan membawa rute biasa dan hanya kolom yang berubah; rute itu menerimanya saat Terapkan', async (t) => {
+  const { chat, a, state, database, app } = await setup(t);
+  state.script = [
+    ['read_settings', { keys: ['reply_delay'] }],
+    ['propose_setting', { key: 'reply_delay', value: { minSeconds: '20', maxSeconds: 90 }, summary: 'Balas lebih santai' }],
+    ['propose_setting', { key: 'ai_identity', value: { identity: 'chatbot' }, summary: 'Mengaku asisten virtual' }],
+  ];
+  const res = await chat(a, 'balasnya jangan kecepetan, dan bilang aja chatbot');
+  assert.equal(res.statusCode, 200);
+  const [read] = state.results;
+  assert.equal(read.out[0].value.minSeconds, 5);
+  assert.ok(read.out[0].fields.some((f) => f.key === 'maxSeconds' && f.max === 300));
+  const [delay, identity] = res.json().proposals;
+  assert.equal(delay.type, 'setting_set');
+  assert.deepEqual(delay.changes.map((c) => [c.field, c.before, c.after]), [['minSeconds', '5', '20'], ['maxSeconds', '60', '90']]);
+  assert.deepEqual(delay.request, {
+    method: 'PATCH', path: '/v1/admin/company',
+    body: { replyDelayEnabled: true, replyDelayMinSeconds: 20, replyDelayMaxSeconds: 90 },
+  });
+  assert.equal(identity.changes[0].after, 'Chatbot / asisten virtual');
+  assert.deepEqual(database.companyWrites, [], 'mengobrol tidak boleh mengubah setelan');
+
+  // Yang dijalankan layar saat Terapkan: rute yang sama dengan Pengaturan, sesi pemilik.
+  for (const proposal of [delay, identity]) {
+    const applied = await app.inject({
+      method: proposal.request.method, url: proposal.request.path, headers: { cookie: a.cookie }, payload: proposal.request.body,
+    });
+    assert.equal(applied.statusCode, 200, applied.body);
+  }
+  assert.deepEqual(database.companyWrites.map(([fn, company]) => [fn, company]), [['updateCompanyConfig', 'company-a'], ['setAiSettings', 'company-a']]);
+});
+
+test('setelan: nilai di luar batas, kolom asing, tanpa perubahan, dan integrasi belum terhubung dijawab sebagai kalimat', async (t) => {
+  const { chat, a, state } = await setup(t);
+  state.script = [
+    ['propose_setting', { key: 'reply_delay', value: { minSeconds: 90 }, summary: 'x' }],
+    ['propose_setting', { key: 'reply_delay', value: { maxSeconds: 999 }, summary: 'x' }],
+    ['propose_setting', { key: 'reply_delay', value: { speed: 'pelan' }, summary: 'x' }],
+    ['propose_setting', { key: 'reply_delay', value: { minSeconds: 5 }, summary: 'x' }],
+    ['propose_setting', { key: 'delivery_quote', value: { aiQuotesEnabled: true }, summary: 'x' }],
+    ['propose_setting', { key: 'payment_link', value: { url: 'https://x' }, summary: 'x' }],
+  ];
+  const res = await chat(a);
+  assert.equal(res.json().proposals.length, 0);
+  const errors = state.results.map((r) => r.error);
+  assert.match(errors[0], /tercepat tidak boleh lebih lama/);
+  assert.match(errors[1], /antara 1 dan 300/);
+  assert.match(errors[2], /Kolom tidak dikenal: speed/);
+  assert.match(errors[3], /Tidak ada yang berubah/);
+  assert.match(errors[4], /Lalamove belum dihubungkan/);
+  assert.match(errors[5], /tidak ada di katalog/);
+});
+
+test('setelan berisiko tinggi ditandai, dan katalog ikut di keadaan prompt', async (t) => {
+  const { chat, a, state } = await setup(t);
+  state.script = [['propose_setting', { key: 'ai_replies', value: { enabled: false }, summary: 'Matikan AI sementara' }]];
+  const res = await chat(a, 'matikan AI dulu');
+  const [proposal] = res.json().proposals;
+  assert.equal(proposal.risk, 'high');
+  assert.deepEqual(proposal.request, { method: 'PATCH', path: '/v1/admin/ai-settings', body: { enabled: false } });
+  assert.match(state.last.systemPrompt, /"key":"reply_delay"/);
+  assert.match(state.last.systemPrompt, /"key":"mode_guide_sales","title":"Panduan mode Sales","unavailable":null,"value":\{"instructions":"Arahkan ke order\."\}/);
+});
+
+test('permintaan di luar kemampuan dicatat per company dan pengguna, tidak dobel, dan ikut di memo', async (t) => {
+  const { chat, a, b, state, database } = await setup(t);
+  state.script = [
+    ['log_request', { request: 'Kirim laporan omzet harian ke grup WA owner', reason: 'Belum ada laporan omzet', area: 'laporan' }],
+    ['log_request', { request: 'kirim laporan omzet harian ke grup WA owner', reason: 'ulang' }],
+    ['log_request', { request: 'pendek' , reason: 'x' }],
+  ];
+  const res = await chat(a, 'tiap malam kirim omzet ke grup ya');
+  assert.equal(res.statusCode, 200);
+  assert.equal(database.requests.length, 1);
+  assert.deepEqual(
+    { companyId: database.requests[0].companyId, userId: database.requests[0].userId, area: database.requests[0].area },
+    { companyId: 'company-a', userId: 'owner-company-a', area: 'laporan' },
+  );
+  assert.match(state.results[1].out.note, /sudah pernah dicatat/);
+  assert.match(state.results[2].error, /lebih jelas/);
+  assert.deepEqual(res.json().loggedRequests.length, 2);
+  assert.match(res.json().memo, /Permintaan yang kucatat untuk tim Agnee: Kirim laporan omzet/);
+  assert.deepEqual(database.writes, []);
+
+  // Company lain dengan kalimat sama tetap tercatat sendiri.
+  state.script = [['log_request', { request: 'Kirim laporan omzet harian ke grup WA owner', reason: 'x' }]];
+  await chat(b);
+  assert.deepEqual(database.requests.map((r) => r.companyId), ['company-a', 'company-b']);
+});
+
+test('AI customer dimatikan pemilik: Latih AI tetap bisa dipakai untuk menyalakannya lagi; paket berhenti tetap menghentikannya', async (t) => {
+  const { chat, a, state, database } = await setup(t);
+  database.getAiSettings = async () => ({ enabled: false, modelChain: [] });
+  state.script = [['propose_setting', { key: 'ai_replies', value: { enabled: true }, summary: 'Nyalakan lagi' }]];
+  const res = await chat(a, 'nyalakan AI lagi');
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.json().proposals[0].request.body, { enabled: true });
+
+  database.getCompanyConfig = async () => ({ planStatus: 'suspended', status: 'active' });
+  const stopped = await chat(a, 'nyalakan AI lagi');
+  assert.equal(stopped.statusCode, 503);
+  assert.match(stopped.json().error, /Paket perusahaan ini sedang berhenti/);
+});
+
+test('asisten bilang "sudah dicatat" tanpa memanggil alatnya: server memaksa pencatatan; tanpa klaim, tidak ada panggilan tambahan', async (t) => {
+  const { chat, a, state, database } = await setup(t);
+  state.script = [];
+  state.text = 'Maaf, otomasi tag VIP belum bisa. Permintaanmu sudah kucatat untuk tim Agnee.';
+  state.repairScript = [['log_request', { request: 'Lead Mayar di atas 5 juta otomatis diberi tag VIP', reason: 'Belum ada otomasi bersyarat' }]];
+  const res = await chat(a, 'lead mayar di atas 5 juta kasih tag VIP otomatis');
+  assert.equal(res.statusCode, 200);
+  assert.equal(database.requests.length, 1);
+  assert.deepEqual(res.json().loggedRequests, ['Lead Mayar di atas 5 juta otomatis diberi tag VIP']);
+  assert.match(state.repairMessage, /Pesan pemilik:\nlead mayar/);
+
+  state.calls = 0;
+  state.text = 'Usulannya sudah kusiapkan, cek lalu Terapkan.';
+  await chat(a, 'ubah persona');
+  assert.equal(state.calls, 1, 'tanpa klaim mencatat tidak ada panggilan kedua');
+});
+
+test('jawaban "belum bisa" tanpa catatan: panggilan khusus boleh mencatat atau melewati', async (t) => {
+  const { chat, a, state, database } = await setup(t);
+  state.text = 'Maaf, fitur kirim invoice PDF otomatis belum tersedia di Agnee.';
+  state.repairScript = [['skip_log', {}]];
+  const skipped = await chat(a, 'kirim invoice otomatis');
+  assert.equal(skipped.statusCode, 200);
+  assert.equal(database.requests.length, 0);
+
+  state.repairScript = [['log_request', { request: 'Kirim invoice PDF otomatis setelah transfer', reason: 'Belum ada fiturnya' }]];
+  const logged = await chat(a, 'kirim invoice otomatis');
+  assert.deepEqual(logged.json().loggedRequests, ['Kirim invoice PDF otomatis setelah transfer']);
 });

@@ -1111,6 +1111,56 @@ class Database {
     return result.rows[0] || null;
   }
 
+  // ---- Permintaan klien dari Latih AI (migrasi 075) ------------------------
+
+  /**
+   * Permintaan yang sama dari company yang sama dalam 14 hari tidak dicatat
+   * dua kali: asisten sering mengulang pemanggilan di giliran berikutnya.
+   */
+  async recordClientRequest({ userId = null, request, reason = null, area = null }, companyId) {
+    if (!this.enabled) return null;
+    const existing = await this.pool.query(`
+      SELECT id, created_at AS "createdAt", true AS duplicate FROM client_requests
+      WHERE company_id = $1 AND lower(request) = lower($2) AND created_at > NOW() - INTERVAL '14 days'
+      LIMIT 1
+    `, [companyId, request]);
+    if (existing.rows[0]) return existing.rows[0];
+    const result = await this.pool.query(`
+      INSERT INTO client_requests (company_id, user_id, request, reason, area)
+      VALUES ($1, $2, $3, $4, $5)
+      RETURNING id, created_at AS "createdAt", false AS duplicate
+    `, [companyId, userId || null, request, reason, area]);
+    return result.rows[0] || null;
+  }
+
+  /** Lintas company: hanya untuk konsol /superhuman. */
+  async listPlatformClientRequests({ status = null, limit = 200 } = {}) {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(`
+      SELECT r.id, r.request, r.reason, r.area, r.status, r.note,
+             r.created_at AS "createdAt", r.updated_at AS "updatedAt",
+             c.id AS "companyId", c.name AS "companyName", u.display_name AS "userName"
+      FROM client_requests r
+      JOIN companies c ON c.id = r.company_id
+      LEFT JOIN users u ON u.id = r.user_id
+      WHERE ($1::text IS NULL OR r.status = $1)
+      ORDER BY r.created_at DESC
+      LIMIT $2
+    `, [status, limit]);
+    return result.rows;
+  }
+
+  async updatePlatformClientRequest(id, { status, note }) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      UPDATE client_requests
+      SET status = COALESCE($2, status), note = COALESCE($3, note), updated_at = NOW()
+      WHERE id = $1
+      RETURNING id, status, note, company_id AS "companyId", updated_at AS "updatedAt"
+    `, [id, status ?? null, note ?? null]);
+    return result.rows[0] || null;
+  }
+
   async listAuditLogs(companyId, { action = null, limit = 50 } = {}) {
     if (!this.enabled) return [];
     const result = await this.pool.query(`

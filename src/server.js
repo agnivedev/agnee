@@ -5545,6 +5545,32 @@ ${thread || '(belum ada)'}${hubContext}`,
     return { ...overview, currency: platformCurrency() };
   });
 
+  // Permintaan klien yang dicatat asisten Latih AI karena belum bisa dipenuhi.
+  // Bahan backlog produk; isinya kalimat pemilik, bukan isi percakapan customer.
+  const CLIENT_REQUEST_STATUSES = ['open', 'planned', 'done', 'declined'];
+  app.get('/v1/superhuman/client-requests', {
+    schema: { querystring: { type: 'object', properties: { status: { type: 'string', enum: CLIENT_REQUEST_STATUSES } } } },
+  }, async (request) => {
+    if (!canCall('listPlatformClientRequests')) return { requests: [] };
+    return { requests: await database.listPlatformClientRequests({ status: request.query.status || null }) };
+  });
+
+  app.patch('/v1/superhuman/client-requests/:id', {
+    schema: {
+      params: { type: 'object', required: ['id'], properties: { id: { type: 'string', pattern: UUID_PATTERN } } },
+      body: {
+        type: 'object', additionalProperties: false, minProperties: 1,
+        properties: { status: { type: 'string', enum: CLIENT_REQUEST_STATUSES }, note: { type: 'string', maxLength: 1000 } },
+      },
+    },
+  }, async (request, reply) => {
+    if (!canCall('updatePlatformClientRequest')) return reply.code(503).send({ error: 'Database tidak tersedia.' });
+    const updated = await database.updatePlatformClientRequest(request.params.id, request.body);
+    if (!updated) return reply.code(404).send({ error: 'Permintaan tidak ditemukan.' });
+    await recordPlatformAudit(request, 'platform.client_request_updated', updated.companyId, { requestId: updated.id, status: updated.status });
+    return updated;
+  });
+
   app.get('/v1/superhuman/companies', {
     schema: { querystring: { type: 'object', additionalProperties: false, properties: {
       search: { type: 'string', maxLength: 100, default: '' },

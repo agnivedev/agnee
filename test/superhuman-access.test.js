@@ -92,6 +92,14 @@ function fakeDatabase({ liveOverrides = {} } = {}) {
       audits.push(saved);
       return saved;
     },
+    clientRequests: [{ id: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee', companyId: '11111111-2222-3333-4444-555555555555', request: 'Laporan omzet harian', status: 'open', note: null }],
+    async listPlatformClientRequests({ status }) { return this.clientRequests.filter((r) => !status || r.status === status); },
+    async updatePlatformClientRequest(id, patch) {
+      const row = this.clientRequests.find((r) => r.id === id);
+      if (!row) return null;
+      Object.assign(row, patch);
+      return row;
+    },
     async getLeadState() { return null; },
     async saveLeadState(lead) { return lead; },
   };
@@ -274,4 +282,36 @@ test('pack knowledge diubah dari konsol, hanya ke pack yang benar-benar ada', as
   assert.equal(ok.statusCode, 200);
   assert.equal(database.company.knowledgeClient, 'tradersmastermind');
   assert.deepEqual(database.audits.at(-1).metadata.changes.knowledgeClient, { dari: 'agnee', ke: 'tradersmastermind' });
+});
+
+test('permintaan klien: hanya staf platform yang membaca dan mengubah statusnya, dan perubahannya tercatat', async (t) => {
+  const database = fakeDatabase();
+  const app = await buildApp({
+    logger: false, startupEnabled: false, demoMode: true, database, sessionSecret: 'superhuman-req',
+  });
+  t.after(() => app.close());
+  const id = database.clientRequests[0].id;
+
+  const owner = await signIn(app, OWNER);
+  const denied = await app.inject({ method: 'GET', url: '/v1/superhuman/client-requests', headers: { cookie: owner } });
+  assert.equal(denied.statusCode, 403);
+  const deniedPatch = await app.inject({
+    method: 'PATCH', url: `/v1/superhuman/client-requests/${id}`, headers: { cookie: owner }, payload: { status: 'done' },
+  });
+  assert.equal(deniedPatch.statusCode, 403);
+  assert.equal(database.clientRequests[0].status, 'open');
+
+  const staff = await signIn(app, STAFF);
+  const list = await app.inject({ method: 'GET', url: '/v1/superhuman/client-requests?status=open', headers: { cookie: staff } });
+  assert.equal(list.statusCode, 200);
+  assert.equal(list.json().requests.length, 1);
+  const patched = await app.inject({
+    method: 'PATCH', url: `/v1/superhuman/client-requests/${id}`, headers: { cookie: staff }, payload: { status: 'planned', note: 'sprint Nov' },
+  });
+  assert.equal(patched.statusCode, 200);
+  assert.equal(database.audits.at(-1).action, 'platform.client_request_updated');
+  const missing = await app.inject({
+    method: 'PATCH', url: '/v1/superhuman/client-requests/00000000-0000-4000-8000-000000000000', headers: { cookie: staff }, payload: { status: 'done' },
+  });
+  assert.equal(missing.statusCode, 404);
 });

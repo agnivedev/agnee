@@ -14,8 +14,11 @@
 
 const crypto = require('node:crypto');
 const { extractPlaybookText } = require('./playbook-extractor');
+const capabilities = require('./train-capabilities');
 
 const MAX_PROPOSALS = 8;
+// Catatan permintaan klien per giliran: lebih dari ini hampir pasti model mengulang.
+const MAX_REQUEST_LOGS = 3;
 // llm-service memotong keluaran alat di 8000 karakter. Dokumen yang lebih
 // panjang dari ini tidak terbaca utuh, jadi hanya boleh diubah per bagian.
 const READ_LIMIT = 7000;
@@ -152,7 +155,7 @@ function compactSchema(schema) {
  * mengembalikannya ke layar. Setiap alat memeriksa masukannya terhadap data
  * perusahaan ini dan melempar error yang menjelaskan kesalahannya.
  */
-function buildTools({ database, companyId, deps, proposals, questions = [] }) {
+function buildTools({ database, companyId, userId = null, deps, proposals, questions = [], loggedRequests = [] }) {
   const { kinds, kindBrief, categories, ksSources, ksView, validateSpecific, maxSpecificBytes } = deps;
 
   // Dua usulan untuk hal yang sama dalam satu giliran (model mengulang karena
@@ -166,6 +169,7 @@ function buildTools({ database, companyId, deps, proposals, questions = [] }) {
       case 'scenario_delete': return `${p.type}|${p.scenarioId}`;
       case 'ks_install': return `${p.type}|${p.code}`;
       case 'ks_activate': return `${p.type}|${p.installId}`;
+      case 'setting_set': return `${p.type}|${p.key}`;
       default: return p.installId ? `${p.type}|${p.installId}` : p.type;
     }
   };
@@ -213,6 +217,16 @@ function buildTools({ database, companyId, deps, proposals, questions = [] }) {
     return found;
   }
 
+  /** Nilai sekarang semua setelan di katalog; yang belum tersedia membawa alasannya. */
+  async function readSettings(keys = null) {
+    const ctx = { database, companyId };
+    const entries = keys?.length ? keys.map(capabilities.findSetting) : capabilities.CATALOG;
+    return Promise.all(entries.map(async (entry) => {
+      const unavailable = (await entry.available?.(ctx)) || null;
+      return { key: entry.key, title: entry.title, unavailable, value: unavailable ? null : await entry.read(ctx) };
+    }));
+  }
+
   const productId = { type: 'string', description: 'Id produk dari list_playbook; kosongkan untuk playbook umum.' };
   const empty = { type: 'object', properties: {} };
 
@@ -241,6 +255,7 @@ function buildTools({ database, companyId, deps, proposals, questions = [] }) {
           facts: facts.slice(0, 60).map((f) => ({ id: f.id, category: f.category, question: f.question, answer: f.answer ? String(f.answer).slice(0, 160) : null })),
           scenarios: scenarios.slice(0, 40).map((s) => ({ id: s.id, name: s.name })),
           briefChars: (brief.brief || '').length,
+          settings: await readSettings(),
           templates: {
             catalog: ksSources.flatMap((source) => source.list().map((p) => ({ code: p.code, source: source.id, name: p.name, kind: p.kind, installed: installed.has(p.code) }))),
             installed: views.map((i) => ({
@@ -582,10 +597,72 @@ function buildTools({ database, companyId, deps, proposals, questions = [] }) {
         });
       },
     },
+
+    // ── Setelan Agnee (katalog) ──────────────────────────────────────────────
+    {
+      name: 'read_settings',
+      description: 'Katalog setelan Agnee yang bisa diusulkan: arti tiap setelan, kolomnya (jenis dan batas), dan nilai sekarang. Kosongkan keys untuk semua.',
+      parameters: { type: 'object', properties: { keys: { type: 'array', maxItems: 12, items: text(60) } } },
+      async run({ keys } = {}) {
+        const values = new Map((await readSettings(keys)).map((row) => [row.key, row]));
+        return capabilities.describeCatalog()
+          .filter((entry) => values.has(entry.key))
+          .map((entry) => ({ ...entry, ...values.get(entry.key) }));
+      },
+    },
+    {
+      name: 'propose_setting',
+      description: 'Usulkan perubahan SATU setelan dari katalog. value berisi kolom yang berubah saja, mis. {"minSeconds": 20, "maxSeconds": 60}.',
+      parameters: {
+        type: 'object',
+        properties: {
+          key: { ...text(60), description: 'Kunci setelan dari read_settings / keadaan.' },
+          value: { type: 'object', description: 'Kolom yang diubah dan nilai barunya.' },
+          summary: text(200),
+        },
+        required: ['key', 'value', 'summary'],
+      },
+      async run({ key, value, summary }) {
+        const entry = capabilities.findSetting(key);
+        const ctx = { database, companyId };
+        const unavailable = await entry.available?.(ctx);
+        if (unavailable) throw new Error(`Belum bisa diubah: ${unavailable}`);
+        const current = await entry.read(ctx);
+        const { next, changed, changes } = capabilities.normalizeSetting(entry, current, value);
+        return propose({
+          type: 'setting_set', title: entry.title, summary, key: entry.key, risk: entry.risk || 'normal',
+          changes, request: entry.request(next, changed),
+        });
+      },
+    },
+    {
+      name: 'log_request',
+      description: 'Catat permintaan pemilik yang TIDAK bisa dipenuhi dengan alat yang ada (fitur, integrasi, laporan, atau otomasi yang belum ada di Agnee), untuk tim Agnee. Ini langsung tersimpan; tidak mengubah apa pun yang dilihat customer.',
+      parameters: {
+        type: 'object',
+        properties: {
+          request: { ...text(500), description: 'Permintaannya dalam satu-dua kalimat, sedekat mungkin dengan kata-kata pemilik.' },
+          reason: { ...text(300), description: 'Kenapa belum bisa dengan yang ada sekarang.' },
+          area: { type: 'string', enum: ['inbox', 'ai', 'broadcast', 'follow_up', 'leads', 'laporan', 'integrasi', 'tim', 'lainnya'] },
+        },
+        required: ['request', 'reason'],
+      },
+      async run({ request, reason, area }) {
+        const wanted = String(request || '').trim();
+        if (wanted.length < 8) throw new Error('Tulis permintaannya lebih jelas.');
+        if (loggedRequests.length >= MAX_REQUEST_LOGS) throw new Error('Sudah cukup dicatat di giliran ini.');
+        if (typeof database.recordClientRequest !== 'function') throw new Error('Catatan permintaan tidak tersedia.');
+        const saved = await database.recordClientRequest({
+          userId, request: wanted, reason: String(reason || '').trim() || null, area: area || null,
+        }, companyId);
+        loggedRequests.push({ request: wanted, duplicate: !!saved?.duplicate });
+        return { ok: true, note: saved?.duplicate ? 'Permintaan ini sudah pernah dicatat; tidak dicatat dua kali.' : 'Tercatat untuk tim Agnee.' };
+      },
+    },
   ];
 }
 
-const SYSTEM_PROMPT = `Kamu asisten Latih AI di Agnee. Pemilik bisnis mengubah cara AI customer service-nya menjawab hanya lewat obrolan denganmu. Yang bisa diubah: playbook (persona, larangan, tanya-jawab, discovery, keberatan, closing, follow-up, serah-terima), fakta terkonfirmasi, skenario latihan, brief perusahaan, dan template percakapan.
+const SYSTEM_PROMPT = `Kamu asisten Latih AI di Agnee. Pemilik bisnis mengubah cara AI customer service-nya menjawab hanya lewat obrolan denganmu. Yang bisa diubah: playbook (persona, larangan, tanya-jawab, discovery, keberatan, closing, follow-up, serah-terima), fakta terkonfirmasi, skenario latihan, brief perusahaan, template percakapan, dan setelan Agnee yang ada di katalog (lihat "settings" di keadaan: jeda balasan, rotasi nomor, identitas AI, saklar AI, follow-up otomatis, ongkir otomatis, panduan mode).
 
 Cara kerja:
 - Mulai dengan alat overview (satu panggilan), lalu read_* untuk bagian yang akan diubah. Jangan menebak isi dokumen. Panggil beberapa alat sekaligus dalam satu langkah kalau tidak saling bergantung.
@@ -594,6 +671,8 @@ Cara kerja:
 - Untuk dokumen yang sudah ada pakai edits kecil, bukan menulis ulang. Jaga format Markdown dan bahasanya.
 - Memasang atau mengaktifkan template, dan menjalankan simulasi, juga lewat usulan. Aktivasi ditolak server kalau simulasi terakhir belum lulus; sampaikan alasannya.
 - Mengunggah atau menghapus file di "Brief & files" tidak bisa lewat obrolan; arahkan ke tab itu.
+- SETELAN: permintaan tentang perilaku sistem (balasan terlalu cepat, AI mengaku manusia, matikan AI dulu, follow-up, ongkir, dst.) diubah lewat propose_setting, bukan ditulis di playbook. Kirim kolom yang berubah saja. Setelan dengan risk "high" berdampak ke semua customer: di balasanmu WAJIB ada satu kalimat akibatnya (mis. "selama mati, semua chat customer harus dibalas manual"). Setelan dengan "unavailable": sampaikan alasannya.
+- DI LUAR KEMAMPUAN: bila permintaan butuh sistem melakukan sesuatu yang tidak ada di katalog setelan maupun dokumen (fitur atau integrasi baru, laporan khusus, otomasi bersyarat seperti "kalau X maka kirim/pindahkan Y", mengubah tampilan aplikasi), JANGAN berpura-pura bisa dan jangan menuliskannya ke playbook seolah-olah sistem akan menjalankannya. Panggil log_request, lalu katakan terus terang belum bisa dan sudah dicatat untuk tim Agnee. Bila ada pendekatan sah yang mendekati (mis. AI mengarahkan customer lewat playbook), tawarkan sebagai alternatif. Perilaku percakapan AI ("jawab begini", "arahkan ke admin X") tetap urusan playbook, bukan log_request.
 - LAMPIRAN: bila di bawah ada "LAMPIRAN DARI PEMILIK", itu file yang ia lampirkan di obrolan ini. Baca isinya dan pakai sebagai bahan usulan (mis. daftar harga jadi fakta, SOP jadi playbook); bila tujuannya belum jelas, tanyakan mau dimasukkan ke bagian mana lewat ask_choices. Ambil hanya yang tertulis di file; jangan mengarang yang tidak ada. Lampiran yang isinya tidak terbaca (gambar, video, audio, format lama): katakan terus terang kamu tidak bisa melihat isinya, minta pemilik menuliskan inti yang penting, dan sebutkan ia bisa menyimpannya sebagai file rujukan lewat tombol di lampiran itu.
 - Kalau sebuah alat mengembalikan error, perbaiki masukannya dan panggil lagi (sampai dua kali) sebelum bertanya ke pemilik. Tanya hanya hal yang memang belum ia katakan; jangan minta ia mengulang yang sudah disebut.
 - Jangan bilang usulan sudah disiapkan kalau kamu belum memanggil alat propose_*; usulan hanya ada kalau alatnya dipanggil.
@@ -610,6 +689,15 @@ const CHOICES_PROMPT = `Kamu menyiapkan pilihan jawaban untuk pemilik bisnis. Di
 - Untuk pilihan tunggal (multiple=false) WAJIB tandai TEPAT SATU recommended: pilih yang paling cocok untuk bisnis ini berdasarkan gambaran bisnis. Hanya bila semua pilihan benar-benar setara (selera murni) tidak ada yang ditandai.
 - multiple=true HANYA bila pilihannya saling bebas dan boleh dipilih bersamaan (mis. daftar larangan); jangan tandai rekomendasi di mode itu. Pilihan yang saling meniadakan wajib multiple=false.
 Jangan membalas dengan teks lain.`;
+
+const REQUEST_LOG_PROMPT = `Asisten Latih AI baru saja menjawab pemilik bisnis bahwa permintaannya belum bisa dipenuhi, tanpa mencatatnya untuk tim Agnee. Panggil TEPAT SATU alat:
+- log_request bila penyebabnya fitur, integrasi, otomasi, atau tampilan yang memang belum ada di Agnee. request: permintaan pemilik dalam satu-dua kalimat, sedekat mungkin dengan kata-katanya; reason: kenapa belum bisa, dari jawaban asisten; area: bagian aplikasi yang paling dekat.
+- skip_log bila penyebabnya hal lain: data yang belum diberikan pemilik, integrasi yang belum ia hubungkan, nilai di luar batas, atau asisten hanya bertanya.
+Jangan membalas dengan teks lain.`;
+
+// Jawaban "belum bisa" atau "sudah kucatat" tanpa pemanggilan log_request.
+const CLAIMS_LOGGED = /\b(sudah|telah|akan|aku|saya|kami)\s+(men)?catat|\b(ku|di|ter)catat\b/i;
+const SAYS_UNABLE = /\b(belum|tidak|nggak|gak)\s+(bisa|dapat|tersedia|didukung|ada)\b/i;
 
 // Model kadang menyebut kode teknis jenis dokumen walau dilarang. Ganti dengan nama biasa.
 const KIND_NAMES = {
@@ -722,7 +810,10 @@ function registerTrainAssistant(app, deps) {
     if (!requireCoachDb(reply)) return;
     const companyId = request.agneeSession.companyId;
     const companyAi = await getCompanyAi(companyId);
-    if (!companyAi.enabled) return aiUnavailable(reply, companyAi);
+    // Saklar "AI membalas customer" yang dimatikan pemilik tidak ikut mengunci
+    // Latih AI: di sinilah ia bisa menyalakannya lagi. Paket berhenti atau
+    // credit habis tetap menghentikannya (sama seperti laporan supervisor).
+    if (!companyAi.enabled && !(llmService.enabled && companyAi.reason === 'off')) return aiUnavailable(reply, companyAi);
     if (coachRateLimited(companyId)) {
       return reply.code(429).send({ error: 'Terlalu banyak permintaan. Coba lagi beberapa menit.' });
     }
@@ -732,7 +823,10 @@ function registerTrainAssistant(app, deps) {
     // Jejak singkat (nama alat + error, tanpa isi dokumen) untuk menjawab
     // "kenapa asisten bilang tidak bisa?" dari log, bukan dari tebakan.
     const trace = [];
-    const built = buildTools({ database, companyId, deps, proposals, questions });
+    const loggedRequests = [];
+    const built = buildTools({
+      database, companyId, userId: request.agneeSession.userId, deps, proposals, questions, loggedRequests,
+    });
     const tools = built.map((tool) => ({
       ...tool,
       async run(args) {
@@ -765,6 +859,36 @@ function registerTrainAssistant(app, deps) {
     });
     if (!result?.text) return reply.code(502).send({ error: 'Mesin AI tidak memberi jawaban.' });
 
+    // Model kadang bilang "belum bisa" atau bahkan "sudah kucatat untuk tim
+    // Agnee" tanpa memanggil log_request (terbukti di model sungguhan: jejak
+    // alat kosong). Satu panggilan khusus memutuskan: catat, atau memang bukan
+    // permintaan fitur. Klaim "sudah kucatat" wajib benar-benar dicatat.
+    const claimed = CLAIMS_LOGGED.test(result.text);
+    if (!loggedRequests.length && !proposals.length && (claimed || SAYS_UNABLE.test(result.text))) {
+      try {
+        const logTool = built.find((tool) => tool.name === 'log_request');
+        const skipTool = {
+          name: 'skip_log', description: 'Bukan permintaan fitur; tidak perlu dicatat.', parameters: { type: 'object', properties: {} },
+          async run() { return { ok: true }; },
+        };
+        await llmService.generateReply(`Pesan pemilik:\n${request.body.message}\n\nJawaban asisten:\n${result.text}`, {
+          systemPrompt: REQUEST_LOG_PROMPT,
+          history: [],
+          tools: claimed ? [logTool] : [logTool, skipTool],
+          maxToolRounds: 1,
+          maxToolCalls: 1,
+          requireTools: true,
+          maxTokens: 400,
+          companyId,
+          purpose: 'train_chat',
+          modelChain: companyAi.modelChain,
+        });
+        trace.push(loggedRequests.length ? 'log_repair' : 'log_repair! tanpa catatan');
+      } catch (error) {
+        trace.push(`log_repair! ${String(error.message).slice(0, 120)}`);
+      }
+    }
+
     // Model sering bertanya dengan teks biasa walau diminta memakai kartu
     // pilihan (terbukti di model sungguhan: jejak alat kosong). Pilihan
     // jawaban ditegakkan di sini: pertanyaan terbuka tanpa kartu diubah jadi
@@ -791,7 +915,7 @@ function registerTrainAssistant(app, deps) {
         trace.push(`choices_repair! ${String(error.message).slice(0, 120)}`);
       }
     }
-    request.log.info({ trace, proposals: proposals.map((p) => p.type), asked: questions.length }, 'train chat');
+    request.log.info({ trace, proposals: proposals.map((p) => p.type), asked: questions.length, logged: loggedRequests.length }, 'train chat');
 
     // Catatan untuk riwayat: model giliran berikutnya perlu tahu usulan apa yang
     // sudah ia buat, tapi isi dokumennya tidak perlu ikut (ia bisa membacanya lagi).
@@ -799,8 +923,12 @@ function registerTrainAssistant(app, deps) {
       ? `${replyText}\n[Usulan yang kubuat: ${proposals.map((p) => `${p.title} — ${p.summary}`).join('; ')}]`
       : replyText;
     const [question = null] = questions;
-    const memoAll = question ? `${memo}\n[Pertanyaan yang kuajukan: ${question.question} — pilihan: ${question.options.map((o) => o.label).join(' | ')}]` : memo;
-    return { reply: replyText, memo: memoAll, proposals, question, model: result.model || null };
+    const asked = question ? `${memo}\n[Pertanyaan yang kuajukan: ${question.question} — pilihan: ${question.options.map((o) => o.label).join(' | ')}]` : memo;
+    const memoAll = loggedRequests.length ? `${asked}\n[Permintaan yang kucatat untuk tim Agnee: ${loggedRequests.map((r) => r.request).join('; ')}]` : asked;
+    return {
+      reply: replyText, memo: memoAll, proposals, question, model: result.model || null,
+      loggedRequests: loggedRequests.map((r) => r.request),
+    };
   });
 }
 

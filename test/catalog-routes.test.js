@@ -129,3 +129,11 @@ test('AI membaca katalog; daftar harga DealPOS lama tidak ikut bila katalog suda
   assert.ok(off.prompts.some((p) => p.includes('DAFTAR HARGA DEALPOS')), 'tanpa katalog, harga DealPOS lama tetap dipakai');
   assert.ok(!off.prompts.some((p) => p.includes('KATALOG PRODUK')));
 });
+
+test('kategorikan otomatis: hanya supervisor, mengembalikan jumlah per aturan', async (t) => {
+  const { call, owner, agent } = await setup(t);
+  assert.equal((await call(agent, 'POST', '/v1/catalog/auto-tags')).statusCode, 403);
+  const res = await call(owner, 'POST', '/v1/catalog/auto-tags');
+  assert.equal(res.statusCode, 200);
+  assert.ok('counts' in res.json());
+});

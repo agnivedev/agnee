@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ImageOff, LayoutGrid, Plus, RefreshCw, Search, Store, Table2, Tags, X } from 'lucide-react';
+import { ImageOff, LayoutGrid, Plus, RefreshCw, Search, Sparkles, Store, Table2, Tags, X } from 'lucide-react';
 import { api, messageFromError } from '@/lib/api';
 import { useI18n, usePageTitle } from '@/lib/i18n';
 import { AppSidebar } from '@/components/AppSidebar';
@@ -48,6 +48,8 @@ export function CatalogPage() {
   const [editing, setEditing] = useState<CatalogItem | 'new' | null>(null);
   const [tagsOpen, setTagsOpen] = useState(false);
   const [syncNote, setSyncNote] = useState('');
+  const [tagsNote, setTagsNote] = useState('');
+  const [categorizing, setCategorizing] = useState(false);
 
   const loadSummary = useCallback(async () => {
     try {
@@ -132,6 +134,21 @@ export function CatalogPage() {
     }
   }
 
+  async function autoCategorize() {
+    setSyncNote('');
+    setCategorizing(true);
+    try {
+      const { counts } = await api<{ counts: { best_seller: number | null; promo: number | null; new: number | null } }>('/v1/catalog/auto-tags', { method: 'POST' });
+      const base = t('catalog.autoTagsDone', { best: counts.best_seller ?? 0, promo: counts.promo ?? 0, fresh: counts.new ?? 0 });
+      setTagsNote(counts.best_seller === null ? `${base} (${t('catalog.autoTagsNoSales')})` : base);
+      refreshAll();
+    } catch (error) {
+      setTagsNote(messageFromError(error, t('catalog.autoTagsFailed')));
+    } finally {
+      setCategorizing(false);
+    }
+  }
+
   async function toggleAi(next: boolean) {
     if (!summary) return;
     setSummary({ ...summary, settings: { ...summary.settings, aiEnabled: next } });
@@ -165,6 +182,9 @@ export function CatalogPage() {
           </div>
           {canEdit ? (
             <div className="flex flex-wrap gap-2">
+              <Button variant="outline" disabled={categorizing} onClick={() => void autoCategorize()}>
+                <Sparkles className="size-4" aria-hidden /> {t('catalog.autoTags')}
+              </Button>
               <Button variant="outline" onClick={() => setTagsOpen(true)}>
                 <Tags className="size-4" aria-hidden /> {t('catalog.manageTags')}
               </Button>
@@ -174,6 +194,8 @@ export function CatalogPage() {
             </div>
           ) : null}
         </header>
+
+        {tagsNote ? <p className="m-0 mt-4 text-[13px] text-muted" role="status">{tagsNote}</p> : null}
 
         {summary ? (
           <section className="mt-6 grid gap-3 rounded-panel border border-border bg-card p-4 sm:grid-cols-[1fr_auto] sm:items-center">

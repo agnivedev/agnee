@@ -5229,6 +5229,59 @@ class Database {
     return result.rows;
   }
 
+  /**
+   * Hitung ulang ribbon otomatis (Best Seller, Promo, Baru) dari data katalog yang
+   * sudah tersimpan, tanpa menarik POS. Berlaku untuk item manual maupun POS.
+   * Hanya pasangan 'auto' yang diganti; ribbon manual dan ribbon tag POS dibiarkan.
+   * Best Seller butuh sold_qty (laporan penjualan POS): tanpa data itu aturannya
+   * dilewati dan hasilnya null, bukan 0, supaya pasangan lama tidak terhapus.
+   */
+  async applyCatalogAutoTags(companyId) {
+    if (!this.enabled) return null;
+    const settings = await this.getCatalogSettings(companyId);
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const ruleTags = await client.query(
+        'SELECT id, auto_rule AS "autoRule" FROM catalog_tags WHERE company_id = $1 AND auto_rule IS NOT NULL AND active', [companyId],
+      );
+      const live = 'i.company_id = $1 AND i.active AND NOT i.missing_from_source';
+      const selects = {
+        best_seller: `SELECT i.id FROM catalog_items i WHERE ${live} AND i.sold_qty > 0
+                      ORDER BY i.sold_qty DESC, i.name LIMIT $2`,
+        promo: `SELECT i.id FROM catalog_items i WHERE ${live} AND i.discount_pct > 0`,
+        // Item POS tanpa tanggal rilis tidak dihitung baru: created_at-nya hanya saat diimpor.
+        new: `SELECT i.id FROM catalog_items i WHERE ${live}
+              AND CASE WHEN i.source = 'manual' THEN i.created_at ELSE i.released_at END >= NOW() - make_interval(days => $2)`,
+      };
+      const counts = { best_seller: null, promo: null, new: null };
+      for (const tag of ruleTags.rows) {
+        const select = selects[tag.autoRule];
+        if (!select) continue;
+        if (tag.autoRule === 'best_seller') {
+          const hasSales = await client.query('SELECT 1 FROM catalog_items WHERE company_id = $1 AND sold_qty > 0 LIMIT 1', [companyId]);
+          if (!hasSales.rowCount) continue;
+        }
+        const params = tag.autoRule === 'promo' ? [companyId]
+          : [companyId, tag.autoRule === 'best_seller' ? settings.bestSellerCount : settings.newDays];
+        await client.query("DELETE FROM catalog_item_tags WHERE company_id = $1 AND tag_id = $2 AND source = 'auto'", [companyId, tag.id]);
+        const inserted = await client.query(`
+          INSERT INTO catalog_item_tags (company_id, item_id, tag_id, source)
+          SELECT $1, picked.id, $${params.length + 1}, 'auto' FROM (${select}) picked
+          ON CONFLICT DO NOTHING
+        `, [...params, tag.id]);
+        counts[tag.autoRule] = inserted.rowCount;
+      }
+      await client.query('COMMIT');
+      return counts;
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   async countCatalogItemsNeedingDetail(companyId) {
     if (!this.enabled) return 0;
     const result = await this.pool.query(`

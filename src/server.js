@@ -10108,6 +10108,16 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     return { settings };
   });
 
+  // Kategorikan otomatis: hitung ulang Best Seller, Promo, Baru dari data yang
+  // sudah ada di katalog (item manual ikut), tanpa menarik POS.
+  app.post('/v1/catalog/auto-tags', async (request, reply) => {
+    if (!catalogGuard(request, reply, { write: true })) return;
+    const companyId = request.agneeSession.companyId;
+    const counts = await database.applyCatalogAutoTags(companyId);
+    catalogCache.delete(companyId);
+    return { counts };
+  });
+
   // Tarik ulang dari POS sekarang. Berjalan di latar: tarikan besar bisa
   // menunggu batas laju DealPOS beberapa menit.
   app.post('/v1/catalog/sync', async (request, reply) => {

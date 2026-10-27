@@ -9450,8 +9450,8 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
   // lewat nomor HP). Hasilnya baru ditampung di `dealpos_customers`; belum
   // digabung ke Lead List.
 
-  async function syncDealposFor(companyId, conn, token = null) {
-    const customers = await dealposSync.fetchCustomers(conn, undefined, token);
+  async function syncDealposFor(companyId, conn, token = null, { patient = false } = {}) {
+    const customers = await dealposSync.fetchCustomers(conn, undefined, token, { patient });
     await database.upsertDealposCustomers(companyId, customers);
     await database.recordDealposSync(companyId, { error: null });
     // Harga ditarik dulu (sedikit permintaan, dipakai AI), baru alamat dst.
@@ -9513,6 +9513,7 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
         }
       }
       app.log.info({ companyId, done, rateLimited }, 'Detail customer DealPOS selesai ditarik');
+      await database.clearDealposDetailError(companyId).catch(() => {});
     } catch (error) {
       app.log.warn({ err: error, companyId, done }, 'Penarikan detail customer DealPOS berhenti');
       await database.recordDealposSync(companyId, { error: `Penarikan alamat berhenti: ${error.message}` }).catch(() => {});
@@ -9750,6 +9751,38 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
       for (const companyId of due) await runDealposProductsJob(companyId);
     };
     void jalankan();
+    const timer = setInterval(() => { jalankan().catch(() => {}); }, 30 * 60_000);
+    timer.unref?.();
+  }
+
+  // Daftar pelanggan DealPOS disegarkan sendiri tiap 6 jam (pelanggan baru, nomor berubah).
+  // Antre sebagai pekerjaan latar: tidak menggeser jatah permintaan web (Sync now).
+  const DEALPOS_CUSTOMER_REFRESH_HOURS = 6;
+  const dealposCustomerSyncRunning = new Set();
+
+  async function runDealposCustomerSync(companyId) {
+    if (dealposCustomerSyncRunning.has(companyId)) return;
+    dealposCustomerSyncRunning.add(companyId);
+    try {
+      const conn = await database.getDealposConnection(companyId);
+      if (!conn?.enabled) return;
+      const result = await syncDealposFor(companyId, conn, null, { patient: true });
+      app.log.info({ companyId, ...result }, 'Pelanggan DealPOS disinkronkan otomatis');
+    } catch (error) {
+      app.log.warn({ err: error, companyId }, 'Sinkron otomatis pelanggan DealPOS gagal');
+      await database.recordDealposSync(companyId, { error: error.message }).catch(() => {});
+    } finally {
+      dealposCustomerSyncRunning.delete(companyId);
+    }
+  }
+
+  function startDealposCustomerRefresher() {
+    const jalankan = async () => {
+      const due = await database.listDealposSyncDue(DEALPOS_CUSTOMER_REFRESH_HOURS).catch(() => []);
+      for (const companyId of due) await runDealposCustomerSync(companyId);
+    };
+    // Tunda sedikit: saat startup, tarikan alamat yang tertinggal lebih dulu.
+    setTimeout(() => { jalankan().catch(() => {}); }, 2 * 60_000).unref?.();
     const timer = setInterval(() => { jalankan().catch(() => {}); }, 30 * 60_000);
     timer.unref?.();
   }
@@ -12887,6 +12920,7 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     if (canCall('listCompaniesPendingCatalogDetail')) void resumeCatalogDetailJobs();
     if (canCall('listCompaniesPendingPosTags')) void resumePosTagJobs();
     if (canCall('listDealposProductsDue')) startDealposPriceRefresher();
+    if (canCall('listDealposSyncDue')) startDealposCustomerRefresher();
     if (database.enabled && database.connected) startBroadcastSender();
     if (database.enabled && database.connected) startWedgeWatch();
 

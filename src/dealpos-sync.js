@@ -187,11 +187,11 @@ async function verifyCredentials(credentials, fetchImpl = fetch) {
 }
 
 /** Semua customer, satu baris per orang, siap dioper ke `upsertDealposCustomers`. */
-async function fetchCustomers(credentials, fetchImpl = fetch, existingToken = null) {
-  const token = existingToken || await fetchToken(credentials, fetchImpl);
+async function fetchCustomers(credentials, fetchImpl = fetch, existingToken = null, { patient = false } = {}) {
+  const token = existingToken || await fetchToken(credentials, fetchImpl, { patient });
   const byId = new Map();
   for (let page = 1; page <= MAX_PAGES; page += 1) {
-    const rows = await dealposGet(credentials.host, token, `/Customer?PageNumber=${page}&PageSize=${PAGE_SIZE}`, fetchImpl);
+    const rows = await dealposGet(credentials.host, token, `/Customer?PageNumber=${page}&PageSize=${PAGE_SIZE}`, fetchImpl, false, { patient });
     if (!Array.isArray(rows) || !rows.length) break;
     for (const row of rows) {
       if (!row.ID) continue;

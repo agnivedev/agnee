@@ -133,3 +133,17 @@ test('antrean: 429 dari DealPOS menahan semua pemanggil host itu sampai jeda hab
   await clock.run(limiter.acquire(host, { patient: true }));
   assert.ok(clock.now() - before >= 185_000);
 });
+
+test('fetchCustomers pekerjaan latar menarik semua halaman dengan token yang diberikan', async () => {
+  const calls = [];
+  const fetchImpl = fakeFetch((url) => {
+    calls.push(url);
+    const page = Number(/PageNumber=(\d+)/.exec(url)[1]);
+    const rows = page === 1 ? Array.from({ length: 200 }, (_, i) => ({ ID: `a${i}`, Name: `N${i}`, Mobile: '081234567890' })) : [{ ID: 'z', Name: 'Z', Mobile: '' }];
+    return { body: rows };
+  });
+  const customers = await sync.fetchCustomers({ host: 'uji-latar.dealpos.co.id' }, fetchImpl, 'tok', { patient: true });
+  assert.equal(customers.length, 201);
+  assert.equal(calls.length, 2);
+  assert.equal(customers[0].phone, '6281234567890');
+});

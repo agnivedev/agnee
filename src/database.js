@@ -4831,6 +4831,27 @@ class Database {
     return result.rows[0] || null;
   }
 
+  /** Koneksi yang daftar pelanggannya belum disinkronkan dalam `hours` jam (atau belum pernah). */
+  async listDealposSyncDue(hours) {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(`
+      SELECT d.company_id AS "companyId" FROM dealpos_connections d
+      JOIN companies c ON c.id = d.company_id
+      WHERE d.enabled AND COALESCE(c.plan_status, 'beta') <> 'suspended' AND c.status = 'active'
+        AND (d.last_synced_at IS NULL OR d.last_synced_at < NOW() - make_interval(hours => $1))
+    `, [hours]);
+    return result.rows.map((r) => r.companyId);
+  }
+
+  /** Tarikan alamat selesai: pesan "berhenti" yang tersisa sudah basi. last_synced_at tidak disentuh. */
+  async clearDealposDetailError(companyId) {
+    if (!this.enabled) return;
+    await this.pool.query(`
+      UPDATE dealpos_connections SET last_error = NULL
+      WHERE company_id = $1 AND last_error LIKE 'Penarikan alamat berhenti%'
+    `, [companyId]);
+  }
+
   async recordDealposSync(companyId, { error = null }) {
     if (!this.enabled) return;
     await this.pool.query(`

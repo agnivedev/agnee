@@ -1,5 +1,25 @@
 ## [Unreleased]
 
+- **Katalog produk & jasa + ribbon (menu baru "Katalog", /katalog).** Bisa berdiri sendiri
+  (item diisi tangan: produk atau jasa, harga boleh kosong + catatan harga seperti "mulai dari")
+  atau tersambung ke POS, sekarang DealPOS: `/Product` ditarik per varian (nama, kode,
+  kategori, harga, diskon, gambar, tanggal rilis) setelah tarikan harga tiap 6 jam dan lewat
+  tombol "Sinkron sekarang". Field milik POS terkunci di Agnee; deskripsi untuk AI, satuan,
+  catatan harga, ribbon manual, dan tampil/sembunyi milik Agnee dan tidak ditimpa sinkron.
+  Item yang hilang dari POS ditandai, tidak dihapus. Migrasi 076.
+  - **Ribbon**: bawaan Unggulan (manual), Best Seller, Promo, Baru, plus ribbon buatan sendiri
+    dengan warna dan catatan untuk AI. Dari DealPOS otomatis: Best Seller = N terlaris dalam
+    D hari (`/Report/ProductSold` per varian, butuh hak Report VIEW; kalau ditolak, katalog tetap
+    masuk dan Best Seller dibiarkan), Promo = diskon > 0, Baru = rilis dalam N hari. Ribbon bisa
+    juga dipasang manual ke item POS dan bertahan saat sinkron.
+  - **AI membaca katalog** (saklar "Dipakai AI saat membalas", nyala bawaan): katalog ≤ 40 item
+    dikirim utuh; lebih besar, hanya item ber-ribbon "diutamakan" + yang cocok dengan pesan.
+    Harga diskon dihitung, jasa tanpa harga disebut apa adanya. Kalau katalog sudah memuat item
+    DealPOS, daftar harga DealPOS lama tidak ikut lagi (isinya sama). Item POS hanya dibaca
+    selama koneksi DealPOS menyala.
+  - Semua anggota tim boleh melihat; mengubah hanya supervisor (server menegakkan).
+  - CSP `img-src` kini mengizinkan `https:` supaya gambar produk dari CDN POS tampil.
+
 - **Laporan supervisor: tiap chat follow-up kini berisi ringkasan, alur chat, chat terakhir,
   dan usulan Agnee.** Blok per chat: "Ringkasan", "Alur chat" (maksimal 4 giliran terakhir,
   mis. "1. Customer: … / 2. CS: …", ditulis model; tanpa model dari pesan apa adanya),

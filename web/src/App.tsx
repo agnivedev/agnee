@@ -15,6 +15,7 @@ const TasksPage = lazy(() => import('@/features/tasks/TasksPage').then((m) => ({
 const NotificationsPage = lazy(() => import('@/features/notifications/NotificationsPage').then((m) => ({ default: m.NotificationsPage })));
 const PipelinePage = lazy(() => import('@/features/pipeline/PipelinePage').then((m) => ({ default: m.PipelinePage })));
 const SettingsPage = lazy(() => import('@/features/settings/SettingsPage').then((m) => ({ default: m.SettingsPage })));
+const CatalogPage = lazy(() => import('@/features/catalog/CatalogPage').then((m) => ({ default: m.CatalogPage })));
 const KnowledgePage = lazy(() => import('@/features/knowledge/KnowledgePage').then((m) => ({ default: m.KnowledgePage })));
 const BroadcastPage = lazy(() => import('@/features/broadcast/BroadcastPage').then((m) => ({ default: m.BroadcastPage })));
 const HubPage = lazy(() => import('@/features/hub/HubPage').then((m) => ({ default: m.HubPage })));
@@ -113,6 +114,8 @@ function Shell() {
         <Route path="/notifications" element={<NotificationsPage />} />
         <Route path="/pipeline" element={<PipelinePage />} />
         <Route path="/settings" element={<SettingsPage />} />
+        {/* Semua peran boleh melihat katalog; mengubahnya supervisor saja (server menegakkan). */}
+        <Route path="/katalog" element={<CatalogPage />} />
         <Route path="/knowledge" element={<SupervisorOnly><KnowledgePage /></SupervisorOnly>} />
         {/* Admin dibubarkan: setelan AI dan Audit pindah ke Settings, brief dan
             file ke Latih AI. Tautan lama tetap mendarat di tempat yang benar. */}

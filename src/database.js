@@ -5000,6 +5000,350 @@ class Database {
     return customers.length;
   }
 
+  // ── Katalog produk & jasa + ribbon ────────────────────────────────────────
+  // Item manual atau dari POS (DealPOS). Lihat db/migrations/076_catalog.sql.
+
+  /**
+   * Setelan katalog. Kunjungan pertama membuat baris setelan sekaligus ribbon
+   * bawaan; ribbon bawaan yang kemudian dihapus tim tidak dibuat ulang.
+   */
+  async getCatalogSettings(companyId) {
+    if (!this.enabled) return null;
+    const existing = await this.pool.query(`
+      SELECT ai_enabled AS "aiEnabled", best_seller_count AS "bestSellerCount", best_seller_days AS "bestSellerDays",
+             new_days AS "newDays", pos_synced_at AS "posSyncedAt", pos_error AS "posError"
+      FROM catalog_settings WHERE company_id = $1
+    `, [companyId]);
+    if (existing.rows[0]) return existing.rows[0];
+    const { DEFAULT_TAGS } = require('./catalog.js');
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const created = await client.query(
+        'INSERT INTO catalog_settings (company_id) VALUES ($1) ON CONFLICT (company_id) DO NOTHING RETURNING company_id',
+        [companyId],
+      );
+      if (created.rowCount) {
+        for (const tag of DEFAULT_TAGS) {
+          await client.query(`
+            INSERT INTO catalog_tags (company_id, name, color, auto_rule, highlight, sort_order)
+            VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING
+          `, [companyId, tag.name, tag.color, tag.autoRule, tag.highlight, tag.sortOrder]);
+        }
+      }
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
+    return this.getCatalogSettings(companyId);
+  }
+
+  async saveCatalogSettings(companyId, patch) {
+    if (!this.enabled) return null;
+    await this.getCatalogSettings(companyId);
+    const columns = { aiEnabled: 'ai_enabled', bestSellerCount: 'best_seller_count', bestSellerDays: 'best_seller_days', newDays: 'new_days' };
+    const sets = [];
+    const values = [companyId];
+    for (const [key, column] of Object.entries(columns)) {
+      if (patch[key] === undefined) continue;
+      values.push(patch[key]);
+      sets.push(`${column} = $${values.length}`);
+    }
+    if (sets.length) {
+      await this.pool.query(`UPDATE catalog_settings SET ${sets.join(', ')}, updated_at = NOW() WHERE company_id = $1`, values);
+    }
+    return this.getCatalogSettings(companyId);
+  }
+
+  async recordCatalogPosError(companyId, message) {
+    if (!this.enabled) return;
+    await this.getCatalogSettings(companyId);
+    await this.pool.query('UPDATE catalog_settings SET pos_error = $2 WHERE company_id = $1', [companyId, message ? String(message).slice(0, 300) : null]);
+  }
+
+  async listCatalogTags(companyId) {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(`
+      SELECT t.id, t.name, t.color, t.auto_rule AS "autoRule", t.highlight, t.ai_note AS "aiNote", t.active,
+             t.sort_order AS "sortOrder",
+             (SELECT COUNT(DISTINCT it.item_id)::int FROM catalog_item_tags it WHERE it.tag_id = t.id) AS "itemCount"
+      FROM catalog_tags t WHERE t.company_id = $1
+      ORDER BY t.sort_order, lower(t.name)
+    `, [companyId]);
+    return result.rows;
+  }
+
+  async createCatalogTag(companyId, { name, color = 'slate', highlight = false, aiNote = '' }) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      INSERT INTO catalog_tags (company_id, name, color, highlight, ai_note, sort_order)
+      VALUES ($1, $2, $3, $4, $5, (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM catalog_tags WHERE company_id = $1))
+      RETURNING id
+    `, [companyId, name.trim(), color, highlight, aiNote]);
+    return (await this.listCatalogTags(companyId)).find((t) => t.id === result.rows[0].id) || null;
+  }
+
+  async updateCatalogTag(tagId, companyId, patch) {
+    if (!this.enabled) return null;
+    const columns = { name: 'name', color: 'color', highlight: 'highlight', aiNote: 'ai_note', active: 'active' };
+    const sets = [];
+    const values = [tagId, companyId];
+    for (const [key, column] of Object.entries(columns)) {
+      if (patch[key] === undefined) continue;
+      values.push(key === 'name' ? patch[key].trim() : patch[key]);
+      sets.push(`${column} = $${values.length}`);
+    }
+    if (sets.length) {
+      const result = await this.pool.query(
+        `UPDATE catalog_tags SET ${sets.join(', ')}, updated_at = NOW() WHERE id = $1 AND company_id = $2`, values,
+      );
+      if (!result.rowCount) return null;
+    }
+    return (await this.listCatalogTags(companyId)).find((t) => t.id === tagId) || null;
+  }
+
+  async deleteCatalogTag(tagId, companyId) {
+    if (!this.enabled) return false;
+    const result = await this.pool.query('DELETE FROM catalog_tags WHERE id = $1 AND company_id = $2', [tagId, companyId]);
+    return result.rowCount > 0;
+  }
+
+  /** Ribbon per item: satu entri per tag, `manual`/`auto` menandai siapa yang memasang. */
+  catalogItemSelect() {
+    return `
+      SELECT i.id, i.source, i.external_id AS "externalId", i.kind, i.name, i.code, i.category, i.unit,
+             i.price::float8 AS price, i.price_note AS "priceNote", i.discount_pct::float8 AS "discountPct",
+             i.description, i.image_url AS "imageUrl", i.active, i.missing_from_source AS "missingFromSource",
+             i.released_at AS "releasedAt", i.sold_qty::float8 AS "soldQty", i.synced_at AS "syncedAt",
+             i.updated_at AS "updatedAt",
+             COALESCE((
+               SELECT json_agg(json_build_object('id', t.id, 'name', t.name, 'color', t.color,
+                                                 'manual', x.manual, 'auto', x.auto) ORDER BY t.sort_order, t.name)
+               FROM (
+                 SELECT tag_id, bool_or(source = 'manual') AS manual, bool_or(source = 'auto') AS auto
+                 FROM catalog_item_tags WHERE item_id = i.id GROUP BY tag_id
+               ) x JOIN catalog_tags t ON t.id = x.tag_id
+             ), '[]'::json) AS tags
+      FROM catalog_items i`;
+  }
+
+  async listCatalogItems(companyId, { q = '', tagId = null, source = null, showHidden = true, limit = 50, offset = 0 } = {}) {
+    if (!this.enabled) return { items: [], total: 0 };
+    const where = ['i.company_id = $1'];
+    const values = [companyId];
+    if (q.trim()) {
+      values.push(`%${q.trim().toLowerCase()}%`);
+      where.push(`(lower(i.name) LIKE $${values.length} OR lower(COALESCE(i.code, '')) LIKE $${values.length} OR lower(COALESCE(i.category, '')) LIKE $${values.length})`);
+    }
+    if (tagId) {
+      values.push(tagId);
+      where.push(`EXISTS (SELECT 1 FROM catalog_item_tags it WHERE it.item_id = i.id AND it.tag_id = $${values.length})`);
+    }
+    if (source) {
+      values.push(source);
+      where.push(`i.source = $${values.length}`);
+    }
+    if (!showHidden) where.push('i.active AND NOT i.missing_from_source');
+    const whereSql = where.join(' AND ');
+    const total = await this.pool.query(`SELECT COUNT(*)::int AS n FROM catalog_items i WHERE ${whereSql}`, values);
+    values.push(limit, offset);
+    const result = await this.pool.query(`
+      ${this.catalogItemSelect()}
+      WHERE ${whereSql}
+      ORDER BY i.missing_from_source, NOT i.active, lower(i.name)
+      LIMIT $${values.length - 1} OFFSET $${values.length}
+    `, values);
+    return { items: result.rows, total: total.rows[0].n };
+  }
+
+  async getCatalogItem(itemId, companyId) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`${this.catalogItemSelect()} WHERE i.id = $1 AND i.company_id = $2`, [itemId, companyId]);
+    return result.rows[0] || null;
+  }
+
+  async countCatalogItems(companyId) {
+    if (!this.enabled) return { total: 0, manual: 0, dealpos: 0 };
+    const result = await this.pool.query(`
+      SELECT COUNT(*)::int AS total, COUNT(*) FILTER (WHERE source = 'manual')::int AS manual,
+             COUNT(*) FILTER (WHERE source = 'dealpos')::int AS dealpos
+      FROM catalog_items WHERE company_id = $1
+    `, [companyId]);
+    return result.rows[0];
+  }
+
+  async createCatalogItem(companyId, data, createdBy) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      INSERT INTO catalog_items (company_id, source, kind, name, code, category, unit, price, price_note, description, image_url, active, created_by)
+      VALUES ($1, 'manual', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+      RETURNING id
+    `, [companyId, data.kind || 'product', data.name.trim(), data.code || null, data.category || null, data.unit || null,
+      data.price ?? null, data.priceNote || null, data.description || '', data.imageUrl || null, data.active ?? true, createdBy || null]);
+    return this.getCatalogItem(result.rows[0].id, companyId);
+  }
+
+  /** `patch` sudah disaring server: item POS hanya boleh mengubah field milik Agnee. */
+  async updateCatalogItem(itemId, companyId, patch) {
+    if (!this.enabled) return null;
+    const columns = {
+      kind: 'kind', name: 'name', code: 'code', category: 'category', unit: 'unit', price: 'price',
+      priceNote: 'price_note', description: 'description', imageUrl: 'image_url', active: 'active',
+    };
+    const sets = [];
+    const values = [itemId, companyId];
+    for (const [key, column] of Object.entries(columns)) {
+      if (patch[key] === undefined) continue;
+      values.push(patch[key] === '' && key !== 'description' ? null : patch[key]);
+      sets.push(`${column} = $${values.length}`);
+    }
+    if (sets.length) {
+      const result = await this.pool.query(
+        `UPDATE catalog_items SET ${sets.join(', ')}, updated_at = NOW() WHERE id = $1 AND company_id = $2`, values,
+      );
+      if (!result.rowCount) return null;
+    }
+    return this.getCatalogItem(itemId, companyId);
+  }
+
+  /** Hanya item manual; item POS cukup disembunyikan (akan muncul lagi di sinkron berikutnya). */
+  async deleteCatalogItem(itemId, companyId) {
+    if (!this.enabled) return false;
+    const result = await this.pool.query(
+      "DELETE FROM catalog_items WHERE id = $1 AND company_id = $2 AND source = 'manual'", [itemId, companyId],
+    );
+    return result.rowCount > 0;
+  }
+
+  /** Ganti ribbon manual satu item. Ribbon otomatis dari POS tidak disentuh. */
+  async setCatalogItemTags(itemId, companyId, tagIds) {
+    if (!this.enabled) return null;
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const owned = await client.query('SELECT 1 FROM catalog_items WHERE id = $1 AND company_id = $2 FOR UPDATE', [itemId, companyId]);
+      if (!owned.rowCount) {
+        await client.query('ROLLBACK');
+        return null;
+      }
+      await client.query("DELETE FROM catalog_item_tags WHERE item_id = $1 AND source = 'manual'", [itemId]);
+      if (tagIds.length) {
+        // Tag company lain tidak lolos: JOIN ke catalog_tags milik company ini.
+        await client.query(`
+          INSERT INTO catalog_item_tags (company_id, item_id, tag_id, source)
+          SELECT $1, $2, t.id, 'manual' FROM catalog_tags t
+          WHERE t.company_id = $1 AND t.id = ANY($3::uuid[])
+        `, [companyId, itemId, tagIds]);
+      }
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
+    return this.getCatalogItem(itemId, companyId);
+  }
+
+  /**
+   * Hasil tarikan POS -> katalog. Field milik POS ditimpa; deskripsi, jenis,
+   * tampil/sembunyi dan ribbon manual dibiarkan. Item yang tidak ada lagi di
+   * POS ditandai `missing_from_source`. Ribbon otomatis diganti per aturan;
+   * aturan bernilai null (mis. laporan penjualan tidak terbaca) dibiarkan.
+   */
+  async syncPosCatalog(companyId, source, items, { assignments = {}, soldQty = new Map(), note = null } = {}) {
+    if (!this.enabled) return 0;
+    await this.getCatalogSettings(companyId);
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      for (let i = 0; i < items.length; i += 500) {
+        const chunk = items.slice(i, i + 500);
+        await client.query(`
+          INSERT INTO catalog_items (company_id, source, external_id, name, code, category, price, discount_pct,
+                                     image_url, released_at, sold_qty, synced_at, missing_from_source)
+          SELECT $1, $2, u.*, NOW(), false
+          FROM unnest($3::text[], $4::text[], $5::text[], $6::text[], $7::numeric[], $8::numeric[],
+                      $9::text[], $10::timestamptz[], $11::numeric[])
+            AS u(external_id, name, code, category, price, discount_pct, image_url, released_at, sold_qty)
+          ON CONFLICT (company_id, source, external_id) WHERE external_id IS NOT NULL DO UPDATE SET
+            name = EXCLUDED.name, code = EXCLUDED.code, category = EXCLUDED.category, price = EXCLUDED.price,
+            discount_pct = EXCLUDED.discount_pct, image_url = EXCLUDED.image_url, released_at = EXCLUDED.released_at,
+            sold_qty = EXCLUDED.sold_qty, synced_at = NOW(), missing_from_source = false,
+            updated_at = CASE WHEN catalog_items.price IS DISTINCT FROM EXCLUDED.price
+                                OR catalog_items.name IS DISTINCT FROM EXCLUDED.name
+                              THEN NOW() ELSE catalog_items.updated_at END
+        `, [companyId, source, chunk.map((x) => x.externalId), chunk.map((x) => x.name), chunk.map((x) => x.code),
+          chunk.map((x) => x.category), chunk.map((x) => x.price), chunk.map((x) => x.discountPct || 0),
+          chunk.map((x) => x.imageUrl), chunk.map((x) => x.releasedAt), chunk.map((x) => soldQty.get(x.externalId) ?? null)]);
+      }
+      await client.query(`
+        UPDATE catalog_items SET missing_from_source = true, updated_at = NOW()
+        WHERE company_id = $1 AND source = $2 AND NOT missing_from_source AND NOT (external_id = ANY($3::text[]))
+      `, [companyId, source, items.map((x) => x.externalId)]);
+      const ruleTags = await client.query(
+        'SELECT id, auto_rule AS "autoRule" FROM catalog_tags WHERE company_id = $1 AND auto_rule IS NOT NULL', [companyId],
+      );
+      for (const tag of ruleTags.rows) {
+        const ids = assignments[tag.autoRule];
+        if (!Array.isArray(ids)) continue;
+        await client.query("DELETE FROM catalog_item_tags WHERE tag_id = $1 AND source = 'auto'", [tag.id]);
+        if (!ids.length) continue;
+        await client.query(`
+          INSERT INTO catalog_item_tags (company_id, item_id, tag_id, source)
+          SELECT $1, i.id, $2, 'auto' FROM catalog_items i
+          WHERE i.company_id = $1 AND i.source = $3 AND i.external_id = ANY($4::text[])
+          ON CONFLICT DO NOTHING
+        `, [companyId, tag.id, source, ids]);
+      }
+      await client.query('UPDATE catalog_settings SET pos_synced_at = NOW(), pos_error = $2 WHERE company_id = $1', [companyId, note]);
+      await client.query('COMMIT');
+      return items.length;
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * Katalog untuk balasan AI: item tampil, ribbon aktif saja. Item POS hanya
+   * ikut selama koneksi POS-nya menyala; harga dari koneksi yang dimatikan
+   * bisa sudah basi.
+   */
+  async listCatalogForAi(companyId) {
+    if (!this.enabled) return { enabled: false, items: [], tags: [], syncedAt: null };
+    const settings = await this.pool.query(
+      'SELECT ai_enabled AS "aiEnabled", pos_synced_at AS "syncedAt" FROM catalog_settings WHERE company_id = $1', [companyId],
+    );
+    const row = settings.rows[0];
+    if (!row?.aiEnabled) return { enabled: false, items: [], tags: [], syncedAt: null };
+    const [items, tags] = await Promise.all([
+      this.pool.query(`
+        SELECT i.id, i.kind, i.name, i.code, i.category, i.unit, i.price::float8 AS price, i.price_note AS "priceNote",
+               i.discount_pct::float8 AS "discountPct", i.description, i.source,
+               COALESCE((SELECT json_agg(DISTINCT jsonb_build_object('id', t.id, 'name', t.name))
+                         FROM catalog_item_tags it JOIN catalog_tags t ON t.id = it.tag_id AND t.active
+                         WHERE it.item_id = i.id), '[]'::json) AS tags
+        FROM catalog_items i
+        WHERE i.company_id = $1 AND i.active AND NOT i.missing_from_source
+          AND (i.source = 'manual' OR EXISTS (
+            SELECT 1 FROM dealpos_connections d WHERE d.company_id = i.company_id AND d.enabled AND i.source = 'dealpos'))
+        ORDER BY lower(i.name)
+      `, [companyId]),
+      this.pool.query(`
+        SELECT id, name, auto_rule AS "autoRule", highlight, ai_note AS "aiNote", active
+        FROM catalog_tags WHERE company_id = $1 ORDER BY sort_order, lower(name)
+      `, [companyId]),
+    ]);
+    const hasPos = items.rows.some((i) => i.source !== 'manual');
+    return { enabled: true, items: items.rows, tags: tags.rows, syncedAt: hasPos ? row.syncedAt : null };
+  }
+
   // ── Integrasi Lalamove ────────────────────────────────────────────────────
   // api_secret dienkripsi pgcrypto, pola yang sama dengan dealpos_connections.
 

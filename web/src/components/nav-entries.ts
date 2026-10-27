@@ -7,6 +7,7 @@ import {
   Settings2,
   Handshake,
   Megaphone,
+  Package,
   LogOut,
   type LucideIcon,
 } from 'lucide-react';
@@ -24,7 +25,7 @@ import {
  * sebagai jalan kedua ke hal yang sama.
  */
 export type NavEntryId =
-  | 'inbox' | 'leads' | 'tasks' | 'pipeline' | 'broadcast' | 'hub' | 'playground' | 'settings' | 'logout';
+  | 'inbox' | 'leads' | 'tasks' | 'pipeline' | 'catalog' | 'broadcast' | 'hub' | 'playground' | 'settings' | 'logout';
 
 type NavEntryBase = {
   id: NavEntryId;
@@ -44,6 +45,9 @@ export const NAV_ENTRIES: NavEntry[] = [
   { id: 'leads', icon: ListChecks, labelKey: 'nav.labelLeads', ariaKey: 'nav.leads', kind: 'route', to: '/leads' },
   { id: 'tasks', icon: ClipboardList, labelKey: 'nav.labelTasks', ariaKey: 'nav.tasks', kind: 'route', to: '/tasks' },
   { id: 'pipeline', icon: Kanban, labelKey: 'nav.labelPipeline', ariaKey: 'nav.pipeline', kind: 'route', to: '/pipeline' },
+  // Semua peran: agent perlu melihat harga saat membalas sendiri. Mengubah
+  // katalog dibatasi supervisor di halaman dan di server.
+  { id: 'catalog', icon: Package, labelKey: 'nav.labelCatalog', ariaKey: 'nav.catalog', kind: 'route', to: '/katalog' },
   // Mengirim atas nama perusahaan ke banyak customer sekaligus: supervisor
   // saja, sama dengan server.
   { id: 'broadcast', icon: Megaphone, labelKey: 'nav.labelBroadcast', ariaKey: 'nav.broadcast', kind: 'route', to: '/broadcast', supervisorOnly: true },

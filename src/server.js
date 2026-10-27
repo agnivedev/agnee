@@ -43,6 +43,7 @@ const dealposSync = require('./dealpos-sync.js');
 const lalamove = require('./lalamove.js');
 const deliveryQuote = require('./delivery-quote.js');
 const dealposPrices = require('./dealpos-prices.js');
+const catalog = require('./catalog.js');
 const { createReplyPacer } = require('./reply-delay.js');
 const handoffNotice = require('./handoff-notice.js');
 const departmentAsk = require('./department-ask.js');
@@ -1679,7 +1680,17 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       }
     }).filter(Boolean).join('\n\n');
 
-    const priceContext = !ops && dbLive && canCall('listDealposProducts')
+    // Katalog (manual dan/atau dari POS). Kalau item DealPOS sudah masuk
+    // katalog, daftar harga DealPOS lama tidak ikut: isinya sama, dua kali.
+    const catalogData = !ops && dbLive && canCall('listCatalogForAi')
+      ? await catalogForAi(companyId).catch(() => null)
+      : null;
+    const catalogReady = Boolean(catalogData?.enabled && Array.isArray(catalogData.items));
+    const catalogContext = catalogReady
+      ? catalog.catalogSection(catalogData, { text, context: latestSummary?.summary || '' })
+      : '';
+    const catalogHasPos = catalogReady && catalogData.items.some((i) => i.source === 'dealpos');
+    const priceContext = !ops && !catalogHasPos && dbLive && canCall('listDealposProducts')
       ? await dealposPriceContext(companyId, text, latestSummary?.summary || '').catch(() => '')
       : '';
 
@@ -1749,6 +1760,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
         : '',
       ksContext ? `${KS_PRECEDENCE}\n\n${ksContext}` : '',
       paymentContext,
+      catalogContext,
       priceContext,
       hubTools.length ? HUB_TOOLS_GUIDE : '',
       deliveryTools.length ? deliveryQuote.GUIDE : '',
@@ -2919,7 +2931,9 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       "script-src 'self'",
       "style-src 'self' https://fonts.googleapis.com",
       "font-src 'self' https://fonts.gstatic.com",
-      "img-src 'self' data: blob:",
+      // https: untuk gambar katalog (CDN DealPOS atau link yang diisi
+      // supervisor). Gambar tidak menjalankan kode; script tetap 'self'.
+      "img-src 'self' data: blob: https:",
       "media-src 'self' blob:",
       "connect-src 'self'",
       framable ? "frame-ancestors 'self'" : "frame-ancestors 'none'",
@@ -2984,7 +2998,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
   // daftar halaman ber-redirect di bawah.
   app.get('/privasi', (_request, reply) => sendReactApp(reply));
   app.get('/ketentuan', (_request, reply) => sendReactApp(reply));
-  for (const page of ['settings', 'admin', 'leads', 'tasks', 'notifications', 'pipeline', 'knowledge', 'hub', 'broadcast', 'superhuman']) {
+  for (const page of ['settings', 'admin', 'leads', 'tasks', 'notifications', 'pipeline', 'knowledge', 'katalog', 'hub', 'broadcast', 'superhuman']) {
     app.get(`/${page}`, (request, reply) => {
       const session = verifySession(getCookie(request.headers.cookie, 'agnee_session'), config.sessionSecret);
       if (!session) return reply.redirect('/');
@@ -9506,6 +9520,74 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     } finally {
       dealposProductsRunning.delete(companyId);
     }
+    // Katalog ditarik sesudahnya, bukan bersamaan: antrean laju DealPOS dipakai
+    // bersama, dan gagal di sini tidak boleh membatalkan harga di atas.
+    if (canCall('syncPosCatalog')) await runDealposCatalogJob(companyId);
+  }
+
+  // ── Katalog dari DealPOS ────────────────────────────────────────────────────
+  //
+  // `/Product` (gambar, kategori, diskon, tanggal rilis) + `/Report/ProductSold`
+  // per varian untuk ribbon Best Seller. Berjalan setelah tarikan harga dan dari
+  // tombol "Sinkron sekarang" di halaman Katalog.
+  const catalogRunning = new Set();
+  const catalogCache = new Map();
+  const CATALOG_CACHE_MS = 5 * 60_000;
+
+  function dealposPatientGetter(conn, token, companyId) {
+    return async (path) => {
+      for (let attempt = 0; ; attempt += 1) {
+        try {
+          return await dealposSync.dealposGet(conn.host, token, path, undefined, false, { patient: true });
+        } catch (error) {
+          if (!error.rateLimited || attempt >= 3) throw error;
+          const wait = Math.min(((error.retryAfter || 180) + 5) * 1000, 400_000);
+          app.log.info({ companyId, wait }, 'DealPOS membatasi laju, penarikan katalog menunggu');
+          await dealposSync.sleep(wait);
+        }
+      }
+    };
+  }
+
+  async function runDealposCatalogJob(companyId) {
+    if (catalogRunning.has(companyId)) return { status: 'running' };
+    catalogRunning.add(companyId);
+    try {
+      const conn = await database.getDealposConnection(companyId);
+      if (!conn?.enabled) return { status: 'no_connection' };
+      const settings = await database.getCatalogSettings(companyId);
+      const token = await dealposSync.fetchToken(conn, undefined, { patient: true });
+      const now = new Date();
+      const { items, sold, soldError } = await catalog.fetchDealposCatalog(
+        dealposPatientGetter(conn, token, companyId), { now, bestSellerDays: settings.bestSellerDays },
+      );
+      // Tarikan kosong hampir pasti salah baca respons, bukan toko tanpa barang:
+      // jangan sampai seluruh katalog ditandai hilang dari POS.
+      if (!items.length) throw new Error('DealPOS tidak mengembalikan produk aktif yang berharga.');
+      const assignments = catalog.autoAssignments(items, sold, {
+        bestSellerCount: settings.bestSellerCount, newDays: settings.newDays, now,
+      });
+      const soldQty = new Map(items.map((item) => [item.externalId, catalog.soldQtyFor(item, sold)]));
+      const note = soldError ? `Laporan penjualan DealPOS tidak terbaca, Best Seller tidak diperbarui: ${soldError}` : null;
+      const count = await database.syncPosCatalog(companyId, 'dealpos', items, { assignments, soldQty, note });
+      catalogCache.delete(companyId);
+      app.log.info({ companyId, count, bestSeller: assignments.best_seller?.length ?? null }, 'Katalog DealPOS ditarik');
+      return { status: 'ok', count };
+    } catch (error) {
+      app.log.warn({ err: error, companyId }, 'Penarikan katalog DealPOS gagal');
+      await database.recordCatalogPosError(companyId, error.message).catch(() => {});
+      return { status: 'error', error: error.message };
+    } finally {
+      catalogRunning.delete(companyId);
+    }
+  }
+
+  async function catalogForAi(companyId) {
+    const cached = catalogCache.get(companyId);
+    if (cached && Date.now() - cached.loadedAt < CATALOG_CACHE_MS) return cached.data;
+    const data = await database.listCatalogForAi(companyId);
+    catalogCache.set(companyId, { data, loadedAt: Date.now() });
+    return data;
   }
 
   function startDealposPriceRefresher() {
@@ -9610,6 +9692,239 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     get: 'getDealposConnection', record: 'recordDealposSync',
     setEnabled: 'setDealposEnabled', remove: 'deleteDealposConnection',
     sync: (companyId, conn) => syncDealposFor(companyId, conn),
+  });
+
+  // ── Katalog produk & jasa ───────────────────────────────────────────────────
+  //
+  // Semua anggota tim boleh melihat (agent butuh harga saat membalas sendiri);
+  // mengubah hanya supervisor, sama dengan playbook. Item POS hanya boleh
+  // diubah di field milik Agnee: nama, harga, kode, kategori, gambar diatur di POS.
+
+  const CATALOG_GATE = 'Hanya supervisor yang dapat mengubah katalog.';
+  const uuidParams = { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } };
+  const CATALOG_ITEM_PROPS = {
+    kind: { type: 'string', enum: ['product', 'service'] },
+    name: { type: 'string', minLength: 1, maxLength: 200 },
+    code: { type: 'string', maxLength: 80 },
+    category: { type: 'string', maxLength: 100 },
+    unit: { type: 'string', maxLength: 30 },
+    price: { type: ['number', 'null'], minimum: 0, maximum: 1e12 },
+    priceNote: { type: 'string', maxLength: 80 },
+    description: { type: 'string', maxLength: 2000 },
+    imageUrl: { type: 'string', maxLength: 1000 },
+    active: { type: 'boolean' },
+  };
+  const POS_OWNED_FIELDS = ['name', 'code', 'category', 'price', 'imageUrl'];
+  const CATALOG_TAG_PROPS = {
+    name: { type: 'string', minLength: 1, maxLength: 40 },
+    color: { type: 'string', enum: catalog.TAG_COLORS },
+    highlight: { type: 'boolean' },
+    aiNote: { type: 'string', maxLength: 300 },
+    active: { type: 'boolean' },
+  };
+
+  function catalogGuard(request, reply, { write = false } = {}) {
+    if (!canCall('getCatalogSettings')) {
+      reply.code(503).send({ error: 'Fitur ini butuh database aktif.' });
+      return false;
+    }
+    if (write && !isSupervisor(request.agneeSession)) {
+      reply.code(403).send({ error: CATALOG_GATE });
+      return false;
+    }
+    return true;
+  }
+
+  /** URL gambar kosong boleh (menghapus); selain itu harus http(s). */
+  function cleanImageUrl(body, reply) {
+    if (body.imageUrl === undefined || body.imageUrl.trim() === '') return true;
+    const safe = catalog.safeUrl(body.imageUrl);
+    if (!safe) {
+      reply.code(400).send({ error: 'Link gambar harus diawali http:// atau https://.' });
+      return false;
+    }
+    body.imageUrl = safe;
+    return true;
+  }
+
+  app.get('/v1/catalog', async (request, reply) => {
+    if (!catalogGuard(request, reply)) return;
+    const companyId = request.agneeSession.companyId;
+    const [settings, tags, counts, conn] = await Promise.all([
+      database.getCatalogSettings(companyId),
+      database.listCatalogTags(companyId),
+      database.countCatalogItems(companyId),
+      canCall('getDealposConnection') ? database.getDealposConnection(companyId).catch(() => null) : null,
+    ]);
+    return {
+      settings, tags, counts,
+      canEdit: isSupervisor(request.agneeSession),
+      pos: conn
+        ? { provider: 'dealpos', host: conn.host, enabled: conn.enabled, syncing: catalogRunning.has(companyId) }
+        : null,
+    };
+  });
+
+  app.get('/v1/catalog/items', {
+    schema: {
+      querystring: {
+        type: 'object', additionalProperties: false,
+        properties: {
+          q: { type: 'string', maxLength: 100 },
+          tag: { type: 'string', format: 'uuid' },
+          source: { type: 'string', enum: ['manual', 'dealpos'] },
+          limit: { type: 'integer', minimum: 1, maximum: 200, default: 50 },
+          offset: { type: 'integer', minimum: 0, default: 0 },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    if (!catalogGuard(request, reply)) return;
+    const { q = '', tag = null, source = null, limit, offset } = request.query;
+    return database.listCatalogItems(request.agneeSession.companyId, { q, tagId: tag, source, limit, offset });
+  });
+
+  app.post('/v1/catalog/items', {
+    schema: { body: { type: 'object', additionalProperties: false, required: ['name'], properties: CATALOG_ITEM_PROPS } },
+  }, async (request, reply) => {
+    if (!catalogGuard(request, reply, { write: true })) return;
+    if (!request.body.name.trim()) return reply.code(400).send({ error: 'Nama item wajib diisi.' });
+    if (!cleanImageUrl(request.body, reply)) return;
+    const companyId = request.agneeSession.companyId;
+    await database.getCatalogSettings(companyId);
+    const item = await database.createCatalogItem(companyId, request.body, request.agneeSession.userId);
+    catalogCache.delete(companyId);
+    return reply.code(201).send({ item });
+  });
+
+  app.patch('/v1/catalog/items/:id', {
+    schema: {
+      params: uuidParams,
+      body: { type: 'object', additionalProperties: false, minProperties: 1, properties: CATALOG_ITEM_PROPS },
+    },
+  }, async (request, reply) => {
+    if (!catalogGuard(request, reply, { write: true })) return;
+    const companyId = request.agneeSession.companyId;
+    const existing = await database.getCatalogItem(request.params.id, companyId);
+    if (!existing) return reply.code(404).send({ error: 'Item tidak ditemukan.' });
+    if (existing.source !== 'manual') {
+      const owned = POS_OWNED_FIELDS.filter((key) => request.body[key] !== undefined);
+      if (owned.length) return reply.code(400).send({ error: 'Nama, kode, kategori, harga, dan gambar item ini diatur dari DealPOS.' });
+    }
+    if (request.body.name !== undefined && !request.body.name.trim()) return reply.code(400).send({ error: 'Nama item wajib diisi.' });
+    if (!cleanImageUrl(request.body, reply)) return;
+    const item = await database.updateCatalogItem(request.params.id, companyId, request.body);
+    catalogCache.delete(companyId);
+    return { item };
+  });
+
+  app.delete('/v1/catalog/items/:id', { schema: { params: uuidParams } }, async (request, reply) => {
+    if (!catalogGuard(request, reply, { write: true })) return;
+    const companyId = request.agneeSession.companyId;
+    const existing = await database.getCatalogItem(request.params.id, companyId);
+    if (!existing) return reply.code(404).send({ error: 'Item tidak ditemukan.' });
+    if (existing.source !== 'manual') {
+      return reply.code(400).send({ error: 'Item dari DealPOS tidak bisa dihapus di sini. Sembunyikan saja, atau hapus di DealPOS.' });
+    }
+    await database.deleteCatalogItem(request.params.id, companyId);
+    catalogCache.delete(companyId);
+    return { ok: true };
+  });
+
+  app.put('/v1/catalog/items/:id/tags', {
+    schema: {
+      params: uuidParams,
+      body: {
+        type: 'object', additionalProperties: false, required: ['tagIds'],
+        properties: { tagIds: { type: 'array', maxItems: 20, uniqueItems: true, items: { type: 'string', format: 'uuid' } } },
+      },
+    },
+  }, async (request, reply) => {
+    if (!catalogGuard(request, reply, { write: true })) return;
+    const companyId = request.agneeSession.companyId;
+    const item = await database.setCatalogItemTags(request.params.id, companyId, request.body.tagIds);
+    if (!item) return reply.code(404).send({ error: 'Item tidak ditemukan.' });
+    catalogCache.delete(companyId);
+    return { item };
+  });
+
+  app.post('/v1/catalog/tags', {
+    schema: { body: { type: 'object', additionalProperties: false, required: ['name'], properties: CATALOG_TAG_PROPS } },
+  }, async (request, reply) => {
+    if (!catalogGuard(request, reply, { write: true })) return;
+    if (!request.body.name.trim()) return reply.code(400).send({ error: 'Nama ribbon wajib diisi.' });
+    const companyId = request.agneeSession.companyId;
+    await database.getCatalogSettings(companyId);
+    try {
+      const tag = await database.createCatalogTag(companyId, request.body);
+      catalogCache.delete(companyId);
+      return reply.code(201).send({ tag });
+    } catch (error) {
+      if (error.code === '23505') return reply.code(409).send({ error: 'Sudah ada ribbon dengan nama itu.' });
+      throw error;
+    }
+  });
+
+  app.patch('/v1/catalog/tags/:id', {
+    schema: {
+      params: uuidParams,
+      body: { type: 'object', additionalProperties: false, minProperties: 1, properties: CATALOG_TAG_PROPS },
+    },
+  }, async (request, reply) => {
+    if (!catalogGuard(request, reply, { write: true })) return;
+    if (request.body.name !== undefined && !request.body.name.trim()) return reply.code(400).send({ error: 'Nama ribbon wajib diisi.' });
+    const companyId = request.agneeSession.companyId;
+    try {
+      const tag = await database.updateCatalogTag(request.params.id, companyId, request.body);
+      if (!tag) return reply.code(404).send({ error: 'Ribbon tidak ditemukan.' });
+      catalogCache.delete(companyId);
+      return { tag };
+    } catch (error) {
+      if (error.code === '23505') return reply.code(409).send({ error: 'Sudah ada ribbon dengan nama itu.' });
+      throw error;
+    }
+  });
+
+  app.delete('/v1/catalog/tags/:id', { schema: { params: uuidParams } }, async (request, reply) => {
+    if (!catalogGuard(request, reply, { write: true })) return;
+    const companyId = request.agneeSession.companyId;
+    const removed = await database.deleteCatalogTag(request.params.id, companyId);
+    if (!removed) return reply.code(404).send({ error: 'Ribbon tidak ditemukan.' });
+    catalogCache.delete(companyId);
+    return { ok: true };
+  });
+
+  app.put('/v1/catalog/settings', {
+    schema: {
+      body: {
+        type: 'object', additionalProperties: false, minProperties: 1,
+        properties: {
+          aiEnabled: { type: 'boolean' },
+          bestSellerCount: { type: 'integer', minimum: 1, maximum: 100 },
+          bestSellerDays: { type: 'integer', minimum: 7, maximum: 365 },
+          newDays: { type: 'integer', minimum: 1, maximum: 365 },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    if (!catalogGuard(request, reply, { write: true })) return;
+    const companyId = request.agneeSession.companyId;
+    const settings = await database.saveCatalogSettings(companyId, request.body);
+    catalogCache.delete(companyId);
+    return { settings };
+  });
+
+  // Tarik ulang dari POS sekarang. Berjalan di latar: tarikan besar bisa
+  // menunggu batas laju DealPOS beberapa menit.
+  app.post('/v1/catalog/sync', async (request, reply) => {
+    if (!catalogGuard(request, reply, { write: true })) return;
+    const companyId = request.agneeSession.companyId;
+    const conn = canCall('getDealposConnection') ? await database.getDealposConnection(companyId) : null;
+    if (!conn) return reply.code(409).send({ error: 'Hubungkan DealPOS dulu di Pengaturan > Integrasi.' });
+    if (!conn.enabled) return reply.code(409).send({ error: 'Integrasi DealPOS sedang dimatikan.' });
+    if (catalogRunning.has(companyId)) return reply.code(202).send({ status: 'running' });
+    void runDealposCatalogJob(companyId);
+    return reply.code(202).send({ status: 'started' });
   });
 
   // ── Integrasi Lalamove: kurir, lewat kunci Partner API v3 ─────────────────

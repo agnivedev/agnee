@@ -66,6 +66,25 @@ test('tidak ada hasil, jaringan mati, atau teks terlalu pendek: tidak_ketemu tan
   assert.equal((await addressCheck.check('ab', { fetchImpl: impl })).status, 'tidak_ketemu');
 });
 
+test('nama jalan tanpa kota atau kecamatan: jalan_ambigu, hasil peta tidak diberikan ke model', async () => {
+  const { impl } = fakeNominatim({ 'Melati': JALAN });
+  const out = await addressCheck.check('Jalan Melati nomor 5', { fetchImpl: impl });
+  assert.equal(out.status, 'jalan_ambigu');
+  assert.equal(out.terbaca, undefined);
+  assert.equal(out.kota, undefined);
+  assert.match(out.pesan, /kota atau kecamatan/);
+});
+
+test('kota yang sudah disebut customer sebelumnya (digabung ke teks) membuat jalan jelas', async () => {
+  const { impl } = fakeNominatim({ 'Melati': JALAN });
+  assert.equal((await addressCheck.check('Jalan Melati nomor 5, Bandung', { fetchImpl: impl })).status, 'ketemu_jalan');
+  mapsLink.clearCache();
+  assert.equal((await addressCheck.check('Jalan Melati nomor 5, Sukajadi', { fetchImpl: impl })).status, 'ketemu_jalan');
+  mapsLink.clearCache();
+  // Kota lain yang disebut customer bukan bukti: hasil peta di Bandung tidak cocok dengan "Surabaya".
+  assert.equal((await addressCheck.check('Jalan Melati nomor 5, Surabaya', { fetchImpl: impl })).status, 'jalan_ambigu');
+});
+
 test('simplify membuang RT/RW, nomor, blok, dan awalan wilayah', () => {
   assert.equal(addressCheck.simplify('Jl. Melati No. 5 Blok C RT 02/03 Kel. Sukajadi'), 'Jalan Melati Sukajadi');
 });
@@ -118,6 +137,7 @@ async function setup(t, table) {
       const out = await tool.run({ alamat: message });
       const text = out.status === 'ketemu_jalan' ? 'Siap kak, dikirim ke sana ya.'
         : out.status === 'ketemu_area' ? 'Noted wilayahnya kak, nama jalan atau patokannya apa ya?'
+          : out.status === 'jalan_ambigu' ? 'Jalan itu di kota mana ya kak?'
           : 'Boleh share location WhatsApp kak?';
       return { text, model: 'tiruan', usage: {} };
     },
@@ -159,4 +179,11 @@ test('simulator: alamat tidak terbaca, AI minta share location tanpa menuduh sal
   const reply = await say('Perum Griya Antah blok Z');
   assert.match(reply, /share location/);
   assert.doesNotMatch(reply, /salah|tidak valid/i);
+});
+
+test('simulator: jalan tanpa kota, AI menanyakan kota dan tidak mengarang dari hasil peta', async (t) => {
+  const { say } = await setup(t, { 'Melati': JALAN });
+  const reply = await say('Jalan Melati nomor 5');
+  assert.match(reply, /kota mana/);
+  assert.doesNotMatch(reply, /Bandung|Sukajadi/);
 });

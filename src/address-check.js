@@ -21,7 +21,9 @@ const TOOL_NAME = 'cek_alamat';
 
 const GUIDE = `## ALAMAT CUSTOMER (alat ${TOOL_NAME})
 - Kalau customer menyebut alamat, kelurahan, kecamatan, kota, atau nama tempat tujuan (bukan link Google Maps atau share location, yang sudah terbaca sendiri), panggil ${TOOL_NAME} dengan teks alamatnya SEBELUM membalas soal alamat.
+- Kirim alamat bersama kota atau kecamatan yang SUDAH disebut customer sebelumnya di percakapan ini, bukan hanya pesan terakhirnya.
 - status "ketemu_jalan": alamat sudah cukup jelas. Terima dan lanjutkan; JANGAN minta alamat lengkap atau minta dikirim ulang.
+- status "jalan_ambigu": nama jalannya ada, tapi customer belum menyebut kota atau kecamatan, dan jalan sebesar itu ada di banyak tempat. JANGAN menebak atau menyebut kota/kecamatan dari hasil alat; tanyakan kota atau kecamatannya (atau tawarkan share location).
 - status "ketemu_area": baru wilayahnya yang terbaca. Terima wilayahnya, lalu tanyakan SATU hal saja yang kurang (nama jalan atau patokan terdekat), atau tawarkan share location WhatsApp.
 - status "tidak_ketemu": jangan menuduh alamatnya salah. Minta share location WhatsApp atau link Google Maps, atau patokan terdekat.
 - Jangan menyebut koordinat, nama layanan peta, atau kata "alat" ke customer. Sebut alamat seperti customer menuliskannya.`;
@@ -35,7 +37,7 @@ function toolSpec({ run }) {
       additionalProperties: false,
       required: ['alamat'],
       properties: {
-        alamat: { type: 'string', maxLength: 300, description: 'Alamat atau nama tempat persis seperti yang diketik customer.' },
+        alamat: { type: 'string', maxLength: 300, description: 'Alamat atau nama tempat seperti yang diketik customer, digabung dengan kota atau kecamatan yang sudah disebutnya sebelumnya.' },
       },
     },
     run,
@@ -72,6 +74,22 @@ function variants(text) {
   ];
 }
 
+const GENERIK = new Set(['kota', 'kabupaten', 'kab', 'daerah', 'khusus', 'ibukota', 'jalan', 'jawa', 'barat', 'timur', 'tengah', 'selatan', 'utara', 'indonesia', 'kecamatan', 'kelurahan', 'desa', 'raya']);
+
+/** Kata penanda wilayah dari hasil peta (kelurahan, kecamatan, kota) yang bukan kata umum. */
+function wilayahKata(found) {
+  return [found.kelurahan, found.kecamatan, found.kota]
+    .filter(Boolean)
+    .flatMap((n) => String(n).toLowerCase().split(/[^a-z0-9]+/))
+    .filter((w) => w.length >= 4 && !GENERIK.has(w));
+}
+
+/** Customer sendiri menyebut wilayahnya? Tanpa itu nama jalan saja bisa di kota mana pun. */
+function wilayahDisebut(text, found) {
+  const kata = new Set(String(text || '').toLowerCase().split(/[^a-z0-9]+/));
+  return wilayahKata(found).some((w) => kata.has(w));
+}
+
 function components(place) {
   const c = place?.components || {};
   return {
@@ -97,6 +115,12 @@ async function check(raw, { fetchImpl = globalThis.fetch } = {}) {
     if (!place) continue;
     const found = components(place);
     if (found.jalan && !tries[i].areaOnly) {
+      // Nama jalan umum ("Jalan Melati") ada di puluhan kota. Tanpa wilayah dari
+      // customer sendiri, hasil peta hanya satu tebakan: tidak boleh dipakai
+      // sebagai alamat, dan tidak diberikan ke model supaya tidak ditiru.
+      if (!wilayahDisebut(text, found)) {
+        return { status: 'jalan_ambigu', pesan: 'Jalan ini ada di banyak kota. Tanyakan kota atau kecamatannya; jangan menebak.' };
+      }
       return { status: 'ketemu_jalan', terbaca: place.address, ...found };
     }
     return {

@@ -82,7 +82,7 @@ async function fetchVariants(get) {
 
 /** Penarik untuk produksi: token + GET dengan tunggu bila dibatasi laju. */
 async function fetchProducts(credentials, { dealposGet, token = null, onRateLimit = null } = {}) {
-  const bearer = token || await fetchToken(credentials);
+  const bearer = token || await fetchToken(credentials, undefined, { patient: true });
   const get = async (path) => {
     for (let attempt = 0; ; attempt += 1) {
       try {

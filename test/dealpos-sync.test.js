@@ -55,3 +55,81 @@ test('429 dari DealPOS jadi galat yang bisa dikenali beserta lama tunggunya', as
     (error) => error.rateLimited === true && error.retryAfter === 180 && /3 menit/.test(error.message),
   );
 });
+
+// Jam maya: `wait` memasang pewaktu, `run` memajukan waktu ke pewaktu terdekat
+// setiap kali semua pemanggil sedang menunggu.
+function virtualClock() {
+  let t = 1_000_000;
+  const timers = [];
+  return {
+    now: () => t,
+    wait: (ms) => new Promise((resolve) => { timers.push({ at: t + ms, resolve }); }),
+    async run(promise) {
+      let finished = false;
+      const guarded = promise.finally(() => { finished = true; });
+      guarded.catch(() => {});
+      while (!finished) {
+        await new Promise((resolve) => setImmediate(resolve));
+        if (finished) break;
+        if (!timers.length) continue;
+        timers.sort((a, b) => a.at - b.at);
+        const next = timers.shift();
+        t = Math.max(t, next.at);
+        next.resolve();
+      }
+      return guarded;
+    },
+  };
+}
+
+test('antrean: tiga pekerjaan serentak tidak pernah melewati 50 per 180 detik', async () => {
+  const clock = virtualClock();
+  const limiter = sync.createRateLimiter({ now: clock.now, wait: clock.wait });
+  const stamps = [];
+  const worker = async (patient, n) => {
+    for (let i = 0; i < n; i += 1) {
+      await limiter.acquire('toko.dealpos.co.id', { patient });
+      stamps.push(clock.now());
+    }
+  };
+  // sinkron pelanggan, tarikan alamat, tarikan harga berbarengan
+  await clock.run(Promise.all([worker(true, 40), worker(true, 150), worker(true, 150)]));
+  assert.equal(stamps.length, 340);
+  for (const start of stamps) {
+    const inWindow = stamps.filter((s) => s >= start && s < start + 180_000).length;
+    assert.ok(inWindow <= 50, `${inWindow} permintaan dalam 180 detik`);
+  }
+  assert.ok(stamps[stamps.length - 1] - stamps[0] > 340 / 48 * 150_000, 'laju mendekati jatah, bukan jauh di bawahnya');
+});
+
+test('antrean: permintaan web menyerah dengan 429 bila jatah habis, pekerjaan latar menunggu', async () => {
+  const clock = virtualClock();
+  const limiter = sync.createRateLimiter({ now: clock.now, wait: clock.wait });
+  const host = 'toko.dealpos.co.id';
+  for (let i = 0; i < 48; i += 1) await limiter.acquire(host);
+  await assert.rejects(clock.run(limiter.acquire(host)), (error) => error.rateLimited === true && error.retryAfter > 0);
+  const before = clock.now();
+  await clock.run(limiter.acquire(host, { patient: true }));
+  assert.ok(clock.now() - before >= 100_000, 'latar menunggu jendela bergeser');
+});
+
+test('antrean: pekerjaan latar menyisakan jatah untuk permintaan web', async () => {
+  const clock = virtualClock();
+  const limiter = sync.createRateLimiter({ now: clock.now, wait: clock.wait });
+  const host = 'toko.dealpos.co.id';
+  for (let i = 0; i < 42; i += 1) await limiter.acquire(host, { patient: true });
+  const before = clock.now();
+  await clock.run(limiter.acquire(host)); // masih ada sisa 6 untuk web
+  assert.equal(clock.now(), before, 'permintaan web langsung jalan');
+  assert.equal(limiter.inWindow(host), 43);
+});
+
+test('antrean: 429 dari DealPOS menahan semua pemanggil host itu sampai jeda habis', async () => {
+  const clock = virtualClock();
+  const limiter = sync.createRateLimiter({ now: clock.now, wait: clock.wait });
+  const host = 'toko.dealpos.co.id';
+  limiter.blockFor(host, 180);
+  const before = clock.now();
+  await clock.run(limiter.acquire(host, { patient: true }));
+  assert.ok(clock.now() - before >= 185_000);
+});

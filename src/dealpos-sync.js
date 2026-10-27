@@ -9,6 +9,66 @@ const MAX_AUTO_WAIT_SECONDS = 20;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+// Batas DealPOS (GET /api/v3/ratelimit, ESBEJE 27 Okt): 50 permintaan per 180 detik, tanpa antrean.
+// Jendela geser 181 detik dan 48 permintaan: tidak melewati 50 di jendela mana pun, tetap atau geser.
+const RATE_MAX = 48;
+const RATE_WINDOW_MS = 181_000;
+// Pekerjaan latar (alamat, harga) hanya boleh memakai sebagian: sisanya untuk permintaan web
+// (hubungkan, Sync now) yang tidak boleh antre berminggu-minggu di belakang tarikan massal.
+const RATE_BACKGROUND_MAX = 42;
+const RATE_INTERACTIVE_MAX_WAIT_MS = 25_000;
+
+function rateLimitedError(waitSeconds) {
+  const wait = Math.max(1, Math.ceil(waitSeconds));
+  const error = new Error(`DealPOS sedang membatasi permintaan. Coba lagi ${Math.ceil(wait / 60) >= 2 ? `sekitar ${Math.ceil(wait / 60)} menit` : `sekitar ${wait} detik`} lagi.`);
+  error.rateLimited = true;
+  error.retryAfter = wait;
+  return error;
+}
+
+/**
+ * Satu antrean per host DealPOS, dipakai bersama oleh sinkron pelanggan, tarikan
+ * alamat, dan tarikan harga. Tanpa ini ketiganya menghabiskan jatah 50/180 detik
+ * bersamaan lalu semuanya kena 429.
+ */
+function createRateLimiter({ max = RATE_MAX, windowMs = RATE_WINDOW_MS, now = Date.now, wait = sleep } = {}) {
+  const hosts = new Map();
+  const stateOf = (host) => {
+    if (!hosts.has(host)) hosts.set(host, { starts: [], blockedUntil: 0 });
+    return hosts.get(host);
+  };
+  return {
+    /** Menunggu giliran. `patient`: pekerjaan latar, menunggu selama perlu dan hanya memakai sebagian jatah. */
+    async acquire(host, { patient = false } = {}) {
+      const state = stateOf(host);
+      const cap = patient ? Math.min(RATE_BACKGROUND_MAX, max) : max;
+      const startedAt = now();
+      for (;;) {
+        const t = now();
+        while (state.starts.length && state.starts[0] <= t - windowMs) state.starts.shift();
+        let delay = 0;
+        if (t < state.blockedUntil) delay = state.blockedUntil - t;
+        else if (state.starts.length >= cap) delay = state.starts[state.starts.length - cap] + windowMs - t;
+        if (delay <= 0) { state.starts.push(t); return; }
+        if (!patient && t - startedAt + delay > RATE_INTERACTIVE_MAX_WAIT_MS) throw rateLimitedError(delay / 1000);
+        await wait(Math.min(delay, 5_000) + 5);
+      }
+    },
+    /** DealPOS tetap membalas 429: semua pemanggil host ini berhenti sampai jeda habis. */
+    blockFor(host, seconds) {
+      const state = stateOf(host);
+      state.blockedUntil = Math.max(state.blockedUntil, now() + ((seconds || 180) + 5) * 1000);
+    },
+    /** Untuk uji: berapa permintaan tercatat di jendela saat ini. */
+    inWindow(host) {
+      const t = now();
+      return stateOf(host).starts.filter((s) => s > t - windowMs).length;
+    },
+  };
+}
+
+const limiter = createRateLimiter();
+
 /**
  * Host akun DealPOS, mis. "esbeje.dealpos.co.id". Pengguna sering menempel
  * URL penuh ("https://esbeje.dealpos.co.id/menu/...") — diambil hostnya saja.
@@ -85,7 +145,8 @@ function failure(data, response) {
 }
 
 /** Token berlaku 2 hari; satu sinkronisasi cukup dengan satu token. */
-async function fetchToken({ host, clientId, clientSecret }, fetchImpl = fetch) {
+async function fetchToken({ host, clientId, clientSecret }, fetchImpl = fetch, { patient = false } = {}) {
+  await limiter.acquire(host, { patient });
   const response = await fetchImpl(`https://${host}/api/v3/Token/OAuth2`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -93,22 +154,24 @@ async function fetchToken({ host, clientId, clientSecret }, fetchImpl = fetch) {
     signal: AbortSignal.timeout(15_000),
   });
   const data = await readJson(response);
+  if (response.status === 429) limiter.blockFor(host, retryAfterSeconds(data, response));
   if (!response.ok || !data?.access_token) throw failure(data, response);
   return data.access_token;
 }
 
-async function dealposGet(host, token, path, fetchImpl = fetch, retried = false) {
+async function dealposGet(host, token, path, fetchImpl = fetch, retried = false, { patient = false } = {}) {
+  await limiter.acquire(host, { patient });
   const response = await fetchImpl(`https://${host}/api/v3${path}`, {
     headers: { authorization: `Bearer ${token}` },
     signal: AbortSignal.timeout(30_000),
   });
   const data = await readJson(response);
-  if (response.status === 429 && !retried) {
+  if (response.status === 429) {
     const wait = retryAfterSeconds(data, response);
+    limiter.blockFor(host, wait);
     // Tunggu hanya kalau singkat; 180 detik terlalu lama untuk satu permintaan web.
-    if (wait && wait <= MAX_AUTO_WAIT_SECONDS) {
-      await sleep(wait * 1000);
-      return dealposGet(host, token, path, fetchImpl, true);
+    if (!retried && wait && wait <= MAX_AUTO_WAIT_SECONDS) {
+      return dealposGet(host, token, path, fetchImpl, true, { patient });
     }
   }
   if (!response.ok) throw failure(data, response);
@@ -160,7 +223,7 @@ function parseDate(value) {
 
 /** Detail satu customer: alamat dan kawan-kawan yang tidak ada di daftar. */
 async function fetchCustomerDetail(host, token, id, fetchImpl = fetch) {
-  const data = await dealposGet(host, token, `/Customer/Detail?ID=${encodeURIComponent(id)}`, fetchImpl);
+  const data = await dealposGet(host, token, `/Customer/Detail?ID=${encodeURIComponent(id)}`, fetchImpl, false, { patient: true });
   return {
     address: cleanText(data?.Address),
     city: cleanText(data?.City),
@@ -173,4 +236,4 @@ async function fetchCustomerDetail(host, token, id, fetchImpl = fetch) {
 }
 
 module.exports = {
-  dealposGet, fetchCustomerDetail, otherPhone, cleanText, sleep, PAGE_GAP_MS, normalizeHost, normalizePhone, fetchToken, verifyCredentials, fetchCustomers };
+  createRateLimiter, dealposGet, fetchCustomerDetail, otherPhone, cleanText, sleep, PAGE_GAP_MS, normalizeHost, normalizePhone, fetchToken, verifyCredentials, fetchCustomers };

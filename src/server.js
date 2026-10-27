@@ -9399,7 +9399,7 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     try {
       let conn = await database.getDealposConnection(companyId);
       if (!conn?.enabled) return;
-      let token = await dealposSync.fetchToken(conn);
+      let token = await dealposSync.fetchToken(conn, undefined, { patient: true });
       for (;;) {
         const pending = await database.listDealposPendingDetail(companyId, 100);
         if (!pending.length) break;
@@ -9458,7 +9458,7 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
       const conn = await database.getDealposConnection(companyId);
       if (!conn?.enabled) return;
       const products = await dealposPrices.fetchProducts(conn, {
-        dealposGet: dealposSync.dealposGet,
+        dealposGet: (host, token, path) => dealposSync.dealposGet(host, token, path, undefined, false, { patient: true }),
         onRateLimit: (wait) => app.log.info({ companyId, wait }, 'DealPOS membatasi laju, penarikan harga menunggu'),
       });
       const count = await database.replaceDealposProducts(companyId, products);

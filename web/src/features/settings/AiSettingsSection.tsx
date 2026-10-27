@@ -18,6 +18,7 @@ export function AiSettingsSection() {
   const [enabled, setEnabled] = useState(false);
   const [identity, setIdentity] = useState<'team_member' | 'chatbot'>('team_member');
   const [chain, setChain] = useState<string[]>(Array(MODEL_SLOT_COUNT).fill(''));
+  const [readMedia, setReadMedia] = useState(true);
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState('');
   // Saklar menyala belum tentu AI berjalan: paket bisa berhenti, atau mesin AI
@@ -26,6 +27,7 @@ export function AiSettingsSection() {
   const { saved, flash } = useSavedFlag();
 
   useEffect(() => {
+    void api<{ aiReadMedia?: boolean }>('/v1/admin/company').then((c) => setReadMedia(c.aiReadMedia !== false)).catch(() => { /* tetap hidup */ });
     void api<{ enabled: boolean; effective?: boolean; reason?: string | null; modelChain: string[]; identity?: 'team_member' | 'chatbot'; defaultModel: string }>('/v1/admin/ai-settings')
       .then((data) => {
         setEnabled(data.enabled);
@@ -46,6 +48,7 @@ export function AiSettingsSection() {
         method: 'PATCH',
         body: { enabled, modelChain: chain.filter(Boolean), identity },
       });
+      await api('/v1/admin/company', { method: 'PATCH', body: { aiReadMedia: readMedia } });
       flash();
     } catch (error) {
       await confirm.alert({
@@ -101,6 +104,14 @@ export function AiSettingsSection() {
           </label>
         ))}
       </fieldset>
+
+      <label className="mb-5 flex items-start gap-2.5 text-[13px]">
+        <input type="checkbox" checked={readMedia} onChange={(e) => setReadMedia(e.target.checked)} className="mt-0.5 size-4 accent-green" />
+        <span className="grid gap-0.5">
+          <strong>{t('ai.readMedia.title')}</strong>
+          <small className="text-[11px] text-muted">{t('ai.readMedia.hint')}</small>
+        </span>
+      </label>
 
       <div className="grid gap-2">
         {chain.map((value, index) => {

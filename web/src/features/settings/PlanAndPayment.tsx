@@ -24,7 +24,83 @@ type Company = {
   bankAccount?: string;
   bankHolder?: string;
   paymentNotes?: string;
+  paymentProofCheck?: boolean;
 };
+
+
+type PaymentAccount = {
+  id: string; bankName: string; accountNumber: string; accountHolder: string | null; status: 'active' | 'retired';
+};
+
+/** Rekening resmi + saklar pemeriksaan bukti transfer. Rekening aktif diberikan AI saat closing. */
+function PaymentAccountsCard({ proofCheck, onProofCheck }: { proofCheck: boolean; onProofCheck: (on: boolean) => void }) {
+  const { t } = useI18n();
+  const confirm = useConfirm();
+  const [accounts, setAccounts] = useState<PaymentAccount[]>([]);
+  const [bank, setBank] = useState('');
+  const [number, setNumber] = useState('');
+  const [holder, setHolder] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const load = () => api<{ accounts: PaymentAccount[] }>('/v1/payment-accounts').then((d) => setAccounts(d.accounts)).catch(() => { /* kartu tetap tampil kosong */ });
+  useEffect(() => { void load(); }, []);
+
+  async function run(action: () => Promise<unknown>) {
+    setBusy(true);
+    try { await action(); await load(); } catch (error) { await confirm.error(error); } finally { setBusy(false); }
+  }
+  const add = () => run(async () => {
+    await api('/v1/payment-accounts', { method: 'POST', body: { bankName: bank.trim(), accountNumber: number.trim(), accountHolder: holder.trim() } });
+    setBank(''); setNumber(''); setHolder('');
+  });
+  const setStatus = (a: PaymentAccount, status: 'active' | 'retired') => run(() => api(`/v1/payment-accounts/${a.id}`, {
+    method: 'PUT', body: { bankName: a.bankName, accountNumber: a.accountNumber, accountHolder: a.accountHolder || '', status },
+  }));
+  const remove = (a: PaymentAccount) => run(() => api(`/v1/payment-accounts/${a.id}`, { method: 'DELETE' }));
+  const toggleProof = (on: boolean) => run(async () => {
+    await api('/v1/admin/company', { method: 'PATCH', body: { paymentProofCheck: on } });
+    onProofCheck(on);
+  });
+
+  return (
+    <SettingCard id="accountsSection" eyebrow={t('settings.paymentEyebrow')} title={t('settings.accountsTitle')}>
+      <p className="mb-3 text-[13px] text-muted">{t('settings.accountsHint')}</p>
+      {accounts.length === 0 ? <p className="mb-3 text-[13px] text-muted">{t('settings.accountsEmpty')}</p> : (
+        <ul className="mb-4 divide-y divide-input rounded-app border border-input">
+          {accounts.map((a) => (
+            <li key={a.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2.5 text-sm">
+              <span className={a.status === 'retired' ? 'text-muted line-through' : ''}>
+                <strong>{a.bankName}</strong> {a.accountNumber}{a.accountHolder ? ` · a.n. ${a.accountHolder}` : ''}
+                {a.status === 'retired' ? <em className="ml-2 text-[12px] not-italic">({t('settings.accountRetired')})</em> : null}
+              </span>
+              <span className="flex gap-2">
+                <Button size="sm" variant="outline" disabled={busy} onClick={() => void setStatus(a, a.status === 'active' ? 'retired' : 'active')}>
+                  {a.status === 'active' ? t('settings.accountRetire') : t('settings.accountReactivate')}
+                </Button>
+                <Button size="sm" variant="outline" disabled={busy} onClick={() => void remove(a)}>{t('settings.accountDelete')}</Button>
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      <FieldGrid>
+        <TextField label={t('settings.accountBank')} maxLength={60} value={bank} placeholder="BCA" onChange={(e) => setBank(e.target.value)} />
+        <TextField label={t('settings.accountNumber')} maxLength={40} value={number} placeholder="172 172 6989" onChange={(e) => setNumber(e.target.value)} />
+        <TextField label={t('settings.accountHolder')} maxLength={100} value={holder} placeholder="PT Nama Perusahaan" onChange={(e) => setHolder(e.target.value)} />
+      </FieldGrid>
+      <div className="mt-3">
+        <Button size="sm" disabled={busy || !bank.trim() || !number.trim()} onClick={() => void add()}>{t('settings.accountAdd')}</Button>
+      </div>
+      <label className="mt-5 flex items-start gap-2 text-sm">
+        <input type="checkbox" className="mt-1" checked={proofCheck} disabled={busy} onChange={(e) => void toggleProof(e.target.checked)} />
+        <span>
+          <strong>{t('settings.proofCheckLabel')}</strong>
+          <span className="block text-[13px] text-muted">{t('settings.proofCheckHint')}</span>
+        </span>
+      </label>
+    </SettingCard>
+  );
+}
 
 type PaymentMethod = 'none' | 'link' | 'bank_transfer' | 'both';
 
@@ -253,6 +329,10 @@ export function PlanAndPayment() {
           <SavedBadge shown={saved} />
         </div>
       </SettingCard>
+      <PaymentAccountsCard
+        proofCheck={Boolean(company?.paymentProofCheck)}
+        onProofCheck={(on) => setCompany((prev) => ({ ...(prev || {}), paymentProofCheck: on }))}
+      />
     </>
   );
 }

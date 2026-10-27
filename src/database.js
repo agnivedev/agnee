@@ -1300,6 +1300,7 @@ class Database {
              payment_method AS "paymentMethod", payment_link AS "paymentLink",
              bank_name AS "bankName", bank_account AS "bankAccount",
              bank_holder AS "bankHolder", payment_notes AS "paymentNotes",
+             payment_proof_check AS "paymentProofCheck", ai_read_media AS "aiReadMedia",
              whatsapp_provider AS "whatsappProvider",
              ai_enabled AS "aiEnabled", ai_model_chain AS "aiModelChain",
              hub_tools_enabled AS "hubToolsEnabled",
@@ -1904,7 +1905,7 @@ class Database {
     return result.rows[0]?.numbers || [];
   }
 
-  async updateCompanyConfig({ plan, planStatus, knowledgeClient, aiMessageLimit, maxUsers, maxPlaybooks, maxWhatsapp, paymentMethod, paymentLink, bankName, bankAccount, bankHolder, paymentNotes, whatsappProvider, rotationEnabled, replyDelayEnabled, replyDelayMinSeconds, replyDelayMaxSeconds }, companyId) {
+  async updateCompanyConfig({ plan, planStatus, knowledgeClient, aiMessageLimit, maxUsers, maxPlaybooks, maxWhatsapp, paymentMethod, paymentLink, bankName, bankAccount, bankHolder, paymentNotes, paymentProofCheck, aiReadMedia, whatsappProvider, rotationEnabled, replyDelayEnabled, replyDelayMinSeconds, replyDelayMaxSeconds }, companyId) {
     if (!this.enabled) return null;
     const fields = [];
     const values = [];
@@ -1922,6 +1923,8 @@ class Database {
     if (bankAccount !== undefined) { fields.push(`bank_account = $${i++}`); values.push(bankAccount || null); }
     if (bankHolder !== undefined) { fields.push(`bank_holder = $${i++}`); values.push(bankHolder || null); }
     if (paymentNotes !== undefined) { fields.push(`payment_notes = $${i++}`); values.push(paymentNotes || null); }
+    if (aiReadMedia !== undefined) { fields.push(`ai_read_media = $${i++}`); values.push(Boolean(aiReadMedia)); }
+    if (paymentProofCheck !== undefined) { fields.push(`payment_proof_check = $${i++}`); values.push(Boolean(paymentProofCheck)); }
     if (whatsappProvider !== undefined) { fields.push(`whatsapp_provider = $${i++}`); values.push(whatsappProvider); }
     if (rotationEnabled !== undefined) { fields.push(`rotation_enabled = $${i++}`); values.push(rotationEnabled); }
     if (replyDelayEnabled !== undefined) { fields.push(`reply_delay_enabled = $${i++}`); values.push(replyDelayEnabled); }
@@ -5846,6 +5849,110 @@ class Database {
     if (!this.enabled) return false;
     const result = await this.pool.query('DELETE FROM company_locations WHERE company_id = $1 AND id = $2', [companyId, id]);
     return result.rowCount > 0;
+  }
+
+  // ── Rekening pembayaran & bukti transfer ─────────────────────────────────
+
+  static PAYMENT_ACCOUNT_COLUMNS = `
+    id, bank_name AS "bankName", account_number AS "accountNumber", account_holder AS "accountHolder",
+    status, note, sort_order AS "sortOrder"`;
+
+  async listPaymentAccounts(companyId) {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(
+      `SELECT ${Database.PAYMENT_ACCOUNT_COLUMNS} FROM payment_accounts WHERE company_id = $1
+       ORDER BY (status = 'active') DESC, sort_order, id`,
+      [companyId],
+    );
+    return result.rows.map((row) => ({ ...row, id: String(row.id) }));
+  }
+
+  async getPaymentAccount(companyId, id) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(
+      `SELECT ${Database.PAYMENT_ACCOUNT_COLUMNS} FROM payment_accounts WHERE company_id = $1 AND id = $2`,
+      [companyId, id],
+    );
+    return result.rows[0] ? { ...result.rows[0], id: String(result.rows[0].id) } : null;
+  }
+
+  async countPaymentAccounts(companyId) {
+    if (!this.enabled) return 0;
+    const result = await this.pool.query('SELECT COUNT(*)::int AS n FROM payment_accounts WHERE company_id = $1', [companyId]);
+    return result.rows[0].n;
+  }
+
+  /** Simpan rekening baru (id kosong) atau ubah yang ada. `account` sudah dinormalkan payment-accounts.normalizeAccount. */
+  async savePaymentAccount(companyId, id, account, userId = null) {
+    if (!this.enabled) return null;
+    const values = [companyId, account.bankName, account.accountNumber, account.accountHolder, account.status, account.note];
+    const result = id
+      ? await this.pool.query(`
+          UPDATE payment_accounts SET bank_name = $2, account_number = $3, account_holder = $4, status = $5, note = $6, updated_at = NOW()
+          WHERE company_id = $1 AND id = $7 RETURNING ${Database.PAYMENT_ACCOUNT_COLUMNS}
+        `, [...values, id])
+      : await this.pool.query(`
+          INSERT INTO payment_accounts (company_id, bank_name, account_number, account_holder, status, note, created_by)
+          VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING ${Database.PAYMENT_ACCOUNT_COLUMNS}
+        `, [...values, userId]);
+    return result.rows[0] ? { ...result.rows[0], id: String(result.rows[0].id) } : null;
+  }
+
+  async deletePaymentAccount(companyId, id) {
+    if (!this.enabled) return false;
+    const result = await this.pool.query('DELETE FROM payment_accounts WHERE company_id = $1 AND id = $2', [companyId, id]);
+    return result.rowCount > 0;
+  }
+
+  static PAYMENT_PROOF_COLUMNS = `
+    id, chat_id AS "chatId", wa_message_id AS "waMessageId", verdict, flags, extracted,
+    expected_amount::float8 AS "expectedAmount", review_status AS "reviewStatus",
+    reviewed_at AS "reviewedAt", created_at AS "createdAt"`;
+
+  /** Menyimpan hasil pemeriksaan; foto yang sama (pesan WA sama) tidak dicatat dua kali. */
+  async recordPaymentProof(companyId, p) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      INSERT INTO payment_proofs (company_id, chat_id, wa_message_id, image_sha256, verdict, flags, extracted, expected_amount)
+      VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8)
+      ON CONFLICT (company_id, wa_message_id) WHERE wa_message_id IS NOT NULL DO NOTHING
+      RETURNING ${Database.PAYMENT_PROOF_COLUMNS}
+    `, [companyId, p.chatId, p.waMessageId || null, p.imageSha256 || null, p.verdict,
+      JSON.stringify(p.flags || []), JSON.stringify(p.extracted || {}), p.expectedAmount || null]);
+    return result.rows[0] ? { ...result.rows[0], id: String(result.rows[0].id) } : null;
+  }
+
+  /** Bukti yang sama (hash foto atau nomor referensi) yang sudah pernah masuk dari pesan lain. */
+  async findDuplicatePaymentProof(companyId, { sha256, referenceNo, waMessageId }) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      SELECT ${Database.PAYMENT_PROOF_COLUMNS} FROM payment_proofs
+      WHERE company_id = $1 AND verdict <> 'bukan_bukti'
+        AND (wa_message_id IS DISTINCT FROM $4)
+        AND (($2::text IS NOT NULL AND image_sha256 = $2) OR ($3::text IS NOT NULL AND extracted->>'referenceNo' = $3))
+      ORDER BY created_at DESC LIMIT 1
+    `, [companyId, sha256 || null, referenceNo || null, waMessageId || null]);
+    return result.rows[0] ? { ...result.rows[0], id: String(result.rows[0].id) } : null;
+  }
+
+  async listPaymentProofs(companyId, { chatId = null, status = null, limit = 50 } = {}) {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(`
+      SELECT ${Database.PAYMENT_PROOF_COLUMNS} FROM payment_proofs
+      WHERE company_id = $1 AND ($2::text IS NULL OR chat_id = $2) AND ($3::text IS NULL OR review_status = $3)
+        AND verdict <> 'bukan_bukti'
+      ORDER BY created_at DESC LIMIT $4
+    `, [companyId, chatId, status, Math.min(Math.max(Number(limit) || 50, 1), 200)]);
+    return result.rows.map((row) => ({ ...row, id: String(row.id) }));
+  }
+
+  async reviewPaymentProof(companyId, id, status, userId = null) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      UPDATE payment_proofs SET review_status = $3, reviewed_by = $4, reviewed_at = NOW()
+      WHERE company_id = $1 AND id = $2 RETURNING ${Database.PAYMENT_PROOF_COLUMNS}
+    `, [companyId, id, status, userId]);
+    return result.rows[0] ? { ...result.rows[0], id: String(result.rows[0].id) } : null;
   }
 
   // ── Aturan promo (Pengaturan > Promo) ────────────────────────────────────

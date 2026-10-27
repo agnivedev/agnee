@@ -44,6 +44,10 @@ const lalamove = require('./lalamove.js');
 const deliveryQuote = require('./delivery-quote.js');
 const storeLocations = require('./store-locations.js');
 const promoRules = require('./promo-rules.js');
+const paymentAccounts = require('./payment-accounts.js');
+const paymentProof = require('./payment-proof.js');
+const imageReference = require('./image-reference.js');
+const jinaSearch = require('./jina-search.js');
 const dealposPrices = require('./dealpos-prices.js');
 const catalog = require('./catalog.js');
 const { createReplyPacer } = require('./reply-delay.js');
@@ -1065,9 +1069,17 @@ async function buildApp(overrides = {}) {
       }
       return;
     }
+    // Foto bukti transfer: dibaca dulu; hasilnya menggantikan isi pesan bagi AI
+    // dan staf diberi tahu seperti serah-terima.
+    const proofCheck = await checkPaymentProof(companyId, message, meta);
+    const mediaRead = proofCheck ? null : await readCustomerMedia(companyId, message);
+    const aiMessage = (proofCheck || mediaRead) ? Object.create(message, { body: { value: (proofCheck || mediaRead).text, enumerable: true } }) : message;
+    if (proofCheck) {
+      notifyHandoff(companyId, aiMessage, '').catch((error) => app.log.warn({ err: error }, 'Pemberitahuan bukti transfer gagal'));
+    }
     await paceReply(companyId, message, receivedAt, meta, {
       produce: async () => {
-        const autoReply = await generateAutoReply(message, companyId, meta);
+        const autoReply = await generateAutoReply(aiMessage, companyId, meta);
         if (autoReply) {
           // Kalimat serah-terima ditulis setelah chat dipindah ke manusia;
           // dibedakan supaya tetap terkirim walau pesan sesudahnya tidak
@@ -1648,14 +1660,17 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     if (wantsLink && companyConfig.paymentLink) {
       paymentParts.push(`### Link pembayaran\nLink: ${companyConfig.paymentLink}\nKirim link ini kepada customer saat mereka siap membayar. Jangan mengarang link atau metode lain.`);
     }
-    if (wantsBank && (companyConfig.bankName || companyConfig.bankAccount)) {
-      const bank = ['### Transfer bank'];
-      if (companyConfig.bankName) bank.push(`Bank: ${companyConfig.bankName}`);
-      if (companyConfig.bankAccount) bank.push(`No. Rekening: ${companyConfig.bankAccount}`);
-      if (companyConfig.bankHolder) bank.push(`Atas nama: ${companyConfig.bankHolder}`);
-      bank.push('Sampaikan detail rekening ini kepada customer saat mereka siap membayar. Minta customer kirim bukti transfer, lalu handoff ke supervisor untuk verifikasi.');
-      paymentParts.push(bank.join('\n'));
-    }
+    // Rekening dari Pengaturan > Paket & Pembayaran (bisa lebih dari satu, ada
+    // "rekening lama"). Company yang belum membuka layar itu memakai kolom
+    // bank_* lama, dan hanya bila metodenya transfer.
+    const accountRows = !ops && database.enabled && database.connected && canCall('listPaymentAccounts')
+      ? await database.listPaymentAccounts(companyId).catch(() => [])
+      : [];
+    const bankAccounts = accountRows.length || wantsBank
+      ? paymentAccounts.effectiveAccounts(accountRows, companyConfig || {})
+      : [];
+    const bankSection = paymentAccounts.section(bankAccounts, { proofCheck: Boolean(companyConfig?.paymentProofCheck) });
+    if (bankSection) paymentParts.push(bankSection);
 
     let paymentContext = '';
     // Nomor operasi internal tidak menagih siapa pun.
@@ -1822,6 +1837,163 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     };
   }
 
+  /**
+   * Memeriksa foto bukti transfer yang dikirim customer (saklar per company,
+   * mati bawaan). Mengembalikan teks pengganti isi pesan untuk AI, atau null
+   * bila pesan ini bukan urusan fitur ini. Tidak pernah melempar: kegagalan
+   * membaca foto berarti pesan diproses seperti biasa, bukan balasan yang macet.
+   */
+  async function checkPaymentProof(companyId, message, meta = {}) {
+    try {
+      if (!config.llmEnabled || message.type !== 'image' || message.fromMe) return null;
+      if (message.from.endsWith('@g.us') || !(database.enabled && database.connected)) return null;
+      if (!canCall('listPaymentAccounts') || !canCall('recordPaymentProof')) return null;
+      const companyConfig = await database.getCompanyConfig(companyId).catch(() => null);
+      if (!companyConfig?.paymentProofCheck) return null;
+      const rows = await database.listPaymentAccounts(companyId).catch(() => []);
+      const accounts = paymentAccounts.effectiveAccounts(rows, companyConfig);
+      if (!paymentAccounts.activeOf(accounts).length) return null;
+
+      let mimetype = null;
+      let data = null;
+      if (typeof message.downloadMedia === 'function') {
+        const media = await message.downloadMedia().catch(() => null);
+        mimetype = media?.mimetype || null;
+        data = media?.data || null;
+      } else {
+        const inline = inlineImageFromBody(message.body);
+        if (inline) { mimetype = inline.dataUrl.slice(5, inline.dataUrl.indexOf(';')); data = String(message.body).trim(); }
+      }
+      if (!data || !/^image\/(jpeg|png|webp)$/.test(String(mimetype).split(';')[0])) return null;
+      const buffer = Buffer.from(data, 'base64');
+      if (!buffer.length || buffer.length > paymentProof.MAX_IMAGE_BYTES) return null;
+
+      const raw = await llmService.describeImage({
+        system: paymentProof.SYSTEM_PROMPT,
+        text: 'Baca foto ini.',
+        imageDataUrl: `data:${String(mimetype).split(';')[0]};base64,${data}`,
+        companyId,
+        purpose: 'payment_proof',
+      });
+      const reading = paymentProof.parseReading(raw);
+      if (!reading) return null;
+
+      // Total yang diharapkan: angka total terbaru yang kita tulis di chat ini.
+      let expectedAmount = null;
+      try {
+        const { client: wa } = await waFor(companyId, message.from);
+        if (wa) expectedAmount = paymentProof.guessExpectedAmount((await getMessagesForUi(wa, message.from, 20)).messages);
+      } catch { /* total tidak diketahui -> perlu dicek staf */ }
+
+      const sha256 = crypto.createHash('sha256').update(buffer).digest('hex');
+      const waMessageId = inboundMessageId(message);
+      const duplicateOf = reading.isTransferProof
+        ? await database.findDuplicatePaymentProof(companyId, { sha256, referenceNo: reading.referenceNo, waMessageId }).catch(() => null)
+        : null;
+      const result = paymentProof.evaluate(reading, { accounts, expectedAmount, duplicateOf });
+      if (result.verdict === 'bukan_bukti') return null;
+
+      const saved = await database.recordPaymentProof(companyId, {
+        chatId: message.from, waMessageId, imageSha256: sha256, verdict: result.verdict, flags: result.flags,
+        extracted: reading, expectedAmount,
+      });
+      if (!saved) return null; // pesan yang sama sudah diperiksa sebelumnya
+      broadcastEvent(companyId, 'payment_proof', { chatId: message.from, proof: saved });
+      app.log.info({ companyId, chatId: message.from, verdict: result.verdict, flags: result.flags }, 'Bukti transfer diperiksa');
+      const caption = String(message.body || '').trim();
+      return {
+        proof: saved,
+        text: [caption && !inlineImageFromBody(caption) ? caption : '[Customer mengirim foto bukti transfer]',
+          paymentProof.aiMarker({ ...result, extracted: reading, expectedAmount })].join('\n'),
+      };
+    } catch (error) {
+      app.log.warn({ err: error, companyId }, 'Pemeriksaan bukti transfer gagal; pesan diproses seperti biasa');
+      return null;
+    }
+  }
+
+  // Penanda foto/video customer yang sudah dibaca, supaya giliran berikutnya
+  // masih "melihat" apa yang dikirim (riwayat hanya menyimpan kata "Foto").
+  const mediaMarkers = new Map();
+  const MEDIA_MARKERS_MAX = 500;
+
+  /**
+   * Membaca foto/video referensi customer: deskripsi, kandidat katalog yang
+   * dipastikan dengan membandingkan gambar, lalu pencarian web (Jina) bila
+   * belum ada yang cocok. Mengembalikan teks pengganti isi pesan bagi AI, atau
+   * null bila bukan urusan fitur ini. Tidak pernah melempar.
+   */
+  async function readCustomerMedia(companyId, message) {
+    try {
+      if (!config.llmEnabled || message.fromMe || !['image', 'video'].includes(message.type)) return null;
+      if (message.from.endsWith('@g.us') || !(database.enabled && database.connected)) return null;
+      const companyConfig = await database.getCompanyConfig(companyId).catch(() => null);
+      if (companyConfig?.aiReadMedia === false) return null;
+
+      // Foto: berkas penuh. Video: hanya gambar pratinjau yang dibawa WhatsApp.
+      const isVideo = message.type === 'video';
+      let mimetype = null;
+      let data = null;
+      if (!isVideo && typeof message.downloadMedia === 'function') {
+        const media = await message.downloadMedia().catch(() => null);
+        mimetype = media?.mimetype || null;
+        data = media?.data || null;
+      } else {
+        const thumb = inlineImageFromBody(isVideo ? (message._data?.body || message.body) : message.body);
+        if (thumb) { mimetype = thumb.dataUrl.slice(5, thumb.dataUrl.indexOf(';')); data = thumb.dataUrl.split(',')[1]; }
+      }
+      const type = String(mimetype).split(';')[0];
+      if (!data || !/^image\/(jpeg|png|webp)$/.test(type)) return null;
+      if (Buffer.byteLength(data, 'base64') > paymentProof.MAX_IMAGE_BYTES) return null;
+      const dataUrl = `data:${type};base64,${data}`;
+
+      const reading = imageReference.parseReading(await llmService.describeImage({
+        system: imageReference.READ_PROMPT, text: 'Baca gambar ini.', imageDataUrl: dataUrl, companyId, purpose: 'media_read',
+      }));
+      if (!reading || !reading.description) return null;
+
+      let match = null;
+      let web = [];
+      if (['produk', 'referensi'].includes(reading.kind)) {
+        const catalogData = canCall('listCatalogForAi') ? await catalogForAi(companyId).catch(() => null) : null;
+        const items = catalogData?.enabled && Array.isArray(catalogData.items) ? catalogData.items : [];
+        const list = imageReference.candidates(items, reading);
+        if (list.length) {
+          match = { items: list, best: null, confidence: 'rendah' };
+          // Bandingkan dengan gambar katalog; tanpa gambar katalog tinggal kandidat teks.
+          const withImage = list.filter((i) => catalog.safeUrl(i.imageUrl));
+          if (withImage.length) {
+            try {
+              const verdict = imageReference.parseVerdict(await llmService.describeImage({
+                system: imageReference.VERIFY_PROMPT, text: 'Bandingkan.', imageDataUrl: dataUrl,
+                extraImageUrls: withImage.map((i) => catalog.safeUrl(i.imageUrl)), companyId, purpose: 'media_match',
+              }), withImage.length);
+              if (verdict?.best != null && verdict.confidence !== 'rendah') {
+                match = { items: list, best: withImage[verdict.best], confidence: verdict.confidence };
+              }
+            } catch (error) {
+              app.log.warn({ err: error, companyId }, 'Pencocokan gambar ke katalog gagal; memakai kandidat teks');
+            }
+          }
+        }
+        // Web hanya bila katalog belum memberi jawaban yakin.
+        if (!match?.best && reading.searchQuery) web = await jinaSearch.search(reading.searchQuery);
+      }
+
+      const text = imageReference.marker({ kind: reading.kind, reading, match, web, videoPreview: isVideo });
+      const caption = String(message.body || '').trim();
+      const body = `${caption && !inlineImageFromBody(caption) ? `${caption}\n` : ''}${text}`;
+      const key = `${companyId}:${inboundMessageId(message)}`;
+      if (mediaMarkers.size >= MEDIA_MARKERS_MAX) mediaMarkers.delete(mediaMarkers.keys().next().value);
+      mediaMarkers.set(key, text);
+      app.log.info({ companyId, chatId: message.from, kind: reading.kind, matched: Boolean(match?.best), web: web.length }, 'Gambar customer dibaca');
+      return { text: body };
+    } catch (error) {
+      app.log.warn({ err: error, companyId }, 'Membaca gambar customer gagal; pesan diproses seperti biasa');
+      return null;
+    }
+  }
+
   async function generateAutoReply(message, companyId, meta = {}) {
     if (!config.llmEnabled) return null;
     if (message.from.endsWith('@g.us')) return null;
@@ -1929,7 +2101,8 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
           .slice(ctx.ks ? -14 : -10)
           .map(m => ({
             role: m.fromMe ? 'assistant' : 'user',
-            content: (m.fromMe ? m.body : mapsLink.readCustomerTextCached(m)) || mediaMarker(m),
+            content: (m.fromMe ? m.body : mapsLink.readCustomerTextCached(m))
+              || mediaMarkers.get(`${companyId}:${inboundMessageId(m)}`) || mediaMarker(m),
           }));
       }
       // wa null berarti Cloud API — pesannya tidak lewat client whatsapp-web.js
@@ -4862,6 +5035,8 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       bankAccount: { type: 'string', maxLength: 50 },
       bankHolder: { type: 'string', maxLength: 100 },
       paymentNotes: { type: 'string', maxLength: 500 },
+      paymentProofCheck: { type: 'boolean' },
+      aiReadMedia: { type: 'boolean' },
       rotationEnabled: { type: 'boolean' },
       replyDelayEnabled: { type: 'boolean' },
       replyDelayMinSeconds: { type: 'integer', minimum: 0, maximum: 120 },
@@ -4895,7 +5070,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     // pembayaran tidak boleh mengendap di jejak audit yang dibaca lewat API.
     // Yang perlu ditelusuri adalah "siapa mengubah rekening, kapan" — bukan
     // rekening lamanya.
-    const kolomPembayaran = ['paymentMethod', 'paymentLink', 'bankName', 'bankAccount', 'bankHolder', 'paymentNotes'];
+    const kolomPembayaran = ['paymentMethod', 'paymentLink', 'bankName', 'bankAccount', 'bankHolder', 'paymentNotes', 'paymentProofCheck', 'aiReadMedia'];
     const berubah = kolomPembayaran.filter((kolom) => request.body[kolom] !== undefined);
     if (berubah.length) {
       await catatAudit(request, 'payment.changed', {
@@ -10624,6 +10799,88 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     }
     await database.deleteCompanyLocation(companyId, existing.id);
     return { ok: true };
+  });
+
+  // ── Rekening pembayaran & bukti transfer ─────────────────────────────────
+  // Membaca boleh semua anggota (staf perlu melihat bukti di chat); mengubah
+  // rekening hanya supervisor. Nomor rekening tidak dicatat di jejak audit.
+
+  const accountBody = {
+    type: 'object', required: ['bankName', 'accountNumber'], additionalProperties: false,
+    properties: {
+      bankName: { type: 'string', minLength: 1, maxLength: 60 },
+      accountNumber: { type: 'string', minLength: 1, maxLength: 40 },
+      accountHolder: { type: 'string', maxLength: 100 },
+      status: { type: 'string', enum: paymentAccounts.STATUSES },
+      note: { type: 'string', maxLength: 300 },
+    },
+  };
+  const bigintParams = { type: 'object', properties: { id: { type: 'string', pattern: '^[0-9]{1,18}$' } } };
+
+  app.get('/v1/payment-accounts', async (request) => {
+    if (!canCall('listPaymentAccounts')) return { accounts: [] };
+    return { accounts: await database.listPaymentAccounts(request.agneeSession.companyId) };
+  });
+
+  async function savePaymentAccount(request, reply, existing) {
+    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengatur rekening.' });
+    if (!canCall('savePaymentAccount')) return reply.code(503).send({ error: 'Database tidak tersedia.' });
+    const { account, error } = paymentAccounts.normalizeAccount(request.body);
+    if (error) return reply.code(422).send({ error });
+    const companyId = request.agneeSession.companyId;
+    const saved = await database.savePaymentAccount(companyId, existing?.id || null, account, request.agneeSession.userId);
+    await catatAudit(request, existing ? 'payment_account.updated' : 'payment_account.created', {
+      entityType: 'payment_account', entityId: saved.id, metadata: { status: saved.status },
+    });
+    return reply.code(existing ? 200 : 201).send({ account: saved });
+  }
+
+  app.post('/v1/payment-accounts', { schema: { body: accountBody } }, async (request, reply) => {
+    if (canCall('countPaymentAccounts') && await database.countPaymentAccounts(request.agneeSession.companyId) >= paymentAccounts.MAX_ACCOUNTS) {
+      return reply.code(422).send({ error: `Maksimal ${paymentAccounts.MAX_ACCOUNTS} rekening per company.` });
+    }
+    return savePaymentAccount(request, reply, null);
+  });
+
+  app.put('/v1/payment-accounts/:id', { schema: { params: bigintParams, body: accountBody } }, async (request, reply) => {
+    if (!canCall('getPaymentAccount')) return reply.code(503).send({ error: 'Database tidak tersedia.' });
+    const existing = await database.getPaymentAccount(request.agneeSession.companyId, request.params.id);
+    if (!existing) return reply.code(404).send({ error: 'Rekening tidak ditemukan.' });
+    return savePaymentAccount(request, reply, existing);
+  });
+
+  app.delete('/v1/payment-accounts/:id', { schema: { params: bigintParams } }, async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengatur rekening.' });
+    if (!canCall('deletePaymentAccount')) return reply.code(503).send({ error: 'Database tidak tersedia.' });
+    const ok = await database.deletePaymentAccount(request.agneeSession.companyId, request.params.id);
+    if (!ok) return reply.code(404).send({ error: 'Rekening tidak ditemukan.' });
+    await catatAudit(request, 'payment_account.deleted', { entityType: 'payment_account', entityId: request.params.id });
+    return { ok: true };
+  });
+
+  app.get('/v1/payment-proofs', {
+    schema: { querystring: { type: 'object', properties: {
+      chatId: { type: 'string', maxLength: 100 },
+      status: { type: 'string', enum: ['pending', 'accepted', 'rejected'] },
+      limit: { type: 'integer', minimum: 1, maximum: 200 },
+    } } },
+  }, async (request) => {
+    if (!canCall('listPaymentProofs')) return { proofs: [] };
+    const { chatId, status, limit } = request.query;
+    const proofs = await database.listPaymentProofs(request.agneeSession.companyId, { chatId, status, limit });
+    return { proofs: proofs.map((p) => ({ ...p, summary: paymentProof.summarize(p) })) };
+  });
+
+  // Staf memutuskan setelah mencocokkan dengan mutasi bank: hasil otomatis
+  // hanyalah bacaan foto.
+  app.patch('/v1/payment-proofs/:id', {
+    schema: { params: bigintParams, body: { type: 'object', required: ['status'], additionalProperties: false, properties: { status: { type: 'string', enum: ['pending', 'accepted', 'rejected'] } } } },
+  }, async (request, reply) => {
+    if (!canCall('reviewPaymentProof')) return reply.code(503).send({ error: 'Database tidak tersedia.' });
+    const saved = await database.reviewPaymentProof(request.agneeSession.companyId, request.params.id, request.body.status, request.agneeSession.userId);
+    if (!saved) return reply.code(404).send({ error: 'Bukti tidak ditemukan.' });
+    await catatAudit(request, 'payment_proof.reviewed', { entityType: 'payment_proof', entityId: saved.id, metadata: { status: saved.reviewStatus } });
+    return { proof: { ...saved, summary: paymentProof.summarize(saved) } };
   });
 
   // ── Aturan promo (Pengaturan > Promo) ─────────────────────────────────────

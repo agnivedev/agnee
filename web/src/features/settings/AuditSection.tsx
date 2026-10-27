@@ -70,6 +70,10 @@ const AUDIT_ACTIONS = [
   'promo.enabled',
   'promo.disabled',
   'promo.deleted',
+  'payment_account.created',
+  'payment_account.updated',
+  'payment_account.deleted',
+  'payment_proof.reviewed',
 ] as const;
 
 /**

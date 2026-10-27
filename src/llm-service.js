@@ -83,6 +83,48 @@ class LlmService {
   }
 
   /**
+   * Membaca satu gambar dan mengembalikan teks mentah model (dipakai pemeriksa
+   * bukti transfer). Model penglihat tetap model platform, bukan rantai tenant:
+   * tidak semua model di rantai bisa membaca gambar. Pemakaian dicatat lewat
+   * onUsage seperti panggilan lain. Melempar bila gagal; pemanggil yang menelan.
+   */
+  async describeImage({ system, text, imageDataUrl, extraImageUrls = [], companyId, purpose = 'vision', model = 'google/gemini-2.5-flash' }) {
+    if (!this.enabled) throw new Error('LLM tidak aktif');
+    const response = await fetch(`${this.baseUrl}/chat/completions`, {
+      method: 'POST',
+      signal: AbortSignal.timeout(45_000),
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${this.apiKey}`,
+        'HTTP-Referer': 'https://agnee.agnive.co',
+        'X-Title': 'Agnee Customer Service Bot',
+      },
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: 'system', content: system },
+          { role: 'user', content: [{ type: 'text', text }, { type: 'image_url', image_url: { url: imageDataUrl } }, ...extraImageUrls.map((url) => ({ type: 'image_url', image_url: { url } }))] },
+        ],
+        temperature: 0,
+        max_tokens: 600,
+        usage: { include: true },
+      }),
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(`OpenRouter API error (${model}): ${error.error?.message || response.statusText}`);
+    }
+    const data = await response.json();
+    const reply = data.choices?.[0]?.message?.content;
+    if (!reply) throw new Error(`No reply content from ${model}`);
+    assertComplete(data.choices?.[0]?.finish_reason, model);
+    if (this.onUsage) {
+      try { this.onUsage({ model, usage: data.usage, context: { companyId, purpose } }); } catch { /* pencatatan tidak boleh menggagalkan */ }
+    }
+    return String(reply).trim();
+  }
+
+  /**
    * The same call, but the model may look things up first: `context.tools` is
    * a list of { name, description, parameters (JSON Schema), run(args) }.
    * The model asks for a tool, we run it and hand back the result, at most

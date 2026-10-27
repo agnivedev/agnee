@@ -3966,7 +3966,7 @@ class Database {
     return recipients.map((r) => r.userId);
   }
 
-  // ── AI belajar dari chat (migrasi 071) ────────────────────────────────────
+  // ── AI belajar dari chat (migrasi 090) ────────────────────────────────────
 
   async getKnowledgeLearning(companyId) {
     if (!this.enabled) return false;

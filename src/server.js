@@ -6571,7 +6571,7 @@ Aturan:
     return reply.code(204).send();
   });
 
-  // ── AI belajar dari chat (migrasi 071) ───────────────────────────────────
+  // ── AI belajar dari chat (migrasi 090) ───────────────────────────────────
   //
   // Alur: ringkasan chat menangkap tanya-jawab baru dari balasan CS → CS
   // menawarkannya ("Ajarkan ke AI") → supervisor melihat simulasi sebelum/

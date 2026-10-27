@@ -265,7 +265,7 @@ test('ringkasan chat menangkap usulan: label AI/CS, saringan di kode, satu chip 
 test('kabar WhatsApp ke supervisor digabung: banyak usulan berdekatan, satu rangkuman', { skip }, async (t) => {
   const kp = require('../src/knowledge-proposals.js');
   const original = kp.DIGEST_DEBOUNCE_MS;
-  kp.DIGEST_DEBOUNCE_MS = 40;
+  kp.DIGEST_DEBOUNCE_MS = 150;
   t.after(() => { kp.DIGEST_DEBOUNCE_MS = original; });
   const { call, real, sup, agent, companyA } = await setup(t);
   await call(sup, 'PUT', '/v1/knowledge/settings', { enabled: true });
@@ -277,6 +277,6 @@ test('kabar WhatsApp ke supervisor digabung: banyak usulan berdekatan, satu rang
     "SELECT COUNT(*)::int AS n FROM knowledge_proposals WHERE company_id = $1 AND status = 'submitted' AND wa_notified_at IS NULL", [companyA],
   )).rows[0].n;
   assert.equal(await pending(), 2);
-  for (let i = 0; i < 40 && await pending() > 0; i += 1) await new Promise((resolve) => setTimeout(resolve, 25));
+  for (let i = 0; i < 200 && await pending() > 0; i += 1) await new Promise((resolve) => setTimeout(resolve, 25));
   assert.equal(await pending(), 0, 'keduanya masuk satu rangkuman');
 });

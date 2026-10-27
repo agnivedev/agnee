@@ -1595,7 +1595,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     if (routing?.mode === 'human') return { relayed: false, reason: 'human' };
     const companyAi = await getCompanyAi(companyId);
     const relayMode = await resolveAgentMode(companyId, row.chatId);
-    const ctx = await buildReplyContext({ companyId, text: row.customerText, chatId: row.chatId, agentMode: relayMode });
+    const ctx = await buildReplyContext({ companyId, text: row.customerText, chatId: row.chatId, allowOrders: true, agentMode: relayMode });
     // Percakapan operasi internal: penerimanya orang dalam, jadi menyebut siapa
     // yang menjawab boleh dan pagar kebocoran proses internal tidak berlaku.
     // Jawaban yang belum pasti tetap TIDAK diteruskan sebagai fakta.
@@ -1642,7 +1642,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
    * so what a supervisor tests is what a customer actually gets. Testing
    * against a different context than production is worse than not testing.
    */
-  async function buildReplyContext({ companyId, text, chatId = null, productId = null, ks = null, allowDepartments = false, agentMode = 'standard', sender = null, extraPlaybook = '' }) {
+  async function buildReplyContext({ companyId, text, chatId = null, productId = null, ks = null, allowDepartments = false, allowOrders = false, agentMode = 'standard', sender = null, extraPlaybook = '' }) {
     const mode = agentModes.normalizeMode(agentMode);
     const ops = mode === 'internal_ops';
     const kb = await getKnowledgeBase(companyId);
@@ -1761,10 +1761,12 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       : [];
     // Rincian WhatsApp sebelum closing: semua company, hanya untuk customer.
     const summaryTools = !ops && !ks ? [orderSummary.toolSpec()] : [];
-    // Proforma + invoice DealPOS + kurir Lalamove: hanya chat sungguhan, saklar
-    // per company, dan setelan dokumen lengkap.
+    // Proforma + invoice DealPOS + kurir Lalamove: hanya balasan ke customer di
+    // chat sungguhan (allowOrders), saklar per company, dan setelan dokumen
+    // lengkap. Simulator dan catatan internal juga membawa chatId, tetapi tidak
+    // boleh menulis dokumen atau memesan kurir.
     let orderTools = [];
-    if (!ops && !ks && chatId && dbLive && canCall('getDealposConnection') && canCall('listDealposProducts')) {
+    if (allowOrders && !ops && !ks && chatId && dbLive && canCall('getDealposConnection') && canCall('listDealposProducts')) {
       const posConn = await database.getDealposConnection(companyId).catch(() => null);
       if (dealposOrders.isUsable(posConn)) {
         const { products } = await database.listDealposProducts(companyId).catch(() => ({ products: [] }));
@@ -2119,7 +2121,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     }
 
     // Use this company's own knowledge client from DB — never another tenant's
-    const ctx = await buildReplyContext({ companyId, text: customerText, chatId: message.from, allowDepartments: true, agentMode, sender: opsSender });
+    const ctx = await buildReplyContext({ companyId, text: customerText, chatId: message.from, allowDepartments: true, allowOrders: true, agentMode, sender: opsSender });
 
     // Fetch recent conversation history so the AI knows what was already said.
     //

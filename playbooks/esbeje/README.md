@@ -48,5 +48,4 @@ Triplek (tanpa merek), toren Penguin dan Mpoin, Semen Jakarta, mortar Mortar Uta
 ## Belum dikonfirmasi pemilik
 
 - Pemetaan tahap ke produk (mis. toren di tahap atap, pipa di pondasi dan finishing).
-- Nama persona. Sekarang "admin penjualan ESBEJE" tanpa nama.
 - Area kirim, rekening, dan aturan ongkir. Playbook menyerahkan semuanya ke tim.

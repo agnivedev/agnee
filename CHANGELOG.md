@@ -1,5 +1,15 @@
 ## [Unreleased]
 
+- **AI membaca Pengaturan > Lokasi.** Alamat, jam buka, link peta, dan catatan toko masuk
+  prompt (bagian "LOKASI TOKO"), jadi customer yang tanya "alamatnya di mana / buka jam
+  berapa" dijawab dari data, bukan "saya pastikan dulu". Hanya lokasi "Customer boleh datang
+  langsung" yang ikut; gudang, nama, dan nomor penanggung jawab (data pengirim kurir) tidak
+  pernah sampai ke AI. Jam buka kosong dilarang ditebak. Dengan dua toko atau lebih ada alat
+  `cari_toko_terdekat` (lokasi customer dari pin, link Google Maps, atau nama daerah; jarak
+  garis lurus). `cek_ongkir` punya parameter `dari_toko` supaya ongkir dihitung dari toko
+  terdekat, bukan hanya titik jemput bawaan. Tes: `test/store-locations.test.js` (termasuk
+  customer lewat `/v1/coach/simulate`).
+
 - **Katalog produk & jasa + ribbon (menu baru "Katalog", /katalog).** Bisa berdiri sendiri
   (item diisi tangan: produk atau jasa, harga boleh kosong + catatan harga seperti "mulai dari")
   atau tersambung ke POS, sekarang DealPOS: `/Product` ditarik per varian (nama, kode,

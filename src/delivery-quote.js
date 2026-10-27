@@ -26,6 +26,7 @@ const GUIDE = `## ONGKIR LALAMOVE (alat ${TOOL_NAME})
 - Isi "tujuan" dengan koordinat dari penanda lokasi atau link Google Maps customer (mis. "-6.301234,106.652345") kalau ada di percakapan. Kalau customer baru menyebut nama daerah atau alamat, isi dengan teks itu apa adanya.
 - Pilih "kendaraan" sesuai berat dan ukuran barang yang dipesan. Kosongkan kalau ragu; kendaraan bawaan toko yang dipakai.
 - Sebut hasilnya sebagai estimasi ongkir via Lalamove, lengkap dengan kendaraannya. Kalau "ketepatan" = "perkiraan_area", katakan itu perkiraan ke area tersebut dan minta customer share location WhatsApp supaya angkanya pas.
+- Kalau ada daftar toko di parameter "dari_toko" dan customer ingin barang dikirim dari toko tertentu atau yang terdekat dengannya, isi "dari_toko" dengan nama tokonya. Kosongkan untuk memakai titik jemput bawaan.
 - Alat ini tidak menentukan jadwal kirim; jangan menjanjikan jam.
 - Kalau alat gagal atau lokasi tidak terbaca, jangan mengarang angka. Minta share location, atau katakan ongkirnya dipastikan dulu.`;
 
@@ -47,7 +48,7 @@ function servicesOf(conn) {
   return [...byKey.entries()].map(([key, description]) => ({ key, description }));
 }
 
-function toolSpec({ conn, run }) {
+function toolSpec({ conn, run, stores = [] }) {
   const services = servicesOf(conn);
   const vehicleList = services.map((s) => `${s.key}${s.description ? ` (${s.description})` : ''}`).join('; ');
   return {
@@ -59,6 +60,7 @@ function toolSpec({ conn, run }) {
       required: ['tujuan'],
       properties: {
         tujuan: { type: 'string', maxLength: 300, description: 'Koordinat "lat,lng" atau link Google Maps dari customer; kalau belum ada, nama tempat atau alamat yang diketik customer.' },
+        ...(stores.length ? { dari_toko: { type: 'string', enum: stores.map((l) => l.name), description: 'Toko asal pengiriman. Kosongkan untuk titik jemput bawaan.' } } : {}),
         ...(services.length ? { kendaraan: { type: 'string', enum: services.map((s) => s.key), description: 'Kendaraan sesuai berat dan ukuran barang.' } } : {}),
       },
     },
@@ -98,7 +100,7 @@ const rupiah = (value) => `Rp ${Math.round(Number(value)).toLocaleString('id-ID'
  * Menjalankan alat. Tidak pernah melempar: hasilnya selalu objek yang bisa
  * dibaca model, termasuk saat gagal, supaya model tidak mengarang angka.
  */
-async function quote(conn, args = {}, { fetchImpl = globalThis.fetch, getQuotation = lalamove.getQuotation } = {}) {
+async function quote(conn, args = {}, { fetchImpl = globalThis.fetch, getQuotation = lalamove.getQuotation, stores = [] } = {}) {
   const destination = await resolveDestination(args.tujuan, { fetchImpl }).catch(() => null);
   if (!destination) {
     return { status: 'lokasi_tidak_terbaca', pesan: 'Lokasi customer belum terbaca. Minta customer share location WhatsApp atau kirim link Google Maps.' };
@@ -108,7 +110,10 @@ async function quote(conn, args = {}, { fetchImpl = globalThis.fetch, getQuotati
   const serviceType = keys.includes(args.kendaraan) ? args.kendaraan
     : (keys.includes(conn.defaultService) ? conn.defaultService : (keys.includes('MOTORCYCLE') ? 'MOTORCYCLE' : keys[0]));
   if (!serviceType) return { status: 'gagal', pesan: 'Jenis kendaraan Lalamove belum tersedia. Ongkir dipastikan dulu.' };
-  const pickup = { lat: Number(conn.pickupLat), lng: Number(conn.pickupLng), address: conn.pickupAddress || `${conn.pickupLat},${conn.pickupLng}` };
+  const store = args.dari_toko ? stores.find((l) => l.name === args.dari_toko) : null;
+  const pickup = store
+    ? { lat: Number(store.lat), lng: Number(store.lng), address: store.address || `${store.lat},${store.lng}` }
+    : { lat: Number(conn.pickupLat), lng: Number(conn.pickupLng), address: conn.pickupAddress || `${conn.pickupLat},${conn.pickupLng}` };
   try {
     const result = await getQuotation(conn, { serviceType, stops: [pickup, destination] }, fetchImpl);
     if (result.total == null) return { status: 'gagal', pesan: 'Lalamove tidak memberi harga. Ongkir dipastikan dulu.' };
@@ -118,6 +123,7 @@ async function quote(conn, args = {}, { fetchImpl = globalThis.fetch, getQuotati
       ongkir: result.currency === 'IDR' ? rupiah(result.total) : `${result.currency} ${result.total}`,
       kendaraan: service?.description ? `${serviceType} (${service.description})` : serviceType,
       jarak_km: result.distanceMeters != null ? Math.round(result.distanceMeters / 100) / 10 : null,
+      dari: store ? store.name : undefined,
       tujuan: destination.address,
       ketepatan: destination.accuracy,
       catatan: conn.environment === 'production'

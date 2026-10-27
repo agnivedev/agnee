@@ -42,6 +42,7 @@ const mayarSync = require('./mayar-sync.js');
 const dealposSync = require('./dealpos-sync.js');
 const lalamove = require('./lalamove.js');
 const deliveryQuote = require('./delivery-quote.js');
+const storeLocations = require('./store-locations.js');
 const dealposPrices = require('./dealpos-prices.js');
 const catalog = require('./catalog.js');
 const { createReplyPacer } = require('./reply-delay.js');
@@ -1700,8 +1701,18 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     const lalamoveConn = !ops && !ks && dbLive && canCall('getLalamoveConnection')
       ? await database.getLalamoveConnection(companyId).catch(() => null)
       : null;
+    // Lokasi toko dari Pengaturan > Lokasi. Hanya yang boleh dikunjungi
+    // customer; gudang tidak pernah sampai ke AI.
+    const locations = !ops && !ks && dbLive && canCall('listCompanyLocations')
+      ? await database.listCompanyLocations(companyId).catch(() => [])
+      : [];
+    const stores = storeLocations.customerFacing(locations);
+    const nearestTool = storeLocations.isUsable(locations);
     const deliveryTools = deliveryQuote.isUsable(lalamoveConn, { realChat: Boolean(chatId) })
-      ? [deliveryQuote.toolSpec({ conn: lalamoveConn, run: (args = {}) => deliveryQuote.quote(lalamoveConn, args) })]
+      ? [deliveryQuote.toolSpec({ conn: lalamoveConn, stores: stores.length > 1 ? stores : [], run: (args = {}) => deliveryQuote.quote(lalamoveConn, args, { stores }) })]
+      : [];
+    const locationTools = nearestTool
+      ? [storeLocations.toolSpec({ locations: stores, run: (args = {}) => storeLocations.findNearest(stores, args) })]
       : [];
     // Departemen hanya dipakai pada chat nyata (ada chatId): simulator Coach
     // tidak boleh membangunkan anggota departemen sungguhan.
@@ -1763,6 +1774,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       catalogContext,
       priceContext,
       hubTools.length ? HUB_TOOLS_GUIDE : '',
+      storeLocations.section(stores, { withNearestTool: nearestTool }),
       deliveryTools.length ? deliveryQuote.GUIDE : '',
       // Mode agent: blok peran + panduan tambahan company. 'standard' kosong,
       // jadi nomor lama persis seperti sebelum ada mode.
@@ -1787,7 +1799,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       playbookContext,
       paymentContext,
       companyConfig,
-      tools: [...hubTools, ...deliveryTools, ...departmentTools],
+      tools: [...hubTools, ...deliveryTools, ...locationTools, ...departmentTools],
       departmentAsked,
       leadState: latestSummary?.summary
         ? { ...(leadStateRaw || {}), conversationSummary: latestSummary.summary }

@@ -6,6 +6,7 @@ export type CatalogTag = {
   name: string;
   color: TagColor;
   autoRule: AutoRule | null;
+  posTag: string | null;
   highlight: boolean;
   aiNote: string;
   active: boolean;

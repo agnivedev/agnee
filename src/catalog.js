@@ -218,6 +218,15 @@ async function fetchVariantDetail(get, variantId) {
   };
 }
 
+/** Tag bawaan DealPOS satu produk dari `/Product/Detail` (juga memberi merek). Rate limit dilempar ke pemanggil. */
+async function fetchProductTags(get, productId) {
+  const data = await get(`/Product/Detail?ID=${encodeURIComponent(productId)}`);
+  return {
+    tags: (Array.isArray(data?.Tags) ? data.Tags : []).map((t) => text(t)).filter(Boolean).slice(0, 20),
+    brand: text(data?.Brand)?.slice(0, 100) || null,
+  };
+}
+
 const soldQtyFor = (item, sold) => (sold && item.code ? sold.get(item.code.toLowerCase()) || 0 : null);
 
 const rupiah = (value) => `Rp ${Math.round(Number(value)).toLocaleString('id-ID')}`;
@@ -304,6 +313,7 @@ module.exports = {
   catalogSection,
   detailTargets,
   fetchVariantDetail,
+  fetchProductTags,
   DETAIL_GAP_MS,
   fetchDealposDetails,
   safeUrl,

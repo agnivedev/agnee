@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { Trash2 } from 'lucide-react';
 import { api, messageFromError } from '@/lib/api';
 import { useI18n } from '@/lib/i18n';
@@ -27,13 +27,23 @@ export function TagsDialog({ tags, settings, hasPos, onClose, onChanged }: {
   const [newName, setNewName] = useState('');
   const [newColor, setNewColor] = useState<TagColor>('violet');
   const [status, setStatus] = useState('');
+  const [posTags, setPosTags] = useState<{ tag: string; count: number }[]>([]);
+  const [posPending, setPosPending] = useState(0);
   const [rules, setRules] = useState({
     bestSellerCount: String(settings.bestSellerCount),
     bestSellerDays: String(settings.bestSellerDays),
     newDays: String(settings.newDays),
   });
 
-  async function patch(tag: CatalogTag, body: Partial<Pick<CatalogTag, 'name' | 'color' | 'highlight' | 'aiNote' | 'active'>>) {
+  // Saran tag DealPOS dan sisa produk yang tag-nya belum ditarik.
+  useEffect(() => {
+    if (!hasPos) return;
+    api<{ tags: { tag: string; count: number }[]; pending: number }>('/v1/catalog/pos-tags')
+      .then((data) => { setPosTags(data.tags); setPosPending(data.pending); })
+      .catch(() => { /* saran opsional */ });
+  }, [hasPos, tags]);
+
+  async function patch(tag: CatalogTag, body: Partial<Pick<CatalogTag, 'name' | 'color' | 'highlight' | 'aiNote' | 'active' | 'posTag'>>) {
     setStatus('');
     try {
       await api(`/v1/catalog/tags/${tag.id}`, { method: 'PATCH', body });
@@ -92,6 +102,7 @@ export function TagsDialog({ tags, settings, hasPos, onClose, onChanged }: {
     if (tag.autoRule === 'best_seller') return t('catalog.rule.bestSeller', { count: settings.bestSellerCount, days: settings.bestSellerDays });
     if (tag.autoRule === 'promo') return t('catalog.rule.promo');
     if (tag.autoRule === 'new') return t('catalog.rule.new', { days: settings.newDays });
+    if (tag.posTag) return t('catalog.rule.posTag', { tag: tag.posTag });
     return t('catalog.rule.manual');
   };
 
@@ -109,7 +120,7 @@ export function TagsDialog({ tags, settings, hasPos, onClose, onChanged }: {
 
         <ul className="m-0 grid list-none gap-2 p-0">
           {tags.map((tag) => (
-            <TagRow key={tag.id} tag={tag} ruleText={ruleText(tag)} onPatch={(body) => void patch(tag, body)} onDelete={() => void remove(tag)} />
+            <TagRow key={tag.id} tag={tag} hasPos={hasPos} posTags={posTags} ruleText={ruleText(tag)} onPatch={(body) => void patch(tag, body)} onDelete={() => void remove(tag)} />
           ))}
         </ul>
 
@@ -141,21 +152,28 @@ export function TagsDialog({ tags, settings, hasPos, onClose, onChanged }: {
           </div>
         ) : null}
 
+        {hasPos && posPending > 0 && tags.some((tag) => tag.posTag) ? (
+          <p className="m-0 text-[12px] text-muted">{t('catalog.tags.posPending', { n: posPending.toLocaleString('id-ID') })}</p>
+        ) : null}
         {status ? <p className="m-0 text-[13px] text-muted">{status}</p> : null}
       </div>
     </Dialog>
   );
 }
 
-function TagRow({ tag, ruleText, onPatch, onDelete }: {
+function TagRow({ tag, hasPos, posTags, ruleText, onPatch, onDelete }: {
   tag: CatalogTag;
+  hasPos: boolean;
+  posTags: { tag: string; count: number }[];
   ruleText: string;
-  onPatch: (body: Partial<Pick<CatalogTag, 'name' | 'color' | 'highlight' | 'aiNote' | 'active'>>) => void;
+  onPatch: (body: Partial<Pick<CatalogTag, 'name' | 'color' | 'highlight' | 'aiNote' | 'active' | 'posTag'>>) => void;
   onDelete: () => void;
 }) {
   const { t } = useI18n();
   const [name, setName] = useState(tag.name);
   const [aiNote, setAiNote] = useState(tag.aiNote);
+  const [posTag, setPosTag] = useState(tag.posTag || '');
+  const listId = `pos-tags-${tag.id}`;
   return (
     <li className={cn('grid gap-2 rounded-app border border-border bg-white/70 p-3', !tag.active && 'opacity-70')}>
       <div className="flex flex-wrap items-center gap-2">
@@ -189,6 +207,23 @@ function TagRow({ tag, ruleText, onPatch, onDelete }: {
         aria-label={t('catalog.tags.aiNote')}
         maxLength={300}
       />
+      {hasPos && !tag.autoRule ? (
+        <label className="grid gap-1 text-[12px] font-semibold">
+          {t('catalog.tags.posTag')}
+          <Input
+            value={posTag}
+            onChange={(e) => setPosTag(e.target.value)}
+            onBlur={() => { if (posTag.trim() !== (tag.posTag || '')) onPatch({ posTag: posTag.trim() }); }}
+            list={listId}
+            placeholder={t('catalog.tags.posTagPlaceholder')}
+            maxLength={60}
+          />
+          <datalist id={listId}>
+            {posTags.map((p) => <option key={p.tag} value={p.tag}>{p.count}</option>)}
+          </datalist>
+          <span className="text-[11px] font-normal text-muted">{t('catalog.tags.posTagHint')}</span>
+        </label>
+      ) : null}
       <label className="flex items-center gap-2 text-[12px] font-semibold">
         <Switch checked={tag.highlight} onChange={(next) => onPatch({ highlight: next })} label={t('catalog.tags.highlight')} />
         {t('catalog.tags.highlight')}

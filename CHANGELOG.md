@@ -1,5 +1,15 @@
 ## [Unreleased]
 
+- **Ribbon yang mengikuti tag DealPOS.** Di Kelola ribbon, tiap ribbon manual punya isian "Ikuti
+  tag DealPOS" (saran dari tag yang pernah terlihat). Item yang memuat tag itu di DealPOS otomatis
+  mendapat ribbon; melepas isian menghapus pasangan otomatisnya, pasangan manual bertahan. Tag
+  ada di `/Product/Detail` (satu permintaan per produk), jadi ditarik di latar HANYA selama ada
+  ribbon yang memakainya: yang terlaris lebih dulu, ribbon dipasang tiap batch, sisa antrean
+  tampil di dialog. Migrasi 079 (`catalog_tags.pos_tag`, `catalog_items.pos_product_id`).
+- **Audit setelan -> balasan AI lewat /v1/coach/simulate** (`test/coach-simulate-settings.test.js`):
+  pembayaran (link/rekening/keduanya/tidak ada), identitas AI, playbook, saklar katalog, lokasi
+  (gudang tak bocor), dan saklar ongkir.
+
 - **Katalog: tampilan tabel, saringan, urutan, dan satuan dari UOM DealPOS.**
   - Tombol Kartu/Tabel (pilihan diingat di peramban). Tabel: kolom Nama, Kategori, Merek, Harga
     (setelah diskon, harga coret, persen), Satuan, Ribbon, Terjual, Sumber; kepala kolom bisa

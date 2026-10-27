@@ -5073,7 +5073,7 @@ class Database {
   async listCatalogTags(companyId) {
     if (!this.enabled) return [];
     const result = await this.pool.query(`
-      SELECT t.id, t.name, t.color, t.auto_rule AS "autoRule", t.highlight, t.ai_note AS "aiNote", t.active,
+      SELECT t.id, t.name, t.color, t.auto_rule AS "autoRule", t.pos_tag AS "posTag", t.highlight, t.ai_note AS "aiNote", t.active,
              t.sort_order AS "sortOrder",
              (SELECT COUNT(DISTINCT it.item_id)::int FROM catalog_item_tags it WHERE it.tag_id = t.id) AS "itemCount"
       FROM catalog_tags t WHERE t.company_id = $1
@@ -5082,24 +5082,25 @@ class Database {
     return result.rows;
   }
 
-  async createCatalogTag(companyId, { name, color = 'slate', highlight = false, aiNote = '' }) {
+  async createCatalogTag(companyId, { name, color = 'slate', highlight = false, aiNote = '', posTag = null }) {
     if (!this.enabled) return null;
     const result = await this.pool.query(`
-      INSERT INTO catalog_tags (company_id, name, color, highlight, ai_note, sort_order)
-      VALUES ($1, $2, $3, $4, $5, (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM catalog_tags WHERE company_id = $1))
+      INSERT INTO catalog_tags (company_id, name, color, highlight, ai_note, pos_tag, sort_order)
+      VALUES ($1, $2, $3, $4, $5, $6, (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM catalog_tags WHERE company_id = $1))
       RETURNING id
-    `, [companyId, name.trim(), color, highlight, aiNote]);
+    `, [companyId, name.trim(), color, highlight, aiNote, posTag ? posTag.trim() || null : null]);
     return (await this.listCatalogTags(companyId)).find((t) => t.id === result.rows[0].id) || null;
   }
 
   async updateCatalogTag(tagId, companyId, patch) {
     if (!this.enabled) return null;
-    const columns = { name: 'name', color: 'color', highlight: 'highlight', aiNote: 'ai_note', active: 'active' };
+    const columns = { name: 'name', color: 'color', highlight: 'highlight', aiNote: 'ai_note', active: 'active', posTag: 'pos_tag' };
     const sets = [];
     const values = [tagId, companyId];
     for (const [key, column] of Object.entries(columns)) {
       if (patch[key] === undefined) continue;
-      values.push(key === 'name' ? patch[key].trim() : patch[key]);
+      // Tag POS kosong = lepas dari tag POS.
+      values.push(key === 'name' ? patch[key].trim() : key === 'posTag' ? (patch[key] || '').trim() || null : patch[key]);
       sets.push(`${column} = $${values.length}`);
     }
     if (sets.length) {
@@ -5107,6 +5108,13 @@ class Database {
         `UPDATE catalog_tags SET ${sets.join(', ')}, updated_at = NOW() WHERE id = $1 AND company_id = $2`, values,
       );
       if (!result.rowCount) return null;
+      // Ribbon dilepas dari tag POS: pasangan otomatisnya ikut hilang (yang manual tetap).
+      if (patch.posTag !== undefined && !(patch.posTag || '').trim()) {
+        await this.pool.query(
+          "DELETE FROM catalog_item_tags WHERE tag_id = $1 AND company_id = $2 AND source = 'auto' AND tag_id IN (SELECT id FROM catalog_tags WHERE id = $1 AND auto_rule IS NULL)",
+          [tagId, companyId],
+        );
+      }
     }
     return (await this.listCatalogTags(companyId)).find((t) => t.id === tagId) || null;
   }
@@ -5360,21 +5368,22 @@ class Database {
         const chunk = items.slice(i, i + 500);
         await client.query(`
           INSERT INTO catalog_items (company_id, source, external_id, name, code, category, price, discount_pct,
-                                     image_url, released_at, sold_qty, synced_at, missing_from_source)
+                                     image_url, released_at, sold_qty, pos_product_id, synced_at, missing_from_source)
           SELECT $1, $2, u.*, NOW(), false
           FROM unnest($3::text[], $4::text[], $5::text[], $6::text[], $7::numeric[], $8::numeric[],
-                      $9::text[], $10::timestamptz[], $11::numeric[])
-            AS u(external_id, name, code, category, price, discount_pct, image_url, released_at, sold_qty)
+                      $9::text[], $10::timestamptz[], $11::numeric[], $12::text[])
+            AS u(external_id, name, code, category, price, discount_pct, image_url, released_at, sold_qty, pos_product_id)
           ON CONFLICT (company_id, source, external_id) WHERE external_id IS NOT NULL DO UPDATE SET
             name = EXCLUDED.name, code = EXCLUDED.code, category = EXCLUDED.category, price = EXCLUDED.price,
             discount_pct = EXCLUDED.discount_pct, image_url = EXCLUDED.image_url, released_at = EXCLUDED.released_at,
-            sold_qty = EXCLUDED.sold_qty, synced_at = NOW(), missing_from_source = false,
+            sold_qty = EXCLUDED.sold_qty, pos_product_id = EXCLUDED.pos_product_id, synced_at = NOW(), missing_from_source = false,
             updated_at = CASE WHEN catalog_items.price IS DISTINCT FROM EXCLUDED.price
                                 OR catalog_items.name IS DISTINCT FROM EXCLUDED.name
                               THEN NOW() ELSE catalog_items.updated_at END
         `, [companyId, source, chunk.map((x) => x.externalId), chunk.map((x) => x.name), chunk.map((x) => x.code),
           chunk.map((x) => x.category), chunk.map((x) => x.price), chunk.map((x) => x.discountPct || 0),
-          chunk.map((x) => x.imageUrl), chunk.map((x) => x.releasedAt), chunk.map((x) => soldQty.get(x.externalId) ?? null)]);
+          chunk.map((x) => x.imageUrl), chunk.map((x) => x.releasedAt), chunk.map((x) => soldQty.get(x.externalId) ?? null),
+          chunk.map((x) => x.productId || null)]);
       }
       await client.query(`
         UPDATE catalog_items SET missing_from_source = true, updated_at = NOW()
@@ -5454,6 +5463,100 @@ class Database {
     return result.rows[0] ? { ...result.rows[0], id: String(result.rows[0].id) } : null;
   }
 
+  // ── Ribbon dari tag bawaan DealPOS ───────────────────────────────────────
+
+  /** Tag POS yang pernah terlihat di item, untuk saran saat membuat ribbon. */
+  async listKnownPosTags(companyId) {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(`
+      SELECT btrim(t) AS tag, COUNT(*)::int AS count
+      FROM catalog_items i, unnest(i.pos_tags) AS t
+      WHERE i.company_id = $1 AND btrim(t) <> ''
+      GROUP BY btrim(t) ORDER BY count DESC, btrim(t) LIMIT 200
+    `, [companyId]);
+    return result.rows;
+  }
+
+  async hasPosTagRibbons(companyId) {
+    if (!this.enabled) return false;
+    const result = await this.pool.query('SELECT 1 FROM catalog_tags WHERE company_id = $1 AND pos_tag IS NOT NULL AND active LIMIT 1', [companyId]);
+    return result.rowCount > 0;
+  }
+
+  /** Produk DealPOS yang tag-nya belum ditarik, yang terlaris lebih dulu. */
+  async listProductsNeedingPosTags(companyId, limit = 20) {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(`
+      SELECT pos_product_id AS "productId" FROM catalog_items
+      WHERE company_id = $1 AND source = 'dealpos' AND pos_product_id IS NOT NULL AND pos_tags_synced_at IS NULL
+        AND active AND NOT missing_from_source
+      GROUP BY pos_product_id ORDER BY MAX(sold_qty) DESC NULLS LAST, MIN(lower(name)), pos_product_id LIMIT $2
+    `, [companyId, limit]);
+    return result.rows.map((r) => r.productId);
+  }
+
+  async countProductsNeedingPosTags(companyId) {
+    if (!this.enabled) return 0;
+    const result = await this.pool.query(`
+      SELECT COUNT(DISTINCT pos_product_id)::int AS n FROM catalog_items
+      WHERE company_id = $1 AND source = 'dealpos' AND pos_product_id IS NOT NULL AND pos_tags_synced_at IS NULL
+        AND active AND NOT missing_from_source
+    `, [companyId]);
+    return result.rows[0].n;
+  }
+
+  async listCompaniesPendingPosTags() {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(`
+      SELECT DISTINCT i.company_id AS "companyId" FROM catalog_items i
+      JOIN dealpos_connections d ON d.company_id = i.company_id AND d.enabled
+      WHERE i.source = 'dealpos' AND i.pos_product_id IS NOT NULL AND i.pos_tags_synced_at IS NULL AND i.active AND NOT i.missing_from_source
+        AND EXISTS (SELECT 1 FROM catalog_tags t WHERE t.company_id = i.company_id AND t.pos_tag IS NOT NULL AND t.active)
+    `);
+    return result.rows.map((r) => r.companyId);
+  }
+
+  /** Tag dan merek satu produk berlaku untuk semua variannya. */
+  async savePosProductTags(companyId, productId, { tags = [], brand = null } = {}) {
+    if (!this.enabled) return;
+    await this.pool.query(`
+      UPDATE catalog_items SET pos_tags = $3, brand = COALESCE($4, brand), pos_tags_synced_at = NOW()
+      WHERE company_id = $1 AND source = 'dealpos' AND pos_product_id = $2
+    `, [companyId, productId, tags, brand]);
+  }
+
+  /**
+   * Pasang ulang ribbon 'auto' untuk ribbon yang mengikuti tag POS: item yang
+   * memuat tag itu (tanpa peduli huruf besar/kecil) mendapat ribbonnya. Pasangan
+   * manual tidak disentuh.
+   */
+  async applyPosTagRibbons(companyId) {
+    if (!this.enabled) return 0;
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query(`
+        DELETE FROM catalog_item_tags WHERE company_id = $1 AND source = 'auto'
+          AND tag_id IN (SELECT id FROM catalog_tags WHERE company_id = $1 AND pos_tag IS NOT NULL)
+      `, [companyId]);
+      const inserted = await client.query(`
+        INSERT INTO catalog_item_tags (company_id, item_id, tag_id, source)
+        SELECT $1, i.id, t.id, 'auto' FROM catalog_items i
+        JOIN catalog_tags t ON t.company_id = i.company_id AND t.pos_tag IS NOT NULL AND t.active
+        WHERE i.company_id = $1 AND i.source = 'dealpos'
+          AND EXISTS (SELECT 1 FROM unnest(i.pos_tags) x WHERE lower(btrim(x)) = lower(btrim(t.pos_tag)))
+        ON CONFLICT DO NOTHING
+      `, [companyId]);
+      await client.query('COMMIT');
+      return inserted.rowCount;
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   /** Merek dan tag bawaan DealPOS untuk item yang detailnya ditarik. `details`: Map externalId -> { brand, tags }. */
   async savePosCatalogDetails(companyId, source, details) {
     if (!this.enabled || !details?.size) return 0;
@@ -5461,7 +5564,7 @@ class Database {
     let count = 0;
     for (const [externalId, detail] of entries) {
       const updated = await this.pool.query(
-        'UPDATE catalog_items SET brand = $4, pos_tags = $5 WHERE company_id = $1 AND source = $2 AND external_id = $3',
+        'UPDATE catalog_items SET brand = $4, pos_tags = $5, pos_tags_synced_at = NOW() WHERE company_id = $1 AND source = $2 AND external_id = $3',
         [companyId, source, externalId, detail.brand || null, detail.tags || []],
       );
       count += updated.rowCount;

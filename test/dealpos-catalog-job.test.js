@@ -17,7 +17,7 @@ const PRODUCTS = [
 ];
 
 async function setup(t, { aiEnabled }) {
-  const state = { pending: [], savedDetail: [], detailUrls: [], variantCalls: 0, detailCalls: [], replaced: 0, marked: 0, synced: null, details: null };
+  const state = { posTagRibbon: false, productsPending: [], savedProductTags: [], applied: 0, pending: [], savedDetail: [], detailUrls: [], variantCalls: 0, detailCalls: [], replaced: 0, marked: 0, synced: null, details: null };
   const known = {
     enabled: true, connected: true,
     async connect() {}, async close() {},
@@ -39,6 +39,11 @@ async function setup(t, { aiEnabled }) {
     async savePosCatalogDetails(companyId, source, details) { state.details = details; return details.size; },
     async recordCatalogPosError(companyId, message) { state.error = message; },
     async listDealposCompaniesPendingDetail() { return []; },
+    async hasPosTagRibbons() { return state.posTagRibbon; },
+    async listProductsNeedingPosTags() { return state.productsPending.splice(0, 20); },
+    async savePosProductTags(companyId, productId, detail) { state.savedProductTags.push({ productId, ...detail }); },
+    async applyPosTagRibbons() { state.applied += 1; return 0; },
+    async createCatalogTag(companyId, data) { state.posTagRibbon = Boolean(data.posTag); return { id: 't1', ...data }; },
     async listCatalogItemsNeedingDetail() { return state.pending.splice(0, 20); },
     async saveCatalogItemDetail(companyId, itemId, detail) { state.savedDetail.push({ itemId, ...detail }); },
   };
@@ -60,6 +65,10 @@ async function setup(t, { aiEnabled }) {
     if (u.includes('/Variant/Detail')) {
       state.detailUrls.push(u);
       return json(u.includes('v-nouom') ? { UOMName: null, Brand: null } : { UOMName: ' mtr ', Brand: 'SBJ' });
+    }
+    if (u.includes('/Product/Detail') && u.includes('p-frap')) {
+      state.productDetailUrls = [...(state.productDetailUrls || []), u];
+      return json({ Tags: ['Consignment'], Brand: 'FRAP' });
     }
     if (u.includes('/Product/Detail')) { state.detailCalls.push(u); return json({ Brand: 'RUCIKA', Tags: ['Normal'] }); }
     if (u.includes('/Product?')) return json({ DataArray: PRODUCTS });
@@ -115,4 +124,25 @@ test('satuan dari UOM DealPOS ditarik per varian di latar; varian tanpa UOM teta
     { itemId: 'row-2', unit: null, brand: null },
   ]);
   assert.deepEqual(state.detailUrls.map((u) => u.split('ID=')[1]), ['v-biasa', 'v-nouom']);
+});
+
+test('ribbon tag DealPOS: dibuat dengan tag POS, tag produk ditarik di latar lalu ribbon dipasang', async (t) => {
+  const { state, call, until } = await setup(t, { aiEnabled: true });
+  state.productsPending = ['p-frap'];
+  const res = await call('POST', '/v1/catalog/tags', { name: 'Konsinyasi', color: 'violet', posTag: 'Consignment' });
+  assert.equal(res.statusCode, 201);
+  await until(() => state.applied >= 3);
+  assert.deepEqual(state.savedProductTags, [{ productId: 'p-frap', tags: ['Consignment'], brand: 'FRAP' }]);
+  assert.ok(state.applied >= 3, 'ribbon dipasang saat dibuat, setelah batch, dan di akhir');
+});
+
+test('tanpa ribbon yang mengikuti tag POS, tidak ada permintaan /Product/Detail untuk tag', async (t) => {
+  const { state, call, until } = await setup(t, { aiEnabled: true });
+  state.productsPending = ['p-frap'];
+  const res = await call('POST', '/v1/catalog/tags', { name: 'Biasa', color: 'slate' });
+  assert.equal(res.statusCode, 201);
+  await new Promise((r) => setTimeout(r, 150));
+  assert.deepEqual(state.savedProductTags, []);
+  assert.equal(state.productDetailUrls, undefined);
+  void until;
 });

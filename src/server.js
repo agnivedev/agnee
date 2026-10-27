@@ -9605,13 +9605,21 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
         const targets = catalog.detailTargets(items, assignments);
         const details = await catalog.fetchDealposDetails(dealposPatientGetter(conn, token, companyId), targets);
         await database.savePosCatalogDetails(companyId, 'dealpos', details);
+        if (await database.hasPosTagRibbons(companyId)) await database.applyPosTagRibbons(companyId);
       } catch (error) {
         app.log.warn({ err: error, companyId }, 'Merek dan tag DealPOS tidak ditarik');
       }
       catalogCache.delete(companyId);
       app.log.info({ companyId, count, bestSeller: assignments.best_seller?.length ?? null }, 'Katalog DealPOS ditarik');
       // Satuan (UOM) dan merek per varian menyusul di latar belakang.
-      if (canCall('listCatalogItemsNeedingDetail')) void runCatalogDetailJob(companyId);
+      // Tag untuk ribbon POS lebih dulu (hanya jalan bila ada ribbon yang memakainya), lalu satuan.
+      if (canCall('hasPosTagRibbons')) {
+        void runCatalogTagJob(companyId).finally(() => {
+          if (canCall('listCatalogItemsNeedingDetail')) void runCatalogDetailJob(companyId);
+        });
+      } else if (canCall('listCatalogItemsNeedingDetail')) {
+        void runCatalogDetailJob(companyId);
+      }
       return { status: 'ok', count };
     } catch (error) {
       app.log.warn({ err: error, companyId }, 'Penarikan katalog DealPOS gagal');
@@ -9620,6 +9628,59 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     } finally {
       catalogRunning.delete(companyId);
     }
+  }
+
+  // Ribbon yang mengikuti tag DealPOS. Tag ada di /Product/Detail (satu permintaan per
+  // produk), jadi ditarik di latar hanya selama ada ribbon yang memakainya; yang
+  // terlaris lebih dulu dan ribbon dipasang tiap batch supaya hasilnya cepat terlihat.
+  const posTagRunning = new Set();
+
+  async function runCatalogTagJob(companyId) {
+    if (posTagRunning.has(companyId)) return;
+    posTagRunning.add(companyId);
+    try {
+      if (!(await database.hasPosTagRibbons(companyId))) return;
+      const conn = await database.getDealposConnection(companyId);
+      if (!conn?.enabled) return;
+      const token = await dealposSync.fetchToken(conn, undefined, { patient: true });
+      const get = dealposPatientGetter(conn, token, companyId);
+      let done = 0;
+      for (;;) {
+        const batch = await database.listProductsNeedingPosTags(companyId, 20);
+        if (!batch.length) break;
+        for (const productId of batch) {
+          const detail = await catalog.fetchProductTags(get, productId);
+          await database.savePosProductTags(companyId, productId, detail);
+          done += 1;
+          await dealposSync.sleep(catalog.DETAIL_GAP_MS);
+        }
+        await database.applyPosTagRibbons(companyId);
+        catalogCache.delete(companyId);
+      }
+      await database.applyPosTagRibbons(companyId);
+      catalogCache.delete(companyId);
+      app.log.info({ companyId, done }, 'Tag DealPOS ditarik');
+    } catch (error) {
+      app.log.warn({ err: error, companyId }, 'Penarikan tag DealPOS berhenti');
+    } finally {
+      posTagRunning.delete(companyId);
+    }
+  }
+
+  /** Ribbon baru/berubah: pasang dari tag yang sudah ada, lalu tarik sisanya. */
+  async function refreshPosTagRibbons(companyId) {
+    try {
+      await database.applyPosTagRibbons(companyId);
+      catalogCache.delete(companyId);
+    } catch (error) {
+      app.log.warn({ err: error, companyId }, 'Ribbon tag DealPOS tidak dipasang');
+    }
+    void runCatalogTagJob(companyId);
+  }
+
+  async function resumePosTagJobs() {
+    const companies = await database.listCompaniesPendingPosTags().catch(() => []);
+    for (const companyId of companies) void runCatalogTagJob(companyId);
   }
 
   // Satuan (UOM) dari /Variant/Detail: satu permintaan per varian di API ber-rate-limit
@@ -9826,6 +9887,8 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     highlight: { type: 'boolean' },
     aiNote: { type: 'string', maxLength: 300 },
     active: { type: 'boolean' },
+    // Nama tag bawaan DealPOS yang diikuti ribbon ini; string kosong = tidak mengikuti.
+    posTag: { type: 'string', maxLength: 60 },
   };
 
   function catalogGuard(request, reply, { write = false } = {}) {
@@ -9897,6 +9960,15 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     return database.listCatalogItems(request.agneeSession.companyId, {
       q, tagId: tag, source, kind, category, status, priced, sort, dir, limit, offset,
     });
+  });
+
+  app.get('/v1/catalog/pos-tags', async (request, reply) => {
+    if (!catalogGuard(request, reply)) return;
+    const companyId = request.agneeSession.companyId;
+    return {
+      tags: await database.listKnownPosTags(companyId),
+      pending: await database.countProductsNeedingPosTags(companyId),
+    };
   });
 
   app.get('/v1/catalog/categories', async (request, reply) => {
@@ -9978,6 +10050,7 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     try {
       const tag = await database.createCatalogTag(companyId, request.body);
       catalogCache.delete(companyId);
+      if (tag?.posTag) void refreshPosTagRibbons(companyId);
       return reply.code(201).send({ tag });
     } catch (error) {
       if (error.code === '23505') return reply.code(409).send({ error: 'Sudah ada ribbon dengan nama itu.' });
@@ -9998,6 +10071,7 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
       const tag = await database.updateCatalogTag(request.params.id, companyId, request.body);
       if (!tag) return reply.code(404).send({ error: 'Ribbon tidak ditemukan.' });
       catalogCache.delete(companyId);
+      if (request.body.posTag !== undefined || request.body.active !== undefined) void refreshPosTagRibbons(companyId);
       return { tag };
     } catch (error) {
       if (error.code === '23505') return reply.code(409).send({ error: 'Sudah ada ribbon dengan nama itu.' });
@@ -12656,6 +12730,7 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     if (database.enabled && database.connected) startHubFollowUpSweeper();
     if (canCall('listDealposCompaniesPendingDetail')) void resumeDealposDetailJobs();
     if (canCall('listCompaniesPendingCatalogDetail')) void resumeCatalogDetailJobs();
+    if (canCall('listCompaniesPendingPosTags')) void resumePosTagJobs();
     if (canCall('listDealposProductsDue')) startDealposPriceRefresher();
     if (database.enabled && database.connected) startBroadcastSender();
     if (database.enabled && database.connected) startWedgeWatch();

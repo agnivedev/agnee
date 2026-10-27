@@ -118,3 +118,43 @@ test('order kurir Lalamove: dibuat, dibaca per chat, status diperbarui, company 
   await assert.rejects(() => db.createLalamoveOrder(companyId, { chatId: 'c', orderId: 'LM-9', environment: 'sandbox', serviceType: 'VAN', recipientName: 'x', recipientPhone: '1' }), /unique|duplicate/i);
   await db.pool.query('DELETE FROM companies WHERE id = $1', [other]);
 });
+
+test('ribbon yang mengikuti tag DealPOS: dipasang ke item bertag, manual tidak tersentuh, tag per produk', { skip }, async (t) => {
+  const { db, companyId, add } = await setup(t);
+  const items = {};
+  for (const [ext, name, product] of [['v1', 'FRAP A', 'p-frap'], ['v2', 'FRAP B', 'p-frap'], ['v3', 'Semen', 'p-semen'], ['v4', 'Pipa', 'p-pipa']]) {
+    items[ext] = (await add({ externalId: ext, name, price: 1000, soldQty: ext === 'v3' ? 50 : null })).rows[0].id;
+  }
+  await db.pool.query(`UPDATE catalog_items SET pos_product_id = CASE external_id WHEN 'v1' THEN 'p-frap' WHEN 'v2' THEN 'p-frap' WHEN 'v3' THEN 'p-semen' ELSE 'p-pipa' END WHERE company_id = $1`, [companyId]);
+
+  assert.equal(await db.hasPosTagRibbons(companyId), false);
+  const ribbon = await db.createCatalogTag(companyId, { name: 'Konsinyasi', color: 'violet', posTag: ' consignment ' });
+  assert.equal(ribbon.posTag, 'consignment');
+  await assert.rejects(() => db.createCatalogTag(companyId, { name: 'Lain', posTag: 'CONSIGNMENT' }), /unique|duplicate/i, 'satu tag POS satu ribbon');
+  assert.equal(await db.hasPosTagRibbons(companyId), true);
+
+  // Penarikan: yang terlaris dulu, satu produk = semua variannya.
+  assert.equal(await db.countProductsNeedingPosTags(companyId), 3);
+  assert.deepEqual(await db.listProductsNeedingPosTags(companyId, 10).then((r) => r[0]), 'p-semen');
+  await db.savePosProductTags(companyId, 'p-frap', { tags: ['Consignment'], brand: 'FRAP' });
+  await db.savePosProductTags(companyId, 'p-semen', { tags: ['Normal'], brand: null });
+  assert.equal(await db.countProductsNeedingPosTags(companyId), 1);
+
+  // Ribbon manual pada item lain bertahan saat ribbon otomatis dipasang ulang.
+  await db.pool.query("INSERT INTO catalog_item_tags (company_id, item_id, tag_id, source) VALUES ($1, $2, $3, 'manual')", [companyId, items.v4, ribbon.id]);
+  assert.equal(await db.applyPosTagRibbons(companyId), 2);
+  assert.equal(await db.applyPosTagRibbons(companyId), 2, 'dipasang ulang tidak menggandakan');
+  const tagged = (await db.listCatalogItems(companyId, { tagId: ribbon.id })).items.map((i) => i.name).sort();
+  assert.deepEqual(tagged, ['FRAP A', 'FRAP B', 'Pipa']);
+  const frap = (await db.listCatalogItems(companyId, { q: 'FRAP A' })).items[0];
+  assert.equal(frap.brand, 'FRAP');
+  assert.deepEqual(frap.tags.map((x) => [x.name, x.auto, x.manual]), [['Konsinyasi', true, false]]);
+
+  assert.deepEqual((await db.listKnownPosTags(companyId)).map((x) => [x.tag, x.count]), [['Consignment', 2], ['Normal', 1]]);
+
+  // Melepas tag POS dari ribbon: pasangan otomatis hilang, yang manual tetap.
+  await db.updateCatalogTag(ribbon.id, companyId, { posTag: '' });
+  await db.applyPosTagRibbons(companyId);
+  assert.deepEqual((await db.listCatalogItems(companyId, { tagId: ribbon.id })).items.map((i) => i.name), ['Pipa']);
+  assert.equal(await db.hasPosTagRibbons(companyId), false);
+});

@@ -4890,9 +4890,10 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     if (!file) return reply.code(400).send({ error: 'Tidak ada file yang diunggah.' });
     // Semua jenis file diterima: file rujukan tidak pernah dikirim balik ke
     // browser, dan yang tak bisa dibaca hanya disimpan (status 'unsupported').
-    const buffer = await file.toBuffer().catch(() => null);
+    // toBuffer melempar saat file melewati batas multipart; itu 413, bukan "gagal membaca".
+    const buffer = await file.toBuffer().catch((error) => (error.code === 'FST_REQ_FILE_TOO_LARGE' ? 'too-large' : null));
+    if (buffer === 'too-large' || file.file.truncated) return reply.code(413).send({ error: 'File maksimal 19 MB.' });
     if (!buffer) return reply.code(400).send({ error: 'Gagal membaca file.' });
-    if (file.file.truncated) return reply.code(413).send({ error: 'File maksimal 19 MB.' });
 
     const extraction = await extractPlaybookText(buffer, file.mimetype, file.filename);
     const assetId = crypto.randomUUID();
@@ -6905,9 +6906,10 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
 
     const file = await request.file().catch(() => null);
     if (!file) return reply.code(400).send({ error: 'Tidak ada file yang diunggah.' });
-    const buffer = await file.toBuffer().catch(() => null);
+    // toBuffer melempar saat file melewati batas multipart; itu 413, bukan "gagal membaca".
+    const buffer = await file.toBuffer().catch((error) => (error.code === 'FST_REQ_FILE_TOO_LARGE' ? 'too-large' : null));
+    if (buffer === 'too-large' || file.file.truncated) return reply.code(413).send({ error: 'File maksimal 19 MB.' });
     if (!buffer) return reply.code(400).send({ error: 'Gagal membaca file.' });
-    if (file.file.truncated) return reply.code(413).send({ error: 'File maksimal 19 MB.' });
 
     let text;
     try {

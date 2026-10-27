@@ -7,6 +7,20 @@ const MAX_EXTRACTED_CHARS = 20_000;
 const ZIP_DOCUMENT_EXTS = ['xlsx', 'xlsm', 'pptx', 'odt', 'ods', 'odp'];
 const TEXT_EXTS = ['md', 'txt', 'markdown', 'csv', 'tsv', 'json', 'html', 'htm', 'xml', 'rtf', 'yaml', 'yml', 'log'];
 const LEGACY_OFFICE_EXTS = ['doc', 'xls', 'ppt'];
+const LEGACY_OFFICE_MIMES = ['application/msword', 'application/vnd.ms-excel', 'application/vnd.ms-powerpoint'];
+// Batas isi arsip setelah dibuka. File 19 MB yang wajar jarang lewat dari ini;
+// arsip "bom" (ratusan MB nol yang dimampatkan) bisa menghabiskan memori
+// container dan menjatuhkan app untuk semua company.
+const MAX_UNZIPPED_BYTES = 80 * 1024 * 1024;
+
+// Alasan untuk pemilik, ditampilkan di layar apa adanya.
+const REASONS = {
+  failed: 'File rusak atau dikunci password, jadi tidak bisa dibuka.',
+  tooBig: 'Isi file terlalu besar untuk dibaca. Pecah jadi beberapa file.',
+  legacy: 'Format Office lama (.doc/.xls/.ppt). Simpan ulang sebagai .docx, .xlsx, atau .pptx.',
+  media: 'Isi gambar, video, atau audio tidak bisa dibaca AI.',
+  other: 'Jenis file ini tidak berisi teks yang bisa dibaca.',
+};
 
 function extOf(filename) {
   const name = String(filename || '').toLowerCase();
@@ -32,17 +46,48 @@ function truncate(text, maxChars = MAX_EXTRACTED_CHARS) {
   return trimmed.length > maxChars ? `${trimmed.slice(0, maxChars)}\n\n[...dipotong, dokumen terlalu panjang...]` : trimmed;
 }
 
-/** File tanpa byte NUL dan tanpa karakter pengganti UTF-8 dianggap teks biasa. */
+function hasUtf16Bom(buffer) {
+  return (buffer[0] === 0xff && buffer[1] === 0xfe) || (buffer[0] === 0xfe && buffer[1] === 0xff);
+}
+
+/**
+ * Teks dari Windows sering bukan UTF-8: Notepad/Excel "Unicode" menyimpan
+ * UTF-16 (dengan BOM), CSV Excel biasa menyimpan ANSI (Windows-1252), yang
+ * dibaca sebagai UTF-8 jadi tanda tanya untuk é, –, dan sejenisnya.
+ */
+function decodeText(buffer) {
+  if (buffer[0] === 0xff && buffer[1] === 0xfe) return new TextDecoder('utf-16le').decode(buffer.subarray(2));
+  if (buffer[0] === 0xfe && buffer[1] === 0xff) return new TextDecoder('utf-16be').decode(buffer.subarray(2));
+  const utf8 = new TextDecoder('utf-8').decode(buffer);
+  return utf8.includes('�') ? new TextDecoder('windows-1252').decode(buffer) : utf8;
+}
+
+/** File berekstensi asing dianggap teks bila tanpa byte NUL dan hampir tanpa karakter kontrol. */
 function looksLikeText(buffer) {
+  if (hasUtf16Bom(buffer)) return true;
   const head = buffer.subarray(0, 8192);
   if (!head.length || head.includes(0)) return false;
-  return !head.toString('utf8').includes('�');
+  const text = decodeText(head);
+  const control = text.match(/[\u0001-\u0008\u000b\u000e-\u001f\u007f]/g)?.length || 0;
+  return control / text.length < 0.02;
+}
+
+function htmlToText(html) {
+  return decodeXml(html
+    .replace(/<(script|style|noscript)\b[\s\S]*?<\/\1>/gi, '')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(p|div|li|tr|h[1-6]|section|article)>/gi, '\n')
+    .replace(/<\/t[dh]>/gi, '\t')
+    .replace(/<[^>]+>/g, ''))
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n');
 }
 
 function decodeXml(text) {
   return text
     .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCodePoint(parseInt(hex, 16)))
     .replace(/&#(\d+);/g, (_, dec) => String.fromCodePoint(Number(dec)))
+    .replace(/&nbsp;/g, ' ')
     .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'")
     .replace(/&amp;/g, '&');
 }
@@ -112,9 +157,17 @@ async function readOpenDocument(zip) {
     .replace(/\n{3,}/g, '\n\n');
 }
 
-async function readZipDocument(buffer, ext) {
+/** Membuka arsip setelah memastikan ukuran isinya (menurut daftar isi zip) masuk akal. */
+async function openZip(buffer) {
   const JSZip = require('jszip');
   const zip = await JSZip.loadAsync(buffer);
+  const unzipped = Object.values(zip.files).reduce((sum, entry) => sum + (entry._data?.uncompressedSize || 0), 0);
+  if (unzipped > MAX_UNZIPPED_BYTES) throw Object.assign(new Error(`isi arsip ${Math.round(unzipped / 1e6)} MB`), { reason: REASONS.tooBig });
+  return zip;
+}
+
+async function readZipDocument(buffer, ext) {
+  const zip = await openZip(buffer);
   if (ext === 'xlsx' || ext === 'xlsm') return readXlsx(zip);
   if (ext === 'pptx') return readPptx(zip);
   return readOpenDocument(zip);
@@ -132,18 +185,14 @@ function zipExtFor(mimeType, ext) {
  * Extracts plain text from an uploaded playbook asset where feasible.
  * Images/video/audio are stored for reference only — no text is extracted from them
  * since the app has no vision/transcription pipeline.
- * Returns { kind, text, status }.
+ * Returns { kind, text, status, reason? }; `reason` is shown to the owner when
+ * status is not 'ready'.
  */
 async function extractPlaybookText(buffer, mimeType, filename, { maxChars = MAX_EXTRACTED_CHARS } = {}) {
   const mime = String(mimeType || '').toLowerCase();
   let kind = classifyKind(mime, filename);
   const ext = extOf(filename);
-
-  // Jenis tak dikenal (mis. .ini, .srt, kode sumber) yang isinya teks tetap dibaca.
-  if (kind === 'other' && looksLikeText(buffer)) kind = 'document';
-  if (kind !== 'document') {
-    return { kind, text: null, status: 'unsupported' };
-  }
+  const unsupported = (reason) => ({ kind, text: null, status: 'unsupported', reason });
 
   try {
     if (mime === 'application/pdf' || ext === 'pdf') {
@@ -157,6 +206,7 @@ async function extractPlaybookText(buffer, mimeType, filename, { maxChars = MAX_
       }
     }
     if (ext === 'docx' || mime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+      await openZip(buffer);
       const mammoth = require('mammoth');
       const result = await mammoth.extractRawText({ buffer });
       return { kind, text: truncate(result.value, maxChars), status: 'ready' };
@@ -165,15 +215,29 @@ async function extractPlaybookText(buffer, mimeType, filename, { maxChars = MAX_
     if (zipExt) {
       return { kind, text: truncate(await readZipDocument(buffer, zipExt), maxChars), status: 'ready' };
     }
-    if (LEGACY_OFFICE_EXTS.includes(ext) || mime === 'application/msword' || mime === 'application/vnd.ms-excel' || mime === 'application/vnd.ms-powerpoint') {
-      // Format biner Office lama tidak punya pembaca pure-JS yang andal di sini.
-      return { kind, text: null, status: 'unsupported' };
+    // Ekstensi teks didahulukan dari MIME: Windows mengirim .csv sebagai
+    // application/vnd.ms-excel, yang kalau dipercaya terbaca "Office lama".
+    const textual = TEXT_EXTS.includes(ext) || mime.startsWith('text/')
+      || ['application/json', 'application/xml', 'application/rtf'].includes(mime);
+    if (textual) {
+      const raw = decodeText(buffer);
+      const html = ['html', 'htm'].includes(ext) || mime === 'text/html';
+      return { kind: 'document', text: truncate(html ? htmlToText(raw) : raw, maxChars), status: 'ready' };
     }
-    // text/*, .md, .txt, .csv, .json, and anything else UTF-8 readable
-    return { kind, text: truncate(buffer.toString('utf8'), maxChars), status: 'ready' };
+    if (LEGACY_OFFICE_EXTS.includes(ext) || LEGACY_OFFICE_MIMES.includes(mime)) {
+      // Format biner Office lama tidak punya pembaca pure-JS yang andal di sini.
+      return unsupported(REASONS.legacy);
+    }
+    if (['image', 'video', 'audio'].includes(kind)) return unsupported(REASONS.media);
+    // Jenis tak dikenal (mis. .ini, .srt, kode sumber) yang isinya teks tetap dibaca.
+    if (looksLikeText(buffer)) {
+      kind = 'document';
+      return { kind, text: truncate(decodeText(buffer), maxChars), status: 'ready' };
+    }
+    return unsupported(REASONS.other);
   } catch (error) {
-    return { kind, text: null, status: 'failed', error: error.message };
+    return { kind, text: null, status: 'failed', error: error.message, reason: error.reason || REASONS.failed };
   }
 }
 
-module.exports = { extractPlaybookText, classifyKind, looksLikeText, MAX_EXTRACTED_CHARS };
+module.exports = { extractPlaybookText, classifyKind, looksLikeText, decodeText, MAX_EXTRACTED_CHARS, MAX_UNZIPPED_BYTES };

@@ -72,16 +72,52 @@ test('CSV, JSON, dan ekstensi asing yang isinya teks dibaca apa adanya', async (
 
 test('gambar dan biner tak dikenal: tidak dibaca, tidak melempar', async () => {
   const image = await extractPlaybookText(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0, 0]), 'image/png', 'brosur.png');
-  assert.deepEqual(image, { kind: 'image', text: null, status: 'unsupported' });
+  assert.equal(image.status, 'unsupported');
+  assert.match(image.reason, /gambar, video, atau audio/);
   const binary = await extractPlaybookText(Buffer.from([1, 0, 2, 0, 3]), 'application/octet-stream', 'data.bin');
   assert.equal(binary.status, 'unsupported');
   const legacy = await extractPlaybookText(Buffer.from('\xd0\xcf\x11\xe0', 'latin1'), 'application/vnd.ms-excel', 'lama.xls');
   assert.equal(legacy.status, 'unsupported');
+  assert.match(legacy.reason, /Simpan ulang sebagai \.docx/);
   const broken = await extractPlaybookText(Buffer.from('bukan zip'), XLSX, 'rusak.xlsx');
   assert.equal(broken.status, 'failed');
+  assert.match(broken.reason, /rusak atau dikunci password/);
 });
 
 test('batas panjang bisa diatur pemanggil', async () => {
   const out = await extractPlaybookText(Buffer.from('a'.repeat(50)), 'text/plain', 'a.txt', { maxChars: 10 });
   assert.match(out.text, /^a{10}\n\n\[\.\.\.dipotong/);
+});
+
+test('CSV dari Windows: MIME vnd.ms-excel tetap dibaca sebagai teks, bukan Office lama', async () => {
+  const out = await extractPlaybookText(Buffer.from('kelas;harga\nE-zone;1750000'), 'application/vnd.ms-excel', 'harga.csv');
+  assert.equal(out.status, 'ready');
+  assert.equal(out.text, 'kelas;harga\nE-zone;1750000');
+});
+
+test('encoding Windows: ANSI dan UTF-16 terbaca tanpa tanda tanya atau byte NUL', async () => {
+  const ansi = Buffer.from('Café – promo Rp 1.750.000', 'latin1');
+  ansi[5] = 0x96; // en dash di Windows-1252
+  assert.equal((await extractPlaybookText(ansi, 'text/csv', 'a.csv')).text, 'Café – promo Rp 1.750.000');
+  assert.equal((await extractPlaybookText(ansi, '', 'catatan.ini')).text, 'Café – promo Rp 1.750.000');
+  const utf16 = Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from('Harga 1.750.000', 'utf16le')]);
+  assert.equal((await extractPlaybookText(utf16, 'text/plain', 'harga.txt')).text, 'Harga 1.750.000');
+  assert.equal((await extractPlaybookText(utf16, '', 'ekspor')).text, 'Harga 1.750.000');
+});
+
+test('HTML: tag dan skrip dibuang, teksnya dipertahankan', async () => {
+  const html = '<html><head><style>p{}</style></head><body><h1>Promo</h1><script>x()</script><p>Diskon&nbsp;10%</p></body></html>';
+  assert.equal((await extractPlaybookText(Buffer.from(html), 'text/html', 'promo.html')).text, 'Promo\nDiskon 10%');
+});
+
+test('arsip bom (isi ratusan MB) ditolak sebelum dibuka, tanpa menghabiskan memori', async () => {
+  const zip = new JSZip();
+  zip.file('word/document.xml', '0'.repeat(100 * 1024 * 1024));
+  const bomb = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
+  assert.ok(bomb.length < 1024 * 1024);
+  for (const name of ['bom.docx', 'bom.xlsx', 'bom.pptx']) {
+    const out = await extractPlaybookText(bomb, '', name);
+    assert.equal(out.status, 'failed', name);
+    assert.match(out.reason, /terlalu besar/);
+  }
 });

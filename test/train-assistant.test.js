@@ -438,11 +438,12 @@ test('lampiran: file apa saja dibaca tanpa disimpan, hanya supervisor; isinya ik
   const { chat, attach, a, agent, state, database } = await setup(t);
   const csv = await attach(a, 'harga.csv', 'kelas,harga\nE-zone,1750000', 'text/csv');
   assert.equal(csv.statusCode, 200);
-  assert.deepEqual(csv.json(), { name: 'harga.csv', kind: 'document', sizeBytes: 26, status: 'ready', text: 'kelas,harga\nE-zone,1750000' });
+  assert.deepEqual(csv.json(), { name: 'harga.csv', kind: 'document', sizeBytes: 26, status: 'ready', reason: null, text: 'kelas,harga\nE-zone,1750000' });
 
   const image = await attach(a, 'brosur.png', Buffer.from([0x89, 0x50, 0x4e, 0x47, 0, 0]), 'image/png');
   assert.equal(image.json().status, 'unsupported');
   assert.equal(image.json().text, null);
+  assert.match(image.json().reason, /tidak bisa dibaca AI/);
   assert.equal((await attach(agent, 'harga.csv', 'x', 'text/csv')).statusCode, 403);
   assert.deepEqual(database.writes, []);
 
@@ -455,4 +456,33 @@ test('lampiran: file apa saja dibaca tanpa disimpan, hanya supervisor; isinya ik
 
   const many = Array.from({ length: 4 }, (_, i) => ({ name: `f${i}.txt`, kind: 'document', text: 'x' }));
   assert.equal((await chat(a, 'x', { attachments: many })).statusCode, 400);
+});
+
+test('lampiran gagal: terlalu besar = 413 berpesan jelas, file kosong = empty berpenjelasan', async (t) => {
+  const { attach, a } = await setup(t);
+  const big = await attach(a, 'besar.txt', Buffer.alloc(20 * 1024 * 1024, 97), 'text/plain');
+  assert.equal(big.statusCode, 413);
+  assert.match(big.json().error, /19 MB/);
+  const blank = await attach(a, 'kosong.txt', '   \n', 'text/plain');
+  assert.equal(blank.json().status, 'empty');
+  assert.match(blank.json().reason, /Tidak ada teks/);
+});
+
+test('lampiran panjang: total yang dikirim ke AI dibatasi, file pendek tetap utuh', async (t) => {
+  const { chat, a, state } = await setup(t);
+  const long = (c) => c.repeat(30000);
+  const res = await chat(a, 'baca', {
+    attachments: [
+      { name: 'pendek.txt', kind: 'document', text: 'harga 1.750.000' },
+      { name: 'a.txt', kind: 'document', text: long('a') },
+      { name: 'b.txt', kind: 'document', text: long('b') },
+    ],
+  });
+  assert.equal(res.statusCode, 200);
+  const prompt = state.last.systemPrompt;
+  assert.match(prompt, /pendek\.txt \(document\) ---\nharga 1\.750\.000/);
+  const run = (c) => prompt.match(new RegExp(`${c}{1000,}`))[0].length;
+  assert.ok(run('a') + run('b') + 15 <= 60000, `total ${run('a') + run('b')}`);
+  assert.ok(run('a') > 25000 && run('b') > 25000);
+  assert.match(prompt, /\[\.\.\.dipotong, lampiran terlalu panjang\.\.\.\]/);
 });

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { MessageSquarePlus, X, RotateCcw, Paperclip } from 'lucide-react';
-import { api, messageFromError } from '@/lib/api';
+import { api, ApiError, messageFromError } from '@/lib/api';
 import { useI18n } from '@/lib/i18n';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -20,6 +20,11 @@ import { uploadReference } from './BriefSection';
 
 // Sama dengan batas server: isi lampiran ikut terkirim tiap giliran.
 const MAX_ATTACHMENTS = 3;
+// Batas multipart server. Dicek dulu di sini supaya file besar tidak diunggah
+// sia-sia sampai habis lalu ditolak.
+const MAX_UPLOAD_BYTES = 19 * 1024 * 1024;
+// crypto.randomUUID hanya ada di konteks aman (https/localhost).
+let attachmentSeq = 0;
 
 type Base = { id: string; summary: string };
 export type Proposal =
@@ -44,7 +49,7 @@ type Message = { role: 'user' | 'assistant'; text: string; files?: string[]; pro
  */
 type Attachment = {
   id: string; file: File; name: string; kind: string; text: string | null; readable: boolean;
-  sent: boolean; saved?: 'saving' | 'saved' | 'failed';
+  status: string; reason: string | null; sent: boolean; saved?: 'saving' | 'saved' | 'failed';
 };
 type Outcome = { state: 'applying' | 'applied' | 'failed' | 'discarded'; note?: string };
 
@@ -254,24 +259,38 @@ export function TrainAssistant({ onChanged }: { onChanged: () => void }) {
     void submit(draft);
   }
 
+  // 413 bisa datang dari Nginx (halaman HTML, bukan JSON) dengan batas yang
+  // lebih kecil dari server, jadi pesannya disusun di sini.
+  function uploadError(failure: unknown, name: string) {
+    if (failure instanceof ApiError && failure.status === 413) return t('trainChat.attachTooBig', { name });
+    return t('admin.uploadFailed', { name, message: messageFromError(failure, '') });
+  }
+
   async function addFiles(list: FileList | File[]) {
     const files = Array.from(list);
-    if (!files.length || reading) return;
+    if (!files.length) return;
+    if (reading) { setError(t('trainChat.attachBusy')); return; }
     setError('');
     const room = MAX_ATTACHMENTS - attachments.length;
     if (files.length > room) setError(t('trainChat.attachLimit', { n: MAX_ATTACHMENTS }));
     for (const file of files.slice(0, Math.max(room, 0))) {
+      if (file.size > MAX_UPLOAD_BYTES) {
+        setError(t('trainChat.attachTooBig', { name: file.name }));
+        continue;
+      }
       setReading(file.name);
       const body = new FormData();
       body.append('file', file);
       try {
-        const data = await api<{ name: string; kind: string; status: string; text: string | null }>('/v1/train/attachment', { method: 'POST', body });
+        const data = await api<{ name: string; kind: string; status: string; reason: string | null; text: string | null }>('/v1/train/attachment', { method: 'POST', body });
         const readable = data.status === 'ready' && Boolean(data.text);
+        attachmentSeq += 1;
         setAttachments((current) => [...current, {
-          id: crypto.randomUUID(), file, name: data.name, kind: data.kind, text: readable ? data.text : null, readable, sent: false,
+          id: `att-${attachmentSeq}`, file, name: data.name, kind: data.kind, text: readable ? data.text : null, readable,
+          status: data.status, reason: data.reason, sent: false,
         }]);
       } catch (failure) {
-        setError(t('admin.uploadFailed', { name: file.name, message: messageFromError(failure, '') }));
+        setError(uploadError(failure, file.name));
       }
     }
     setReading('');
@@ -287,7 +306,7 @@ export function TrainAssistant({ onChanged }: { onChanged: () => void }) {
       onChanged();
     } catch (failure) {
       mark('failed');
-      setError(t('admin.uploadFailed', { name: attachment.name, message: messageFromError(failure, '') }));
+      setError(uploadError(failure, attachment.name));
     }
   }
 
@@ -453,10 +472,11 @@ export function TrainAssistant({ onChanged }: { onChanged: () => void }) {
                   <span className="min-w-0 flex-1">
                     <span className="block truncate">{attachment.name}</span>
                     <span className={cn('block text-[11px]', attachment.readable ? 'text-green-dark' : 'text-muted')}>
-                      {attachment.readable ? t('trainChat.attachReadable') : t('trainChat.attachUnreadable')}
+                      {attachment.readable ? t('trainChat.attachReadable') : attachment.reason || t('trainChat.attachUnreadable')}
                     </span>
                   </span>
-                  {!attachment.readable ? (
+                  {/* File rusak tidak ada gunanya disimpan sebagai rujukan. */}
+                  {!attachment.readable && attachment.status !== 'failed' ? (
                     <Button
                       size="sm" variant="outline" disabled={attachment.saved === 'saving' || attachment.saved === 'saved'}
                       onClick={() => void saveAsReference(attachment)}

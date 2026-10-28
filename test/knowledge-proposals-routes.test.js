@@ -83,7 +83,9 @@ async function setup(t, { summaryKnowledge = [], conflict = 'new' } = {}) {
       }
       // simulate: hanya tahu ongkirnya kalau usulan ikut di prompt.
       const knows = /USULAN BARU/.test(options.systemPrompt || '');
-      return { text: knows ? 'Bisa COD kak, ongkirnya Rp 15.000.' : 'Aku cek dulu ke tim ya kak.', model: 'tiruan', usage: {} };
+      // Model sungguhan menyebut angka yang ada di prompt (penjaga harga membuang yang lain): baca dari blok usulan.
+      const fee = /ongkir (Rp [\d.]+)/.exec(options.systemPrompt || '')?.[1] || 'Rp 15.000';
+      return { text: knows ? `Bisa COD kak, ongkirnya ${fee}.` : 'Aku cek dulu ke tim ya kak.', model: 'tiruan', usage: {} };
     },
   };
 

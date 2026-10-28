@@ -45,6 +45,7 @@ const { HUB_REPLY_WORKING_DAYS, addWorkingDays, workingDaysSince } = require('./
 const mayarSync = require('./mayar-sync.js');
 const dealposSync = require('./dealpos-sync.js');
 const lalamove = require('./lalamove.js');
+const priceLookup = require('./price-lookup.js');
 const openingHours = require('./opening-hours.js');
 const deliveryQuote = require('./delivery-quote.js');
 const orderSummary = require('./order-summary.js');
@@ -1738,6 +1739,20 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       : '';
 
     const hubTools = companyConfig?.hubToolsEnabled && !ops ? hubListingTools() : [];
+    // Cek harga: prompt hanya memuat barang yang namanya cocok dengan pesan
+    // customer, jadi model perlu cara mencari barang yang disebut playbook.
+    // Tanpa itu ia mengisi harga dari ingatan.
+    let priceItems = [];
+    let priceTagText = null;
+    if (!ops && !ks) {
+      if (catalogReady && catalogData.items.length) {
+        priceItems = catalogData.items;
+        priceTagText = new Map((catalogData.tags || []).filter((t) => t.active).map((t) => [t.id, `${t.name} ${t.aiNote || ''}`]));
+      } else if (dbLive && canCall('listDealposProducts')) {
+        priceItems = (await dealposPriceCached(companyId).catch(() => ({ products: [] }))).products;
+      }
+    }
+    const priceTools = priceItems.length ? [priceLookup.toolSpec({ items: priceItems, tagText: priceTagText })] : [];
     // Ongkir Lalamove otomatis: di chat sungguhan hanya mode production
     // (harga sandbox bukan harga asli); simulator tanpa chatId boleh sandbox.
     const lalamoveConn = !ops && !ks && dbLive && canCall('getLalamoveConnection')
@@ -1849,6 +1864,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       paymentContext,
       catalogContext,
       priceContext,
+      priceTools.length ? priceLookup.GUIDE : '',
       hubTools.length ? HUB_TOOLS_GUIDE : '',
       storeLocations.section(stores, { withNearestTool: nearestTool, now: new Date(), timeZone: companyConfig?.timezone }),
       deliveryTools.length && lalamoveReady ? deliveryQuote.GUIDE : '',
@@ -1871,6 +1887,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
 
     const basePrompt = ops ? kb.getInternalOpsPrompt() : kb.getSystemPrompt();
 
+    const toolOutputs = [];
     return {
       kb,
       relevantFaqs,
@@ -1879,7 +1896,17 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       playbookContext,
       paymentContext,
       companyConfig,
-      tools: [...hubTools, ...deliveryTools, ...summaryTools, ...orderTools, ...locationTools, ...addressTools, ...departmentTools],
+      tools: [...hubTools, ...priceTools, ...deliveryTools, ...summaryTools, ...orderTools, ...locationTools, ...addressTools, ...departmentTools]
+        .map((tool) => ({
+          ...tool,
+          // Hasil alat dicatat: angka di dalamnya sah disebut ke customer (penjaga harga).
+          run: async (...args) => {
+            const out = await tool.run(...args);
+            try { toolOutputs.push(JSON.stringify(out)); } catch { /* hasil tak bisa diserialkan: abaikan */ }
+            return out;
+          },
+        })),
+      toolOutputs,
       departmentAsked,
       leadState: latestSummary?.summary
         ? { ...(leadStateRaw || {}), conversationSummary: latestSummary.summary }
@@ -2046,6 +2073,15 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       app.log.warn({ err: error, companyId }, 'Membaca gambar customer gagal; pesan diproses seperti biasa');
       return null;
     }
+  }
+
+  /**
+   * Sumber yang sah untuk angka harga di balasan: prompt (playbook, Fakta,
+   * daftar harga, katalog), hasil alat giliran ini, dan kata customer.
+   */
+  function priceSourceOf(ctx, { userMessage = '', history = [] } = {}) {
+    const said = (history || []).map((turn) => turn?.content ?? turn?.text ?? '').filter(Boolean);
+    return [ctx.systemPrompt, userMessage, ...said, ...(ctx.toolOutputs || [])].join('\n');
   }
 
   async function generateAutoReply(message, companyId, meta = {}) {
@@ -2258,6 +2294,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       systemPrompt: ctx.systemPrompt,
       userMessage: customerText,
       history: conversationHistory,
+      priceSource: priceSourceOf(ctx, { userMessage: customerText, history: conversationHistory }),
     });
     if (!enforced) {
       // Tidak ada isi aman yang tersisa. Diam lebih baik daripada mengirim
@@ -6463,6 +6500,7 @@ Aturan:
           systemPrompt: ctx.systemPrompt,
           userMessage: customerRead,
           history,
+          priceSource: priceSourceOf(ctx, { userMessage: customerRead, history }),
         });
         teks = enforcedSim ? limitLinks(enforcedSim.text).text : null;
       }
@@ -6721,6 +6759,7 @@ Aturan:
       if (!generated?.text) return '';
       const enforced = await enforceReplyContract(llmService, {
         text: generated.text, systemPrompt: ctx.systemPrompt, userMessage: customerMessage, history,
+        priceSource: priceSourceOf(ctx, { userMessage: customerMessage, history }),
       });
       return enforced ? limitLinks(enforced.text).text : '';
     };
@@ -6884,6 +6923,7 @@ Aturan:
     if (!generated?.text) return null;
     const enforced = await enforceReplyContract(llmService, {
       text: generated.text, systemPrompt: ctx.systemPrompt, userMessage: text, history: [],
+      priceSource: priceSourceOf(ctx, { userMessage: text }),
     });
     return enforced ? limitLinks(enforced.text).text : null;
   }
@@ -10642,13 +10682,18 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
   }
 
   /** Harga yang cocok dengan percakapan, siap masuk prompt. */
-  async function dealposPriceContext(companyId, text, summary) {
+  async function dealposPriceCached(companyId) {
     let cached = dealposPriceCache.get(companyId);
     if (!cached || Date.now() - cached.loadedAt > DEALPOS_PRICE_CACHE_MS) {
-      const { products, syncedAt } = await database.listDealposProducts(companyId);
-      cached = { products, syncedAt, loadedAt: Date.now() };
+      const { products = [], syncedAt = null } = (await database.listDealposProducts(companyId)) || {};
+      cached = { products: Array.isArray(products) ? products : [], syncedAt, loadedAt: Date.now() };
       dealposPriceCache.set(companyId, cached);
     }
+    return cached;
+  }
+
+  async function dealposPriceContext(companyId, text, summary) {
+    const cached = await dealposPriceCached(companyId);
     if (!cached.products.length) return '';
     return dealposPrices.priceSection(dealposPrices.matchProducts(cached.products, { text, context: summary }), cached.syncedAt);
   }

@@ -14,6 +14,8 @@
  * atau tingkat risiko. "jaminan uang kembali" dan "trading tetap berisiko"
  * harus lolos bersih.
  */
+const { findInventedPrices, stripInventedPrices, rupiah: priceGuardRupiah } = require('./price-guard');
+
 const CLAIM_PATTERNS = [
   [/\b(?:di)?jamin(?:kan)?\b/i, 'menjamin hasil'],
   [/\bpasti\s+(?:untung|profit|balik|cuan|naik|pulih)\b/i, 'menjanjikan hasil pasti'],
@@ -148,11 +150,19 @@ function stripClaimSentences(text) {
  * @returns {Promise<{text: string, rewritten: boolean, stripped: boolean,
  *                    warnings: string[]} | null>}
  */
-async function enforceReplyContract(llmService, { text, systemPrompt, userMessage, history = [], expectations = {} }) {
+async function enforceReplyContract(llmService, { text, systemPrompt, userMessage, history = [], expectations = {}, priceSource = null }) {
+  // Jumlah barang yang sah disebut ke customer: yang ia tulis sendiri di percakapan ini.
+  const quantityText = [userMessage, ...(history || []).map((turn) => turn?.content ?? turn?.text ?? '')].join('\n');
   const initial = String(text || '').trim();
   if (!initial) return null;
 
-  let warnings = styleWarnings(initial, expectations);
+  // Harga tanpa sumber (lihat price-guard.js): hanya diperiksa bila pemanggil
+  // memberi teks sumbernya (prompt + hasil alat + kata customer).
+  const inventedIn = (value) => (priceSource ? findInventedPrices(value, priceSource, { quantityText }) : []);
+  const priceWarnings = (value) => [...new Set(inventedIn(value).map((v) => v.amount))].slice(0, 3)
+    .map((amount) => `menyebut harga ${priceGuardRupiah(amount)} yang tidak ada di daftar harga, katalog, atau pengetahuan (dikarang): jangan menyebut angka itu; sebut nama barangnya saja dan katakan harganya kamu pastikan dulu`);
+
+  let warnings = [...styleWarnings(initial, expectations), ...priceWarnings(initial)];
   if (!warnings.length) return { text: initial, rewritten: false, stripped: false, warnings: [] };
 
   let current = initial;
@@ -172,17 +182,18 @@ ${current}`;
     if (retry?.text?.trim()) {
       current = retry.text.trim();
       rewritten = true;
-      warnings = styleWarnings(current, expectations);
+      warnings = [...styleWarnings(current, expectations), ...priceWarnings(current)];
     }
   }
 
   // Klaim hasil/risiko adalah satu-satunya pelanggaran yang tidak boleh lolos.
   // Sisanya (panjang, emoji) jelek tapi tidak berbahaya.
-  if (!findClaimViolations(current).length) {
+  if (!findClaimViolations(current).length && !inventedIn(current).length) {
     return { text: current, rewritten, stripped: false, warnings };
   }
 
-  const strippedText = stripClaimSentences(current);
+  let strippedText = stripClaimSentences(current);
+  if (priceSource) strippedText = stripInventedPrices(strippedText, priceSource, { quantityText });
   if (strippedText.split(/\s+/).filter(Boolean).length < 5) return null;
   return {
     text: strippedText,

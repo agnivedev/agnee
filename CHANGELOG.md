@@ -1,5 +1,23 @@
 ## [Unreleased]
 
+- **Fix: AI tidak lagi mengarang harga (ESBEJE, 28 Okt).** Customer menulis "dinding retak perlu
+  diperbaiki", AI membalas MU 100 Base Plester Rp 75.000 dan MU 301 Plasterplus Rp 90.000; harga
+  DealPOS sebenarnya Rp 116.400 dan Rp 104.000. Akarnya: prompt hanya memuat barang yang namanya
+  cocok dengan pesan customer (ESBEJE punya ±10 ribu item), "dinding retak" tidak cocok dengan
+  satu barang pun, jadi tidak ada harga di prompt dan model mengisinya dari ingatan walau playbook
+  melarang. Dua lapis:
+  - **Alat `cek_harga`** (`src/price-lookup.js`): model mencari harga barang yang disebut
+    playbook (mis. "MU 100 Base Plester") di katalog/daftar harga POS sebelum menyebut harga.
+    Dengan model asli, balasan pertama kini langsung memuat harga asli.
+  - **Penjaga di kode** (`src/price-guard.js`, dipasang di `enforceReplyContract`): setiap angka
+    rupiah di balasan harus punya sumber (prompt, hasil alat giliran itu, kata customer). Yang
+    tidak ada sumbernya ditulis ulang oleh model sekali, lalu kalimatnya dibuang. Turunan sah:
+    kelipatan harga dengan jumlah yang disebut ("12 sak"), dan total = jumlah angka lain di balasan
+    (harga + ongkir). Kelipatan tanpa jumlah yang disebut tidak sah: aturan yang lebih longgar
+    meloloskan "Rp 48.000" lewat 12 x "Rp 4.000" dari teks promo di prompt dasar.
+  - Jalur: balasan otomatis, simulator Coach, simulasi template KS, simulasi usulan knowledge.
+  - Tes: `price-guard.test.js`, `price-routes.test.js` (kasus ESBEJE lewat `/v1/coach/simulate`).
+
 - **Uji AI: saran balasan tidak lagi menyalin balasan yang sudah benar.** Penilai dulu selalu
   mengisi "A better reply would be", jadi balasan lulus 5/5 pun mendapat saran yang sama persis
   dan tombol Terima/Biar AI putuskan/Tolak. Kini saran dibuang di kode bila sama dengan balasan

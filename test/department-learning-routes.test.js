@@ -337,12 +337,12 @@ test('menyunting usulan departemen menghapus simulasinya; tolak mencatat alasan'
   assert.equal(rejected.json().proposal.status, 'rejected');
 });
 
-test('database: getDepartmentQuestionForLearning tahan kolom kind yang belum ada, dan satu usulan per pertanyaan', { skip }, async (t) => {
+test('database: getDepartmentQuestionForLearning membaca kind, dan satu usulan per pertanyaan', { skip }, async (t) => {
   const x = await setup(t);
   const q = await x.ask();
   await x.real.pool.query("UPDATE department_questions SET status = 'answered', answer = 'jawab', answered_at = NOW() WHERE id = $1", [q.id]);
   const row = await x.real.getDepartmentQuestionForLearning(q.id, x.company);
-  assert.equal(row.kind ?? null, null);
+  assert.equal(row.kind, 'general'); // kolom kind sudah ada (migrasi 100), bawaan 'general'
   assert.match(row.department, /^Management/);
   assert.equal(await x.real.getDepartmentQuestionForLearning(q.id, x.other), null, 'isolasi tenant');
   const base = { chatId: CUSTOMER_CHAT, question: 'Apakah ada gratis ongkir untuk order besar?', answer: RULE_ANSWER, fingerprint: 'fp-dl', origin: 'department', status: 'submitted', department: { questionId: q.id, name: 'Management' } };

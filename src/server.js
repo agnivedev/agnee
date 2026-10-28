@@ -45,6 +45,7 @@ const { HUB_REPLY_WORKING_DAYS, addWorkingDays, workingDaysSince } = require('./
 const mayarSync = require('./mayar-sync.js');
 const dealposSync = require('./dealpos-sync.js');
 const lalamove = require('./lalamove.js');
+const lalamoveVehicles = require('./lalamove-vehicles.js');
 const priceLookup = require('./price-lookup.js');
 const openingHours = require('./opening-hours.js');
 const deliveryQuote = require('./delivery-quote.js');
@@ -1504,14 +1505,14 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
    * (lonceng di Agnee + WhatsApp bila nomornya diisi). Satu pertanyaan terbuka
    * per chat per departemen supaya model yang mengulang tidak membanjiri.
    */
-  async function askDepartment({ companyId, chatId, customerText, departments, args, askerLabel = null }) {
+  async function askDepartment({ companyId, chatId, customerText, departments, args, askerLabel = null, meta = {} }) {
     const dept = departments.find((d) => d.name === args.department);
     const question = String(args.question || '').trim().slice(0, departmentAsk.QUESTION_MAX);
     if (!dept || !question) return { error: 'Departemen atau pertanyaan tidak valid.' };
     const open = (await database.listDepartmentQuestions(companyId, { status: 'open', limit: 200 }).catch(() => []))
       .find((q) => q.chatId === chatId && q.departmentId === dept.id);
     if (open) return { status: 'already_asked', department: dept.name };
-    const created = await database.createDepartmentQuestion({ departmentId: dept.id, chatId, customerText, question }, companyId);
+    const created = await database.createDepartmentQuestion({ departmentId: dept.id, chatId, customerText, question, kind: meta.kind || 'general', payload: meta.payload || null }, companyId);
     if (!created) return { error: 'Departemen tidak ditemukan.' };
     broadcastEvent(companyId, 'department_question', { id: created.id, department: dept.name });
     const notice = departmentAsk.buildQuestionNotice({
@@ -1534,6 +1535,109 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       }
     }
     return { status: 'sent', department: dept.name, notified: created.members.length + (groupSent ? 1 : 0) };
+  }
+
+  // ── Kendaraan Lalamove ditentukan Management ─────────────────────────────
+
+  /** Konteks hitung ongkir untuk satu company: titik jemput, toko, promo. */
+  async function deliveryContextFor(companyId) {
+    const conn = canCall('getLalamoveConnection') ? await database.getLalamoveConnection(companyId).catch(() => null) : null;
+    const locations = canCall('listCompanyLocations') ? await database.listCompanyLocations(companyId).catch(() => []) : [];
+    const stores = storeLocations.customerFacing(locations);
+    const promos = canCall('listPromoRules') ? promoRules.activeRules(await database.listPromoRules(companyId).catch(() => [])) : [];
+    return { conn, opts: { stores: stores.length > 1 ? stores : [], promos, lalamoveReady: true } };
+  }
+
+  const VEHICLE_WAIT = 'Kendaraan pengiriman sedang dipastikan. Katakan ongkirnya sedang dipastikan dan akan dikabari begitu sudah jelas; jangan menyebut angka, kendaraan, atau siapa yang menentukan.';
+
+  /**
+   * cek_ongkir saat kendaraan ditentukan Management. Sudah dipilih untuk chat
+   * ini: hitung dengan kendaraan itu. Belum: tanyakan ke Management (sekali;
+   * `barang_berubah` memastikan ulang) dan jawab "menunggu_management".
+   * `allowAsk` false (alat pesanan) tidak pernah menanyakan.
+   */
+  async function quoteWithManagement({ companyId, chatId, customerText, conn, args, opts, allowAsk, onAsked }) {
+    const latest = chatId && canCall('latestVehicleQuestion') ? await database.latestVehicleQuestion(companyId, chatId).catch(() => null) : null;
+    const chosen = latest?.status === 'answered' ? latest.payload?.chosen : null;
+    const changed = args.barang_berubah === true;
+    if (chosen && !changed) {
+      return deliveryQuote.quote(conn, { ...args, kendaraan: chosen.key, jumlah_kendaraan: chosen.count }, opts);
+    }
+    const options = lalamoveVehicles.optionsOf(conn);
+    const destination = await deliveryQuote.resolveDestination(args.tujuan).catch(() => null);
+    if (!destination) {
+      return { status: 'lokasi_tidak_terbaca', pesan: 'Lokasi customer belum terbaca. Minta customer share location WhatsApp atau kirim link Google Maps.' };
+    }
+    if (!options.length) return deliveryQuote.quote(conn, args, opts);
+    const question = lalamoveVehicles.buildQuestion({
+      barang: args.barang, address: destination.address, approximate: destination.accuracy === 'perkiraan_area', options,
+    });
+    // Simulator (tanpa chat): menunjukkan apa yang akan ditanyakan, tanpa membangunkan staf.
+    if (!chatId) {
+      return { status: 'menunggu_management', simulasi: true, pesan: VEHICLE_WAIT, pertanyaan_ke_management: question };
+    }
+    if (latest?.status === 'open' && !changed) return { status: 'menunggu_management', pesan: VEHICLE_WAIT };
+    if (!allowAsk) return { status: 'gagal', pesan: 'Kendaraan pengiriman belum ditentukan. Panggil cek_ongkir dulu.' };
+
+    const departments = canCall('listDepartments') ? await database.listDepartments(companyId).catch(() => []) : [];
+    const management = departments.find((d) => String(d.name).toLowerCase() === 'management' && (d.members?.length > 0 || d.whatsappGroupId));
+    if (!management) {
+      // Tanpa departemen Management yang bisa dihubungi, jangan menggantung: pakai kendaraan bawaan.
+      app.log.warn({ companyId }, 'Kendaraan ditentukan Management, tetapi departemen Management tidak bisa dihubungi: memakai kendaraan bawaan');
+      return deliveryQuote.quote(conn, args, opts);
+    }
+    const payloadArgs = {
+      tujuan: String(args.tujuan || '').slice(0, 300), barang: String(args.barang || '').slice(0, 300),
+      ...(args.dari_toko ? { dari_toko: args.dari_toko } : {}),
+      ...(args.total_belanja != null ? { total_belanja: args.total_belanja } : {}),
+      ...(args.jumlah_barang != null ? { jumlah_barang: args.jumlah_barang } : {}),
+      ...(Array.isArray(args.produk) ? { produk: args.produk.slice(0, 20) } : {}),
+    };
+    const out = await askDepartment({
+      companyId, chatId, customerText, departments: [management],
+      args: { department: management.name, question },
+      meta: { kind: 'lalamove_vehicle', payload: { args: payloadArgs, optionKeys: options.map((o) => o.key) } },
+    });
+    if (out.error) return { status: 'gagal', pesan: 'Kendaraan belum bisa ditanyakan. Ongkir dipastikan dulu.' };
+    onAsked?.();
+    return { status: 'menunggu_management', pesan: VEHICLE_WAIT };
+  }
+
+  /**
+   * Jawaban Management -> kendaraan -> ongkir -> kalimat untuk customer.
+   * Mengembalikan { ok: true, answer, question } untuk dilanjutkan relay biasa,
+   * atau { ok: false, result } (tidak diteruskan). Kendaraan yang dipilih
+   * disimpan di payload supaya hitungan berikutnya (proforma) memakainya.
+   */
+  async function prepareVehicleRelay(row, companyId) {
+    const { conn, opts } = await deliveryContextFor(companyId);
+    const options = lalamoveVehicles.optionsOf(conn);
+    const parsed = lalamoveVehicles.parseAnswer(row.answer, options.map((o) => o.key));
+    if (parsed.error) {
+      await database.reopenDepartmentQuestion(row.id, companyId).catch(() => {});
+      const list = lalamoveVehicles.optionsText(options);
+      const why = {
+        tidak_tersedia: `${parsed.kata || 'Kendaraan itu'} tidak tersedia di Lalamove.`,
+        lebih_dari_satu: 'Sebut satu jenis kendaraan saja.',
+        tidak_dikenali: 'Kendaraannya belum bisa dikenali dari jawaban tadi.',
+        kosong: 'Jawabannya kosong.',
+      }[parsed.error] || 'Kendaraannya belum bisa dikenali.';
+      return { ok: false, result: { relayed: false, reason: `vehicle_${parsed.error}`, ackText: `${why} Balas lagi di sini dengan salah satu: ${list}.` } };
+    }
+    const payload = row.payload || {};
+    const chosen = { key: parsed.key, count: parsed.count, label: parsed.label };
+    await database.setDepartmentQuestionPayload(row.id, { ...payload, chosen }, companyId).catch(() => {});
+    if (!conn || conn.environment !== 'production') {
+      return { ok: false, result: { relayed: false, reason: 'sandbox', ackText: `Terima kasih, ${parsed.label}${parsed.count > 1 ? ` x${parsed.count}` : ''} dicatat. Mode uji: tidak diteruskan ke customer.` } };
+    }
+    const result = await deliveryQuote.quote(conn, { ...(payload.args || {}), kendaraan: parsed.key, jumlah_kendaraan: parsed.count }, opts);
+    if (result.status !== 'ok') {
+      return { ok: false, result: { relayed: false, reason: 'quote_failed', ackText: `Terima kasih, ${parsed.label} dicatat, tapi ongkirnya belum bisa dihitung. CS yang memegang chat akan menindaklanjuti.` } };
+    }
+    await database.setDepartmentQuestionPayload(row.id, { ...payload, chosen, quote: { ongkir: result.ongkir, ongkir_angka: result.ongkir_angka, jarak_km: result.jarak_km } }, companyId).catch(() => {});
+    const pays = result.ongkir_dibayar_customer || result.ongkir;
+    const answer = `Pengiriman memakai ${parsed.label}${parsed.count > 1 ? ` (${parsed.count} unit)` : ''}. Estimasi ongkir ${pays}${result.ongkir_dibayar_customer && result.ongkir_dibayar_customer !== result.ongkir ? ` (tarif normal ${result.ongkir})` : ''}${result.jarak_km ? `, jarak sekitar ${result.jarak_km} km` : ''}, ke ${result.tujuan}.${result.ketepatan === 'perkiraan_area' ? ' Ini perkiraan ke area tersebut; angka pasnya menunggu share location.' : ''}`;
+    return { ok: true, answer, question: 'ongkir pengiriman ke alamat customer' };
   }
 
   /**
@@ -1582,9 +1686,9 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     } catch (error) {
       app.log.warn({ err: error, companyId }, 'Jawaban dari grup gagal diteruskan ke customer');
     }
-    const ack = relay.relayed
+    const ack = relay.ackText || (relay.relayed
       ? 'Terima kasih, jawabannya sudah diteruskan ke customer.'
-      : 'Terima kasih, jawabannya tercatat. Belum diteruskan otomatis; CS yang memegang chat akan menyampaikannya.';
+      : 'Terima kasih, jawabannya tercatat. Belum diteruskan otomatis; CS yang memegang chat akan menyampaikannya.');
     await sendOutbound(companyId, message.from, ack).catch(() => {});
     return true;
   }
@@ -1595,6 +1699,13 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
    * jawabannya tetap tersimpan dan terlihat oleh yang memegang chat.
    */
   async function relayDepartmentAnswer(row, companyId) {
+    // Pertanyaan kendaraan Lalamove: jawaban dibaca menjadi kendaraan, ongkir dihitung,
+    // lalu hasilnya yang diteruskan ke customer (bukan teks mentah Management).
+    if (row.kind === 'lalamove_vehicle') {
+      const prepared = await prepareVehicleRelay(row, companyId);
+      if (!prepared.ok) return prepared.result;
+      row = { ...row, answer: prepared.answer, question: prepared.question };
+    }
     const routing = await getRouting(row.chatId, companyId).catch(() => null);
     if (routing?.mode === 'human') return { relayed: false, reason: 'human' };
     const companyAi = await getCompanyAi(companyId);
@@ -1771,10 +1882,19 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       ? promoRules.activeRules(await database.listPromoRules(companyId).catch(() => []))
       : [];
     const lalamoveReady = deliveryQuote.lalamoveUsable(lalamoveConn, { realChat: Boolean(chatId) });
+    // Kendaraan ditentukan Management: alat bertanya dulu, AI tidak memilih sendiri.
+    const askVehicle = lalamoveReady && lalamoveConn?.vehicleMode === 'management';
+    const quoteForChat = (args = {}, { allowAsk = false } = {}) => (askVehicle
+      ? quoteWithManagement({
+        companyId, chatId, customerText: text, conn: lalamoveConn, args,
+        opts: { stores, promos, lalamoveReady }, allowAsk, onAsked: () => departmentAsked.push('Management'),
+      })
+      : deliveryQuote.quote(lalamoveConn, args, { stores, promos, lalamoveReady }));
     const deliveryTools = deliveryQuote.isUsable(lalamoveConn, { realChat: Boolean(chatId), promos })
       ? [deliveryQuote.toolSpec({
         conn: lalamoveConn, promos, lalamoveReady, stores: stores.length > 1 ? stores : [],
-        run: (args = {}) => deliveryQuote.quote(lalamoveConn, args, { stores, promos, lalamoveReady }),
+        vehicleMode: askVehicle ? 'management' : 'ai',
+        run: (args = {}) => quoteForChat(args, { allowAsk: allowDepartments }),
       })]
       : [];
     // Rincian WhatsApp sebelum closing: semua company, hanya untuk customer.
@@ -1794,7 +1914,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
         orderTools = dealposOrders.createTools({
           database, companyId, chatId, phone, dealposConn: posConn, products,
           lalamoveConn, lalamoveReady, pickup: pickupRow,
-          quote: (args) => deliveryQuote.quote(lalamoveConn, args, { stores, promos, lalamoveReady }),
+          quote: (args) => quoteForChat(args),
           onAudit: (event, metadata) => app.log.info({ companyId, chatId, event, ...metadata }, 'Pesanan AI'),
         });
       }
@@ -1867,7 +1987,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       priceTools.length ? priceLookup.GUIDE : '',
       hubTools.length ? HUB_TOOLS_GUIDE : '',
       storeLocations.section(stores, { withNearestTool: nearestTool, now: new Date(), timeZone: companyConfig?.timezone }),
-      deliveryTools.length && lalamoveReady ? deliveryQuote.GUIDE : '',
+      deliveryTools.length && lalamoveReady ? (askVehicle ? deliveryQuote.GUIDE_MANAGEMENT : deliveryQuote.GUIDE) : '',
       summaryTools.length ? orderSummary.GUIDE : '',
       orderTools.length ? dealposOrders.GUIDE : '',
       addressTools.length ? addressCheck.GUIDE : '',
@@ -11146,6 +11266,7 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
       pickupSet: conn.pickupLat != null && conn.pickupLng != null,
       defaultService: conn.defaultService || null,
       aiQuotesEnabled: conn.aiQuotesEnabled === true,
+      vehicleMode: conn.vehicleMode === 'management' ? 'management' : 'ai',
     };
   }
 
@@ -11248,6 +11369,8 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
           pickupLocationId: { type: 'string', pattern: '^[0-9]{1,18}$' },
           defaultService: { type: 'string', pattern: '^[A-Z0-9_]{2,40}$' },
           aiQuotesEnabled: { type: 'boolean' },
+          // 'management' = AI bertanya ke Management kendaraan apa yang dipakai; 'ai' = AI memilih sendiri.
+          vehicleMode: { type: 'string', enum: ['ai', 'management'] },
         },
       },
     },
@@ -11271,7 +11394,7 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
         return reply.code(404).send({ error: 'Lokasi itu tidak ditemukan. Muat ulang halaman.' });
       }
     }
-    await database.saveLalamoveAiSettings(companyId, { defaultService, aiQuotesEnabled: request.body.aiQuotesEnabled });
+    await database.saveLalamoveAiSettings(companyId, { defaultService, aiQuotesEnabled: request.body.aiQuotesEnabled, vehicleMode: request.body.vehicleMode });
     return lalamoveStatus(await database.getLalamoveConnection(companyId));
   });
 

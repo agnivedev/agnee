@@ -1712,14 +1712,14 @@ class Database {
   }
 
   /** Pertanyaan AI ke satu departemen. Mengembalikan pertanyaan + anggota yang harus diberi tahu. */
-  async createDepartmentQuestion({ departmentId, chatId, customerText, question }, companyId) {
+  async createDepartmentQuestion({ departmentId, chatId, customerText, question, kind = 'general', payload = null }, companyId) {
     if (!this.enabled) return null;
     const dept = await this.pool.query('SELECT id, name, whatsapp_group_id AS "whatsappGroupId" FROM departments WHERE id = $1 AND company_id = $2', [departmentId, companyId]);
     if (!dept.rowCount) return null;
     const created = await this.pool.query(`
-      INSERT INTO department_questions (company_id, department_id, chat_id, customer_text, question)
-      VALUES ($1, $2, $3, $4, $5) RETURNING id, created_at AS "createdAt"
-    `, [companyId, departmentId, chatId, String(customerText || '').slice(0, 1000), String(question).slice(0, 1000)]);
+      INSERT INTO department_questions (company_id, department_id, chat_id, customer_text, question, kind, payload)
+      VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb) RETURNING id, created_at AS "createdAt"
+    `, [companyId, departmentId, chatId, String(customerText || '').slice(0, 1000), String(question).slice(0, 1000), kind, payload ? JSON.stringify(payload) : null]);
     const members = await this.pool.query(`
       SELECT u.id AS "userId", COALESCE(u.display_name, u.email) AS "displayName", cm.whatsapp_number AS "whatsappNumber"
       FROM department_members dm
@@ -1805,9 +1805,41 @@ class Database {
     const result = await this.pool.query(`
       UPDATE department_questions SET status = 'answered', answer = $3, answered_by = $4, answered_at = NOW()
       WHERE id = $1 AND company_id = $2 AND status IN ('open', 'unresolved', 'review')
-      RETURNING id, third_party_id AS "thirdPartyId", chat_id AS "chatId", customer_text AS "customerText", question, answer
+      RETURNING id, third_party_id AS "thirdPartyId", chat_id AS "chatId", customer_text AS "customerText", question, answer,
+                kind, payload
     `, [id, companyId, String(answer).slice(0, 2000), userId || null]);
     return result.rows[0] || null;
+  }
+
+  /** Pertanyaan kendaraan terakhir untuk satu chat (apa pun statusnya), atau null. */
+  async latestVehicleQuestion(companyId, chatId) {
+    if (!this.enabled || !chatId) return null;
+    const result = await this.pool.query(`
+      SELECT id, status, answer, payload, created_at AS "createdAt", answered_at AS "answeredAt"
+      FROM department_questions
+      WHERE company_id = $1 AND chat_id = $2 AND kind = 'lalamove_vehicle'
+      ORDER BY created_at DESC LIMIT 1
+    `, [companyId, chatId]);
+    return result.rows[0] || null;
+  }
+
+  /** Jawaban belum bisa dipakai (kendaraan tak dikenali): buka lagi supaya staf menjawab ulang. */
+  async reopenDepartmentQuestion(id, companyId) {
+    if (!this.enabled) return false;
+    const result = await this.pool.query(`
+      UPDATE department_questions SET status = 'open', answer = NULL, answered_by = NULL, answered_at = NULL
+      WHERE id = $1 AND company_id = $2 AND status = 'answered'
+    `, [id, companyId]);
+    return result.rowCount > 0;
+  }
+
+  async setDepartmentQuestionPayload(id, payload, companyId) {
+    if (!this.enabled) return false;
+    const result = await this.pool.query(
+      'UPDATE department_questions SET payload = $3::jsonb WHERE id = $1 AND company_id = $2',
+      [id, companyId, JSON.stringify(payload)],
+    );
+    return result.rowCount > 0;
   }
 
   async markDepartmentQuestionRelayed(id, companyId) {
@@ -6253,7 +6285,8 @@ class Database {
              l.id AS "pickupLocationId", l.name AS "pickupName",
              l.address AS "pickupAddress", l.lat AS "pickupLat", l.lng AS "pickupLng",
              l.contact_name AS "pickupContactName", l.contact_phone AS "pickupContactPhone",
-             c.default_service AS "defaultService", c.ai_quotes_enabled AS "aiQuotesEnabled"
+             c.default_service AS "defaultService", c.ai_quotes_enabled AS "aiQuotesEnabled",
+             c.vehicle_mode AS "vehicleMode"
       FROM lalamove_connections c
       -- Titik jemput = lokasi company yang ditandai is_pickup (Pengaturan > Lokasi).
       LEFT JOIN company_locations l ON l.company_id = c.company_id AND l.is_pickup
@@ -6295,12 +6328,14 @@ class Database {
   }
 
   /** Kendaraan bawaan dan saklar ongkir otomatis di chat. Titik jemput: setPickupLocation. */
-  async saveLalamoveAiSettings(companyId, { defaultService, aiQuotesEnabled }) {
+  async saveLalamoveAiSettings(companyId, { defaultService, aiQuotesEnabled, vehicleMode }) {
     if (!this.enabled) return false;
+    // vehicleMode tidak dikirim = tidak berubah.
     const result = await this.pool.query(`
-      UPDATE lalamove_connections SET default_service = $2, ai_quotes_enabled = $3, updated_at = NOW()
+      UPDATE lalamove_connections SET default_service = $2, ai_quotes_enabled = $3,
+        vehicle_mode = COALESCE($4, vehicle_mode), updated_at = NOW()
       WHERE company_id = $1
-    `, [companyId, defaultService ?? null, aiQuotesEnabled === true]);
+    `, [companyId, defaultService ?? null, aiQuotesEnabled === true, vehicleMode === 'management' || vehicleMode === 'ai' ? vehicleMode : null]);
     return result.rowCount > 0;
   }
 

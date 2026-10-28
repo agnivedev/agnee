@@ -1,5 +1,25 @@
 ## [Unreleased]
 
+- **Ongkir: kendaraan Lalamove ditentukan Management (migrasi 100).** Setelan baru di Settings >
+  Integrasi > Lalamove: "Kendaraan ditentukan oleh" Management atau AI (bawaan AI, tidak ada
+  perubahan untuk company yang ada). Mode Management:
+  - `cek_ongkir` tidak lagi memilih kendaraan; ia meminta `tujuan` dan `barang`, lalu **bertanya ke
+    departemen Management** (grup WhatsApp/anggota) dengan daftar kendaraan dari API Lalamove
+    (`GET /v3/cities`: nama dan muatan maksimum, mis. Motor 20 kg, MPV 200 kg, Van 600 kg, Pick-up
+    800 kg, Engkel box 2 ton, Engkel bak 2,5 ton, CDD 5 ton, Fuso 8 ton; kendaraan antar-kota tidak
+    ikut). Customer diberi tahu ongkirnya dipastikan dulu, tanpa angka.
+  - Jawaban Management ("engkel box", "2 motor", boleh dari grup atau web) dibaca di
+    `src/lalamove-vehicles.js` menjadi kode kendaraan dan jumlah (1-10; angka kode pertanyaan
+    `#abc123` tidak terbaca sebagai jumlah); ongkir dihitung ke Lalamove dari titik jemput ke tujuan
+    dan hasilnya disusun jadi balasan ke customer. Jawaban tak dikenali ("container" tidak ada di
+    Lalamove, dua jenis sekaligus) membuka lagi pertanyaan dan membalas grup dengan pilihan yang sah.
+  - Kendaraan yang dipilih tersimpan per chat (`department_questions.kind/payload`) dan dipakai
+    hitungan berikutnya, termasuk proforma; `barang_berubah` memastikan ulang bila pesanan berubah.
+  - Tanpa departemen Management yang bisa dihubungi, alat memakai kendaraan bawaan (tidak menggantung).
+    Simulator hanya menampilkan pertanyaan yang akan dikirim. Chat customer tetap hanya mode production.
+  - Tes: `lalamove-vehicles.test.js`, `vehicle-management.test.js` (alur nyata dari pesan masuk sampai
+    balasan), tambahan di `delivery-quote-routes.test.js`. Playbook ESBEJE disesuaikan.
+
 - **Fix: AI tidak lagi mengarang harga (ESBEJE, 28 Okt).** Customer menulis "dinding retak perlu
   diperbaiki", AI membalas MU 100 Base Plester Rp 75.000 dan MU 301 Plasterplus Rp 90.000; harga
   DealPOS sebenarnya Rp 116.400 dan Rp 104.000. Akarnya: prompt hanya memuat barang yang namanya

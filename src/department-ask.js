@@ -50,7 +50,7 @@ function buildReminderNotice({ department, question, customerLabel, reminderCoun
   return [
     final ? `*Pengingat terakhir — tim ${department}*` : `*Pengingat ${reminderCount}/4 — tim ${department}*`,
     `Customer: ${customerLabel}`,
-    `Pertanyaan: "${cut(question, 500)}"`,
+    `Pertanyaan: "${cut(question, 650)}"`,
     '',
     final
       ? `Belum ada yang menjawab selama 12 jam. Customer ditandai belum terjawab. ${answerHint({ code, group })}`
@@ -169,7 +169,7 @@ function buildQuestionNotice({ department, question, customerLabel, askerLabel =
   return [
     `*Pertanyaan dari asisten untuk tim ${department}*`,
     askerLabel ? `Penanya: ${askerLabel}` : `Customer: ${customerLabel}`,
-    `Pertanyaan: "${cut(question, 500)}"`,
+    `Pertanyaan: "${cut(question, 650)}"`,
     '',
     `${answerHint({ code, group })} Jawaban pertama yang masuk akan diteruskan ke ${askerLabel ? 'penanya' : 'customer'}.`,
   ].join('\n');

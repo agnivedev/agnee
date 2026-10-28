@@ -24,7 +24,8 @@ function fakeDatabase(conn) {
     async recordSimulationRun() { return { id: 'run-1' }; },
     async getLalamoveConnection(companyId) { return companyId === 'company-a' && conn.value ? { ...conn.value } : null; },
     async saveLalamoveAiSettings(companyId, settings) {
-      Object.assign(conn.value, settings);
+      // Seperti COALESCE di SQL: nilai yang tidak dikirim tidak mengubah apa pun.
+      for (const [key, value] of Object.entries(settings)) if (value !== undefined) conn.value[key] = value;
       return true;
     },
     async setPickupLocation(companyId, id) {
@@ -102,6 +103,17 @@ test('pengaturan ongkir otomatis: supervisor saja, wajib titik jemput dari Lokas
   // Mematikan tanpa mengirim lokasi lagi tidak melepas titik jemput.
   await call(owner, 'PUT', '/v1/integrations/lalamove/ai', { aiQuotesEnabled: false });
   assert.equal(conn.value.pickupLat, -6.2);
+
+  // Kendaraan ditentukan Management: hanya nilai yang dikenal; tidak dikirim = tidak berubah.
+  assert.equal((await call(owner, 'PUT', '/v1/integrations/lalamove/ai', { aiQuotesEnabled: true, vehicleMode: 'robot' })).statusCode, 400);
+  assert.equal((await call(agent, 'PUT', '/v1/integrations/lalamove/ai', { aiQuotesEnabled: true, vehicleMode: 'management' })).statusCode, 403);
+  const managed = await call(owner, 'PUT', '/v1/integrations/lalamove/ai', { aiQuotesEnabled: true, vehicleMode: 'management' });
+  assert.equal(managed.statusCode, 200);
+  assert.equal(conn.value.vehicleMode, 'management');
+  await call(owner, 'PUT', '/v1/integrations/lalamove/ai', { aiQuotesEnabled: true });
+  assert.equal(conn.value.vehicleMode, 'management', 'tidak dikirim = tidak berubah');
+  await call(owner, 'PUT', '/v1/integrations/lalamove/ai', { aiQuotesEnabled: true, vehicleMode: 'ai' });
+  assert.equal(conn.value.vehicleMode, 'ai');
 });
 
 test('simulator: alat cek_ongkir hidup dan memanggil Lalamove dari toko ke pin customer', async (t) => {

@@ -32,6 +32,15 @@ const GUIDE = `## ONGKIR LALAMOVE (alat ${TOOL_NAME})
 - Alat ini tidak menentukan jadwal kirim; jangan menjanjikan jam.
 - Kalau alat gagal atau lokasi tidak terbaca, jangan mengarang angka. Minta share location, atau katakan ongkirnya dipastikan dulu.`;
 
+/** Panduan saat kendaraan ditentukan Management: AI tidak memilih, alat yang bertanya. */
+const GUIDE_MANAGEMENT = `## ONGKIR LALAMOVE (alat ${TOOL_NAME}, kendaraan ditentukan Management)
+- Kalau customer menanyakan ongkir, atau barang dan lokasinya sudah diketahui, panggil ${TOOL_NAME} dengan "tujuan" dan "barang" (nama dan jumlah pesanan, mis. "10 sak MU 301 Plasterplus 40KG"). Isi "tujuan" dengan koordinat dari penanda lokasi atau link Google Maps customer kalau ada; kalau belum, nama tempat atau alamat yang diketik customer.
+- Kamu TIDAK memilih kendaraan. Alat ini yang menanyakannya ke Management. Hasil "menunggu_management" berarti kendaraannya sedang dipastikan: katakan ongkirnya sedang dipastikan dan akan dikabari begitu sudah jelas. JANGAN menyebut angka ongkir, jenis kendaraan, atau siapa yang menentukan, lalu lanjutkan percakapan (mis. tanyakan jumlah barang atau kapan dibutuhkan). Jangan memanggil alat ini lagi untuk chat yang sama selama masih menunggu.
+- Kalau hasilnya "ok", sebut ongkir sebagai estimasi ongkir Lalamove lengkap dengan kendaraannya. Kalau "ketepatan" = "perkiraan_area", katakan itu perkiraan ke area tersebut dan minta customer share location WhatsApp supaya angkanya pas.
+- Kalau barang atau jumlah pesanan BERUBAH sesudah kendaraan ditentukan (lebih banyak atau barang lain), panggil lagi dengan "barang_berubah": true supaya kendaraannya dipastikan ulang.
+- Kalau ada promo gratis ongkir (lihat bagian PROMO), isi "total_belanja", "jumlah_barang", dan "produk" dari pesanan customer sejauh sudah diketahui. Hasil "promo_gratis_ongkir" menentukan apakah gratis; "ongkir_dibayar_customer" adalah yang harus dibayar customer setelah promo.
+- Alat ini tidak menentukan jadwal kirim; jangan menjanjikan jam. Kalau alat gagal atau lokasi tidak terbaca, jangan mengarang angka: minta share location, atau katakan ongkirnya dipastikan dulu.`;
+
 /** Lalamove siap dipakai AI? `realChat` = balasan untuk customer sungguhan (ada chatId). */
 function lalamoveUsable(conn, { realChat }) {
   if (!conn || !conn.enabled || !conn.aiQuotesEnabled) return false;
@@ -55,17 +64,18 @@ function servicesOf(conn) {
   return [...byKey.entries()].map(([key, description]) => ({ key, description }));
 }
 
-function toolSpec({ conn, run, stores = [], promos = [], lalamoveReady = true }) {
+function toolSpec({ conn, run, stores = [], promos = [], lalamoveReady = true, vehicleMode = 'ai' }) {
+  const byManagement = lalamoveReady && vehicleMode === 'management';
   const services = servicesOf(conn);
   const hasPromo = promoRules.activeRules(promos).length > 0;
   const vehicleList = services.map((s) => `${s.key}${s.description ? ` (${s.description})` : ''}`).join('; ');
   return {
     name: TOOL_NAME,
-    description: `${lalamoveReady ? 'Hitung estimasi ongkir Lalamove dari toko ke lokasi customer.' : 'Cek apakah lokasi customer masuk promo gratis ongkir.'}${hasPromo && lalamoveReady ? ' Sekaligus menentukan apakah promo gratis ongkir berlaku.' : ''}${lalamoveReady ? ` Kendaraan yang tersedia: ${vehicleList || 'bawaan toko'}.` : ''}`,
+    description: `${lalamoveReady ? 'Hitung estimasi ongkir Lalamove dari toko ke lokasi customer.' : 'Cek apakah lokasi customer masuk promo gratis ongkir.'}${hasPromo && lalamoveReady ? ' Sekaligus menentukan apakah promo gratis ongkir berlaku.' : ''}${lalamoveReady && !byManagement ? ` Kendaraan yang tersedia: ${vehicleList || 'bawaan toko'}.` : ''}${byManagement ? ' Kendaraan ditentukan Management: alat ini menanyakannya, jadi hasilnya bisa "menunggu_management".' : ''}`,
     parameters: {
       type: 'object',
       additionalProperties: false,
-      required: ['tujuan'],
+      required: byManagement ? ['tujuan', 'barang'] : ['tujuan'],
       properties: {
         tujuan: { type: 'string', maxLength: 300, description: 'Koordinat "lat,lng" atau link Google Maps dari customer; kalau belum ada, nama tempat atau alamat yang diketik customer.' },
         ...(stores.length && lalamoveReady ? { dari_toko: { type: 'string', enum: stores.map((l) => l.name), description: 'Toko asal pengiriman. Kosongkan untuk titik jemput bawaan.' } } : {}),
@@ -74,7 +84,11 @@ function toolSpec({ conn, run, stores = [], promos = [], lalamoveReady = true })
           jumlah_barang: { type: 'integer', minimum: 0, description: 'Jumlah seluruh barang yang dipesan, kalau sudah diketahui. Untuk syarat promo.' },
           produk: { type: 'array', maxItems: 20, items: { type: 'string', maxLength: 120 }, description: 'Nama produk yang dipesan. Untuk syarat promo.' },
         } : {}),
-        ...(services.length && lalamoveReady ? { kendaraan: { type: 'string', enum: services.map((s) => s.key), description: 'Kendaraan sesuai berat dan ukuran barang.' } } : {}),
+        ...(services.length && lalamoveReady && !byManagement ? { kendaraan: { type: 'string', enum: services.map((s) => s.key), description: 'Kendaraan sesuai berat dan ukuran barang.' } } : {}),
+        ...(byManagement ? {
+          barang: { type: 'string', maxLength: 300, description: 'Nama dan jumlah barang yang dipesan, mis. "10 sak MU 301 Plasterplus 40KG". Dipakai Management untuk menentukan kendaraan.' },
+          barang_berubah: { type: 'boolean', description: 'true bila barang atau jumlah pesanan berubah sejak kendaraan ditentukan, supaya kendaraan dipastikan ulang.' },
+        } : {}),
       },
     },
     run,
@@ -160,6 +174,9 @@ async function quote(conn, args = {}, {
   try {
     const result = await getQuotation(conn, { serviceType, stops: [pickup, destination] }, fetchImpl);
     if (result.total == null) return { status: 'gagal', pesan: 'Lalamove tidak memberi harga. Ongkir dipastikan dulu.', ...promoFields };
+    // Beberapa kendaraan sekaligus (mis. 2 motor): harga satu kendaraan dikalikan jumlahnya.
+    const vehicleCount = Math.min(10, Math.max(1, Math.floor(Number(args.jumlah_kendaraan)) || 1));
+    result.total = Number(result.total) * vehicleCount;
     const service = services.find((s) => s.key === serviceType);
     const format = (n) => (result.currency === 'IDR' ? rupiah(n) : `${result.currency} ${n}`);
     const pays = promoRules.customerPays(result.total, evaluated);
@@ -173,6 +190,7 @@ async function quote(conn, args = {}, {
       layanan: serviceType,
       titik_antar: { lat: destination.lat, lng: destination.lng, address: destination.address },
       kendaraan: service?.description ? `${serviceType} (${service.description})` : serviceType,
+      ...(vehicleCount > 1 ? { jumlah_kendaraan: vehicleCount } : {}),
       jarak_km: result.distanceMeters != null ? Math.round(result.distanceMeters / 100) / 10 : null,
       dari: store ? store.name : undefined,
       tujuan: destination.address,
@@ -195,4 +213,4 @@ async function quote(conn, args = {}, {
   }
 }
 
-module.exports = { TOOL_NAME, GUIDE, isUsable, lalamoveUsable, servicesOf, toolSpec, resolveDestination, quote };
+module.exports = { TOOL_NAME, GUIDE, GUIDE_MANAGEMENT, isUsable, lalamoveUsable, servicesOf, toolSpec, resolveDestination, quote };

@@ -4,7 +4,7 @@ import { useI18n } from '@/lib/i18n';
 import { Button } from '@/components/ui/button';
 import { useConfirm } from '@/components/ui/confirm';
 import { Switch } from '@/components/ui/switch';
-import { Row, SecretField, SelectField, SettingCard, StatusLine, TextField } from './parts';
+import { Field, Row, SecretField, SelectField, SettingCard, StatusLine, TextField } from './parts';
 import type { CompanyLocation } from './LocationsSection';
 
 type City = { locode: string; name: string; services: { key: string; description: string }[] };
@@ -26,6 +26,7 @@ type Lalamove = {
   pickupSet?: boolean;
   defaultService?: string | null;
   aiQuotesEnabled?: boolean;
+  vehicleMode?: 'ai' | 'management';
 };
 
 type Quote = {
@@ -55,6 +56,7 @@ export function LalamoveSection() {
   const [quoting, setQuoting] = useState(false);
   const [quoteError, setQuoteError] = useState('');
   const [aiOn, setAiOn] = useState(false);
+  const [vehicleMode, setVehicleMode] = useState<'ai' | 'management'>('ai');
   const [aiStatus, setAiStatus] = useState('');
   const [aiError, setAiError] = useState('');
   const [aiSaving, setAiSaving] = useState(false);
@@ -76,6 +78,7 @@ export function LalamoveSection() {
 
   useEffect(() => { void load(); }, [load]);
   useEffect(() => { setAiOn(state.aiQuotesEnabled === true); }, [state.aiQuotesEnabled]);
+  useEffect(() => { setVehicleMode(state.vehicleMode === 'management' ? 'management' : 'ai'); }, [state.vehicleMode]);
 
   // Jenis kendaraan dari semua kota, tanpa kembar: Lalamove menentukan kota dari koordinat titik jemput.
   const services = useMemo(() => {
@@ -147,6 +150,7 @@ export function LalamoveSection() {
         method: 'PUT',
         body: {
           aiQuotesEnabled: aiOn,
+          vehicleMode,
           ...(pickupLocationId ? { pickupLocationId } : {}),
           ...(form.get('defaultService') ? { defaultService: String(form.get('defaultService')) } : {}),
         },
@@ -329,6 +333,16 @@ export function LalamoveSection() {
                   <option key={service.key} value={service.key}>{service.description || service.key}</option>
                 ))}
               </SelectField>
+              <Field label={t('lalamove.vehicleMode')} hint={t(vehicleMode === 'management' ? 'lalamove.vehicleModeManagementHint' : 'lalamove.vehicleModeAiHint')}>
+                <select
+                  value={vehicleMode}
+                  onChange={(event) => setVehicleMode(event.target.value === 'management' ? 'management' : 'ai')}
+                  className="w-full rounded-app border border-input bg-white/60 px-3 py-2.5 text-sm outline-none focus:border-green"
+                >
+                  <option value="management">{t('lalamove.vehicleModeManagement')}</option>
+                  <option value="ai">{t('lalamove.vehicleModeAi')}</option>
+                </select>
+              </Field>
             </div>
             <label className="mt-4 flex items-start gap-3">
               <Switch checked={aiOn} onChange={setAiOn} label={t('lalamove.aiToggle')} className="mt-0.5" />

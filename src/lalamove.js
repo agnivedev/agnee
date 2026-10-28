@@ -88,7 +88,13 @@ async function fetchCities(conn, fetchImpl = fetch) {
     locode: String(city.locode || ''),
     name: String(city.name || city.locode || ''),
     services: (Array.isArray(city.services) ? city.services : [])
-      .map((service) => ({ key: String(service.key || ''), description: String(service.description || '') }))
+      // Muatan dan dimensi ikut disimpan: dipakai untuk menampilkan pilihan kendaraan ke Management.
+      .map((service) => ({
+        key: String(service.key || ''),
+        description: String(service.description || ''),
+        ...(service.load?.value ? { load: { value: String(service.load.value), unit: String(service.load.unit || 'kg') } } : {}),
+        ...(service.dimensions ? { dimensions: service.dimensions } : {}),
+      }))
       .filter((service) => service.key),
   })).filter((city) => city.locode);
 }

@@ -20,6 +20,27 @@
   - Tes: `lalamove-vehicles.test.js`, `vehicle-management.test.js` (alur nyata dari pesan masuk sampai
     balasan), tambahan di `delivery-quote-routes.test.js`. Playbook ESBEJE disesuaikan.
 
+- **AI belajar dari jawaban departemen (28 Okt).** Jawaban staf Management, Finance, dan departemen
+  lain atas pertanyaan AI (`ask_department`), lewat grup WhatsApp atau web, dulu hanya diteruskan ke
+  satu customer. Kini, bila saklar "AI belajar dari chat" company menyala, jawaban itu dinilai model
+  murah (purpose `knowledge_check`): aturan yang bisa dipakai ulang (kebijakan, harga/promo, jadwal
+  kirim, syarat retur, jam) menjadi USULAN `submitted` di Latih AI > Usulan dari Chat; urusan satu
+  transaksi (stok saat ini, "transfer sudah masuk", ongkir satu order, janji ke satu customer)
+  dibuang. Tidak ada yang masuk playbook tanpa simulasi dan persetujuan supervisor.
+  - Keputusan akhir di kode (`src/department-learning.js`), bukan di prompt: `validateCandidate`
+    (tanpa nomor/email/rekening/klaim hasil), topik transfer lolos hanya bila rumusannya memuat aturan
+    umum, duplikat (sidik, Fakta serupa, usulan serupa yang menunggu digabung, pernah ditolak),
+    batas 6 usulan per jam dan 25 menunggu. Pertanyaan kendaraan Lalamove dan `kind <> 'general'`
+    tidak pernah dipelajari (tahan kolom `kind` yang belum ada).
+  - Kartu tinjauan memuat kasus berurutan: pesan customer, pertanyaan AI ke departemen, siapa menjawab
+    + kapan + isi persis, usulan Tanya-Jawab yang bisa disunting, catatan bentrok, simulasi sebelum/
+    sesudah. Tautan ke chat customer sumber dan ke chat grup departemen; lencana "Dari Management" dan
+    filter per asal.
+  - Migrasi `101_knowledge_dari_departemen.sql`: `knowledge_proposals` + origin `department`,
+    `department_question_id` (unik), nama departemen, pertanyaan AI, jawaban persis, penjawab, kanal.
+  - Tes: `test/department-learning.test.js` (unit), `test/department-learning-routes.test.js`
+    (Postgres asli, jawaban grup + web, `/v1/coach/simulate`).
+
 - **Fix: AI tidak lagi mengarang harga (ESBEJE, 28 Okt).** Customer menulis "dinding retak perlu
   diperbaiki", AI membalas MU 100 Base Plester Rp 75.000 dan MU 301 Plasterplus Rp 90.000; harga
   DealPOS sebenarnya Rp 116.400 dan Rp 104.000. Akarnya: prompt hanya memuat barang yang namanya

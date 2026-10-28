@@ -19,7 +19,7 @@ export type Proposal = {
   customerMessage: string;
   category: ProposalCategory;
   status: ProposalStatus;
-  origin: 'auto' | 'manual';
+  origin: 'auto' | 'manual' | 'department';
   proposedBy: string | null;
   proposedByName: string | null;
   reviewedByName: string | null;
@@ -31,5 +31,13 @@ export type Proposal = {
   createdAt: string;
   submittedAt: string | null;
   decidedAt: string | null;
+  departmentQuestionId: string | null;
+  departmentName: string | null;
+  askedQuestion: string;
+  rawAnswer: string;
+  answeredByName: string | null;
+  answeredAt: string | null;
+  answerChannel: 'group' | 'web' | null;
+  answerGroupId: string | null;
   mine: boolean;
 };

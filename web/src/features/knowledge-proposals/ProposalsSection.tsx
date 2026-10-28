@@ -6,6 +6,7 @@ import { useConfirm } from '@/components/ui/confirm';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
+import { notificationHref } from '@/lib/notification-link';
 import { PROPOSAL_CATEGORIES, type Proposal, type ProposalCategory } from './types';
 
 type Filter = 'pending' | 'decided';
@@ -37,6 +38,7 @@ export function ProposalsSection({ onChanged }: { onChanged?: () => void }) {
   const confirm = useConfirm();
   const [enabled, setEnabled] = useState<boolean | null>(null);
   const [filter, setFilter] = useState<Filter>('pending');
+  const [origin, setOrigin] = useState<string>('all');
   const [items, setItems] = useState<Proposal[] | null>(null);
   const [error, setError] = useState('');
 
@@ -65,6 +67,13 @@ export function ProposalsSection({ onChanged }: { onChanged?: () => void }) {
     }
   }
 
+  // Asal tersedia sebagai filter hanya bila ada usulan dari departemen.
+  const originOf = (proposal: Proposal) => (proposal.origin === 'department' ? `dept:${proposal.departmentName || '?'}` : 'chat');
+  const origins = (items || []).some((item) => item.origin === 'department')
+    ? Array.from(new Set((items || []).map(originOf))).sort()
+    : [];
+  const visible = (items || []).filter((item) => origin === 'all' || originOf(item) === origin);
+
   function replaceItem(proposal: Proposal) {
     setItems((current) => (current || []).map((item) => (item.id === proposal.id ? proposal : item)));
   }
@@ -84,7 +93,7 @@ export function ProposalsSection({ onChanged }: { onChanged?: () => void }) {
         </div>
       )}
 
-      <div role="group" className="flex gap-1.5">
+      <div role="group" className="flex flex-wrap gap-1.5">
         {(['pending', 'decided'] as Filter[]).map((id) => (
           <button
             key={id}
@@ -101,12 +110,31 @@ export function ProposalsSection({ onChanged }: { onChanged?: () => void }) {
         ))}
       </div>
 
+      {origins.length > 0 ? (
+        <div role="group" aria-label={t('kp.origin.all')} className="flex flex-wrap gap-1.5">
+          {['all', ...origins].map((id) => (
+            <button
+              key={id}
+              type="button"
+              aria-pressed={origin === id}
+              onClick={() => setOrigin(id)}
+              className={cn(
+                'cursor-pointer rounded-full border px-3 py-1 text-[12px] font-semibold transition-colors',
+                origin === id ? 'border-green-dark bg-green-dark text-white' : 'border-ink/15 bg-white/60 text-ink hover:border-green',
+              )}
+            >
+              {id === 'all' ? t('kp.origin.all') : id === 'chat' ? t('kp.origin.chat') : t('kp.origin.department', { name: id.slice('dept:'.length) })}
+            </button>
+          ))}
+        </div>
+      ) : null}
+
       {error ? <p role="alert" className="m-0 text-[13px] font-semibold text-danger">{error}</p> : null}
       {items === null ? <p className="m-0 text-[13px] text-muted">{t('common.loading')}</p> : null}
       {items?.length === 0 && !error ? <p className="m-0 text-[13px] text-muted">{t(`kp.empty.${filter}`)}</p> : null}
 
       <ul className="m-0 grid list-none gap-4 p-0">
-        {(items || []).map((proposal) => (
+        {visible.map((proposal) => (
           <li key={proposal.id}>
             <ProposalCard proposal={proposal} onUpdate={replaceItem} onDecided={() => { void load(); onChanged?.(); }} />
           </li>
@@ -186,10 +214,21 @@ function ProposalCard({
             {proposal.reviewedByName ? ` ${t('kp.decidedBy', { name: proposal.reviewedByName })}` : ''}
           </span>
         )}
-        <span>{proposal.proposedByName ? t('kp.from', { name: proposal.proposedByName }) : t('kp.fromChat')}</span>
+        {proposal.origin === 'department' ? (
+          <span className="rounded-full bg-[#dbeafe] px-2.5 py-1 font-semibold text-[#1e3a8a]">
+            {t('kp.badge.department', { name: proposal.departmentName || '' })}
+          </span>
+        ) : (
+          <span>{proposal.proposedByName ? t('kp.from', { name: proposal.proposedByName }) : t('kp.fromChat')}</span>
+        )}
         <span className="flex-1" />
         <time>{new Date(proposal.submittedAt || proposal.createdAt).toLocaleString(dateLocale)}</time>
       </header>
+
+      {proposal.origin === 'department' ? <CaseBlock proposal={proposal} /> : null}
+      {proposal.origin === 'department' ? (
+        <span className="font-mono text-[10px] font-semibold tracking-wide text-muted uppercase">{t('kp.case.proposal')}</span>
+      ) : null}
 
       {editing ? (
         <div className="grid gap-2.5">
@@ -216,7 +255,7 @@ function ProposalCard({
       ) : null}
       {proposal.rejectReason && !open ? <p className="m-0 text-[13px] text-muted">{proposal.rejectReason}</p> : null}
 
-      {proposal.chatExcerpt ? (
+      {proposal.chatExcerpt && proposal.origin !== 'department' ? (
         <details className="text-[13px]">
           <summary className="cursor-pointer font-semibold text-green-dark">{t('kp.source')}</summary>
           <pre className="mt-2 mb-0 max-h-48 overflow-auto whitespace-pre-wrap rounded-app bg-ink/5 p-3 font-sans text-[12px] leading-relaxed">{proposal.chatExcerpt}</pre>
@@ -282,5 +321,56 @@ function Reply({ label, text, highlight, children }: { label: string; text: stri
       <p className="m-0 whitespace-pre-wrap text-[13px] leading-snug">{text || t('kp.noReply')}</p>
       {children}
     </div>
+  );
+}
+
+/**
+ * Kasus lengkap di balik usulan dari jawaban departemen, berurutan: pesan
+ * customer, pertanyaan AI, siapa menjawab apa, lalu tautan ke chat sumbernya.
+ * Supervisor tidak perlu membuka apa pun untuk memutuskan; tautannya untuk
+ * memeriksa konteks bila ragu.
+ */
+function CaseBlock({ proposal }: { proposal: Proposal }) {
+  const { t, dateLocale } = useI18n();
+  const when = proposal.answeredAt ? new Date(proposal.answeredAt).toLocaleString(dateLocale) : '';
+  const who = proposal.answeredByName || t('kp.case.unknownWho');
+  const channel = proposal.answerChannel === 'group' ? t('kp.case.channel.group') : t('kp.case.channel.web');
+  const department = proposal.departmentName || '';
+  return (
+    <section aria-label={t('kp.case.title')} className="grid gap-2.5 rounded-app border border-[#bfdbfe] bg-[#eff6ff]/60 p-3 text-[13px]">
+      <div className="grid gap-0.5">
+        <span className="font-mono text-[10px] font-semibold tracking-wide text-muted uppercase">{t('kp.case.customer')}</span>
+        <p className="m-0 leading-snug">{proposal.customerMessage ? `“${proposal.customerMessage}”` : t('kp.case.noCustomer')}</p>
+      </div>
+      <div className="grid gap-0.5">
+        <span className="font-mono text-[10px] font-semibold tracking-wide text-muted uppercase">{t('kp.case.asked', { name: department })}</span>
+        <p className="m-0 leading-snug">{proposal.askedQuestion}</p>
+      </div>
+      <div className="grid gap-0.5">
+        <span className="font-mono text-[10px] font-semibold tracking-wide text-muted uppercase">{t('kp.case.answered')}</span>
+        <p className="m-0 text-[12px] text-muted">{t('kp.case.answeredBy', { who, channel, when })}</p>
+        <p className="m-0 whitespace-pre-wrap rounded-app bg-white px-3 py-2 leading-snug">{proposal.rawAnswer}</p>
+      </div>
+      <div className="flex flex-wrap gap-x-4 gap-y-1">
+        <a
+          href={notificationHref(proposal.chatId)}
+          target="_blank"
+          rel="noreferrer"
+          className="font-bold text-green-dark underline underline-offset-2"
+        >
+          {t('kp.case.openChat')}
+        </a>
+        {proposal.answerGroupId ? (
+          <a
+            href={notificationHref(proposal.answerGroupId, department)}
+            target="_blank"
+            rel="noreferrer"
+            className="font-bold text-green-dark underline underline-offset-2"
+          >
+            {t('kp.case.openGroup', { name: department })}
+          </a>
+        ) : null}
+      </div>
+    </section>
   );
 }

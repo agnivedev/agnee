@@ -24,6 +24,7 @@ const chatImport = require('./chat-import');
 const { pilihNomorUntukPercakapanBaru } = require('./rotator');
 const agentModes = require('./agent-modes');
 const knowledgeProposals = require('./knowledge-proposals');
+const departmentLearning = require('./department-learning');
 const coachSuggestion = require('./coach-suggestion');
 const { neutralizeFormula } = require('./formula-guard');
 const { CloudApiManager } = require('./cloud-api-manager.js');
@@ -1690,6 +1691,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       ? 'Terima kasih, jawabannya sudah diteruskan ke customer.'
       : 'Terima kasih, jawabannya tercatat. Belum diteruskan otomatis; CS yang memegang chat akan menyampaikannya.');
     await sendOutbound(companyId, message.from, ack).catch(() => {});
+    trackLearning(learnFromDepartmentAnswer({ companyId, questionId: row.id, channel: 'group', groupId: message.from }));
     return true;
   }
 
@@ -5013,6 +5015,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       app.log.warn({ err: error, companyId: s.companyId }, 'Jawaban departemen gagal diteruskan ke customer');
       relay = { relayed: false, reason: 'send_failed' };
     }
+    trackLearning(learnFromDepartmentAnswer({ companyId: s.companyId, questionId: row.id, channel: 'web' }));
     return { ok: true, ...relay };
   });
 
@@ -7002,6 +7005,94 @@ Aturan:
       }
     }
     return null;
+  }
+
+  // ── AI belajar dari jawaban departemen (migrasi 101) ─────────────────────
+  //
+  // Jawaban staf atas pertanyaan AI dinilai: pengetahuan yang bisa dipakai ulang
+  // menjadi usulan 'submitted' untuk supervisor; urusan satu transaksi diabaikan.
+  // Berjalan di belakang layar sesudah jawaban diteruskan ke customer, dan tidak
+  // pernah menulis ke playbook: yang menerapkan tetap supervisor, bersimulasi.
+
+  const learningJobs = new Set();
+  function trackLearning(promise) {
+    const job = promise.catch((error) => app.log.warn({ err: error }, 'Belajar dari jawaban departemen gagal'));
+    learningJobs.add(job);
+    job.finally(() => learningJobs.delete(job));
+  }
+  // Untuk tes dan penutupan server: menunggu semua pekerjaan belajar selesai.
+  app.decorate('learningIdle', () => Promise.allSettled([...learningJobs]));
+  app.addHook('onClose', async () => { await Promise.allSettled([...learningJobs]); });
+
+  /**
+   * Mengembalikan { outcome, reason? }. outcome: 'proposed' | 'skipped'.
+   * Tiap penolakan punya alasan supaya mudah diuji dan dilacak di log.
+   */
+  async function learnFromDepartmentAnswer({ companyId, questionId, channel, groupId = null }) {
+    const skip = (reason) => ({ outcome: 'skipped', reason });
+    if (!canCall('getDepartmentQuestionForLearning') || !canCall('createKnowledgeProposal')) return skip('tanpa database');
+    if (!await knowledgeLearningOn(companyId)) return skip('saklar mati');
+    const row = await database.getDepartmentQuestionForLearning(questionId, companyId);
+    if (!row || row.status !== 'answered') return skip('belum dijawab');
+    const learnable = departmentLearning.isLearnableQuestion(row);
+    if (!learnable.ok) return skip(learnable.reason);
+    const companyAi = await getCompanyAi(companyId);
+    if (!companyAi.enabled) return skip('AI mati');
+
+    // Banjir: batasi per jam dan jumlah yang menunggu.
+    if (await database.countDepartmentProposalsSince(companyId, departmentLearning.THROTTLE_WINDOW_MS) >= departmentLearning.MAX_PER_HOUR) return skip('dibatasi per jam');
+    const pending = await database.listPendingDepartmentProposals(companyId);
+    if (pending.length >= departmentLearning.MAX_PENDING) return skip('antrean penuh');
+
+    const askedQuestion = knowledgeProposals.scrubPersonalData(row.question);
+    const rawAnswer = knowledgeProposals.scrubPersonalData(row.answer);
+    const customerText = knowledgeProposals.scrubPersonalData(row.customerText || '');
+    const result = await llmService.generateReply(
+      departmentLearning.assessUserPrompt({ customerText, askedQuestion, department: row.department, answer: rawAnswer }),
+      { systemPrompt: departmentLearning.ASSESS_SYSTEM_PROMPT, companyId, purpose: 'knowledge_check', modelChain: companyAi.modelChain },
+    ).catch(() => null);
+    const decision = departmentLearning.decideCandidate({
+      assessment: departmentLearning.parseAssessment(result?.text),
+      row: { ...row, customerText },
+    });
+    if (!decision.ok) return skip(decision.reason);
+
+    if (await database.hasKnowledgeFingerprint(companyId, decision.fingerprint)) return skip('sudah pernah diusulkan');
+    if (departmentLearning.findSimilarPending(decision.question, pending)) return skip('digabung dengan usulan menunggu');
+    const verdict = await checkProposalConflict(decision, companyId, companyAi);
+    if (verdict.status === 'duplicate') return skip('sudah ada di playbook');
+
+    const answeredByName = row.answeredByName || null;
+    const proposal = await database.createKnowledgeProposal({
+      chatId: row.chatId,
+      question: decision.question,
+      answer: decision.answer,
+      customerMessage: decision.customerMessage,
+      category: decision.category,
+      origin: 'department',
+      status: 'submitted',
+      chatExcerpt: departmentLearning.caseExcerpt({
+        customerText, askedQuestion, department: row.department, answer: rawAnswer, answeredByName,
+      }),
+      fingerprint: decision.fingerprint,
+      conflictStatus: verdict.status,
+      conflictNote: verdict.note,
+      department: {
+        questionId: row.id, name: row.department, askedQuestion, rawAnswer, answeredByName,
+        answeredAt: row.answeredAt, channel, groupId: channel === 'group' ? groupId : null,
+      },
+    }, companyId);
+    if (!proposal) return skip('sudah ada usulan untuk pertanyaan ini');
+
+    const recipients = await database.listKnowledgeRecipients(companyId);
+    await notifyKnowledge(
+      companyId, recipients.map((r) => r.userId),
+      departmentLearning.notificationBody({ department: row.department, question: proposal.question }),
+      proposal.chatId, null,
+    );
+    scheduleKnowledgeDigest(companyId);
+    broadcastEvent(companyId, 'knowledge', { chatId: proposal.chatId });
+    return { outcome: 'proposed', proposalId: proposal.id };
   }
 
   /** Cek usulan terhadap Fakta dan playbook yang ada: new | duplicate | conflict. */

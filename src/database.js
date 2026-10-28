@@ -4214,6 +4214,10 @@ class Database {
       p.conflict_note AS "conflictNote", p.chat_excerpt AS "chatExcerpt",
       p.simulation, p.simulated_at AS "simulatedAt", p.fact_id AS "factId",
       p.created_at AS "createdAt", p.submitted_at AS "submittedAt", p.decided_at AS "decidedAt",
+      p.department_question_id AS "departmentQuestionId", p.department_name AS "departmentName",
+      p.asked_question AS "askedQuestion", p.raw_answer AS "rawAnswer",
+      p.answered_by_name AS "answeredByName", p.answered_at AS "answeredAt",
+      p.answer_channel AS "answerChannel", p.answer_group_id AS "answerGroupId",
       pu.display_name AS "proposedByName", ru.display_name AS "reviewedByName"`;
   }
 
@@ -4237,22 +4241,33 @@ class Database {
     return result.rows[0]?.at || null;
   }
 
-  /** Mengembalikan null kalau chat itu sudah punya satu usulan terbuka. */
+  /**
+   * Mengembalikan null kalau chat itu sudah punya satu usulan terbuka, atau
+   * pertanyaan departemen itu sudah punya usulan. `department` (opsional)
+   * membawa kasus dari jawaban departemen; usulan seperti itu langsung 'submitted'.
+   */
   async createKnowledgeProposal({
     chatId, sourceMessageId = null, question, answer, customerMessage = '', category = 'faq',
     origin = 'auto', proposedBy = null, chatExcerpt = '', fingerprint, status = 'suggested',
+    department = null, conflictStatus = null, conflictNote = null,
   }, companyId) {
     if (!this.enabled) return null;
     const result = await this.pool.query(`
       INSERT INTO knowledge_proposals
         (company_id, chat_id, source_message_id, question, answer, customer_message, category,
-         origin, proposed_by, chat_excerpt, fingerprint, status, submitted_at)
+         origin, proposed_by, chat_excerpt, fingerprint, status, submitted_at,
+         department_question_id, department_name, asked_question, raw_answer, answered_by_name,
+         answered_at, answer_channel, answer_group_id, conflict_status, conflict_note)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
-              CASE WHEN $12 = 'submitted' THEN NOW() END)
+              CASE WHEN $12 = 'submitted' THEN NOW() END,
+              $13, $14, COALESCE($15, ''), COALESCE($16, ''), $17, $18, $19, $20, $21, $22)
       ON CONFLICT DO NOTHING
       RETURNING id
     `, [companyId, chatId, sourceMessageId, question, answer, customerMessage, category,
-      origin, proposedBy, chatExcerpt, fingerprint, status]);
+      origin, proposedBy, chatExcerpt, fingerprint, status,
+      department?.questionId || null, department?.name || null, department?.askedQuestion ?? null,
+      department?.rawAnswer ?? null, department?.answeredByName || null, department?.answeredAt || null,
+      department?.channel || null, department?.groupId || null, conflictStatus, conflictNote]);
     return result.rows[0] ? this.getKnowledgeProposal(result.rows[0].id, companyId) : null;
   }
 
@@ -4283,12 +4298,14 @@ class Database {
     return result.rows;
   }
 
-  async listKnowledgeProposals(companyId, { statuses, proposedBy, limit = 50 } = {}) {
+  async listKnowledgeProposals(companyId, { statuses, proposedBy, origin, limit = 50 } = {}) {
     if (!this.enabled) return [];
     const where = ['p.company_id = $1', "p.status <> 'suggested'"];
     const values = [companyId];
     if (statuses?.length) { values.push(statuses); where.push(`p.status = ANY($${values.length}::text[])`); }
     if (proposedBy) { values.push(proposedBy); where.push(`p.proposed_by = $${values.length}`); }
+    if (origin === 'department') where.push("p.origin = 'department'");
+    else if (origin === 'chat') where.push("p.origin <> 'department'");
     values.push(limit);
     const result = await this.pool.query(`
       SELECT ${this._proposalSelect()}
@@ -4400,6 +4417,48 @@ class Database {
     } finally {
       client.release();
     }
+  }
+
+  /**
+   * Pertanyaan departemen yang baru dijawab, lengkap untuk dinilai sebagai calon
+   * knowledge. `to_jsonb(q)->>'kind'` aman walau kolom `kind` (migrasi sesi lain)
+   * belum ada: hasilnya NULL, dan NULL dianggap pertanyaan umum.
+   */
+  async getDepartmentQuestionForLearning(id, companyId) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      SELECT q.id, q.chat_id AS "chatId", q.customer_text AS "customerText", q.question, q.answer,
+             q.answered_at AS "answeredAt", q.third_party_id AS "thirdPartyId", q.status,
+             to_jsonb(q)->>'kind' AS kind,
+             d.name AS department, d.whatsapp_group_id AS "whatsappGroupId",
+             COALESCE(u.display_name, u.email) AS "answeredByName"
+      FROM department_questions q
+      LEFT JOIN departments d ON d.id = q.department_id
+      LEFT JOIN users u ON u.id = q.answered_by
+      WHERE q.id = $1 AND q.company_id = $2
+    `, [id, companyId]);
+    return result.rows[0] || null;
+  }
+
+  /** Usulan departemen yang menunggu tinjauan (untuk menggabung yang kembar dan membatasi banjir). */
+  async listPendingDepartmentProposals(companyId, { limit = 100 } = {}) {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(`
+      SELECT id, question, department_name AS "departmentName"
+      FROM knowledge_proposals
+      WHERE company_id = $1 AND origin = 'department' AND status = 'submitted'
+      ORDER BY created_at DESC LIMIT $2
+    `, [companyId, limit]);
+    return result.rows;
+  }
+
+  async countDepartmentProposalsSince(companyId, sinceMs) {
+    if (!this.enabled) return 0;
+    const result = await this.pool.query(`
+      SELECT COUNT(*)::int AS n FROM knowledge_proposals
+      WHERE company_id = $1 AND origin = 'department' AND created_at > NOW() - make_interval(secs => $2)
+    `, [companyId, Math.round(Number(sinceMs) / 1000)]);
+    return result.rows[0]?.n || 0;
   }
 
   /** Penerima kabar usulan: pemegang peran istimewa, tanpa si pengusul sendiri. */

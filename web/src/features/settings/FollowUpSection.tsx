@@ -5,8 +5,19 @@ import { Button } from '@/components/ui/button';
 import { useConfirm } from '@/components/ui/confirm';
 import { FieldGrid, SavedBadge, SettingCard, TextField, useSavedFlag } from './parts';
 
+/** Sama dengan TOGGLEABLE_STAGES di src/follow-up-stage.js. */
+const STAGES = ['inquiry', 'summary', 'proforma', 'payment'] as const;
+type Stage = (typeof STAGES)[number];
+type StageToggles = Record<Stage, boolean>;
+
+/** Kunci yang tidak dikirim server dianggap menyala, seperti normalizeStageToggles. */
+function normalizeStages(raw?: Partial<StageToggles>): StageToggles {
+  return Object.fromEntries(STAGES.map((key) => [key, raw?.[key] !== false])) as StageToggles;
+}
+
 type Settings = {
   enabled?: boolean;
+  stages?: Partial<StageToggles>;
   dayCaps?: number[];
   minGapMinutes?: number;
   sendFromHour?: number;
@@ -38,6 +49,7 @@ export function FollowUpSection() {
   const [fromHour, setFromHour] = useState(8);
   const [toHour, setToHour] = useState(21);
   const [restartAfterDays, setRestartAfterDays] = useState(2);
+  const [stages, setStages] = useState<StageToggles>(normalizeStages());
   const [stats, setStats] = useState<Settings['stats']>();
   const [saving, setSaving] = useState(false);
   const { saved, flash } = useSavedFlag();
@@ -52,6 +64,7 @@ export function FollowUpSection() {
         setFromHour(data.sendFromHour ?? 8);
         setToHour(data.sendToHour ?? 21);
         setRestartAfterDays(data.restartAfterDays ?? 2);
+        setStages(normalizeStages(data.stages));
         setStats(data.stats);
       })
       .catch(() => {
@@ -88,9 +101,11 @@ export function FollowUpSection() {
           sendFromHour: Number(fromHour),
           sendToHour: Number(toHour),
           restartAfterDays: Number(restartAfterDays),
+          stages,
         },
       });
       setEnabled(Boolean(result.enabled));
+      setStages(normalizeStages(result.stages));
       setWasEnabled(Boolean(result.enabled));
       flash();
     } catch (error) {
@@ -123,6 +138,28 @@ export function FollowUpSection() {
         <span>{t('fu.enable')}</span>
       </label>
       <p className="mt-0 mb-4 text-[11px] text-muted">{t('fu.enableHint')}</p>
+
+      <fieldset className="m-0 mb-4 border-0 p-0">
+        <legend className="mb-1 p-0 text-[13px] font-semibold">{t('fu.stagesTitle')}</legend>
+        <p className="mt-0 mb-2 text-[11px] text-muted">{t('fu.stagesHint')}</p>
+        <div className="grid gap-2 md:grid-cols-2">
+          {STAGES.map((key) => (
+            <label key={key} className="flex items-start gap-2.5 text-[13px]">
+              <input
+                type="checkbox"
+                checked={stages[key]}
+                onChange={(event) => setStages((current) => ({ ...current, [key]: event.target.checked }))}
+                className="mt-0.5 size-4 shrink-0 accent-green"
+              />
+              <span>
+                <span className="font-medium">{t(`fu.stage.${key}`)}</span>
+                <span className="block text-[11px] text-muted">{t(`fu.stage.${key}Hint`)}</span>
+              </span>
+            </label>
+          ))}
+        </div>
+        <p className="mt-2 mb-0 text-[11px] text-muted">{t('fu.stagesAlways')}</p>
+      </fieldset>
 
       <FieldGrid>
         <TextField

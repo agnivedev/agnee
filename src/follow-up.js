@@ -1,6 +1,7 @@
 'use strict';
 
 const { COMMITMENT_MARKERS } = require('./reply-style.js');
+const stages = require('./follow-up-stage.js');
 
 // Jam kirim di follow_up_settings adalah jam lokal company — zona waktunya
 // `companies.timezone`, kolom yang sama yang dipakai SLA. Dulu zona ini dipaku
@@ -47,8 +48,19 @@ function withManualGap(state) {
   return {
     ...state,
     minGapMinutes: Math.min(state.minGapMinutes ?? MANUAL_MIN_GAP_MINUTES, MANUAL_MIN_GAP_MINUTES),
+    // Jadwal per tahap juga tidak menahan tombol manual (itu gunanya tombol
+    // manual). Jumlah pesan per tahap, penahanan, dan alasan berhenti tetap
+    // berlaku.
+    ignoreSchedule: true,
   };
 }
+
+/** Penundaan pemeriksaan ulang per alasan, supaya chat yang ditahan tidak mengisi tiap tick. */
+const SNOOZE_MINUTES = {
+  waiting_department: 30,
+  stage_disabled: 6 * 60,
+  nothing_worth_sending: 2 * 60,
+};
 
 /**
  * Memutuskan apakah satu chat boleh dikirimi follow-up sekarang.
@@ -63,11 +75,22 @@ function withManualGap(state) {
  */
 function decide(state, now = new Date()) {
   const { sequenceStartedAt, sentPerDay = [], dayCaps, minGapMinutes, lastSentAt,
-    sendFromHour, sendToHour, timezone } = state;
+    sendFromHour, sendToHour, timezone, plan = null, ignoreSchedule = false } = state;
 
   const dayIndex = Math.floor((now - new Date(sequenceStartedAt)) / DAY_MS);
   if (dayIndex < 0) return { send: false, skip: 'clock_skew' };
+  // Tahap funnel (lihat follow-up-stage.js). Tanpa `plan` keputusan ini sama
+  // persis dengan sebelum ada tahap: hanya plafon harian.
+  if (plan?.stop) return { send: false, stop: plan.stop };
   if (dayIndex >= dayCaps.length) return { send: false, stop: 'exhausted' };
+  if (plan?.hold) return { send: false, skip: 'waiting_department' };
+  if (plan?.disabled) return { send: false, skip: 'stage_disabled' };
+  if (plan?.offsetsHours) {
+    const step = state.sentTotal || 0;
+    if (step >= plan.offsetsHours.length) return { send: false, stop: 'exhausted' };
+    const dueAt = new Date(new Date(sequenceStartedAt).getTime() + plan.offsetsHours[step] * 3_600_000);
+    if (!ignoreSchedule && now < dueAt) return { send: false, skip: 'not_yet', retryAt: dueAt };
+  }
 
   if (lastSentAt && now - new Date(lastSentAt) < minGapMinutes * 60_000) {
     return { send: false, skip: 'gap_not_elapsed' };
@@ -79,7 +102,10 @@ function decide(state, now = new Date()) {
   const sentToday = sentPerDay[dayIndex] || 0;
   if (sentToday >= dayCaps[dayIndex]) return { send: false, skip: 'day_cap_reached' };
 
-  return { send: true, dayIndex, attemptInDay: sentToday + 1 };
+  return {
+    send: true, dayIndex, attemptInDay: sentToday + 1,
+    ...(plan?.offsetsHours ? { step: (state.sentTotal || 0) + 1, totalSteps: plan.offsetsHours.length } : {}),
+  };
 }
 
 /**
@@ -117,9 +143,12 @@ function callPromisePending(recentOutbound = []) {
 }
 
 function buildFollowUpPrompt({ dayIndex, attemptInDay, dayCaps, previousSends, playbookMd,
-  recentOutbound = [], checkoutSent = false, callPending = false }) {
-  const isLast = dayIndex === dayCaps.length - 1
-    && attemptInDay === dayCaps[dayIndex];
+  recentOutbound = [], checkoutSent = false, callPending = false, plan = null, step = null, totalSteps = null,
+  retryNote = '' }) {
+  const isLast = plan?.offsetsHours && step
+    ? step === totalSteps
+    : dayIndex === dayCaps.length - 1 && attemptInDay === dayCaps[dayIndex];
+  const brief = stages.stageBrief(plan, { step: step || 1, totalSteps: totalSteps || 1 });
   const previous = previousSends.length
     ? previousSends.map((s, i) => `${i + 1}. (hari ${s.dayIndex + 1}) ${s.body}`).join('\n')
     : '(belum ada)';
@@ -141,7 +170,7 @@ menawarkan checkout, link, atau produk apa pun di follow-up ini — dia sedang
 menunggu telepon, bukan penawaran baru. Tanyakan langsung dan singkat: apakah
 sudah sempat terhubung dengan panggilannya, atau apakah jadwalnya perlu
 digeser. JANGAN mengulang kalimat janji call yang sama.\n`
-    : checkoutSent
+    : checkoutSent && !brief
       ? `\nLink checkout SUDAH dikirim ke orang ini dan dia belum membalas. Untuk
 follow-up pertama, cukup tanyakan kabarnya secara langsung dan singkat —
 misalnya menanyakan apakah sudah sempat checkout, atau apakah ada yang masih
@@ -150,13 +179,19 @@ dibalas daripada penawaran yang diulang. JANGAN mengirim ulang link yang sama
 kecuali dia menanyakannya.\n`
       : '';
 
+  // Janji call mengalahkan tahap funnel: orang yang menunggu telepon tidak
+  // ditagih rincian atau pembayaran.
+  const stageBlock = brief && !callPending ? `\n${brief}\n` : '';
+  const position = plan?.offsetsHours && step
+    ? `Ini follow-up ke-${step} dari paling banyak ${totalSteps} untuk posisi ini (hari ke-${dayIndex + 1}).`
+    : `Ini follow-up ke-${previousSends.length + 1} secara keseluruhan, hari ke-${dayIndex + 1} dari ${dayCaps.length}, percobaan ke-${attemptInDay} di hari ini.`;
+
   return `Tulis SATU pesan follow-up WhatsApp untuk customer yang belum membalas.
 
 Yang terakhir KAMI sampaikan ke orang ini:
 ${lastSaid}
-${pendingAction}
-
-Ini follow-up ke-${previousSends.length + 1} secara keseluruhan, hari ke-${dayIndex + 1} dari ${dayCaps.length}, percobaan ke-${attemptInDay} di hari ini.${isLast ? '\nINI FOLLOW-UP TERAKHIR — tutup dengan hormat, jangan menekan, beri tahu dia boleh chat kapan saja.' : ''}
+${pendingAction}${stageBlock}
+${position}${isLast ? '\nINI FOLLOW-UP TERAKHIR — tutup dengan hormat, jangan menekan, beri tahu dia boleh chat kapan saja.' : ''}
 
 Follow-up yang SUDAH pernah dikirim ke orang ini:
 ${previous}
@@ -167,9 +202,11 @@ Aturan wajib:
 - Kalau ada langkah yang jelas sedang menggantung (checkout belum selesai, pertanyaan kita belum dijawab), menanyakannya langsung dan singkat sudah cukup bernilai — tidak perlu dibungkus penawaran baru.
 - Kalau tidak ada yang menggantung, bawa satu hal yang berguna untuk dia (wawasan, pengingat konkret), bukan sekadar "halo kak masih di sana?"
 - Jangan menuntut jawaban, jangan membuat rasa bersalah, jangan mendesak.
-- Jangan menyebut angka, harga, atau klaim yang tidak ada di panduan/fakta.
-- Maksimal 45 kata, satu paragraf, bahasa Indonesia sehari-hari.
-- Keluarkan HANYA teks pesannya, tanpa tanda kutip atau penjelasan.`;
+- Jangan menyebut angka, harga, atau klaim yang tidak ada di panduan/fakta. Angka dan nomor dokumen hanya yang tertulis di DATA TERSIMPAN atau yang sudah kami sampaikan di atas, ditulis persis; jangan menjumlah, mengurangi, atau membulatkan.
+- Satu pesan, satu ajakan. Jangan menggabungkan dua pertanyaan.
+- Patuhi aturan percakapan dan playbook di system prompt (persona, sapaan, gaya bahasa).
+- Maksimal ${brief ? 50 : 45} kata, satu paragraf, bahasa Indonesia sehari-hari.
+- Keluarkan HANYA teks pesannya, tanpa tanda kutip atau penjelasan.${retryNote ? `\n\nPERHATIAN: draf sebelumnya ditolak karena ${retryNote}. Tulis ulang tanpa kesalahan itu.` : ''}`;
 }
 
 /**
@@ -265,21 +302,60 @@ class FollowUpScheduler {
   }
 
   /**
+   * Tahap funnel chat ini dari data tersimpan, atau null kalau database tidak
+   * menyediakannya (keputusan lalu sama dengan sebelum ada tahap).
+   */
+  async loadPlan(row, now = new Date()) {
+    if (!this.database.getFollowUpFunnelFacts) return null;
+    const facts = await this.database.getFollowUpFunnelFacts(row.chatId, row.companyId, {
+      sinceDays: stages.FUNNEL_LOOKBACK_DAYS,
+    });
+    if (!facts) return null;
+    return stages.resolveStage(facts, { toggles: stages.normalizeStageToggles(row.stages), now });
+  }
+
+  /**
+   * Keputusan lengkap untuk satu chat: plafon/jam/jarak dulu (murah), baru
+   * tahap funnel (butuh database) kalau yang murah sudah mengizinkan. Dipakai
+   * jalur otomatis, draft manual, dan kirim manual, supaya ketiganya tidak
+   * bisa berbeda pendapat.
+   *
+   * @returns {{verdict: object, plan: object|null}}
+   */
+  async evaluate(row, now = new Date()) {
+    const pre = decide(row, now);
+    if (!pre.send) return { verdict: pre, plan: null };
+    const plan = await this.loadPlan(row, now);
+    if (!plan) return { verdict: pre, plan: null };
+    return { verdict: decide({ ...row, plan }, now), plan };
+  }
+
+  /** Chat yang ditahan tidak perlu diperiksa ulang tiap tick sampai waktunya. */
+  async snooze(row, reason, retryAt, now = new Date()) {
+    const until = retryAt || (SNOOZE_MINUTES[reason] ? new Date(now.getTime() + SNOOZE_MINUTES[reason] * 60_000) : null);
+    if (!until || !this.database.snoozeFollowUp) return;
+    await this.database.snoozeFollowUp(row.chatId, row.companyId, until).catch(() => {});
+  }
+
+  /**
    * Menyusun satu follow-up TANPA mengirimnya, sekaligus menegakkan semua
    * batas. Dipakai jalur otomatis maupun jalur kirim manual, supaya keduanya
    * tidak bisa menyimpang: kalau plafon habis, tombol manual pun menolak.
    *
-   * @returns {{ok: true, text, dayIndex, attemptInDay} |
+   * @returns {{ok: true, text, dayIndex, attemptInDay, stage} |
    *           {ok: false, reason: string, stopped?: boolean}}
    */
   async draft(row, now = new Date()) {
-    const verdict = decide(row, now);
+    const { verdict, plan } = await this.evaluate(row, now);
 
     if (verdict.stop) {
       await this.database.stopFollowUpSequence(row.chatId, row.companyId, verdict.stop);
-      return { ok: false, reason: verdict.stop, stopped: true };
+      return { ok: false, reason: verdict.stop, stopped: true, stage: plan?.stage };
     }
-    if (!verdict.send) return { ok: false, reason: verdict.skip };
+    if (!verdict.send) {
+      await this.snooze(row, verdict.skip, verdict.retryAt, now);
+      return { ok: false, reason: verdict.skip, stage: plan?.stage, retryAt: verdict.retryAt };
+    }
 
     // Agent sudah mengambil alih chat ini: mesin tidak boleh menyerobot.
     if (await this.deps.isHumanHandled(row.companyId, row.chatId)) {
@@ -309,7 +385,7 @@ class FollowUpScheduler {
       this.database.getCompanyConfig?.(row.companyId).catch(() => null) ?? null,
     ]);
 
-    const prompt = buildFollowUpPrompt({
+    const promptFor = (retryNote = '') => buildFollowUpPrompt({
       dayIndex: verdict.dayIndex,
       attemptInDay: verdict.attemptInDay,
       dayCaps: row.dayCaps,
@@ -318,20 +394,41 @@ class FollowUpScheduler {
       recentOutbound,
       checkoutSent: checkoutAlreadySent(recentOutbound, company?.paymentLink || ''),
       callPending: callPromisePending(recentOutbound),
+      plan,
+      step: verdict.step,
+      totalSteps: verdict.totalSteps,
+      retryNote,
     });
 
-    const text = await this.deps.generate(row.companyId, row.chatId, prompt);
+    // Teks model diperiksa sebelum keluar: angka/nomor dokumen yang tidak ada
+    // di data, atau kalimat yang hampir sama dengan follow-up sebelumnya,
+    // ditolak dan model diberi satu kesempatan lagi. Gagal dua kali = diam.
+    const allowed = stages.allowedFigures(plan, recentOutbound);
+    const problemWith = (candidate) => stages.checkFigures(candidate, allowed)
+      || (stages.repeatsPrevious(candidate, previousSends) ? 'terlalu mirip follow-up yang sudah dikirim' : null);
+
+    let text = await this.deps.generate(row.companyId, row.chatId, promptFor());
+    let problem = text && text.trim().toUpperCase() !== 'SKIP' ? problemWith(text) : null;
+    if (problem) {
+      this.logger.info?.({ chatId: row.chatId, companyId: row.companyId, problem }, 'Draf tindak lanjut ditolak, ditulis ulang sekali');
+      text = await this.deps.generate(row.companyId, row.chatId, promptFor(problem));
+      problem = text && text.trim().toUpperCase() !== 'SKIP' ? problemWith(text) : null;
+    }
     // Generator boleh menolak: kalau tidak ada lagi yang layak dikirim, diam
     // lebih baik daripada mengisi plafon dengan pesan kosong.
-    if (!text || text.trim().toUpperCase() === 'SKIP') {
-      return { ok: false, reason: 'nothing_worth_sending' };
+    if (!text || text.trim().toUpperCase() === 'SKIP' || problem) {
+      if (problem) {
+        this.logger.warn?.({ chatId: row.chatId, companyId: row.companyId, problem }, 'Tindak lanjut tidak dikirim: draf kedua juga ditolak');
+      }
+      await this.snooze(row, 'nothing_worth_sending', null, now);
+      return { ok: false, reason: 'nothing_worth_sending', stage: plan?.stage };
     }
     // Gap dan plafon yang BARU SAJA dipakai decide() ikut dibawa ke send(), yang
     // memeriksanya ulang di bawah kunci baris: pemanggil manual memakai jarak
     // yang dipersingkat, jadi send() tidak boleh menebak angkanya sendiri.
     return {
       ok: true, text: text.trim(), dayIndex: verdict.dayIndex, attemptInDay: verdict.attemptInDay,
-      minGapMinutes: row.minGapMinutes, dayCap: row.dayCaps[verdict.dayIndex],
+      minGapMinutes: row.minGapMinutes, dayCap: row.dayCaps[verdict.dayIndex], stage: plan?.stage || null,
     };
   }
 
@@ -365,9 +462,9 @@ class FollowUpScheduler {
    * Aturan ini ada di sini, bukan di pemanggilnya, supaya jalur otomatis dan
    * jalur kirim manual tidak bisa menyimpang.
    */
-  async send(row, { text, dayIndex, attemptInDay, minGapMinutes, dayCap }) {
+  async send(row, { text, dayIndex, attemptInDay, minGapMinutes, dayCap, stage = null }) {
     const recorded = await this.database.recordFollowUpSend({
-      chatId: row.chatId, dayIndex, attemptInDay, body: text, minGapMinutes, dayCap,
+      chatId: row.chatId, dayIndex, attemptInDay, body: text, minGapMinutes, dayCap, stage,
     }, row.companyId);
     // Gerbang sudah tertutup oleh jalur lain selama kita menunggu LLM. Tidak
     // ada yang dikirim dan rangkaiannya dibiarkan hidup: ini bukan kegagalan.
@@ -398,11 +495,11 @@ class FollowUpScheduler {
       return { stopped: 'undeliverable' };
     }
     if (outcome?.refused) return { skipped: outcome.refused };
-    return { sent: true, dayIndex: prepared.dayIndex };
+    return { sent: true, dayIndex: prepared.dayIndex, stage: prepared.stage };
   }
 }
 
 module.exports = {
   FollowUpScheduler, decide, buildFollowUpPrompt, checkoutAlreadySent, callPromisePending,
-  withinSendWindow, withManualGap, BUSINESS_TZ, MANUAL_MIN_GAP_MINUTES,
+  withinSendWindow, withManualGap, BUSINESS_TZ, MANUAL_MIN_GAP_MINUTES, SNOOZE_MINUTES,
 };

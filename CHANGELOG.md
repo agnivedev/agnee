@@ -1,5 +1,19 @@
 ## [Unreleased]
 
+- **Tindak lanjut per tahap funnel closing** (`src/follow-up-stage.js`). Tahap dibaca dari data
+  tersimpan: (a) tanya barang/harga lalu diam, (b) rincian + grand total terkirim belum dijawab,
+  (c) proforma `open`, (d) menunggu pembayaran (invoice DealPOS, atau rekening/link bayar terkirim
+  sesudah rincian), (e) pertanyaan ke departemen/pihak ketiga belum dijawab = ditahan, customer
+  tidak ditagih. Jadwal per tahap dari pesan terakhir kita: (a) 6 jam + hari ke-3; (b)-(d) 3 jam,
+  besok, lusa; "nanti saya kabari" menggeser pengingat pertama ke ≥24 jam. Berhenti sendiri saat
+  bukti transfer masuk / customer bilang sudah transfer / kirim foto sesudah tagihan
+  (`payment_sent`), customer menolak (`declined`), atau chat dipegang agent. Isi pesan menyebut
+  barang, jumlah, grand total, dan nomor dokumen persis dari data; teks model yang memuat angka
+  atau nomor dokumen di luar data, atau hampir sama dengan follow-up sebelumnya, ditulis ulang
+  sekali lalu dibuang. Plafon bawaan company baru 1,1,1 (sebelumnya 5,3,2; baris yang sudah ada
+  tidak diubah). Saklar per tahap di Pengaturan > AI dan Latih AI. Chat yang belum jatuh tempo
+  ditunda (`snoozed_until`) supaya tidak mengisi tiap tick. Migrasi 098.
+
 - **Ribbon yang mengikuti tag DealPOS.** Di Kelola ribbon, tiap ribbon manual punya isian "Ikuti
   tag DealPOS" (saran dari tag yang pernah terlihat). Item yang memuat tag itu di DealPOS otomatis
   mendapat ribbon; melepas isian menghapus pasangan otomatisnya, pasangan manual bertahan. Tag

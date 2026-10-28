@@ -32,7 +32,8 @@ const {
   normalizeUsage, styleWarnings, judgeReply, enforceReplyContract,
   classifyShortReply, countRecentAckRounds, ensureClosingIsRecognizable, stripLinks, conversationRules, mediaMarker, limitLinks,
 } = require('./reply-style.js');
-const { FollowUpScheduler, decide: followUpDecide, withManualGap } = require('./follow-up.js');
+const { FollowUpScheduler, withManualGap } = require('./follow-up.js');
+const followUpStages = require('./follow-up-stage.js');
 const {
   CostAlertMonitor, createMailer, createWhatsappChannel, positiveNumber, thresholdFor, toRupiah,
   DEFAULT_USD_IDR_RATE, DEFAULT_THRESHOLDS_IDR,
@@ -8312,6 +8313,12 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
           // lagi. 0 berarti tidak boleh sama sekali — pilihan yang sah untuk
           // company yang tidak mau ada pengulangan dengan alasan apa pun.
           restartAfterDays: { type: 'integer', minimum: 0, maximum: 90 },
+          // Saklar per tahap funnel (follow-up-stage.js). Tahap "menunggu
+          // jawaban tim" tidak ada di sini: selalu ditahan.
+          stages: {
+            type: 'object', additionalProperties: false,
+            properties: Object.fromEntries(followUpStages.TOGGLEABLE_STAGES.map((key) => [key, { type: 'boolean' }])),
+          },
         },
       },
     },
@@ -8340,6 +8347,10 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     human_takeover: 'fu.humanHandled',
     nothing_worth_sending: 'fu.nothingToSay',
     clock_skew: 'fu.noSequence',
+    payment_sent: 'fu.paymentSent',
+    declined: 'fu.declined',
+    waiting_department: 'fu.waitingDepartment',
+    stage_disabled: 'fu.stageDisabled',
   };
 
   /** Angka yang dibutuhkan pesan penolakan, per alasan. */
@@ -8460,6 +8471,7 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
       day: prepared.dayIndex + 1,
       attemptInDay: prepared.attemptInDay,
       dayCap: row.dayCaps[prepared.dayIndex],
+      stage: prepared.stage,
     };
   });
 
@@ -8483,8 +8495,9 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     if (!row) return;
 
     // Cek plafon ulang di sini: draft yang sudah disetujui bisa saja menganggur
-    // di layar sementara scheduler mengirim dan memenuhi plafon hari itu.
-    const verdict = followUpDecide(withManualGap(row));
+    // di layar sementara scheduler mengirim dan memenuhi plafon hari itu. Tahap
+    // funnel ikut dicek ulang: customer bisa saja sudah transfer selama itu.
+    const { verdict, plan } = await followUpScheduler.evaluate(withManualGap(row));
     if (!verdict.send) {
       if (verdict.stop) {
         await database.stopFollowUpSequence(chatId, companyId, verdict.stop).catch(() => {});
@@ -8508,6 +8521,7 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
         {
           text: request.body.text, dayIndex: verdict.dayIndex, attemptInDay: verdict.attemptInDay,
           minGapMinutes: withManualGap(row).minGapMinutes, dayCap: row.dayCaps[verdict.dayIndex],
+          stage: plan?.stage || null,
         },
       );
     } catch (error) {

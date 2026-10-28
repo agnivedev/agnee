@@ -42,11 +42,20 @@ test('kolom: teks "nyala"/angka string diterima, di luar batas ditolak', () => {
   assert.throws(() => coerceField({ key: 'x', type: 'int_list', min: 0, max: 10, minItems: 1, maxItems: 7 }, [11]), /antara 0 dan 10/);
 });
 
+test('follow-up: saklar tahap dikirim sebagai objek stages', async () => {
+  const entry = findSetting('follow_up');
+  const current = await entry.read({ database: { getFollowUpSettings: async () => ({ enabled: true, stages: { inquiry: false } }) }, companyId: 'c' });
+  assert.equal(current.stageInquiry, false);
+  assert.equal(current.stageAwaitTransfer, true);
+  const { next, changed } = normalizeSetting(entry, current, { stageAwaitTransfer: false, stageInquiry: true });
+  assert.deepEqual(entry.request(next, changed).body, { stages: { inquiry: true, payment: false } });
+});
+
 test('follow-up: hanya kolom yang berubah dikirim; nilai lama tampil untuk dibandingkan', async () => {
   const entry = findSetting('follow_up');
   const current = await entry.read({ database: {}, companyId: 'c' });
   const { next, changed, changes } = normalizeSetting(entry, current, { enabled: true, dayCaps: [2, 1] });
   assert.deepEqual(changed, ['enabled', 'dayCaps']);
   assert.deepEqual(entry.request(next, changed), { method: 'PATCH', path: '/v1/follow-up/settings', body: { enabled: true, dayCaps: [2, 1] } });
-  assert.deepEqual(changes.map((c) => [c.before, c.after]), [['Mati', 'Nyala'], ['5, 3, 2', '2, 1']]);
+  assert.deepEqual(changes.map((c) => [c.before, c.after]), [['Mati', 'Nyala'], ['1, 1, 1', '2, 1']]);
 });

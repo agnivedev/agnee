@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { Pool } = require('pg');
+const { normalizeStageToggles } = require('./follow-up-stage');
 
 /**
  * Jenis pesan yang masuk lewat jalur pesan customer tetapi dibuat WhatsApp
@@ -3245,39 +3246,43 @@ class Database {
     const result = await this.pool.query(`
       SELECT enabled, day_caps AS "dayCaps", min_gap_minutes AS "minGapMinutes",
              send_from_hour AS "sendFromHour", send_to_hour AS "sendToHour",
-             restart_after_days AS "restartAfterDays", updated_at AS "updatedAt"
+             restart_after_days AS "restartAfterDays", stage_toggles AS "stages",
+             updated_at AS "updatedAt"
       FROM follow_up_settings
       WHERE company_id = $1
     `, [companyId]);
     // Absent row means the feature was never configured: off, with the
-    // defaults the migration documents.
-    return result.rows[0] || {
-      enabled: false, dayCaps: [5, 3, 2], minGapMinutes: 120,
-      sendFromHour: 8, sendToHour: 21, restartAfterDays: 2, updatedAt: null,
+    // defaults the migration documents (098: satu per hari, tiga hari).
+    const row = result.rows[0] || {
+      enabled: false, dayCaps: [1, 1, 1], minGapMinutes: 120,
+      sendFromHour: 8, sendToHour: 21, restartAfterDays: 2, stages: {}, updatedAt: null,
     };
+    return { ...row, stages: normalizeStageToggles(row.stages) };
   }
 
   async saveFollowUpSettings(patch, updatedBy, companyId) {
     if (!this.enabled) return null;
     const current = await this.getFollowUpSettings(companyId);
-    const next = { ...current, ...patch };
+    const next = { ...current, ...patch, stages: normalizeStageToggles({ ...current?.stages, ...patch.stages }) };
     const switchingOn = next.enabled === true && current?.enabled !== true;
     const result = await this.pool.query(`
       INSERT INTO follow_up_settings
         (company_id, enabled, day_caps, min_gap_minutes, send_from_hour, send_to_hour,
-         restart_after_days, updated_by)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         restart_after_days, stage_toggles, updated_by)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9)
       ON CONFLICT (company_id) DO UPDATE
         SET enabled = EXCLUDED.enabled, day_caps = EXCLUDED.day_caps,
             min_gap_minutes = EXCLUDED.min_gap_minutes,
             send_from_hour = EXCLUDED.send_from_hour, send_to_hour = EXCLUDED.send_to_hour,
             restart_after_days = EXCLUDED.restart_after_days,
+            stage_toggles = EXCLUDED.stage_toggles,
             updated_by = EXCLUDED.updated_by, updated_at = NOW()
       RETURNING enabled, day_caps AS "dayCaps", min_gap_minutes AS "minGapMinutes",
                 send_from_hour AS "sendFromHour", send_to_hour AS "sendToHour",
-                restart_after_days AS "restartAfterDays", updated_at AS "updatedAt"
+                restart_after_days AS "restartAfterDays", stage_toggles AS "stages",
+                updated_at AS "updatedAt"
     `, [companyId, next.enabled, next.dayCaps, next.minGapMinutes,
-      next.sendFromHour, next.sendToHour, next.restartAfterDays ?? 2, updatedBy || null]);
+      next.sendFromHour, next.sendToHour, next.restartAfterDays ?? 2, JSON.stringify(next.stages), updatedBy || null]);
 
     // Menyalakan kembali harus mulai dari nol, bukan melepas antrean lama.
     // `armFollowUp` hanya memasang rangkaian saat kita membalas customer, jadi
@@ -3292,7 +3297,7 @@ class Database {
           'Rangkaian tindak lanjut lama ditutup saat fitur dinyalakan lagi');
       }
     }
-    return result.rows[0];
+    return { ...result.rows[0], stages: normalizeStageToggles(result.rows[0].stages) };
   }
 
   /**
@@ -3322,7 +3327,7 @@ class Database {
       ON CONFLICT (company_id, chat_id) DO UPDATE
         SET sequence_started_at = NOW(), last_sent_at = NULL, sent_total = 0,
             sent_per_day = ARRAY[]::INTEGER[], stopped_at = NULL, stop_reason = NULL,
-            updated_at = NOW()
+            snoozed_until = NULL, updated_at = NOW()
       RETURNING company_id AS "companyId", chat_id AS "chatId"
     `, [companyId, chatId]);
     return result.rows[0];
@@ -3347,7 +3352,7 @@ class Database {
       UPDATE follow_up_state
       SET sequence_started_at = NOW(), last_sent_at = NULL, sent_total = 0,
           sent_per_day = ARRAY[]::INTEGER[],
-          stopped_at = NULL, stop_reason = NULL,
+          stopped_at = NULL, stop_reason = NULL, snoozed_until = NULL,
           restart_count = restart_count + 1, updated_at = NOW()
       WHERE company_id = $1 AND chat_id = $2
         AND stopped_at IS NOT NULL
@@ -3383,6 +3388,7 @@ class Database {
              s.sent_total AS "sentTotal", s.sent_per_day AS "sentPerDay",
              f.day_caps AS "dayCaps", f.min_gap_minutes AS "minGapMinutes",
              f.send_from_hour AS "sendFromHour", f.send_to_hour AS "sendToHour",
+             f.stage_toggles AS "stages",
              c.slug AS "companySlug", c.timezone AS "timezone"
       FROM follow_up_state s
       JOIN follow_up_settings f ON f.company_id = s.company_id AND f.enabled
@@ -3391,7 +3397,8 @@ class Database {
         AND COALESCE(c.plan_status, 'beta') <> 'suspended' AND c.status = 'active'
         AND (s.last_sent_at IS NULL
              OR s.last_sent_at <= NOW() - (f.min_gap_minutes || ' minutes')::interval)
-      ORDER BY s.last_sent_at NULLS FIRST
+        AND (s.snoozed_until IS NULL OR s.snoozed_until <= NOW())
+      ORDER BY s.last_sent_at NULLS FIRST, s.sequence_started_at
       LIMIT $1
     `, [limit]);
     return result.rows;
@@ -3414,7 +3421,7 @@ class Database {
              s.restart_count AS "restartCount",
              f.enabled, f.day_caps AS "dayCaps", f.min_gap_minutes AS "minGapMinutes",
              f.send_from_hour AS "sendFromHour", f.send_to_hour AS "sendToHour",
-             f.restart_after_days AS "restartAfterDays",
+             f.restart_after_days AS "restartAfterDays", f.stage_toggles AS "stages",
              c.timezone AS "timezone"
       FROM follow_up_state s
       LEFT JOIN follow_up_settings f ON f.company_id = s.company_id
@@ -3446,7 +3453,7 @@ class Database {
    *
    * @returns {{sentTotal, sentPerDay} | {refused: string}}
    */
-  async recordFollowUpSend({ chatId, dayIndex, attemptInDay, body, minGapMinutes, dayCap }, companyId) {
+  async recordFollowUpSend({ chatId, dayIndex, attemptInDay, body, minGapMinutes, dayCap, stage = null }, companyId) {
     if (!this.enabled) return null;
     const client = await this.pool.connect();
     try {
@@ -3471,12 +3478,12 @@ class Database {
       // `sequence_no` diambil dari rangkaian yang berjalan, bukan dari
       // pemanggil: satu-satunya kebenaran ada di follow_up_state.
       await client.query(
-        `INSERT INTO follow_up_sends (company_id, chat_id, sequence_no, day_index, attempt_in_day, body)
+        `INSERT INTO follow_up_sends (company_id, chat_id, sequence_no, day_index, attempt_in_day, body, stage)
          VALUES ($1, $2,
                  COALESCE((SELECT restart_count FROM follow_up_state
                            WHERE company_id = $1 AND chat_id = $2), 0),
-                 $3, $4, $5)`,
-        [companyId, chatId, dayIndex, attemptInDay, body],
+                 $3, $4, $5, $6)`,
+        [companyId, chatId, dayIndex, attemptInDay, body, stage],
       );
       // Pad sent_per_day up to dayIndex (Postgres arrays are 1-based, so the
       // slot for day N is index N+1), then increment just that slot.
@@ -3543,13 +3550,71 @@ class Database {
   async listFollowUpSends(chatId, companyId) {
     if (!this.enabled) return [];
     const result = await this.pool.query(`
-      SELECT day_index AS "dayIndex", attempt_in_day AS "attemptInDay", body,
+      SELECT day_index AS "dayIndex", attempt_in_day AS "attemptInDay", body, stage,
              created_at AS "createdAt"
       FROM follow_up_sends
       WHERE company_id = $1 AND chat_id = $2
       ORDER BY created_at
     `, [companyId, chatId]);
     return result.rows;
+  }
+
+  /** Chat ini tidak perlu diperiksa scheduler sebelum `until` (jadwal tahap, penahanan). */
+  async snoozeFollowUp(chatId, companyId, until) {
+    if (!this.enabled) return false;
+    const result = await this.pool.query(`
+      UPDATE follow_up_state SET snoozed_until = $3, updated_at = NOW()
+      WHERE company_id = $1 AND chat_id = $2 AND stopped_at IS NULL
+    `, [companyId, chatId, until]);
+    return result.rowCount > 0;
+  }
+
+  /**
+   * Bahan untuk menentukan tahap funnel satu chat (follow-up-stage.js):
+   * pesan masuk dan keluar terakhir, proforma/invoice AI, bukti transfer,
+   * pertanyaan internal yang belum dijawab, dan penanda info pembayaran
+   * company. Semua dibatasi `sinceDays` ke belakang.
+   */
+  async getFollowUpFunnelFacts(chatId, companyId, { sinceDays = 7 } = {}) {
+    if (!this.enabled) return null;
+    const since = String(Math.max(1, Number(sinceDays) || 7));
+    const q = (sql, params = []) => this.pool.query(sql, [companyId, chatId, since, ...params]).then((r) => r.rows);
+    const recent = "created_at > NOW() - ($3 || ' days')::interval";
+    const [inbound, outbound, proforma, invoice, proof, question, accounts, company] = await Promise.all([
+      q(`SELECT body, message_type AS "messageType", created_at AS "at" FROM inbound_messages
+         WHERE company_id = $1 AND chat_id = $2 AND ${recent} ORDER BY created_at DESC LIMIT 10`),
+      q(`SELECT body, created_at AS "at" FROM outbound_replies
+         WHERE company_id = $1 AND chat_id = $2 AND ${recent} ORDER BY created_at DESC LIMIT 15`),
+      q(`SELECT number, total::float8 AS total, payload, created_at AS "at" FROM ai_sales_documents
+         WHERE company_id = $1 AND chat_id = $2 AND kind = 'proforma' AND status = 'open' AND ${recent}
+         ORDER BY created_at DESC LIMIT 1`),
+      q(`SELECT number, total::float8 AS total, payload, created_at AS "at" FROM ai_sales_documents
+         WHERE company_id = $1 AND chat_id = $2 AND kind = 'invoice' AND ${recent}
+         ORDER BY created_at DESC LIMIT 1`),
+      q(`SELECT verdict, created_at AS "at" FROM payment_proofs
+         WHERE company_id = $1 AND chat_id = $2 AND verdict <> 'bukan_bukti' AND review_status <> 'rejected' AND ${recent}
+         ORDER BY created_at DESC LIMIT 1`),
+      q(`SELECT COALESCE(d.name, tp.name) AS department, q.created_at AS "at" FROM department_questions q
+         LEFT JOIN departments d ON d.id = q.department_id
+         LEFT JOIN third_parties tp ON tp.id = q.third_party_id
+         WHERE q.company_id = $1 AND q.chat_id = $2 AND q.status IN ('open', 'review', 'unresolved')
+           AND q.created_at > NOW() - ($3 || ' days')::interval
+         ORDER BY q.created_at DESC LIMIT 1`),
+      this.pool.query("SELECT account_number AS n FROM payment_accounts WHERE company_id = $1 AND status = 'active'", [companyId]).then((r) => r.rows),
+      this.pool.query('SELECT payment_link AS "paymentLink", bank_account AS "bankAccount" FROM companies WHERE id = $1', [companyId]).then((r) => r.rows[0] || {}),
+    ]);
+    return {
+      inbound: inbound.reverse(),
+      outbound: outbound.reverse(),
+      proforma: proforma[0] || null,
+      invoice: invoice[0] || null,
+      proof: proof[0] || null,
+      pendingQuestion: question[0] || null,
+      paymentMarkers: {
+        accountNumbers: [...accounts.map((a) => a.n), company.bankAccount].filter(Boolean),
+        paymentLink: company.paymentLink || '',
+      },
+    };
   }
 
   /** Marks the most recent follow-up as having earned a reply. */

@@ -22,6 +22,14 @@ const agentModes = require('./agent-modes');
 
 const ON_OFF = { true: 'Nyala', false: 'Mati' };
 
+/** [kolom katalog, kunci tahap di follow-up-stage.js, label]. */
+const FOLLOW_UP_STAGE_FIELDS = [
+  ['stageInquiry', 'inquiry', 'Tindak lanjut: tanya barang/harga lalu diam'],
+  ['stageSummary', 'summary', 'Tindak lanjut: rincian + grand total belum dijawab'],
+  ['stageProforma', 'proforma', 'Tindak lanjut: proforma belum disetujui'],
+  ['stageAwaitTransfer', 'payment', 'Tindak lanjut: menunggu pembayaran'],
+];
+
 /**
  * Bentuk kolom yang dipahami `normalizeSetting`:
  * boolean | integer (min, max) | enum (values: { nilai: label }) | text (max) |
@@ -98,7 +106,7 @@ const CATALOG = [
   {
     key: 'follow_up',
     title: 'Follow-up otomatis',
-    hint: 'AI menyapa ulang customer yang berhenti membalas. dayCaps = plafon pesan per hari ke-1, ke-2, dst.; jam kirim memakai zona waktu company.',
+    hint: 'AI menyapa ulang customer yang berhenti membalas, sesuai posisinya di funnel (tanya harga, rincian terkirim, proforma, menunggu pembayaran); berhenti sendiri saat customer membayar, menolak, atau chat dipegang agent. Jadwal tiap tahap bawaan Agnee; dayCaps = plafon pesan per hari ke-1, ke-2, dst. (bawaan 1,1,1); jam kirim memakai zona waktu company.',
     risk: 'high',
     fields: [
       { key: 'enabled', label: 'Follow-up otomatis', type: 'boolean' },
@@ -107,20 +115,27 @@ const CATALOG = [
       { key: 'sendFromHour', label: 'Mulai kirim (jam)', type: 'integer', min: 0, max: 23 },
       { key: 'sendToHour', label: 'Berhenti kirim (jam)', type: 'integer', min: 0, max: 23 },
       { key: 'restartAfterDays', label: 'Boleh mulai lagi setelah (hari, 0 = tidak pernah)', type: 'integer', min: 0, max: 90 },
+      ...FOLLOW_UP_STAGE_FIELDS.map(([key, , label]) => ({ key, label, type: 'boolean' })),
     ],
     async read({ database, companyId }) {
       const row = await database.getFollowUpSettings?.(companyId);
       return {
         enabled: row?.enabled === true,
-        dayCaps: row?.dayCaps || [5, 3, 2],
+        dayCaps: row?.dayCaps || [1, 1, 1],
         minGapMinutes: row?.minGapMinutes ?? 120,
         sendFromHour: row?.sendFromHour ?? 8,
         sendToHour: row?.sendToHour ?? 21,
         restartAfterDays: row?.restartAfterDays ?? 2,
+        ...Object.fromEntries(FOLLOW_UP_STAGE_FIELDS.map(([key, stage]) => [key, row?.stages?.[stage] !== false])),
       };
     },
     request(next, changed) {
-      return { method: 'PATCH', path: '/v1/follow-up/settings', body: pick(next, changed) };
+      // Saklar tahap dikirim sebagai satu objek `stages`, seperti kartu Pengaturan > AI.
+      const stageKeys = new Map(FOLLOW_UP_STAGE_FIELDS.map(([key, stage]) => [key, stage]));
+      const body = pick(next, changed.filter((key) => !stageKeys.has(key)));
+      const stages = Object.fromEntries(changed.filter((key) => stageKeys.has(key)).map((key) => [stageKeys.get(key), next[key]]));
+      if (Object.keys(stages).length) body.stages = stages;
+      return { method: 'PATCH', path: '/v1/follow-up/settings', body };
     },
   },
   {

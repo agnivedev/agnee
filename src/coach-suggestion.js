@@ -145,7 +145,7 @@ function evaluateSimulation(rows) {
   if (list.some((row) => !row.after)) reasons.push('Sebagian pertanyaan uji tidak mendapat balasan "sesudah".');
   const broken = list.filter((row) => row.rules && row.rules.passed === false).length;
   if (broken) reasons.push(`${broken} balasan "sesudah" melanggar aturan gaya.`);
-  const warnings = list.filter((row) => row.judge?.verdict === 'fail').length;
+  const warnings = list.filter((row) => row.judge && row.judge.verdict !== 'pass').length;
   return { blocked: reasons.length > 0, reasons, judgeWarnings: warnings };
 }
 

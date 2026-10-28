@@ -1,5 +1,13 @@
 ## [Unreleased]
 
+- **Uji AI: saran balasan tidak lagi menyalin balasan yang sudah benar.** Penilai dulu selalu
+  mengisi "A better reply would be", jadi balasan lulus 5/5 pun mendapat saran yang sama persis
+  dan tombol Terima/Biar AI putuskan/Tolak. Kini saran dibuang di kode bila sama dengan balasan
+  (abaikan huruf besar/kecil dan tanda baca) atau bila balasan lulus dengan semua nilai 5; prompt
+  juga membolehkan saran kosong. Perbaikan kedua: peringatan nilai penilai di simulasi saran
+  mencari verdict `fail`, padahal nilainya `pass`/`revise`, jadi tak pernah terhitung. Tes:
+  `test/judge-suggestion.test.js`.
+
 - **Jam buka per hari di Pengaturan > Lokasi (migrasi 099).** Tiap hari: buka (satu atau dua
   rentang jam, mis. 08.00–12.00 dan 13.00–17.00), buka 24 jam, atau tutup; ada pintasan "Buka
   24 jam setiap hari" dan "Salin Senin ke semua hari", plus catatan bebas (libur, istirahat).

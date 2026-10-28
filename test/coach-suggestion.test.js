@@ -72,7 +72,7 @@ test('evaluateSimulation: memblokir baris tanpa balasan dan pelanggaran gaya, ju
   assert.equal(cs.evaluateSimulation([]).blocked, true);
   assert.equal(cs.evaluateSimulation([{ ...good, after: null }]).blocked, true);
   assert.equal(cs.evaluateSimulation([{ ...good, rules: { passed: false, warnings: ['x'] } }]).blocked, true);
-  const warned = cs.evaluateSimulation([{ ...good, judge: { verdict: 'fail' } }]);
+  const warned = cs.evaluateSimulation([{ ...good, judge: { verdict: 'revise' } }]);
   assert.equal(warned.blocked, false);
   assert.equal(warned.judgeWarnings, 1);
 });

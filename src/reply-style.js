@@ -384,6 +384,31 @@ function styleWarnings(text, expectations = {}) {
   return warnings;
 }
 
+/** Huruf kecil, tanpa tanda baca, spasi dirapatkan: untuk membandingkan dua balasan. */
+function squashReply(text) {
+  return String(text || '').toLowerCase().normalize('NFKD').replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+/** Saran yang hanya menyalin balasan yang dinilai (abaikan huruf besar/kecil dan tanda baca). */
+function isSameReply(a, b) {
+  const left = squashReply(a);
+  const right = squashReply(b);
+  return Boolean(left) && left === right;
+}
+
+/**
+ * Saran balasan hanya berguna kalau ada yang diperbaiki. Dibuang di kode, bukan
+ * di prompt (model sering tetap menyalin): saran yang sama dengan balasan, atau
+ * saran untuk balasan yang sudah lulus dengan semua nilai penuh.
+ */
+function usefulSuggestion({ suggestedReply, reply, verdict, scores }) {
+  if (!suggestedReply) return '';
+  if (isSameReply(suggestedReply, reply)) return '';
+  const values = Object.values(scores || {}).filter((v) => v !== null);
+  if (verdict === 'pass' && values.length && values.every((v) => v >= 5)) return '';
+  return suggestedReply;
+}
+
 /**
  * Ask the model to grade a reply against THIS company's own source of truth.
  *
@@ -419,7 +444,7 @@ Balas HANYA JSON valid, tanpa penjelasan, tanpa markdown, dengan bentuk:
   "verdict": "pass" | "revise",
   "strengths": ["..."],
   "issues": ["..."],
-  "suggestedReply": "versi perbaikan yang sudah benar DAN sudah patuh gaya",
+  "suggestedReply": "versi perbaikan yang sudah benar DAN sudah patuh gaya; string kosong kalau balasan yang dinilai sudah benar dan tidak perlu diubah",
   "missingInfo": ["fakta yang tidak ada di playbook dan perlu ditanyakan ke pemilik bisnis"]
 }
 
@@ -430,7 +455,9 @@ Panduan penilaian:
 - tone: apakah terdengar seperti manusia yang ngobrol, bukan brosur atau AI, dan sesuai persona serta format yang diminta playbook.
 - missingInfo: kosongkan jika playbook sudah cukup. Isi hanya kalau balasan butuh fakta yang tidak tersedia.
 
-suggestedReply WAJIB memenuhi semua ini (jangan menyalin gaya buruk dari balasan yang dinilai):
+Kalau balasan yang dinilai sudah benar, sudah patuh gaya, dan tidak ada yang layak diperbaiki, isi suggestedReply dengan string kosong. Jangan menyalin ulang balasan yang sama sebagai "saran".
+
+Kalau suggestedReply diisi, WAJIB memenuhi semua ini (jangan menyalin gaya buruk dari balasan yang dinilai):
 - Ikuti template dan format yang ada di sumber kebenaran di atas kalau situasinya diatur di sana.
 - Kalau tidak diatur: 2-4 kalimat, maksimal 150 kata, gaya chat WhatsApp.
 - Emoji maksimal 2-3. Daftar bernomor pendek boleh untuk pilihan atau isi paket; heading, tabel, dan bold markdown tidak boleh.
@@ -496,7 +523,12 @@ ${reply}`;
     verdict: parsed?.verdict === 'pass' ? 'pass' : 'revise',
     strengths: asList(parsed?.strengths),
     issues: asList(parsed?.issues),
-    suggestedReply: typeof parsed?.suggestedReply === 'string' ? parsed.suggestedReply.trim().slice(0, 1000) : '',
+    suggestedReply: usefulSuggestion({
+      suggestedReply: typeof parsed?.suggestedReply === 'string' ? parsed.suggestedReply.trim().slice(0, 1000) : '',
+      reply,
+      verdict: parsed?.verdict === 'pass' ? 'pass' : 'revise',
+      scores,
+    }),
     missingInfo: asList(parsed?.missingInfo),
     model: result.model || null,
     usage: normalizeUsage(result),
@@ -713,7 +745,7 @@ function limitLinks(text) {
 }
 
 module.exports = {
-  normalizeUsage, formatUsd, styleWarnings, judgeReply,
+  normalizeUsage, formatUsd, styleWarnings, judgeReply, isSameReply, usefulSuggestion,
   CLAIM_PATTERNS, findClaimViolations, stripClaimSentences, enforceReplyContract,
   classifyShortReply, lastTurnAlreadyClosed, countRecentAckRounds, ensureClosingIsRecognizable, stripLinks, AGNEE_CONVERSATION_RULES, conversationRules, mediaMarker, limitLinks, MAX_LINKS_PER_REPLY,
   COMMITMENT_MARKERS,

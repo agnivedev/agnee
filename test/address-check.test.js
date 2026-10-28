@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 const { buildApp } = require('../src/server');
 const mapsLink = require('../src/maps-link');
 const addressCheck = require('../src/address-check');
+const serperPlaces = require('../src/serper-places');
 
 const JALAN = { lat: '-6.2', lon: '106.8', display_name: 'Jalan Melati, Sukajadi, Bandung, Jawa Barat', address: { road: 'Jalan Melati', suburb: 'Sukajadi', city: 'Bandung', state: 'Jawa Barat' } };
 const AREA = { lat: '-6.3', lon: '106.7', display_name: 'Cilandak, Jakarta Selatan', address: { suburb: 'Cilandak', city: 'Jakarta Selatan', state: 'DKI Jakarta' } };
@@ -123,7 +124,7 @@ function fakeDatabase() {
  * alamat customer, lalu membalas menurut status. Yang diuji adalah rantainya
  * (alat terpasang, panduan ada di prompt, hasil peta sampai ke balasan).
  */
-async function setup(t, table) {
+async function setup(t, table, { serper } = {}) {
   mapsLink.clearCache();
   const { impl, queries } = fakeNominatim(table);
   const seen = [];
@@ -136,6 +137,7 @@ async function setup(t, table) {
       if (!tool) return { text: 'Boleh kirim alamat lengkapnya kak?', model: 'tiruan', usage: {} };
       const out = await tool.run({ alamat: message });
       const text = out.status === 'ketemu_jalan' ? 'Siap kak, dikirim ke sana ya.'
+        : out.status === 'ketemu_tempat' ? `Siap kak, dikirim ke ${out.tempat} ya.`
         : out.status === 'ketemu_area' ? 'Noted wilayahnya kak, nama jalan atau patokannya apa ya?'
           : out.status === 'jalan_ambigu' ? 'Jalan itu di kota mana ya kak?'
           : 'Boleh share location WhatsApp kak?';
@@ -143,9 +145,21 @@ async function setup(t, table) {
     },
   };
   const realFetch = globalThis.fetch;
-  globalThis.fetch = (url, init) => (String(url).startsWith('https://nominatim.openstreetmap.org/') ? impl(url) : realFetch(url, init));
+  const previousKey = process.env.SERPER_API_KEY;
+  if (serper) process.env.SERPER_API_KEY = 'kunci-uji'; else delete process.env.SERPER_API_KEY;
+  serperPlaces.clearCache();
+  globalThis.fetch = (url, init) => {
+    const u = String(url);
+    if (u.startsWith('https://nominatim.openstreetmap.org/')) return impl(url);
+    if (u === 'https://google.serper.dev/places') return Promise.resolve({ ok: true, status: 200, json: async () => ({ places: serper }) });
+    return realFetch(url, init);
+  };
   const app = await buildApp({ logger: false, startupEnabled: false, demoMode: true, sessionSecret: 'addr-sim', database: fakeDatabase(), llmService: llm });
-  t.after(async () => { globalThis.fetch = realFetch; await app.close(); });
+  t.after(async () => {
+    globalThis.fetch = realFetch;
+    if (previousKey === undefined) delete process.env.SERPER_API_KEY; else process.env.SERPER_API_KEY = previousKey;
+    await app.close();
+  });
   const login = await app.inject({ method: 'POST', url: '/v1/auth/login', payload: { email: SUP.email, password: 'password-123' } });
   const cookie = login.headers['set-cookie'].split(';')[0];
   const say = async (customerMessage) => (await app.inject({
@@ -186,4 +200,15 @@ test('simulator: jalan tanpa kota, AI menanyakan kota dan tidak mengarang dari h
   const reply = await say('Jalan Melati nomor 5');
   assert.match(reply, /kota mana/);
   assert.doesNotMatch(reply, /Bandung|Sukajadi/);
+});
+
+test('simulator: tempat yang hanya dikenal Google Maps (Serper) diterima tanpa minta alamat lengkap', async (t) => {
+  const kasablanka = { title: 'Kota Kasablanka', address: 'Jl. Casablanca Raya Kav. 88, Tebet, Jakarta Selatan', latitude: -6.2241, longitude: 106.8419 };
+  const { say } = await setup(t, {}, { serper: [kasablanka] });
+  assert.equal(await say('dekat Mall Kota Kasablanka Jakarta'), 'Siap kak, dikirim ke Kota Kasablanka ya.');
+});
+
+test('simulator: tanpa kunci Serper, tempat yang sama tetap ditanyakan share location', async (t) => {
+  const { say } = await setup(t, {});
+  assert.match(await say('dekat Mall Kota Kasablanka Jakarta'), /share location/);
 });

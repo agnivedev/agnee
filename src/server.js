@@ -2206,6 +2206,16 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     return [ctx.systemPrompt, userMessage, ...said, ...(ctx.toolOutputs || [])].join('\n');
   }
 
+  /**
+   * Menunda ("saya pastikan dulu") hanya dipersoalkan bila perusahaan punya
+   * alat ask_department dan giliran ini tidak memakainya; tanpa alat itu,
+   * menunda adalah jawaban jujur satu-satunya.
+   */
+  function replyExpectationsOf(ctx) {
+    const canAsk = (ctx.tools || []).some((tool) => tool?.name === 'ask_department' || tool?.spec?.name === 'ask_department');
+    return { noEmptyDelay: canAsk && !ctx.departmentAsked?.length };
+  }
+
   async function generateAutoReply(message, companyId, meta = {}) {
     if (!config.llmEnabled) return null;
     if (message.from.endsWith('@g.us')) return null;
@@ -2417,6 +2427,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       userMessage: customerText,
       history: conversationHistory,
       priceSource: priceSourceOf(ctx, { userMessage: customerText, history: conversationHistory }),
+      expectations: replyExpectationsOf(ctx),
     });
     if (!enforced) {
       // Tidak ada isi aman yang tersisa. Diam lebih baik daripada mengirim
@@ -6624,6 +6635,7 @@ Aturan:
           userMessage: customerRead,
           history,
           priceSource: priceSourceOf(ctx, { userMessage: customerRead, history }),
+          expectations: replyExpectationsOf(ctx),
         });
         teks = enforcedSim ? limitLinks(enforcedSim.text).text : null;
       }
@@ -6883,6 +6895,7 @@ Aturan:
       const enforced = await enforceReplyContract(llmService, {
         text: generated.text, systemPrompt: ctx.systemPrompt, userMessage: customerMessage, history,
         priceSource: priceSourceOf(ctx, { userMessage: customerMessage, history }),
+        expectations: replyExpectationsOf(ctx),
       });
       return enforced ? limitLinks(enforced.text).text : '';
     };
@@ -7135,6 +7148,7 @@ Aturan:
     const enforced = await enforceReplyContract(llmService, {
       text: generated.text, systemPrompt: ctx.systemPrompt, userMessage: text, history: [],
       priceSource: priceSourceOf(ctx, { userMessage: text }),
+      expectations: replyExpectationsOf(ctx),
     });
     return enforced ? limitLinks(enforced.text).text : null;
   }

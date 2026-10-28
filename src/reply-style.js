@@ -15,6 +15,7 @@
  * harus lolos bersih.
  */
 const { findInventedPrices, stripInventedPrices, rupiah: priceGuardRupiah } = require('./price-guard');
+const { findInventedAccounts, stripInventedAccounts } = require('./account-guard');
 
 const CLAIM_PATTERNS = [
   [/\b(?:di)?jamin(?:kan)?\b/i, 'menjamin hasil'],
@@ -91,6 +92,27 @@ const INTERNAL_LEAK_PATTERNS = [
 ];
 
 /**
+ * Kalimat menunda kosong: "saya pastikan dulu", "mohon ditunggu", "nanti saya
+ * infokan". ESBEJE, 27 Okt: customer tanya harga MU 480, AI tiga kali menunda
+ * padahal harganya ada di daftar. Menunda hanya sah bila giliran itu memang
+ * bertanya ke departemen (ask_department); selain itu jawaban harus berisi.
+ * Ini peringatan gaya (ditulis ulang sekali), bukan pelanggaran keras: kalau
+ * dibuang, sisa balasannya bisa kosong.
+ */
+const EMPTY_DELAY_PATTERNS = [
+  [/\b(?:saya|aku|kami)\s+(?:pastikan|cek|konfirmasi(?:kan)?|tanyakan)\s+(?:dulu|terlebih\s+dahulu)\b/i, 'menunda dengan "saya pastikan/cek dulu" padahal tidak bertanya ke departemen'],
+  [/\b(?:mohon|harap|silakan)\s+(?:ditunggu|menunggu|tunggu)\b/i, 'menyuruh menunggu padahal tidak bertanya ke departemen'],
+  [/\bnanti\s+(?:saya|aku|kami)\s+(?:info(?:kan)?|kabari|kabarkan|kasih\s+tahu|hubungi)\b/i, 'menunda dengan "nanti saya infokan" padahal tidak bertanya ke departemen'],
+];
+
+/** Peringatan menunda kosong; hanya bila `expectations.noEmptyDelay`. */
+function delayWarnings(text, expectations = {}) {
+  if (!expectations.noEmptyDelay) return [];
+  const label = splitSentences(text).map((sentence) => EMPTY_DELAY_PATTERNS.find(([p]) => p.test(sentence))).find(Boolean);
+  return label ? [`${label[1]}: jawab dengan isi yang sudah ada di pengetahuan atau hasil alat, lalu satu langkah berikutnya; kalau barang atau harganya memang tidak ada, tanyakan ke departemen lewat ask_department`] : [];
+}
+
+/**
  * Pelanggaran yang tidak boleh lolos sama sekali — bukan soal gaya (panjang,
  * emoji), tapi salah dengan cara yang berbahaya kalau sampai ke customer.
  */
@@ -162,7 +184,18 @@ async function enforceReplyContract(llmService, { text, systemPrompt, userMessag
   const priceWarnings = (value) => [...new Set(inventedIn(value).map((v) => v.amount))].slice(0, 3)
     .map((amount) => `menyebut harga ${priceGuardRupiah(amount)} yang tidak ada di daftar harga, katalog, atau pengetahuan (dikarang): jangan menyebut angka itu; sebut nama barangnya saja dan katakan harganya kamu pastikan dulu`);
 
-  let warnings = [...styleWarnings(initial, expectations), ...priceWarnings(initial)];
+  // Nomor rekening/telepon tanpa sumber (lihat account-guard.js), sumber yang sama dengan harga.
+  const accountsIn = (value) => (priceSource ? findInventedAccounts(value, priceSource) : []);
+  const accountWarnings = (value) => (accountsIn(value).length
+    ? ['menyebut nomor rekening atau telepon yang tidak ada di pengetahuan (dikarang): jangan menulis nomor itu; katakan rekening resmi dikirim tim']
+    : []);
+  const allWarnings = (value) => {
+    const price = priceWarnings(value);
+    // Saat harga karangan, instruksinya sudah "pastikan dulu": jangan bentrok dengan larangan menunda.
+    return [...styleWarnings(value, expectations), ...price, ...accountWarnings(value), ...(price.length ? [] : delayWarnings(value, expectations))];
+  };
+
+  let warnings = allWarnings(initial);
   if (!warnings.length) return { text: initial, rewritten: false, stripped: false, warnings: [] };
 
   let current = initial;
@@ -182,18 +215,21 @@ ${current}`;
     if (retry?.text?.trim()) {
       current = retry.text.trim();
       rewritten = true;
-      warnings = [...styleWarnings(current, expectations), ...priceWarnings(current)];
+      warnings = allWarnings(current);
     }
   }
 
   // Klaim hasil/risiko adalah satu-satunya pelanggaran yang tidak boleh lolos.
   // Sisanya (panjang, emoji) jelek tapi tidak berbahaya.
-  if (!findClaimViolations(current).length && !inventedIn(current).length) {
+  if (!findClaimViolations(current).length && !inventedIn(current).length && !accountsIn(current).length) {
     return { text: current, rewritten, stripped: false, warnings };
   }
 
   let strippedText = stripClaimSentences(current);
-  if (priceSource) strippedText = stripInventedPrices(strippedText, priceSource, { quantityText });
+  if (priceSource) {
+    strippedText = stripInventedPrices(strippedText, priceSource, { quantityText });
+    strippedText = stripInventedAccounts(strippedText, priceSource);
+  }
   if (strippedText.split(/\s+/).filter(Boolean).length < 5) return null;
   return {
     text: strippedText,
@@ -590,8 +626,13 @@ function conversationRules(identity = 'team_member') {
 4. Setiap percakapan harus menuju satu ujung yang jelas sesuai playbook company
    ini. Jangan berputar.
 
-5. Kalau sudah tiga giliran tanpa kemajuan ke salah satu ujung itu, berhenti
-   menawarkan dan serahkan ke manusia. Diam lebih baik daripada berputar.
+5. Kalau kamu tidak yakin jawabannya, atau sudah tiga giliran tanpa kemajuan
+   ke salah satu ujung itu, jangan menebak dan jangan berputar. Kalau alat
+   ask_department tersedia, tanyakan ke departemen yang paling berwenang,
+   tulis satu kalimat pendek bahwa kamu memastikan dulu, dan di balasan yang
+   sama lanjutkan langkah percakapan berikutnya. Kalau tidak ada departemen
+   yang bisa dihubungi, atau customer minta bicara dengan orang, serahkan ke
+   manusia. Customer tidak pernah didiamkan.
 
 6. Baca riwayat percakapan sebelum menjawab. Jangan menanyakan hal yang sudah
    dijawab customer.
@@ -621,6 +662,12 @@ function conversationRules(identity = 'team_member') {
     Kalau kamu memang belum yakin maksudnya, akui dulu balasannya, lalu
     tawarkan satu langkah lanjutan yang konkret. Customer memilih, bukan
     menjelaskan dirinya.
+
+    Balasan pendek yang menjawab pertanyaan atau ajakan terakhirmu ("boleh",
+    "oke", "ya", "sip" setelah "saya proses ya kak?") adalah PERSETUJUAN atas
+    pertanyaan itu, bukan penutup. Lanjutkan ke langkah berikutnya, jangan
+    hanya berterima kasih. Ucapan terima kasih saja hanya untuk balasan pendek
+    atas pesanmu yang sudah menutup sesuatu tanpa bertanya.
 
     JANGAN PERNAH mendiamkan pesan customer. Setiap pesan dibalas. Kalau kamu
     sudah berterima kasih di giliran sebelumnya, jangan berterima kasih lagi —
@@ -672,7 +719,19 @@ function conversationRules(identity = 'team_member') {
     langkah berikutnya, bukan pertanyaan terpisah (butir 8). Paling banyak
     satu tawaran per pesan. Kalau tidak ditanggapi atau ditolak, jangan
     diulang (butir 2) dan lanjutkan closing; barang yang diterima masuk
-    rincian (butir 16). Tawaran tambahan tidak boleh menunda closing.`;
+    rincian (butir 16). Tawaran tambahan tidak boleh menunda closing.
+
+18. Jawab dulu, tanya kemudian. Balasan memuat isi yang diminta customer
+    (barang, harga, jawaban), baru ditutup SATU pertanyaan yang membawanya
+    selangkah lebih dekat ke ujung percakapan. Jangan menulis "saya pastikan
+    dulu", "mohon ditunggu", atau "nanti saya infokan" untuk hal yang ada di
+    pengetahuanmu atau bisa dicari dengan alat. Menunda hanya sah bersama
+    pertanyaan ke departemen lewat ask_department. Jangan menutup dengan
+    "ada lagi yang bisa dibantu?" atau pertanyaan terbuka sejenis.
+
+19. Nomor rekening, nomor telepon, dan nomor invoice hanya boleh persis dari
+    pengetahuan atau hasil alat. Kalau tidak ada, katakan tim yang
+    mengirimkannya; jangan pernah mengetik nomor dari ingatan.`;
 }
 
 const AGNEE_CONVERSATION_RULES = conversationRules();
@@ -757,7 +816,7 @@ function limitLinks(text) {
 
 module.exports = {
   normalizeUsage, formatUsd, styleWarnings, judgeReply, isSameReply, usefulSuggestion,
-  CLAIM_PATTERNS, findClaimViolations, stripClaimSentences, enforceReplyContract,
+  CLAIM_PATTERNS, findClaimViolations, stripClaimSentences, enforceReplyContract, delayWarnings,
   classifyShortReply, lastTurnAlreadyClosed, countRecentAckRounds, ensureClosingIsRecognizable, stripLinks, AGNEE_CONVERSATION_RULES, conversationRules, mediaMarker, limitLinks, MAX_LINKS_PER_REPLY,
   COMMITMENT_MARKERS,
 };

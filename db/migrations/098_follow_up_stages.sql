@@ -21,7 +21,8 @@ ALTER TABLE follow_up_state ADD COLUMN IF NOT EXISTS snoozed_until TIMESTAMPTZ;
 -- Tahap saat pesan dikirim, untuk melihat tahap mana yang menghasilkan balasan.
 ALTER TABLE follow_up_sends ADD COLUMN IF NOT EXISTS stage TEXT;
 
--- Alasan berhenti baru: customer sudah membayar/mengirim bukti, atau menolak.
+-- Alasan berhenti baru: customer sudah membayar/mengirim bukti, menolak, atau
+-- menunda terlalu jauh untuk diingatkan ("tahun depan").
 ALTER TABLE follow_up_state
   DROP CONSTRAINT IF EXISTS follow_up_state_stop_reason_check;
 ALTER TABLE follow_up_state
@@ -29,5 +30,5 @@ ALTER TABLE follow_up_state
   CHECK (stop_reason = ANY (ARRAY[
     'replied', 'human_takeover', 'exhausted', 'opted_out',
     'manual', 'undeliverable', 'feature_reenabled', 'restarted',
-    'payment_sent', 'declined'
+    'payment_sent', 'declined', 'deferred'
   ]));

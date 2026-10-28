@@ -82,9 +82,15 @@ function decide(state, now = new Date()) {
   // Tahap funnel (lihat follow-up-stage.js). Tanpa `plan` keputusan ini sama
   // persis dengan sebelum ada tahap: hanya plafon harian.
   if (plan?.stop) return { send: false, stop: plan.stop };
-  if (dayIndex >= dayCaps.length) return { send: false, stop: 'exhausted' };
+  // Pengingat tunggal yang ditunda customer ("minggu depan") boleh jatuh
+  // sesudah hari terakhir plafon; plafon absolut di draft() tetap berlaku.
+  if (dayIndex >= dayCaps.length && !plan?.beyondCaps) return { send: false, stop: 'exhausted' };
   if (plan?.hold) return { send: false, skip: 'waiting_department' };
   if (plan?.disabled) return { send: false, skip: 'stage_disabled' };
+  // Penundaan yang diminta customer juga menahan tombol manual.
+  if (plan?.deferUntil && now < new Date(plan.deferUntil)) {
+    return { send: false, skip: 'deferred', retryAt: new Date(plan.deferUntil) };
+  }
   if (plan?.offsetsHours) {
     const step = state.sentTotal || 0;
     if (step >= plan.offsetsHours.length) return { send: false, stop: 'exhausted' };
@@ -100,7 +106,7 @@ function decide(state, now = new Date()) {
   }
 
   const sentToday = sentPerDay[dayIndex] || 0;
-  if (sentToday >= dayCaps[dayIndex]) return { send: false, skip: 'day_cap_reached' };
+  if (dayIndex < dayCaps.length && sentToday >= dayCaps[dayIndex]) return { send: false, skip: 'day_cap_reached' };
 
   return {
     send: true, dayIndex, attemptInDay: sentToday + 1,
@@ -204,6 +210,8 @@ Aturan wajib:
 - Jangan menuntut jawaban, jangan membuat rasa bersalah, jangan mendesak.
 - Jangan menyebut angka, harga, atau klaim yang tidak ada di panduan/fakta. Angka dan nomor dokumen hanya yang tertulis di DATA TERSIMPAN atau yang sudah kami sampaikan di atas, ditulis persis; jangan menjumlah, mengurangi, atau membulatkan.
 - Satu pesan, satu ajakan. Jangan menggabungkan dua pertanyaan.
+- Jangan memperkenalkan diri lagi (nama, nama toko, "saya ... dari ..."): percakapan ini sudah berjalan. Sapa langsung, mis. "Kak, ...".
+- Jangan mengarang waktu ("minggu lalu", "kemarin", "tadi pagi"). Sebut waktu hanya kalau tertulis di bagian WAKTU.
 - Patuhi aturan percakapan dan playbook di system prompt (persona, sapaan, gaya bahasa).
 - Maksimal ${brief ? 50 : 45} kata, satu paragraf, bahasa Indonesia sehari-hari.
 - Keluarkan HANYA teks pesannya, tanpa tanda kutip atau penjelasan.${retryNote ? `\n\nPERHATIAN: draf sebelumnya ditolak karena ${retryNote}. Tulis ulang tanpa kesalahan itu.` : ''}`;
@@ -308,10 +316,12 @@ class FollowUpScheduler {
   async loadPlan(row, now = new Date()) {
     if (!this.database.getFollowUpFunnelFacts) return null;
     const facts = await this.database.getFollowUpFunnelFacts(row.chatId, row.companyId, {
-      sinceDays: stages.FUNNEL_LOOKBACK_DAYS,
+      sinceDays: stages.FUNNEL_LOOKBACK_DAYS, anchor: row.sequenceStartedAt,
     });
     if (!facts) return null;
-    return stages.resolveStage(facts, { toggles: stages.normalizeStageToggles(row.stages), now });
+    return stages.resolveStage(facts, {
+      toggles: stages.normalizeStageToggles(row.stages), now, anchor: row.sequenceStartedAt, timezone: row.timezone,
+    });
   }
 
   /**
@@ -324,7 +334,9 @@ class FollowUpScheduler {
    */
   async evaluate(row, now = new Date()) {
     const pre = decide(row, now);
-    if (!pre.send) return { verdict: pre, plan: null };
+    // "Habis" karena lewat hari terakhir plafon masih perlu melihat tahapnya:
+    // pengingat yang ditunda customer boleh jatuh sesudahnya.
+    if (!pre.send && pre.stop !== 'exhausted') return { verdict: pre, plan: null };
     const plan = await this.loadPlan(row, now);
     if (!plan) return { verdict: pre, plan: null };
     return { verdict: decide({ ...row, plan }, now), plan };
@@ -405,6 +417,7 @@ class FollowUpScheduler {
     // ditolak dan model diberi satu kesempatan lagi. Gagal dua kali = diam.
     const allowed = stages.allowedFigures(plan, recentOutbound);
     const problemWith = (candidate) => stages.checkFigures(candidate, allowed)
+      || stages.checkWording(candidate, plan)
       || (stages.repeatsPrevious(candidate, previousSends) ? 'terlalu mirip follow-up yang sudah dikirim' : null);
 
     let text = await this.deps.generate(row.companyId, row.chatId, promptFor());

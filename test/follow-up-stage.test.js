@@ -375,3 +375,149 @@ test('alur tiga hari: summary mengirim 3 pesan berbeda lalu habis', async () => 
   assert.equal((await s.processOne(state, at(74))).stopped, 'exhausted');
   assert.equal(sent.length, 3);
 });
+
+// ── Penundaan sesuai yang disebut customer ───────────────────────────────
+
+test('penundaan: lamanya mengikuti kata customer, yang terjauh menang', () => {
+  const h = stages.deferralHours;
+  assert.equal(h('besok saya kabari ya'), 24);
+  assert.equal(h('nanti dulu ya kak'), 24);
+  assert.equal(h('lusa aja kak'), 48);
+  assert.equal(h('3 hari lagi ya'), 72);
+  assert.equal(h('nanti dulu ya kak, minggu depan aja'), 7 * 24);
+  assert.equal(h('dua minggu lagi kak'), 14 * 24);
+  assert.equal(h('bulan depan baru mulai bangun'), 30 * 24);
+  assert.equal(h('tahun depan aja kak'), Infinity);
+  assert.equal(h('oke kak sesuai'), null);
+});
+
+// Harness skenario customer_menunda: rincian 1 jam sebelum pesan terakhir kita,
+// customer menulis "minggu depan aja" 30 menit sebelumnya.
+function deferFacts(t0, text = 'nanti dulu ya kak, minggu depan aja') {
+  const at = (h) => new Date(t0.getTime() - h * 3600_000).toISOString();
+  return base({
+    inbound: [{ body: text, messageType: 'chat', at: at(0.5) }],
+    outbound: [{ body: RINCIAN, at: at(1) }, { body: 'Siap kak, rinciannya saya simpan ya.', at: at(0) }],
+  });
+}
+
+test('penundaan "minggu depan": tidak ditagih besok, satu pengingat sekitar 7 hari, juga untuk kirim manual', () => {
+  const t0 = new Date(NOW.getTime() - 3.5 * 3600_000);
+  const plan = stages.resolveStage(deferFacts(t0), { now: NOW, anchor: t0.toISOString() });
+  assert.equal(plan.stage, 'summary');
+  assert.equal(plan.beyondCaps, true);
+  assert.equal(plan.offsetsHours.length, 1);
+  assert.ok(Math.abs(plan.offsetsHours[0] - 167.5) < 0.01, String(plan.offsetsHours));
+  const state = row({ sequenceStartedAt: t0.toISOString() });
+  for (const hours of [3.5, 24.5, 48.5]) {
+    const now = new Date(t0.getTime() + hours * 3600_000);
+    const p = stages.resolveStage(deferFacts(t0), { now, anchor: t0.toISOString() });
+    const v = decide({ ...state, plan: p }, now);
+    assert.equal(v.skip, 'deferred', `jam ke-${hours}`);
+    assert.equal(decide({ ...withManualGap(state), plan: p }, now).skip, 'deferred', `manual jam ke-${hours}`);
+    assert.equal(v.retryAt.toISOString(), plan.deferUntil.toISOString());
+  }
+});
+
+test('penundaan "minggu depan": pada waktunya satu pesan keluar walau lewat hari ke-3, tanpa angka lama', () => {
+  const t0 = new Date('2026-10-20T03:00:00Z'); // 10.00 WIB
+  const now = new Date(t0.getTime() + 168 * 3600_000);
+  const plan = stages.resolveStage(deferFacts(t0), { now, anchor: t0.toISOString() });
+  const state = row({ sequenceStartedAt: t0.toISOString() });
+  const v = decide({ ...state, plan }, now);
+  assert.equal(v.send, true, JSON.stringify(v));
+  assert.deepEqual([v.step, v.totalSteps], [1, 1]);
+  // Rinciannya 7 hari lalu: total lama tidak dikutip.
+  assert.equal(plan.data.stale, true);
+  assert.equal(plan.data.grandTotal, undefined);
+  const allowed = stages.allowedFigures(plan, [{ body: RINCIAN }]);
+  assert.match(stages.checkFigures('Kak, rincian Rp 2.340.000 masih berlaku?', allowed), /tidak ada di data/);
+  const brief = stages.stageBrief(plan, { step: 1, totalSteps: 1 });
+  assert.match(brief, /minta dihubungi lagi minggu depan/);
+  assert.match(brief, /JANGAN menyebut total/);
+  // Sesudah satu pengingat itu, habis.
+  const after = decide({ ...state, sentTotal: 1, sentPerDay: [0, 0, 0, 0, 0, 0, 0, 1], lastSentAt: now.toISOString(), plan }, new Date(now.getTime() + 5 * 3600_000));
+  assert.equal(after.stop, 'exhausted');
+});
+
+test('penundaan "lusa": tetap di dalam rangkaian biasa, langkah sebelumnya dilewati', () => {
+  const t0 = new Date(NOW.getTime() - 3.5 * 3600_000);
+  const plan = stages.resolveStage(deferFacts(t0, 'lusa ya kak'), { now: NOW, anchor: t0.toISOString() });
+  assert.equal(plan.beyondCaps, false);
+  assert.equal(plan.offsetsHours.length, 1);
+  assert.ok(Math.abs(plan.offsetsHours[0] - 47.5) < 0.01);
+});
+
+test('penundaan "bulan depan" diingatkan, "tahun depan" menghentikan rangkaian', () => {
+  const t0 = new Date(NOW.getTime() - 3.5 * 3600_000);
+  const month = stages.resolveStage(deferFacts(t0, 'bulan depan baru mulai kak'), { now: NOW, anchor: t0.toISOString() });
+  assert.ok(Math.abs(month.offsetsHours[0] - (720 - 0.5)) < 0.01);
+  const year = stages.resolveStage(deferFacts(t0, 'tahun depan aja kak'), { now: NOW, anchor: t0.toISOString() });
+  assert.equal(year.stop, 'deferred');
+  assert.equal(decide({ ...row(), plan: year }, NOW).stop, 'deferred');
+});
+
+// ── Perkenalan diri ulang ────────────────────────────────────────────────
+
+test('perkenalan diri di follow-up ditolak', () => {
+  for (const text of [
+    'Halo kak, saya Agnes dari ESBEJE. Untuk invoice INV-2810-001 ada kendala?',
+    'Halo kak, Agnes dari ESBEJE. Proforma PF-20261028AB12 sudah kami kirim.',
+    'Perkenalkan kak, saya dari tim ESBEJE.',
+  ]) assert.match(stages.checkWording(text, null) || '', /memperkenalkan diri/, text);
+  for (const text of [
+    'Kak, proforma PF-20261028AB12 untuk MU 301 sudah sesuai ya?',
+    'Halo kak, untuk toren Penguin TB110 1050L-nya jadi berapa unit?',
+    'Kak, rincian dari kami kemarin sudah sesuai?',
+  ]) assert.equal(stages.checkWording(text, null), null, text);
+});
+
+// ── Waktu dari data ──────────────────────────────────────────────────────
+
+test('waktu relatif: label dan frasa yang cocok, menurut zona company', () => {
+  const now = new Date('2026-10-28T07:00:00Z'); // 14.00 WIB
+  assert.match(stages.relativeTime('2026-10-28T02:00:00Z', now).label, /hari ini, pagi \(±5 jam lalu\)/);
+  assert.equal(stages.relativeTime('2026-10-27T12:00:00Z', now).label, 'kemarin'); // 19.00 WIB kemarin
+  assert.ok(stages.relativeTime('2026-10-27T12:00:00Z', now).cats.includes('semalam'));
+  assert.equal(stages.relativeTime('2026-10-25T07:00:00Z', now).label, '3 hari lalu');
+  assert.ok(stages.relativeTime('2026-10-20T07:00:00Z', now).cats.includes('minggu_lalu'));
+  // 23.30 WIB kemarin dan 00.30 WIB hari ini: beda hari kalender walau satu jam.
+  assert.equal(stages.relativeTime('2026-10-27T16:30:00Z', new Date('2026-10-27T17:30:00Z')).label, 'kemarin');
+});
+
+test('waktu karangan ditolak: "minggu lalu ada rincian" untuk rincian 5 jam lalu', () => {
+  const plan = resolve(base({
+    inbound: [{ body: 'nanti dulu ya kak', messageType: 'chat', at: ago(5.5) }],
+    outbound: [{ body: RINCIAN, at: ago(5) }],
+  }));
+  assert.match(stages.stageBrief(plan, { step: 1, totalSteps: 2 }), /rincian pesanan dikirim: hari ini, pagi \(±5 jam lalu\)/);
+  assert.match(stages.checkWording('Kak, minggu lalu ada rincian MU 301, sudah ada keputusan?', plan), /minggu lalu/);
+  assert.match(stages.checkWording('Kak, rincian kemarin sudah sesuai?', plan), /kemarin/);
+  assert.match(stages.checkWording('Kak, rincian tadi sore sudah sesuai?', plan), /tadi sore/);
+  assert.equal(stages.checkWording('Kak, rincian tadi pagi sudah sesuai?', plan), null);
+  assert.equal(stages.checkWording('Kak, rincian yang tadi sudah sesuai?', plan), null);
+  // "minggu kemarin" dibaca sebagai satu frasa, bukan "kemarin".
+  assert.match(stages.checkWording('Kak, seperti minggu kemarin ya', plan), /minggu kemarin/);
+});
+
+test('waktu: rincian kemarin boleh disebut "kemarin", bukan "tadi pagi"', () => {
+  const plan = resolve(base({ inbound: [], outbound: [{ body: RINCIAN, at: ago(22) }] }));
+  assert.equal(stages.checkWording('Kak, rincian kemarin sudah sesuai?', plan), null);
+  assert.match(stages.checkWording('Kak, rincian tadi pagi sudah sesuai?', plan), /tadi pagi/);
+});
+
+test('alur: draf yang memperkenalkan diri dan mengarang waktu ditulis ulang', async () => {
+  const facts = base({ outbound: [{ body: RINCIAN, at: ago(4) }] });
+  const state = row();
+  const database = fakeDb(state, facts);
+  const { s, prompts, sent } = scheduler(database, [
+    'Halo kak, saya Agnes dari ESBEJE. Minggu lalu ada rincian Rp 2.340.000, jadi diproses?',
+    'Kak, rincian dengan grand total Rp 2.340.000 tadi sudah sesuai? Kalau oke saya proses.',
+  ]);
+  const outcome = await s.processOne(state, NOW);
+  assert.equal(outcome.sent, true);
+  assert.match(prompts[0], /Jangan memperkenalkan diri lagi/);
+  assert.match(prompts[0], /WAKTU \(dihitung dari data/);
+  assert.match(prompts[1], /PERHATIAN: draf sebelumnya ditolak karena memperkenalkan diri/);
+  assert.doesNotMatch(sent[0], /Agnes dari/);
+});

@@ -3573,13 +3573,17 @@ class Database {
    * Bahan untuk menentukan tahap funnel satu chat (follow-up-stage.js):
    * pesan masuk dan keluar terakhir, proforma/invoice AI, bukti transfer,
    * pertanyaan internal yang belum dijawab, dan penanda info pembayaran
-   * company. Semua dibatasi `sinceDays` ke belakang.
+   * company. Semua dibatasi `sinceDays` sebelum `anchor` (awal rangkaian).
    */
-  async getFollowUpFunnelFacts(chatId, companyId, { sinceDays = 7 } = {}) {
+  async getFollowUpFunnelFacts(chatId, companyId, { sinceDays = 7, anchor = null } = {}) {
     if (!this.enabled) return null;
-    const since = String(Math.max(1, Number(sinceDays) || 7));
+    // Dari awal rangkaian (pesan terakhir kita) ke belakang, bukan dari
+    // sekarang: pengingat yang ditunda customer berminggu-minggu tetap harus
+    // melihat percakapan yang menundanya.
+    const from = anchor ? new Date(anchor) : new Date();
+    const since = new Date(from.getTime() - Math.max(1, Number(sinceDays) || 7) * 86_400_000);
     const q = (sql, params = []) => this.pool.query(sql, [companyId, chatId, since, ...params]).then((r) => r.rows);
-    const recent = "created_at > NOW() - ($3 || ' days')::interval";
+    const recent = 'created_at > $3::timestamptz';
     const [inbound, outbound, proforma, invoice, proof, question, accounts, company] = await Promise.all([
       q(`SELECT body, message_type AS "messageType", created_at AS "at" FROM inbound_messages
          WHERE company_id = $1 AND chat_id = $2 AND ${recent} ORDER BY created_at DESC LIMIT 10`),
@@ -3598,7 +3602,7 @@ class Database {
          LEFT JOIN departments d ON d.id = q.department_id
          LEFT JOIN third_parties tp ON tp.id = q.third_party_id
          WHERE q.company_id = $1 AND q.chat_id = $2 AND q.status IN ('open', 'review', 'unresolved')
-           AND q.created_at > NOW() - ($3 || ' days')::interval
+           AND q.created_at > $3::timestamptz
          ORDER BY q.created_at DESC LIMIT 1`),
       this.pool.query("SELECT account_number AS n FROM payment_accounts WHERE company_id = $1 AND status = 'active'", [companyId]).then((r) => r.rows),
       this.pool.query('SELECT payment_link AS "paymentLink", bank_account AS "bankAccount" FROM companies WHERE id = $1', [companyId]).then((r) => r.rows[0] || {}),

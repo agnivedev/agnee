@@ -64,8 +64,22 @@ const STAGES = {
 /** Tahap yang bisa dimatikan supervisor. waiting_internal selalu ditahan. */
 const TOGGLEABLE_STAGES = ['inquiry', 'summary', 'proforma', 'payment'];
 
-/** Penundaan customer ("nanti dulu"): pengingat pertama tidak sebelum ini. */
+/** Penundaan customer tanpa waktu jelas ("nanti dulu", "besok"): pengingat pertama tidak sebelum ini. */
 const DEFERRAL_MIN_HOURS = 24;
+
+/**
+ * Penundaan terjauh yang masih diingatkan. Di atas ini ("tahun depan")
+ * rangkaian berhenti dengan alasan 'deferred': kebutuhan dan harganya sudah
+ * pasti berubah, dan satu pesan setelah berbulan-bulan lebih mirip broadcast
+ * daripada tindak lanjut.
+ */
+const DEFERRAL_MAX_HOURS = 30 * 24;
+
+/**
+ * Rincian/proforma yang lebih tua dari ini tidak dikutip angkanya lagi
+ * (harga bisa sudah berubah); hanya terjadi pada pengingat yang ditunda.
+ */
+const STALE_FIGURES_HOURS = 72;
 
 /** Kosong atau sebagian -> semua tahap punya nilai; yang tidak disebut menyala. */
 function normalizeStageToggles(raw) {
@@ -114,7 +128,96 @@ const PAYMENT_CLAIM = new RegExp([
 const MEDIA_TYPES = new Set(['image', 'document']);
 
 function isDecline(text) { return DECLINE.test(String(text || '')); }
-function isDeferral(text) { return DEFERRAL.test(String(text || '')); }
+function isDeferral(text) { return DEFERRAL.test(String(text || '')) || deferralHours(text) !== null; }
+
+const NUMBER_WORDS = { satu: 1, dua: 2, tiga: 3, empat: 4, lima: 5, enam: 6, tujuh: 7, beberapa: 3 };
+const countOf = (raw) => NUMBER_WORDS[String(raw).toLowerCase()] ?? Number(raw);
+
+/**
+ * Berapa jam customer minta ditunggu, dari kata-katanya sendiri. Yang terjauh
+ * menang ("besok saya cek, minggu depan baru mulai" = minggu depan).
+ * Infinity = terlalu jauh untuk diingatkan (tahun depan); null = tidak menunda.
+ */
+function deferralHours(text) {
+  const t = String(text || '');
+  const found = [];
+  if (/\btahun\s+depan\b/i.test(t)) found.push(Infinity);
+  if (/\bbulan\s+depan\b/i.test(t)) found.push(30 * 24);
+  if (/\b(?:minggu|pekan)\s+depan\b/i.test(t)) found.push(7 * 24);
+  for (const m of t.matchAll(/\b(\d{1,2}|satu|dua|tiga|empat|lima|enam|tujuh|beberapa)\s+(hari|minggu|pekan|bulan)\s+(?:lagi|ke\s*depan)\b/gi)) {
+    const unit = { hari: 24, minggu: 168, pekan: 168, bulan: 720 }[m[2].toLowerCase()];
+    found.push(countOf(m[1]) * unit);
+  }
+  if (/\blusa\b/i.test(t)) found.push(48);
+  if (!found.length && DEFERRAL.test(t)) found.push(DEFERRAL_MIN_HOURS);
+  if (!found.length) return null;
+  const hours = Math.max(...found);
+  return hours > DEFERRAL_MAX_HOURS ? Infinity : hours;
+}
+
+// ── Waktu relatif ──────────────────────────────────────────────────────────
+// Model tidak tahu jam; tanpa diberi tahu ia mengarang ("minggu lalu ada
+// rincian" untuk rincian lima jam lalu). Waktu dihitung di sini dari data,
+// dalam zona company, dan hanya itu yang boleh disebut.
+
+const DEFAULT_TZ = 'Asia/Jakarta';
+
+function localParts(date, timeZone) {
+  const fmt = (zone) => new Intl.DateTimeFormat('en-CA', {
+    timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', hour12: false,
+  }).formatToParts(date);
+  let parts;
+  try { parts = fmt(timeZone || DEFAULT_TZ); } catch { parts = fmt(DEFAULT_TZ); }
+  const get = (type) => parts.find((p) => p.type === type)?.value;
+  return { day: Date.UTC(Number(get('year')), Number(get('month')) - 1, Number(get('day'))), hour: Number(get('hour')) % 24 };
+}
+
+/** Bagian hari yang wajar disebut untuk jam ini (rentangnya sengaja tumpang tindih). */
+function partsOfDay(hour) {
+  const parts = [];
+  if (hour >= 4 && hour < 11) parts.push('pagi');
+  if (hour >= 10 && hour < 15) parts.push('siang');
+  if (hour >= 14 && hour < 19) parts.push('sore');
+  if (hour >= 18 || hour < 4) parts.push('malam');
+  return parts;
+}
+
+/**
+ * @returns {{label: string, cats: string[]}} label untuk prompt; cats = frasa
+ *   waktu yang cocok (dipakai checkWording).
+ */
+function relativeTime(at, now = new Date(), timeZone = DEFAULT_TZ) {
+  const then = new Date(at);
+  const a = localParts(then, timeZone);
+  const b = localParts(now, timeZone);
+  const days = Math.round((b.day - a.day) / (24 * HOUR_MS));
+  const hours = Math.max(0, (now - then) / HOUR_MS);
+  if (days <= 0) {
+    const parts = partsOfDay(a.hour);
+    return {
+      label: hours < 1 ? 'kurang dari sejam lalu' : `hari ini, ${parts[0]} (±${Math.round(hours)} jam lalu)`,
+      cats: ['tadi', 'hari_ini', ...parts.map((p) => `tadi_${p}`), ...(a.hour < 4 ? ['semalam'] : [])],
+    };
+  }
+  if (days === 1) return { label: 'kemarin', cats: ['kemarin', ...(a.hour >= 18 ? ['semalam'] : [])] };
+  if (days < 7) return { label: `${days} hari lalu`, cats: ['hari_lalu'] };
+  if (days < 28) return { label: `${days} hari lalu`, cats: ['hari_lalu', 'minggu_lalu'] };
+  return { label: `${days} hari lalu`, cats: ['hari_lalu', 'minggu_lalu', 'bulan_lalu'] };
+}
+
+// Frasa waktu lampau di teks follow-up -> kategori. Urutan penting: frasa
+// panjang dibuang dulu supaya "minggu kemarin" tidak terbaca juga "kemarin".
+const TIME_PHRASES = [
+  [/\btadi\s+(pagi|siang|sore|malam)\b/gi, (m) => `tadi_${m[1].toLowerCase()}`],
+  [/\bkemarin\s+lusa\b/gi, () => 'hari_lalu'],
+  [/\b(?:minggu|pekan)\s+(?:lalu|kemarin|kemaren)\b/gi, () => 'minggu_lalu'],
+  [/\bbulan\s+(?:lalu|kemarin|kemaren)\b/gi, () => 'bulan_lalu'],
+  [/\b(?:\d{1,2}|dua|tiga|empat|lima|enam|beberapa)\s+hari\s+(?:yang\s+)?(?:lalu|kemarin|kemaren)\b/gi, () => 'hari_lalu'],
+  [/\b(?:kemarin|kemaren|kmrn|kmarin)\b/gi, () => 'kemarin'],
+  [/\bsemalam\b/gi, () => 'semalam'],
+  [/\b(?:tadi|barusan)\b/gi, () => 'tadi'],
+];
+
 function claimsPayment(text) { return PAYMENT_CLAIM.test(String(text || '')); }
 
 const time = (value) => (value ? new Date(value).getTime() : NaN);
@@ -195,8 +298,11 @@ function linesFromDocument(payload) {
  * @param {object} opts toggles (normalizeStageToggles), now
  * @returns {{stage, stop?, hold?, disabled?, offsetsHours?, deferred?, data}}
  */
-function resolveStage(facts = {}, { toggles = {}, now = new Date() } = {}) {
-  const lookback = now.getTime() - FUNNEL_LOOKBACK_DAYS * 24 * HOUR_MS;
+function resolveStage(facts = {}, { toggles = {}, now = new Date(), anchor = null, timezone = DEFAULT_TZ } = {}) {
+  // Jendela data dihitung dari awal rangkaian (pesan terakhir kita), bukan
+  // dari sekarang: pengingat yang ditunda seminggu harus tetap melihat
+  // percakapan yang menundanya.
+  const lookback = (anchor ? time(anchor) : now.getTime()) - FUNNEL_LOOKBACK_DAYS * 24 * HOUR_MS;
   const recent = (row) => row && time(row.at) >= lookback;
   const inbound = (facts.inbound || []).filter(recent);
   const outbound = (facts.outbound || []).filter(recent);
@@ -268,12 +374,55 @@ function resolveStage(facts = {}, { toggles = {}, now = new Date() } = {}) {
     data.shippingPending = summary.shippingPending;
   }
 
+  // Waktu yang boleh disebut follow-up, dihitung dari data.
+  const times = [];
+  const addTime = (what, at) => { if (at) times.push({ what, ...relativeTime(at, now, timezone) }); };
+  const eventLabel = { summary: 'rincian pesanan dikirim', proforma: 'proforma dikirim', invoice: 'invoice dibuat', payment_info: 'info pembayaran dikirim' };
+  if (latest) addTime(eventLabel[latest.kind], latest.at);
+  if (lastInbound) addTime('pesan terakhir customer', lastInbound.at);
+  if (anchor) addTime('pesan terakhir kami', anchor);
+  data.times = times;
+
   if (toggles[stage] === false) return { stage, disabled: true, data };
 
-  const deferred = Boolean(lastInbound && isDeferral(lastInbound.body));
   let offsetsHours = STAGES[stage].offsetsHours;
-  if (deferred) offsetsHours = [...new Set(offsetsHours.map((h) => Math.max(h, DEFERRAL_MIN_HOURS)))];
-  return { stage, offsetsHours, deferred, data };
+  const deferHours = lastInbound ? deferralHours(lastInbound.body) : null;
+  if (deferHours === Infinity) {
+    return { stage: 'deferred', stop: 'deferred', data: { lastInbound: lastInbound.body } };
+  }
+  let deferUntil = null;
+  let beyondCaps = false;
+  if (deferHours !== null) {
+    // Dihitung dari pesan customer, lalu dinyatakan sebagai jam sejak awal rangkaian.
+    deferUntil = new Date(time(lastInbound.at) + deferHours * HOUR_MS);
+    const fromStart = anchor ? (deferUntil.getTime() - time(anchor)) / HOUR_MS : deferHours;
+    const last = offsetsHours[offsetsHours.length - 1];
+    if (fromStart <= last) {
+      // Masih di dalam rangkaian biasa: langkah sebelum tanggalnya dilewati.
+      // Langkah yang tinggal beberapa jam sesudahnya ikut dilewati (jarak <12 jam).
+      offsetsHours = [fromStart, ...offsetsHours.filter((h) => h >= fromStart + 12)];
+    } else {
+      // Lebih jauh dari rangkaian biasa: SATU pengingat di waktu yang dia
+      // sebut, melewati batas hari plafon (plafon absolut tetap berlaku).
+      offsetsHours = [fromStart];
+      beyondCaps = true;
+    }
+    data.deferral = { label: deferralLabel(deferHours), requested: relativeTime(lastInbound.at, now, timezone).label, single: beyondCaps };
+    if (latest && now - time(latest.at) > STALE_FIGURES_HOURS * HOUR_MS) {
+      // Rincian lama: angka dan nomor dokumen tidak dikutip lagi.
+      data.stale = true;
+      delete data.grandTotal;
+      delete data.documentNumber;
+    }
+  }
+  return { stage, offsetsHours, deferred: deferHours !== null, deferUntil, beyondCaps, data };
+}
+
+function deferralLabel(hours) {
+  if (hours >= 30 * 24) return 'bulan depan';
+  if (hours >= 7 * 24) return hours >= 14 * 24 ? `${Math.round(hours / 168)} minggu lagi` : 'minggu depan';
+  if (hours >= 48) return hours === 48 ? 'lusa' : `${Math.round(hours / 24)} hari lagi`;
+  return 'nanti/besok';
 }
 
 /** "Rp 1.250.000" / "Rp1,250,000" -> "1250000". */
@@ -290,10 +439,47 @@ function allowedFigures(plan, outbound = []) {
     for (const m of String(text || '').matchAll(/Rp\.?\s?([\d.,]+)/gi)) amounts.add(amountKey(m[1]));
     for (const m of String(text || '').matchAll(/\b(?:PF|INV)-[A-Z0-9]+\b/g)) numbers.add(m[0]);
   };
+  // Rincian yang sudah basi (pengingat yang ditunda lama): tidak ada angka
+  // atau nomor dokumen yang boleh dikutip, termasuk dari pesan kita dulu.
+  if (plan?.data?.stale) return { amounts, numbers };
   for (const row of outbound) take(row?.body);
   if (plan?.data?.grandTotal) take(plan.data.grandTotal);
   if (plan?.data?.documentNumber) numbers.add(plan.data.documentNumber);
   return { amounts, numbers };
+}
+
+// Perkenalan diri: "saya Agnes dari ESBEJE", "Halo kak, Agnes dari ESBEJE",
+// "perkenalkan". Follow-up selalu datang sesudah pesan kita sendiri, jadi
+// percakapannya sudah berjalan dan aturan bawaan 3 melarangnya.
+const SELF_INTRO = new RegExp([
+  String.raw`\b(?:saya|aku|sy|ini|dengan)\s+(?:adalah\s+)?[A-Z][\w'-]+\s+dari\s+\S`,
+  String.raw`(?:^|[,.!?]\s*)[A-Z][a-z][\w'-]*\s+dari\s+[A-Z0-9]`,
+  String.raw`\b(?:[Pp]erkenalkan|[Kk]enalkan|[Kk]enalin)\b`,
+].join('|'));
+
+/**
+ * Pemeriksaan bahasa: perkenalan diri ulang, dan frasa waktu lampau yang
+ * tidak cocok dengan data (plan.data.times).
+ * @returns {string|null} alasan penolakan, null kalau lolos.
+ */
+function checkWording(text, plan) {
+  const body = String(text || '');
+  if (SELF_INTRO.test(body)) return 'memperkenalkan diri lagi padahal percakapan sudah berjalan';
+  const times = plan?.data?.times;
+  if (!Array.isArray(times)) return null;
+  const allowed = new Set(times.flatMap((t) => t.cats || []));
+  let rest = body;
+  for (const [pattern, category] of TIME_PHRASES) {
+    for (const m of rest.matchAll(pattern)) {
+      const cat = category(m);
+      const ok = allowed.has(cat)
+        // "semalam" boleh untuk kemarin malam maupun dini hari tadi.
+        || (cat === 'semalam' && (allowed.has('kemarin') || allowed.has('tadi_malam')));
+      if (!ok) return `menyebut waktu "${m[0]}" yang tidak sesuai data`;
+    }
+    rest = rest.replace(pattern, ' ');
+  }
+  return null;
 }
 
 /**
@@ -346,6 +532,7 @@ function stageBrief(plan, { step = 1, totalSteps = 1 } = {}) {
   if (d.grandTotal) facts.push(`- Grand total: ${d.grandTotal}${d.shippingPending ? ' (belum termasuk ongkir)' : ''}`);
   if (d.documentNumber) facts.push(`- Nomor dokumen: ${d.documentNumber}`);
   if (d.recentInbound?.length) facts.push(`- Pesan terakhir customer: ${d.recentInbound.map((t) => `"${String(t).slice(0, 200)}"`).join(' / ')}`);
+  const timeLines = (d.times || []).map((t) => `- ${t.what}: ${t.label}`);
 
   const first = step === 1;
   const goals = {
@@ -363,16 +550,26 @@ function stageBrief(plan, { step = 1, totalSteps = 1 } = {}) {
       : 'Tanyakan apakah ada kendala pembayaran yang bisa dibantu. Jangan menyalin ulang nomor rekening; tawarkan untuk mengirimkannya lagi hanya kalau memang ditanya.',
   };
 
+  let deferralNote = '';
+  if (d.deferral?.single) {
+    deferralNote = `Customer sendiri minta dihubungi lagi ${d.deferral.label} (pesannya ${d.deferral.requested}). Ini SATU-SATUNYA pengingat yang dia minta: sapa ringan, sebut barangnya, ${d.stale ? 'lalu tawarkan menyusun rincian baru dengan harga terkini (jangan mengajak memproses rincian lama)' : 'lalu tanyakan apakah sudah siap lanjut'}. Abaikan TUJUAN di atas kalau bertentangan.`;
+  } else if (plan.deferred) {
+    deferralNote = 'Customer sebelumnya bilang akan menunda/mengabari. Hormati itu: tanya ringan apakah sudah ada keputusan, jangan mendesak.';
+  }
+
   return [
     `POSISI CUSTOMER: ${STAGES[plan.stage].label}.`,
     facts.length ? `DATA TERSIMPAN (tulis nama dan angka PERSIS, jangan dihitung ulang, jangan menambah angka lain):\n${facts.join('\n')}` : '',
+    d.stale ? 'Rinciannya sudah lebih dari 3 hari: harga dan ongkir bisa berubah. JANGAN menyebut total, harga, atau nomor dokumen lama; tawarkan menyusun rincian baru.' : '',
+    timeLines.length ? `WAKTU (dihitung dari data; kalau menyebut waktu, pakai HANYA ini. Jangan menulis "minggu lalu", "kemarin", "tadi pagi", atau waktu lain yang tidak tertulis di sini):\n${timeLines.join('\n')}` : '',
     `TUJUAN pesan ini (langkah ${step} dari ${totalSteps}): ${goals[plan.stage]}`,
-    plan.deferred ? 'Customer sebelumnya bilang akan menunda/mengabari. Hormati itu: tanya ringan apakah sudah ada keputusan, jangan mendesak.' : '',
+    deferralNote,
   ].filter(Boolean).join('\n');
 }
 
 module.exports = {
-  STAGES, TOGGLEABLE_STAGES, FUNNEL_LOOKBACK_DAYS, DEFERRAL_MIN_HOURS,
+  STAGES, TOGGLEABLE_STAGES, FUNNEL_LOOKBACK_DAYS, DEFERRAL_MIN_HOURS, DEFERRAL_MAX_HOURS, STALE_FIGURES_HOURS,
   normalizeStageToggles, resolveStage, parseOrderSummary, isOrderSummaryText, carriesPaymentInfo,
-  isDecline, isDeferral, claimsPayment, allowedFigures, checkFigures, repeatsPrevious, stageBrief,
+  isDecline, isDeferral, deferralHours, claimsPayment, allowedFigures, checkFigures, checkWording, repeatsPrevious,
+  relativeTime, stageBrief,
 };

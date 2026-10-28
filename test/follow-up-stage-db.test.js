@@ -97,4 +97,14 @@ test('fakta funnel dari Postgres menghasilkan tahap yang benar, dan penundaan/al
     assert.equal(await db.stopFollowUpSequence(chatId, companyId, 'payment_sent'), true);
     await db.startFollowUpSequence(chatId, companyId);
     assert.equal(await db.stopFollowUpSequence(chatId, companyId, 'declined'), true);
+    await db.startFollowUpSequence(chatId, companyId);
+    assert.equal(await db.stopFollowUpSequence(chatId, companyId, 'deferred'), true);
+
+    // Jendela data dijangkarkan ke awal rangkaian, bukan ke sekarang: pesan
+    // 20 hari lalu terlihat dari rangkaian yang mulai 15 hari lalu (pengingat
+    // yang ditunda), tidak dari rangkaian yang mulai hari ini.
+    await db.pool.query("INSERT INTO outbound_replies (company_id, chat_id, author, body, created_at) VALUES ($1, $2, 'ai', 'pesan lama 20 hari', NOW() - INTERVAL '20 days')", [companyId, chatId]);
+    const bodies = async (anchor) => (await db.getFollowUpFunnelFacts(chatId, companyId, { sinceDays: 7, anchor })).outbound.map((r) => r.body);
+    assert.ok(!(await bodies(new Date())).includes('pesan lama 20 hari'));
+    assert.ok((await bodies(new Date(Date.now() - 15 * 86_400_000))).includes('pesan lama 20 hari'));
   });

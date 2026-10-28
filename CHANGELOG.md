@@ -5,7 +5,12 @@
   (c) proforma `open`, (d) menunggu pembayaran (invoice DealPOS, atau rekening/link bayar terkirim
   sesudah rincian), (e) pertanyaan ke departemen/pihak ketiga belum dijawab = ditahan, customer
   tidak ditagih. Jadwal per tahap dari pesan terakhir kita: (a) 6 jam + hari ke-3; (b)-(d) 3 jam,
-  besok, lusa; "nanti saya kabari" menggeser pengingat pertama ke ≥24 jam. Berhenti sendiri saat
+  besok, lusa. Penundaan customer mengikuti katanya ("nanti/besok" 24 jam, "lusa" 48, "minggu
+  depan" ±7 hari, "bulan depan" ±30 hari; berlaku juga untuk kirim manual); yang melewati 3 hari
+  jadi SATU pengingat di waktu itu tanpa mengutip angka rincian lama, "tahun depan" menghentikan
+  rangkaian (`deferred`). Prompt diberi waktu relatif dari data (zona company); teks yang
+  memperkenalkan diri lagi atau menyebut waktu yang tidak cocok ("minggu lalu" untuk rincian 5 jam
+  lalu) ditulis ulang. Berhenti sendiri saat
   bukti transfer masuk / customer bilang sudah transfer / kirim foto sesudah tagihan
   (`payment_sent`), customer menolak (`declined`), atau chat dipegang agent. Isi pesan menyebut
   barang, jumlah, grand total, dan nomor dokumen persis dari data; teks model yang memuat angka

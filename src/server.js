@@ -8351,11 +8351,15 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     declined: 'fu.declined',
     waiting_department: 'fu.waitingDepartment',
     stage_disabled: 'fu.stageDisabled',
+    deferred: 'fu.deferred',
   };
 
   /** Angka yang dibutuhkan pesan penolakan, per alasan. */
-  function refusalVars(reason, row) {
+  function refusalVars(reason, row, retryAt = null) {
     if (reason === 'outside_send_window') return { from: row.sendFromHour, to: row.sendToHour };
+    if (reason === 'deferred' && retryAt) {
+      return { date: new Date(retryAt).toLocaleString('id-ID', { timeZone: row.timezone || 'Asia/Jakarta', dateStyle: 'medium', timeStyle: 'short' }) };
+    }
     if (reason === 'gap_not_elapsed') return { minutes: withManualGap(row).minGapMinutes };
     return undefined;
   }
@@ -8462,7 +8466,7 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
         error: 'Tindak lanjut tidak dapat dikirim sekarang.',
         reason: prepared.reason,
         reasonKey: FOLLOW_UP_REFUSAL[prepared.reason] || 'fu.exhausted',
-        vars: refusalVars(prepared.reason, row),
+        vars: refusalVars(prepared.reason, row, prepared.retryAt),
       });
     }
     return {
@@ -8506,7 +8510,7 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
         error: 'Tindak lanjut tidak dapat dikirim sekarang.',
         reason: verdict.stop || verdict.skip,
         reasonKey: FOLLOW_UP_REFUSAL[verdict.stop || verdict.skip] || 'fu.exhausted',
-        vars: refusalVars(verdict.stop || verdict.skip, row),
+        vars: refusalVars(verdict.stop || verdict.skip, row, verdict.retryAt),
       });
     }
     if (await followUpScheduler.deps.isHumanHandled(companyId, chatId)) {

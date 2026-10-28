@@ -24,6 +24,7 @@ const chatImport = require('./chat-import');
 const { pilihNomorUntukPercakapanBaru } = require('./rotator');
 const agentModes = require('./agent-modes');
 const knowledgeProposals = require('./knowledge-proposals');
+const coachSuggestion = require('./coach-suggestion');
 const { neutralizeFormula } = require('./formula-guard');
 const { CloudApiManager } = require('./cloud-api-manager.js');
 const KnowledgeBase = require('./knowledge-loader.js');
@@ -7239,6 +7240,89 @@ Aturan:
     }
     broadcastEvent(session.companyId, 'knowledge', { chatId: proposal.chatId });
     return { proposal: knowledgeView(rejected, session) };
+  });
+
+  // ── Aksi atas "balasan yang lebih baik" di Uji AI ──────────────────────────
+  // Saran balasan → disaring jadi satu Fakta → simulasi sebelum/sesudah →
+  // Terapkan. Tanpa tabel baru: simulasi terakhir disimpan di memori (kunci =
+  // isi Fakta) dan wajib ada, segar, serta tidak terblokir sebelum Terapkan.
+  // Hilang saat restart; layar tinggal mengulang simulasi.
+
+  const suggestionSimulations = new Map();
+  const SUGGESTION_BODY = {
+    type: 'object', additionalProperties: false, required: ['question', 'answer'], properties: {
+      question: { type: 'string', minLength: 1, maxLength: 400 },
+      answer: { type: 'string', minLength: 1, maxLength: 1200 },
+      category: KNOWLEDGE_CATEGORY,
+      customerMessage: { type: 'string', maxLength: 600 },
+    },
+  };
+
+  app.post('/v1/coach/suggestion/draft', {
+    schema: { body: { type: 'object', additionalProperties: false, required: ['mode', 'customerMessage', 'suggestedReply'], properties: {
+      mode: { type: 'string', enum: ['accept', 'auto'] },
+      customerMessage: { type: 'string', minLength: 1, maxLength: 4000 },
+      suggestedReply: { type: 'string', minLength: 1, maxLength: 4000 },
+      aiReply: { type: 'string', maxLength: 4000 },
+      issues: { type: 'array', maxItems: 10, items: { type: 'string', maxLength: 500 } },
+    } } },
+  }, async (request, reply) => {
+    if (!requireCoachSupervisor(request, reply)) return;
+    if (!requireCoachDb(reply)) return;
+    const companyId = request.agneeSession.companyId;
+    const companyAi = await getCompanyAi(companyId);
+    if (!companyAi.enabled) return aiUnavailable(reply, companyAi);
+    if (coachRateLimited(companyId)) return reply.code(429).send({ error: 'Terlalu banyak permintaan AI. Coba lagi nanti.' });
+    const body = request.body;
+    const result = await llmService.generateReply(coachSuggestion.distillUserPrompt(body), {
+      systemPrompt: coachSuggestion.DISTILL_SYSTEM_PROMPT, companyId, purpose: 'knowledge_check', modelChain: companyAi.modelChain,
+    }).catch(() => null);
+    if (!result?.text) return reply.code(502).send({ error: 'AI tidak menghasilkan jawaban. Coba lagi.' });
+    return coachSuggestion.parseDistill(result.text, body);
+  });
+
+  app.post('/v1/coach/suggestion/simulate', { schema: { body: SUGGESTION_BODY } }, async (request, reply) => {
+    if (!requireCoachSupervisor(request, reply)) return;
+    if (!requireCoachDb(reply)) return;
+    const companyId = request.agneeSession.companyId;
+    const checked = coachSuggestion.checkDraft(request.body);
+    if (!checked.ok) return reply.code(400).send({ error: checked.problems.join(' '), problems: checked.problems });
+    const companyAi = await getCompanyAi(companyId);
+    if (!companyAi.enabled) return aiUnavailable(reply, companyAi);
+    if (coachRateLimited(companyId)) return reply.code(429).send({ error: 'Terlalu banyak permintaan AI. Coba lagi nanti.' });
+    const simulation = await simulateKnowledgeProposal(checked, companyId, companyAi);
+    if (!simulation.rows.some((row) => row.after)) {
+      return reply.code(502).send({ error: 'AI tidak menghasilkan balasan untuk simulasi ini.' });
+    }
+    const verdict = coachSuggestion.evaluateSimulation(simulation.rows);
+    const key = coachSuggestion.simulationKey(companyId, checked);
+    suggestionSimulations.set(`${companyId}:${key}`, { at: Date.now(), blocked: verdict.blocked });
+    for (const [stored, entry] of suggestionSimulations) {
+      if (Date.now() - entry.at > coachSuggestion.SIMULATION_TTL_MS) suggestionSimulations.delete(stored);
+    }
+    return { ...simulation, ...verdict, fact: { question: checked.question, answer: checked.answer, category: checked.category } };
+  });
+
+  app.post('/v1/coach/suggestion/apply', { schema: { body: SUGGESTION_BODY } }, async (request, reply) => {
+    if (!requireCoachSupervisor(request, reply)) return;
+    if (!requireCoachDb(reply)) return;
+    const session = request.agneeSession;
+    const checked = coachSuggestion.checkDraft(request.body);
+    if (!checked.ok) return reply.code(400).send({ error: checked.problems.join(' '), problems: checked.problems });
+    const entry = suggestionSimulations.get(`${session.companyId}:${coachSuggestion.simulationKey(session.companyId, checked)}`);
+    if (!entry || Date.now() - entry.at > coachSuggestion.SIMULATION_TTL_MS) {
+      return reply.code(400).send({ error: 'Jalankan simulasi dulu untuk isi yang sekarang sebelum menerapkan.', needsSimulation: true });
+    }
+    if (entry.blocked) return reply.code(409).send({ error: 'Simulasi terakhir belum lulus aturan gaya; sunting lalu simulasikan ulang.' });
+    const fact = await database.upsertPlaybookFact({
+      category: checked.category, question: checked.question, answer: checked.answer, priority: 2, source: 'simulation',
+    }, session.userId, session.companyId);
+    suggestionSimulations.delete(`${session.companyId}:${coachSuggestion.simulationKey(session.companyId, checked)}`);
+    await catatAudit(request, 'knowledge.applied', {
+      entityType: 'playbook_fact', entityId: fact?.id || null,
+      metadata: { origin: 'coach_suggestion', category: checked.category },
+    });
+    return { fact };
   });
 
   app.get('/v1/coach/review-queue', {

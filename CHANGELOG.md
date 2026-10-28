@@ -19,6 +19,16 @@
   tidak diubah). Saklar per tahap di Pengaturan > AI dan Latih AI. Chat yang belum jatuh tempo
   ditunda (`snoozed_until`) supaya tidak mengisi tiap tick. Migrasi 098.
 
+- **Uji AI: aksi atas "balasan yang lebih baik".** Di bawah saran penilai ada tiga tombol: Terima
+  perbaikan, Biar AI putuskan, Tolak. Saran disaring jadi satu Fakta (pertanyaan + jawaban, bisa
+  disunting), disimulasikan sebelum/sesudah, baru Terapkan ke playbook (sumber `simulation`).
+  "Biar AI putuskan" boleh membuang saran yang cuma soal gaya dan menjelaskan alasannya; saran
+  dengan "Rp ..." kosong, data pribadi, atau klaim hasil ditolak di kode. Terapkan butuh simulasi
+  segar (30 menit, di memori) untuk isi yang sama dan tidak terblokir aturan gaya. Rute
+  `/v1/coach/suggestion/{draft,simulate,apply}` (supervisor), tanpa migrasi, tidak butuh saklar
+  "AI belajar dari chat". Tombol juga ada di Tinjau chat asli bila pesan customer terekam.
+  Tes: `test/coach-suggestion.test.js`, `test/coach-suggestion-routes.test.js`.
+
 - **Ribbon yang mengikuti tag DealPOS.** Di Kelola ribbon, tiap ribbon manual punya isian "Ikuti
   tag DealPOS" (saran dari tag yang pernah terlihat). Item yang memuat tag itu di DealPOS otomatis
   mendapat ribbon; melepas isian menghapus pasangan otomatisnya, pasangan manual bertahan. Tag

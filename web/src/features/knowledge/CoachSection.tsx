@@ -6,6 +6,8 @@ import { Input } from '@/components/ui/input';
 import { useConfirm } from '@/components/ui/confirm';
 import { cn } from '@/lib/utils';
 import { StatusLine } from '@/features/settings/parts';
+import { SuggestionActions } from './SuggestionActions';
+import { FACT_CATEGORIES as CATEGORIES } from './factCategories';
 
 type Fact = { id: string; category: string; question: string; answer?: string | null; priority?: number };
 type Scenario = { id: string; name: string; persona?: string; openingMessage: string; goal?: string };
@@ -46,7 +48,6 @@ type ReviewSummary = {
   graded: number;
 };
 
-const CATEGORIES = ['profile', 'product', 'pricing', 'faq', 'funnel', 'objection', 'closing'] as const;
 type CoachTab = 'scenarios' | 'simulate' | 'review';
 
 /**
@@ -459,6 +460,7 @@ function SimulatePane({ scenarios, onNewGaps }: { scenarios: Scenario[]; onNewGa
   const [humanReply, setHumanReply] = useState('');
   const [compare, setCompare] = useState(true);
   const [result, setResult] = useState<JudgeResult | null>(null);
+  const [resultMessage, setResultMessage] = useState('');
   const [status, setStatus] = useState('');
   const [running, setRunning] = useState(false);
 
@@ -497,6 +499,7 @@ function SimulatePane({ scenarios, onNewGaps }: { scenarios: Scenario[]; onNewGa
       });
       setTranscript((current) => [...current, { role: 'customer', text: message }, { role: 'agent', text: data.reply }]);
       setResult(data);
+      setResultMessage(message);
       setCustomerMessage('');
       setHumanReply('');
       setStatus('');
@@ -603,7 +606,7 @@ function SimulatePane({ scenarios, onNewGaps }: { scenarios: Scenario[]; onNewGa
         <StatusLine>{status}</StatusLine>
       </div>
 
-      {result ? <JudgeView data={result} /> : null}
+      {result ? <JudgeView data={result} customerMessage={resultMessage} /> : null}
     </div>
   );
 }
@@ -639,7 +642,7 @@ function FeedbackList({ title, items }: { title: string; items?: string[] }) {
   );
 }
 
-function JudgeView({ data }: { data: JudgeResult }) {
+function JudgeView({ data, customerMessage }: { data: JudgeResult; customerMessage?: string }) {
   const { t } = useI18n();
   const judge = data.judge;
   return (
@@ -674,6 +677,15 @@ function JudgeView({ data }: { data: JudgeResult }) {
         <div className="mt-3 rounded-xl border border-border bg-white p-3">
           <h5 className="m-0 mb-1 text-[12px] font-semibold">{t('coach.suggestedReply')}</h5>
           <p className="m-0 text-[13px] leading-[1.55]">{judge.suggestedReply}</p>
+          {customerMessage ? (
+            <SuggestionActions
+              key={judge.suggestedReply}
+              customerMessage={customerMessage}
+              suggestedReply={judge.suggestedReply}
+              aiReply={data.aiReply || data.reply}
+              issues={judge.issues}
+            />
+          ) : null}
         </div>
       ) : null}
 
@@ -842,7 +854,7 @@ function ReviewRow({
 
       {result ? (
         <div className="mt-3">
-          <JudgeView data={result} />
+          <JudgeView data={result} customerMessage={entry.inReplyTo || manual.trim() || undefined} />
         </div>
       ) : null}
     </div>

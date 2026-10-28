@@ -71,10 +71,28 @@ const CLARIFICATION_QUESTION_PATTERNS = [
 ];
 
 /**
+ * Kondisi internal yang bocor ke customer: model membaca "jam buka: belum
+ * diisi" di prompt lalu menulis "Jam buka Cisauk Store kami belum diisi, Kak"
+ * (ESBEJE, 2026-10-28). Customer tidak punya urusan dengan isian pengaturan,
+ * sistem, atau data kami; yang harus ia dengar hanya "saya pastikan dulu".
+ *
+ * Ditegakkan di kode karena larangan di prompt tidak menahannya: justru
+ * prompt-lah yang memuat kata "belum diisi", dan model menyalinnya.
+ *
+ * Pola sengaja sempit: "belum diisi/diinput/dikonfigurasi" dan "tidak ada di
+ * sistem/database". "Jadwalnya belum diatur" tetap lolos, itu kalimat bisnis.
+ */
+const INTERNAL_LEAK_PATTERNS = [
+  [/\b(?:belum|tidak)\s+(?:diisi|diinput|di-input|dikonfigurasi)\b/i, 'menyebut isian yang belum diisi (kondisi internal); tulis saja bahwa kamu memastikan dulu, tanpa menyebut isian, sistem, atau data'],
+  [/\b(?:belum|tidak)\s+(?:ada|tercatat|tersedia|terdaftar)\s+(?:di|pada|dalam)\s+(?:sistem|database|data\s?base|pengaturan)\b/i, 'menyebut sistem atau data internal; tulis saja bahwa kamu memastikan dulu'],
+  [/\bPengaturan\s*>/, 'menyebut menu pengaturan internal'],
+];
+
+/**
  * Pelanggaran yang tidak boleh lolos sama sekali — bukan soal gaya (panjang,
  * emoji), tapi salah dengan cara yang berbahaya kalau sampai ke customer.
  */
-const HARD_VIOLATION_PATTERNS = [...CLAIM_PATTERNS, ...PLACEHOLDER_LEAK_PATTERNS, ...CLARIFICATION_QUESTION_PATTERNS];
+const HARD_VIOLATION_PATTERNS = [...CLAIM_PATTERNS, ...PLACEHOLDER_LEAK_PATTERNS, ...CLARIFICATION_QUESTION_PATTERNS, ...INTERNAL_LEAK_PATTERNS];
 
 /** Pecah jadi kalimat, tetap menyimpan baris supaya daftar tidak hancur. */
 function splitSentences(text) {
@@ -84,7 +102,7 @@ function splitSentences(text) {
     .filter(Boolean);
 }
 
-/** @returns {{sentence: string, label: string, isPlaceholderLeak: boolean, isClarificationQuestion: boolean}[]} */
+/** @returns {{sentence: string, label: string, isPlaceholderLeak: boolean, isClarificationQuestion: boolean, isInternalLeak: boolean}[]} */
 function findClaimViolations(text) {
   const found = [];
   for (const sentence of splitSentences(text)) {
@@ -92,7 +110,8 @@ function findClaimViolations(text) {
       if (pattern.test(sentence)) {
         const isPlaceholderLeak = PLACEHOLDER_LEAK_PATTERNS.some(([p]) => p === pattern);
         const isClarificationQuestion = CLARIFICATION_QUESTION_PATTERNS.some(([p]) => p === pattern);
-        found.push({ sentence, label, isPlaceholderLeak, isClarificationQuestion });
+        const isInternalLeak = INTERNAL_LEAK_PATTERNS.some(([p]) => p === pattern);
+        found.push({ sentence, label, isPlaceholderLeak, isClarificationQuestion, isInternalLeak });
         break;
       }
     }
@@ -349,7 +368,7 @@ function styleWarnings(text, expectations = {}) {
   if (expectations.expectDirectHandoff && value.includes('?')) warnings.push('asks a question after explicit handoff request');
   const claim = findClaimViolations(value)[0];
   if (claim) {
-    warnings.push(claim.isPlaceholderLeak || claim.isClarificationQuestion ? claim.label : `klaim hasil/risiko: ${claim.label}`);
+    warnings.push(claim.isPlaceholderLeak || claim.isClarificationQuestion || claim.isInternalLeak ? claim.label : `klaim hasil/risiko: ${claim.label}`);
   }
   const canned = [
     'saya memahami',

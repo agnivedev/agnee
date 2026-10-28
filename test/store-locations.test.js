@@ -20,9 +20,9 @@ test('hanya lokasi yang boleh dikunjungi customer yang sampai ke AI', () => {
   assert.ok(!/Pak Budi|Bu Sari|0812000000/.test(text), 'kontak kurir tidak boleh bocor');
 });
 
-test('jam buka kosong ditandai belum diisi, link peta dibuat dari titik bila tidak ada', () => {
+test('jam buka kosong ditandai tidak tersedia, link peta dibuat dari titik bila tidak ada', () => {
   const text = storeLocations.section([BSD, KEMANG]);
-  assert.match(text, /Toko Kemang \(Toko\); alamat: Jl\. Kemang Raya No\. 9; jam buka: belum diisi; peta: https:\/\/maps\.app\.goo\.gl\/kemang/);
+  assert.match(text, /Toko Kemang \(Toko\); alamat: Jl\. Kemang Raya No\. 9; jam buka: tidak tersedia; peta: https:\/\/maps\.app\.goo\.gl\/kemang/);
   assert.match(text, /peta: https:\/\/www\.google\.com\/maps\?q=-6\.3,106\.65/);
 });
 
@@ -62,7 +62,7 @@ const LALAMOVE = {
   pickupLat: -6.3, pickupLng: 106.65, pickupAddress: 'Toko BSD', defaultService: 'VAN', aiQuotesEnabled: true,
 };
 
-async function setup(t, { locations, lalamove = null, customerPlan }) {
+async function setup(t, { locations, lalamove = null, customerPlan, replyText = null }) {
   const seen = [];
   const lalamoveCalls = [];
   const llm = {
@@ -76,7 +76,7 @@ async function setup(t, { locations, lalamove = null, customerPlan }) {
         const tool = (options.tools || []).find((x) => x.name === step.tool);
         if (tool) results.push(await tool.run(step.args));
       }
-      return { text: JSON.stringify(results), model: 'tiruan', usage: {} };
+      return { text: replyText ?? JSON.stringify(results), model: 'tiruan', usage: {} };
     },
   };
   const fake = {
@@ -187,4 +187,18 @@ test('simulate: satu toko tidak menawarkan parameter dari_toko', async (t) => {
   await simulate('ongkir berapa?');
   const spec = seen[0].toolSpecs.find((x) => x.name === 'cek_ongkir');
   assert.equal(spec.parameters.properties.dari_toko, undefined);
+});
+
+test('simulate: jam buka kosong, balasan yang membocorkan "belum diisi" tidak sampai ke customer', async (t) => {
+  // ESBEJE 2026-10-28: "Jam buka Cisauk Store kami belum diisi, Kak" dikirim ke customer.
+  const bocor = 'Jam buka Cisauk Store kami belum diisi, Kak. Saya pastikan dulu ya jam bukanya supaya informasinya akurat. Mohon ditunggu sebentar, begitu sudah jelas langsung saya kabari 🙏';
+  const { seen, simulate } = await setup(t, { locations: [KEMANG], replyText: bocor });
+  const res = await simulate('Tutup jam berapa');
+  assert.equal(res.statusCode, 200);
+  const first = seen[0].prompt;
+  assert.match(first, /jam buka: tidak tersedia/);
+  assert.ok(!/belum diisi/.test(first.slice(first.indexOf('## LOKASI TOKO'))), 'prompt lokasi tidak boleh memuat kata yang disalin model');
+  const reply = res.json().reply;
+  assert.ok(!/belum diisi/i.test(reply), `bocor: ${reply}`);
+  assert.match(reply, /Saya pastikan dulu ya jam bukanya/);
 });

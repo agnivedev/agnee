@@ -55,7 +55,7 @@ function nearest(locations, point, limit = MAX_RESULTS) {
 
 const GUIDE = `## LOKASI TOKO
 - Alamat dan jam buka hanya boleh disebut dari daftar ini, apa adanya. Kalau customer menanyakan lokasi atau jam buka yang tidak ada di daftar, katakan akan dipastikan dulu. Jangan menebak.
-- Jam buka yang kosong berarti belum diisi: jangan menyebut jam apa pun.
+- Alamat atau jam buka yang tertulis "tidak tersedia" tidak boleh disebut, dan keadaan datanya pun tidak boleh disinggung sama sekali (jangan menyebut isian, sistem, data, atau pengaturan). Cukup katakan jam bukanya (atau alamatnya) kamu pastikan dulu, lalu lanjutkan percakapan.
 - Daftar ini tidak memuat stok. Jangan menjanjikan barang ada di toko tertentu.
 - Tempat lain yang tidak ada di daftar tidak untuk dikunjungi customer; jangan menyebutnya dan jangan mengarahkan customer ke sana.
 - Sertakan link peta saat customer ingin datang atau minta lokasi.`;
@@ -67,9 +67,9 @@ function locationLine(location) {
   const kind = location.kind === 'warehouse' ? 'Gudang' : 'Toko';
   const parts = [`- ${clip(location.name, 80)} (${kind})`];
   const address = clip(location.address, 300);
-  parts.push(address ? `alamat: ${address}` : 'alamat: belum diisi');
+  parts.push(address ? `alamat: ${address}` : 'alamat: tidak tersedia');
   const hours = clip(location.openingHours, 200);
-  parts.push(hours ? `jam buka: ${hours}` : 'jam buka: belum diisi');
+  parts.push(hours ? `jam buka: ${hours}` : 'jam buka: tidak tersedia');
   parts.push(`peta: ${mapsUrlOf(location)}`);
   const notes = clip(location.notes, 300);
   if (notes) parts.push(`catatan: ${notes}`);

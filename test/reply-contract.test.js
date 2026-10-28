@@ -269,3 +269,46 @@ test('membatasi balasan pada dua link, dan link ketiga dibuang utuh', () => {
   // Tanpa link juga tidak disentuh.
   assert.deepEqual(limitLinks('Halo kak'), { text: 'Halo kak', dropped: 0 });
 });
+
+test('kondisi internal yang bocor ke customer ("belum diisi", "tidak ada di sistem") ditandai dan dibuang', async () => {
+  // Produksi 2026-10-28 (ESBEJE): prompt memuat "jam buka: belum diisi", model
+  // menulis "Jam buka Cisauk Store kami belum diisi, Kak" ke customer.
+  const bocor = 'Jam buka Cisauk Store kami belum diisi, Kak. Saya pastikan dulu ya jam bukanya supaya informasinya akurat. Mohon ditunggu sebentar, begitu sudah jelas langsung saya kabari 🙏';
+  const violations = findClaimViolations(bocor);
+  assert.equal(violations.length, 1);
+  assert.equal(violations[0].isInternalLeak, true);
+  assert.match(styleWarnings(bocor)[0], /kondisi internal/);
+
+  for (const text of [
+    'Nomor itu tidak ada di sistem kami, Kak.',
+    'Datanya belum ada di database ya kak.',
+    'Cek di Pengaturan > Lokasi dulu ya.',
+    'Alamatnya belum diinput kak.',
+  ]) {
+    assert.equal(findClaimViolations(text).length, 1, `harus kena: ${text}`);
+  }
+
+  // Kalimat bisnis biasa tidak ikut tertangkap.
+  for (const text of [
+    'Jadwal kirimnya belum diatur ya kak, saya pastikan dulu.',
+    'Saya cek dulu jam bukanya ya kak.',
+    'Pembayaran lewat transfer, nomor rekening dikirim sesudah pesanan disetujui.',
+    'Pengaturan WhatsApp kakak sudah benar kok.',
+  ]) {
+    assert.deepEqual(findClaimViolations(text), [], `harus bersih: ${text}`);
+  }
+
+  // Jaring terakhir: kalimat bocor dibuang, kalimat "saya pastikan dulu" tetap terkirim.
+  const stubbornLlm = { enabled: true, async generateReply() { return { text: bocor }; } };
+  const result = await enforceReplyContract(stubbornLlm, { text: bocor, systemPrompt: '', userMessage: 'Tutup jam berapa' });
+  assert.equal(result.stripped, true);
+  assert.ok(!/belum diisi/.test(result.text));
+  assert.match(result.text, /Saya pastikan dulu ya jam bukanya/);
+
+  // Model yang menulis ulang dengan benar dikirim apa adanya.
+  const obedientLlm = { enabled: true, async generateReply() { return { text: 'Jam bukanya saya pastikan dulu ya kak, nanti saya kabari 🙏' }; } };
+  const fixed = await enforceReplyContract(obedientLlm, { text: bocor, systemPrompt: '', userMessage: 'Tutup jam berapa' });
+  assert.equal(fixed.rewritten, true);
+  assert.equal(fixed.stripped, false);
+  assert.ok(!/belum diisi/.test(fixed.text));
+});

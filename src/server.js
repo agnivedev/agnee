@@ -63,6 +63,7 @@ const catalog = require('./catalog.js');
 const { createReplyPacer } = require('./reply-delay.js');
 const handoffNotice = require('./handoff-notice.js');
 const departmentAsk = require('./department-ask.js');
+const uncertainty = require('./uncertainty-guard.js');
 const handoffCard = require('./handoff-card.js');
 const supervisorReport = require('./supervisor-report.js');
 const reportChats = require('./report-chats.js');
@@ -1976,7 +1977,13 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
         : {};
       modeBlock = agentModes.modeSection(mode, custom[mode]);
     }
-    const contextSections = [
+    // Departemen untuk penjaga "tidak yakin": dibaca juga di simulator (yang tak
+    // membawa alat ask_department) supaya tindakan yang akan diambil terlihat.
+    const guardDepartmentNames = !ops && !ks && dbLive && canCall('listDepartments')
+      ? (await database.listDepartments(companyId).catch(() => []))
+        .filter((d) => d.members?.length > 0 || d.whatsappGroupId).map((d) => d.name)
+      : [];
+    const factSections = [
       playbookContext
         ? (ops
           ? `## PENGETAHUAN PERUSAHAAN (referensi fakta untuk menjawab rekan kerja; naskah penjualan di dalamnya BUKAN untuk dipakai di nomor ini)\n${playbookContext}`
@@ -2000,12 +2007,13 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       ops ? agentModes.senderLine(sender) : '',
       departmentGuide,
       handoffCard.constraintsBlock(constraintText),
-      // Bentuk percakapannya milik Agnee dan sama untuk semua tenant; isinya
-      // milik playbook di atas. Ditaruh paling akhir supaya paling dekat dengan
-      // pesan customer — instruksi di ujung prompt lebih konsisten dipatuhi
-      // daripada yang terkubur di tengah.
-      agentModes.conversationRulesOverride(mode) || conversationRules(companyConfig?.aiIdentity),
     ].filter(Boolean).join('\n\n');
+    // Bentuk percakapannya milik Agnee dan sama untuk semua tenant; isinya
+    // milik playbook di atas. Ditaruh paling akhir supaya paling dekat dengan
+    // pesan customer — instruksi di ujung prompt lebih konsisten dipatuhi
+    // daripada yang terkubur di tengah.
+    const rulesText = agentModes.conversationRulesOverride(mode) || conversationRules(companyConfig?.aiIdentity);
+    const contextSections = [factSections, rulesText].filter(Boolean).join('\n\n');
 
     const basePrompt = ops ? kb.getInternalOpsPrompt() : kb.getSystemPrompt();
 
@@ -2030,6 +2038,10 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
         })),
       toolOutputs,
       departmentAsked,
+      departmentNames: guardDepartmentNames,
+      // Fakta perusahaan tanpa aturan percakapan Agnee: aturan itu menyebut kata
+      // "diskon" atau "stok" sebagai larangan, bukan sebagai sumber fakta.
+      factSource: `${basePrompt}\n\n${factSections}`,
       leadState: latestSummary?.summary
         ? { ...(leadStateRaw || {}), conversationSummary: latestSummary.summary }
         : leadStateRaw,
@@ -2214,6 +2226,126 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
   function replyExpectationsOf(ctx) {
     const canAsk = (ctx.tools || []).some((tool) => tool?.name === 'ask_department' || tool?.spec?.name === 'ask_department');
     return { noEmptyDelay: canAsk && !ctx.departmentAsked?.length };
+  }
+
+  /**
+   * "Kalau tidak yakin, jangan menebak" (uncertainty-guard.js). Dijalankan
+   * SETELAH kontrak keluaran, oleh balasan sungguhan dan simulator dengan
+   * penilaian yang sama. `dryRun` (simulator) tidak membangunkan departemen,
+   * tidak menyerahkan chat, dan tidak mencatat jejak; ia hanya melaporkan
+   * tindakan yang akan diambil.
+   *
+   * @returns {Promise<{ text: string|null, event: object|null }>}
+   */
+  async function guardUncertainty({ ctx, companyId, chatId = null, customerText, history = [], rawText = '', enforced, dryRun = false }) {
+    const finalText = enforced?.text || '';
+    const passthrough = { text: finalText || null, event: null };
+    const mode = canCall('getUncertaintyGuard') ? await database.getUncertaintyGuard(companyId).catch(() => 'on') : 'on';
+    if (mode === 'off' || ctx.agentMode === 'internal_ops' || ctx.ks) return passthrough;
+
+    const quantityText = [customerText, ...(history || []).map((turn) => turn?.content ?? turn?.text ?? '')].join('\n');
+    const assessment = uncertainty.assess({
+      customerText,
+      rawText,
+      finalText,
+      priceSource: priceSourceOf(ctx, { userMessage: customerText, history }),
+      factSource: ctx.factSource || ctx.systemPrompt || '',
+      toolText: (ctx.toolOutputs || []).join('\n'),
+      toolOutputs: ctx.toolOutputs || [],
+      quantityText,
+      departmentAsked: Boolean(ctx.departmentAsked?.length),
+    });
+    if (!assessment.unsure) return passthrough;
+
+    const askTool = (ctx.tools || []).find((tool) => tool?.name === 'ask_department' || tool?.spec?.name === 'ask_department');
+    const departmentNames = ctx.departmentNames || [];
+    let plan;
+    let byModel = false;
+    let text;
+    const claimSentences = new Set(assessment.reasons.map((r) => r.sentence).filter(Boolean));
+    if (ctx.departmentAsked?.length) {
+      // Model sudah bertanya ke departemen: yang dibuang hanya kalimat tebakannya.
+      byModel = true;
+      plan = { action: 'ask_department', department: ctx.departmentAsked[0] };
+      const kept = finalText.split(/(?<=[.!?])\s+|\n+/).map((x) => x.trim()).filter((x) => x && !claimSentences.has(x)).join('\n');
+      text = departmentAsk.ensureHolding(kept);
+    } else if (assessment.reasons.every((r) => r.code === 'tool_no_result') && finalText.includes('?')) {
+      // Alat tidak menemukan apa-apa dan model sudah bertanya balik ke customer.
+      byModel = true;
+      plan = { action: 'ask_customer' };
+      text = finalText;
+    } else {
+      plan = uncertainty.chooseAction({
+        topic: assessment.topic,
+        missingInfo: assessment.missingInfo,
+        departmentNames,
+        canAsk: dryRun ? departmentNames.length > 0 : Boolean(askTool),
+        mode,
+        proofCheck: Boolean(ctx.companyConfig?.paymentProofCheck),
+        proofGiven: uncertainty.PROOF_MARKER.test(customerText),
+      });
+      if (!dryRun) plan = await executeUncertaintyPlan({ plan, assessment, ctx, askTool, companyId, chatId, customerText, finalText });
+      text = uncertainty.compose({ finalText, customerText, assessment, plan });
+    }
+
+    const event = {
+      topic: assessment.topic,
+      topics: assessment.topics,
+      reasons: assessment.reasons.map((r) => ({ code: r.code, label: uncertainty.REASON_LABELS[r.code], topic: r.topic, ...(r.sentence ? { sentence: r.sentence } : {}) })),
+      action: plan.action,
+      department: plan.department || null,
+      byModel,
+      dryRun,
+    };
+    if (!dryRun) {
+      app.log.warn({ companyId, chatId, topic: event.topic, action: event.action, reasons: event.reasons.map((r) => r.code) },
+        'AI tidak yakin: tidak menebak');
+      if (canCall('recordUncertaintyEvent')) {
+        await database.recordUncertaintyEvent({
+          chatId, topic: event.topic, reasons: event.reasons, action: event.action, department: event.department,
+          customerText, modelText: rawText, replyText: text,
+        }, companyId).catch((error) => app.log.warn({ err: error }, 'Jejak AI tidak yakin gagal dicatat'));
+      }
+    }
+    return { text, event };
+  }
+
+  /** Menjalankan tindakan penjaga; gagal berarti turun ke tindakan yang lebih lunak. */
+  async function executeUncertaintyPlan({ plan, assessment, ctx, askTool, companyId, chatId, customerText, finalText }) {
+    const notify = async () => {
+      createHandoffCard({ companyId, chatId, customerText, aiText: finalText, attach: true })
+        .catch((error) => app.log.warn({ err: error }, 'Kartu serah-terima (AI tidak yakin) gagal dibuat'));
+      notifyHandoff(companyId, { from: chatId, body: customerText }, finalText)
+        .catch((error) => app.log.warn({ err: error }, 'Pemberitahuan (AI tidak yakin) gagal'));
+      return { action: 'notify_staff' };
+    };
+    if (plan.action === 'ask_department') {
+      try {
+        const out = await askTool.run({
+          department: plan.department,
+          question: uncertainty.departmentQuestion({ topic: assessment.topic, customerText, assessment }),
+        });
+        if (out?.status === 'sent' || out?.status === 'already_asked') return plan;
+      } catch (error) {
+        app.log.warn({ err: error, companyId }, 'Bertanya ke departemen (AI tidak yakin) gagal');
+      }
+      return notify();
+    }
+    if (plan.action === 'handoff') {
+      const members = await getTeamMembers(companyId).catch(() => []);
+      const supervisor = members.find((member) => PRIVILEGED_DB_ROLES.includes(member.role) && member.status === 'active');
+      if (!supervisor) return notify();
+      await saveRouting({
+        chatId, mode: 'human', assigneeUserId: supervisor.id, actorUserId: null,
+        note: `AI tidak yakin (${uncertainty.TOPIC_LABELS[assessment.topic] || assessment.topic}); diserahkan ke manusia.`,
+        priority: 'high', reason: handoffCard.classifyReason({ customerText }),
+      }, companyId);
+      createHandoffCard({ companyId, chatId, customerText, aiText: finalText, attach: true })
+        .catch((error) => app.log.warn({ err: error }, 'Kartu serah-terima (AI tidak yakin) gagal dibuat'));
+      return plan;
+    }
+    if (plan.action === 'notify_staff') return notify();
+    return plan;
   }
 
   async function generateAutoReply(message, companyId, meta = {}) {
@@ -2429,14 +2561,17 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       priceSource: priceSourceOf(ctx, { userMessage: customerText, history: conversationHistory }),
       expectations: replyExpectationsOf(ctx),
     });
-    if (!enforced) {
+    const guarded = await guardUncertainty({
+      ctx, companyId, chatId: message.from, customerText, history: conversationHistory, rawText: result.text, enforced,
+    });
+    if (!guarded.text) {
       // Tidak ada isi aman yang tersisa. Diam lebih baik daripada mengirim
       // janji hasil; percakapan jatuh ke agent manusia.
       app.log.warn({ companyId, chatId: message.from },
         'Balasan AI dibuang karena melanggar kontrak keluaran');
       return null;
     }
-    if (enforced.rewritten || enforced.stripped) {
+    if (enforced?.rewritten || enforced?.stripped) {
       app.log.warn({
         companyId,
         chatId: message.from,
@@ -2448,7 +2583,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     // Paling banyak dua link per balasan. Batasnya pernah satu, dan itu membuang
     // link checkout dari balasan pembuka yang menawarkan dua jalan bernomor —
     // penawaran Rp99.000 terkirim tanpa cara mengambilnya.
-    const tunggal = limitLinks(enforced.text);
+    const tunggal = limitLinks(guarded.text);
     if (tunggal.dropped) {
       app.log.warn({ companyId, chatId: message.from, dropped: tunggal.dropped },
         'Link berlebih dibuang dari balasan sebelum dikirim');
@@ -6603,6 +6738,7 @@ Aturan:
 
     let aiReply = null;
     let aiModel = null;
+    let uncertaintyEvent = null;
     if (mode === 'ai' || compareWithAi) {
       const generated = await llmService.generateReply(customerRead, {
         systemPrompt: ctx.systemPrompt,
@@ -6637,7 +6773,11 @@ Aturan:
           priceSource: priceSourceOf(ctx, { userMessage: customerRead, history }),
           expectations: replyExpectationsOf(ctx),
         });
-        teks = enforcedSim ? limitLinks(enforcedSim.text).text : null;
+        const guardedSim = await guardUncertainty({
+          ctx, companyId, customerText: customerRead, history, rawText: teks, enforced: enforcedSim, dryRun: true,
+        });
+        uncertaintyEvent = guardedSim.event;
+        teks = guardedSim.text ? limitLinks(guardedSim.text).text : null;
       }
       if (!teks && mode === 'ai') {
         return reply.code(502).send({ error: 'Balasan AI dibuang karena melanggar kontrak keluaran.' });
@@ -6685,6 +6825,8 @@ Aturan:
       reply: gradedReply,
       aiReply: mode === 'ai' ? null : aiReply,
       model: aiModel,
+      // Alasan "AI tidak yakin" bila balasan ini diubah penjaga (null bila tidak).
+      uncertainty: uncertaintyEvent,
       product: ctx.product ? { id: ctx.product.id, name: ctx.product.name } : null,
       rules,
       judge,
@@ -7283,6 +7425,36 @@ Aturan:
     knowledgeLearningCache.set(companyId, { value: enabled, at: Date.now() });
     await catatAudit(request, 'knowledge.learning_toggled', { entityType: 'company', entityId: companyId, metadata: { enabled } });
     return { enabled };
+  });
+
+  // ── "Kalau tidak yakin, jangan menebak": mode per company + jejak ─────────
+
+  app.get('/v1/ai-uncertainty/settings', async (request) => ({
+    mode: canCall('getUncertaintyGuard') ? await database.getUncertaintyGuard(request.agneeSession.companyId).catch(() => 'on') : 'on',
+  }));
+
+  app.put('/v1/ai-uncertainty/settings', {
+    schema: { body: { type: 'object', additionalProperties: false, required: ['mode'], properties: { mode: { type: 'string', enum: uncertainty.MODES } } } },
+  }, async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) {
+      return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengubah pengaturan ini.' });
+    }
+    if (!requireCoachDb(reply)) return;
+    const companyId = request.agneeSession.companyId;
+    const mode = await database.setUncertaintyGuard(companyId, request.body.mode);
+    await catatAudit(request, 'ai_uncertainty.mode_changed', { entityType: 'company', entityId: companyId, metadata: { mode } });
+    return { mode };
+  });
+
+  app.get('/v1/ai-uncertainty/events', {
+    schema: { querystring: { type: 'object', properties: { limit: { type: 'integer', minimum: 1, maximum: 200, default: 30 } } } },
+  }, async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) {
+      return reply.code(403).send({ error: 'Hanya supervisor yang dapat melihat ini.' });
+    }
+    if (!canCall('listUncertaintyEvents')) return { events: [] };
+    const rows = await database.listUncertaintyEvents(request.agneeSession.companyId, { limit: request.query.limit });
+    return { events: rows.map((row) => ({ ...row, topicLabel: uncertainty.TOPIC_LABELS[row.topic] || row.topic })) };
   });
 
   // Chip di inbox: usulan yang masih hidup di satu chat.

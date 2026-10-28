@@ -4192,6 +4192,45 @@ class Database {
     return result.rows[0]?.enabled === true;
   }
 
+  // ── "Kalau tidak yakin, jangan menebak" (migrasi 102) ─────────────────────
+
+  async getUncertaintyGuard(companyId) {
+    if (!this.enabled) return 'on';
+    const result = await this.pool.query('SELECT uncertainty_guard AS "mode" FROM companies WHERE id = $1', [companyId]);
+    return result.rows[0]?.mode || 'on';
+  }
+
+  async setUncertaintyGuard(companyId, mode) {
+    if (!this.enabled) return 'on';
+    const result = await this.pool.query(
+      'UPDATE companies SET uncertainty_guard = $2 WHERE id = $1 RETURNING uncertainty_guard AS "mode"', [companyId, mode],
+    );
+    return result.rows[0]?.mode || 'on';
+  }
+
+  async recordUncertaintyEvent({ chatId = null, topic, reasons = [], action, department = null, customerText = '', modelText = '', replyText = '' }, companyId) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      INSERT INTO ai_uncertainty_events (company_id, chat_id, topic, reasons, action, department, customer_text, model_text, reply_text)
+      VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9)
+      RETURNING id, created_at AS "createdAt"
+    `, [companyId, chatId, topic, JSON.stringify(reasons || []), action, department,
+      String(customerText).slice(0, 1000), String(modelText).slice(0, 2000), String(replyText).slice(0, 2000)]);
+    return result.rows[0] || null;
+  }
+
+  async listUncertaintyEvents(companyId, { limit = 50 } = {}) {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(`
+      SELECT id, chat_id AS "chatId", topic, reasons, action, department,
+             customer_text AS "customerText", model_text AS "modelText", reply_text AS "replyText",
+             created_at AS "createdAt"
+      FROM ai_uncertainty_events WHERE company_id = $1
+      ORDER BY created_at DESC, id DESC LIMIT $2
+    `, [companyId, Math.min(Math.max(Number(limit) || 50, 1), 200)]);
+    return result.rows;
+  }
+
   /** Penulis tiap pesan keluar terakhir di satu chat: pembeda balasan AI dan CS. */
   async listOutboundReplyAuthors(companyId, chatId, limit = 60) {
     if (!this.enabled) return [];

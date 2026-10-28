@@ -8,6 +8,7 @@ import { cn } from '@/lib/utils';
 import { StatusLine } from '@/features/settings/parts';
 import { SuggestionActions } from './SuggestionActions';
 import { FACT_CATEGORIES as CATEGORIES } from './factCategories';
+import { UncertaintyCard } from './UncertaintyCard';
 
 type Fact = { id: string; category: string; question: string; answer?: string | null; priority?: number };
 type Scenario = { id: string; name: string; persona?: string; openingMessage: string; goal?: string };
@@ -28,6 +29,8 @@ type JudgeResult = {
   judge?: Judge;
   rules?: { passed: boolean; warnings: string[] };
   newGaps?: { question: string }[];
+  // Terisi bila penjaga "tidak yakin" mengubah balasan AI (tindakan hanya dilaporkan, tidak dijalankan).
+  uncertainty?: { topic: string; action: string; department: string | null; reasons: { code: string; label?: string; sentence?: string }[] } | null;
 };
 
 type ReviewEntry = {
@@ -115,6 +118,7 @@ export function CoachSection({ onGaps }: { onGaps: () => void }) {
 
   return (
     <div id="coachSection">
+      <UncertaintyCard />
       <div className="mb-4 flex flex-wrap gap-1 border-b border-border" role="tablist">
         {TABS.map((entry) => (
           <button
@@ -668,6 +672,19 @@ function JudgeView({ data, customerMessage }: { data: JudgeResult; customerMessa
         </>
       ) : null}
 
+      {data.uncertainty ? (
+        <div className="mb-3 rounded-xl border border-amber-300/60 bg-amber-50 p-3 text-[12px] leading-[1.55]">
+          <h5 className="m-0 mb-1 text-[12px] font-semibold">
+            {t('unsure.simTitle')} · {t(`unsure.topic.${data.uncertainty.topic}`)}
+          </h5>
+          <p className="m-0">{t(`unsure.action.${data.uncertainty.action}`, { department: data.uncertainty.department || '' })}</p>
+          <ul className="m-0 mt-1 grid gap-0.5 pl-4 text-muted">
+            {data.uncertainty.reasons.map((reason, index) => (
+              <li key={index}>{reason.label || reason.code}{reason.sentence ? `: “${reason.sentence}”` : ''}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
       {data.rules && !data.rules.passed ? <FeedbackList title={t('coach.styleIssues')} items={data.rules.warnings} /> : null}
       <FeedbackList title={t('coach.strengths')} items={judge?.strengths} />
       <FeedbackList title={t('coach.issues')} items={judge?.issues} />

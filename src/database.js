@@ -6324,7 +6324,8 @@ class Database {
   static LOCATION_COLUMNS = `
     id, name, kind, address, lat, lng, maps_url AS "mapsUrl",
     contact_name AS "contactName", contact_phone AS "contactPhone",
-    opening_hours AS "openingHours", open_to_customers AS "openToCustomers",
+    opening_hours AS "openingHours", opening_schedule AS "openingSchedule", opening_note AS "openingNote",
+    open_to_customers AS "openToCustomers",
     is_pickup AS "isPickup", notes, dealpos_outlet_id AS "dealposOutletId", dealpos_outlet_name AS "dealposOutletName",
     created_at AS "createdAt", updated_at AS "updatedAt"`;
 
@@ -6373,20 +6374,22 @@ class Database {
         location.mapsUrl || null, location.contactName || null, location.contactPhone || null,
         location.openingHours || null, location.openToCustomers !== false, location.isPickup === true, location.notes || null,
         location.dealposOutletId || null, location.dealposOutletName || null,
+        location.openingSchedule ? JSON.stringify(location.openingSchedule) : null, location.openingNote || null,
       ];
       const result = id
         ? await client.query(`
             UPDATE company_locations SET name = $2, kind = $3, address = $4, lat = $5, lng = $6, maps_url = $7,
               contact_name = $8, contact_phone = $9, opening_hours = $10, open_to_customers = $11,
-              is_pickup = $12, notes = $13, dealpos_outlet_id = $14, dealpos_outlet_name = $15, updated_at = NOW()
-            WHERE company_id = $1 AND id = $16
+              is_pickup = $12, notes = $13, dealpos_outlet_id = $14, dealpos_outlet_name = $15,
+              opening_schedule = $16::jsonb, opening_note = $17, updated_at = NOW()
+            WHERE company_id = $1 AND id = $18
             RETURNING ${Database.LOCATION_COLUMNS}
           `, [...values, id])
         : await client.query(`
             INSERT INTO company_locations (company_id, name, kind, address, lat, lng, maps_url,
               contact_name, contact_phone, opening_hours, open_to_customers, is_pickup, notes,
-              dealpos_outlet_id, dealpos_outlet_name)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+              dealpos_outlet_id, dealpos_outlet_name, opening_schedule, opening_note)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16::jsonb, $17)
             RETURNING ${Database.LOCATION_COLUMNS}
           `, values);
       await client.query('COMMIT');

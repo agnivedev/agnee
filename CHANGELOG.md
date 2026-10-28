@@ -1,5 +1,18 @@
 ## [Unreleased]
 
+- **Jam buka per hari di Pengaturan > Lokasi (migrasi 099).** Tiap hari: buka (satu atau dua
+  rentang jam, mis. 08.00–12.00 dan 13.00–17.00), buka 24 jam, atau tutup; ada pintasan "Buka
+  24 jam setiap hari" dan "Salin Senin ke semua hari", plus catatan bebas (libur, istirahat).
+  Server membuat teks rapi ("Senin–Jumat 08.00–17.00; Sabtu 24 jam; Minggu tutup. <catatan>")
+  dan menyimpannya di `opening_hours`, jadi AI, tombol bagikan lokasi, dan alat toko terdekat
+  ikut tanpa diubah. Lokasi lama yang hanya berisi teks tetap terbaca; teksnya jadi catatan.
+  - **AI mendapat status "sekarang buka/tutup, buka lagi …"** yang dihitung di kode dari jadwal
+    dan zona waktu company (rentang lewat tengah malam ikut hari sebelumnya), bukan ditebak dari teks.
+  - API: `openingSchedule` ({ days: { mon..sun: { state: open|closed|24h, ranges } } } atau null)
+    dan `openingNote`; `openingHours` teks lama tetap diterima sebagai catatan tanpa jadwal.
+  - Tes: `opening-hours.test.js`, tambahan di `locations-routes`, `store-locations` (termasuk
+    chat "sekarang buka?" lewat `/v1/coach/simulate`).
+
 - **Tindak lanjut per tahap funnel closing** (`src/follow-up-stage.js`). Tahap dibaca dari data
   tersimpan: (a) tanya barang/harga lalu diam, (b) rincian + grand total terkirim belum dijawab,
   (c) proforma `open`, (d) menunggu pembayaran (invoice DealPOS, atau rekening/link bayar terkirim

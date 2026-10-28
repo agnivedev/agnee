@@ -45,6 +45,7 @@ const { HUB_REPLY_WORKING_DAYS, addWorkingDays, workingDaysSince } = require('./
 const mayarSync = require('./mayar-sync.js');
 const dealposSync = require('./dealpos-sync.js');
 const lalamove = require('./lalamove.js');
+const openingHours = require('./opening-hours.js');
 const deliveryQuote = require('./delivery-quote.js');
 const orderSummary = require('./order-summary.js');
 const dealposOrders = require('./dealpos-orders.js');
@@ -1784,7 +1785,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       }
     }
     const locationTools = nearestTool
-      ? [storeLocations.toolSpec({ locations: stores, run: (args = {}) => storeLocations.findNearest(stores, args) })]
+      ? [storeLocations.toolSpec({ locations: stores, run: (args = {}) => storeLocations.findNearest(stores, args, { now: new Date(), timeZone: companyConfig?.timezone }) })]
       : [];
     const addressTools = !ops && !ks
       ? [addressCheck.toolSpec({ run: (args = {}) => addressCheck.check(args.alamat) })]
@@ -1849,7 +1850,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       catalogContext,
       priceContext,
       hubTools.length ? HUB_TOOLS_GUIDE : '',
-      storeLocations.section(stores, { withNearestTool: nearestTool }),
+      storeLocations.section(stores, { withNearestTool: nearestTool, now: new Date(), timeZone: companyConfig?.timezone }),
       deliveryTools.length && lalamoveReady ? deliveryQuote.GUIDE : '',
       summaryTools.length ? orderSummary.GUIDE : '',
       orderTools.length ? dealposOrders.GUIDE : '',
@@ -11269,7 +11270,11 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
       contactName: { type: 'string', maxLength: 120 },
       contactPhone: { type: 'string', maxLength: 30 },
       dealposOutletId: { type: 'string', maxLength: 64 },
+      // Teks bebas lama: tanpa `openingSchedule`, diperlakukan sebagai catatan saja.
       openingHours: { type: 'string', maxLength: 300 },
+      // Jadwal per hari ({ days: { mon: { state, ranges } ... } }); null menghapus jadwal.
+      openingSchedule: { type: ['object', 'null'] },
+      openingNote: { type: 'string', maxLength: 300 },
       openToCustomers: { type: 'boolean' },
       isPickup: { type: 'boolean' },
       notes: { type: 'string', maxLength: 1000 },
@@ -11323,6 +11328,24 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
         outlet = { dealposOutletId: found.id, dealposOutletName: found.name };
       }
     }
+    // Jam buka: jadwal per hari + catatan bebas. `opening_hours` (teks) selalu
+    // dibuat dari keduanya, supaya pembaca lama (AI, tombol bagikan) tetap rapi.
+    let openingSchedule = existing?.openingSchedule ?? null;
+    let openingNote = existing ? (existing.openingNote ?? (existing.openingSchedule ? null : existing.openingHours ?? null)) : null;
+    if (body.openingSchedule !== undefined) {
+      if (body.openingSchedule === null) {
+        openingSchedule = null;
+      } else {
+        const checked = openingHours.normalizeSchedule(body.openingSchedule);
+        if (checked.error) return reply.code(422).send({ error: checked.error });
+        openingSchedule = checked.schedule;
+      }
+    } else if (body.openingHours !== undefined && body.openingNote === undefined) {
+      // Klien lama mengirim teks bebas: itu menggantikan jadwal.
+      openingSchedule = null;
+      openingNote = String(body.openingHours).trim() || null;
+    }
+    if (body.openingNote !== undefined) openingNote = String(body.openingNote).trim() || null;
     // Alamat kosong = alamat yang terbaca dari peta.
     const address = text('address') || (placeText || !existing ? point.address : existing.address) || '';
     const location = await database.saveCompanyLocation(companyId, existing?.id || null, {
@@ -11334,7 +11357,9 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
       mapsUrl,
       contactName: text('contactName'),
       contactPhone,
-      openingHours: text('openingHours'),
+      openingHours: openingHours.compose(openingSchedule, openingNote) || null,
+      openingSchedule,
+      openingNote,
       openToCustomers: body.openToCustomers ?? existing?.openToCustomers ?? body.kind === 'store',
       isPickup,
       notes: text('notes'),

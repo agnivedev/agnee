@@ -202,3 +202,38 @@ test('simulate: jam buka kosong, balasan yang membocorkan "belum diisi" tidak sa
   assert.ok(!/belum diisi/i.test(reply), `bocor: ${reply}`);
   assert.match(reply, /Saya pastikan dulu ya jam bukanya/);
 });
+
+const JADWAL = { days: {
+  mon: { state: 'open', ranges: [['08:00', '17:00']] }, tue: { state: 'open', ranges: [['08:00', '17:00']] },
+  wed: { state: 'open', ranges: [['08:00', '17:00']] }, thu: { state: 'open', ranges: [['08:00', '17:00']] },
+  fri: { state: 'open', ranges: [['08:00', '17:00']] }, sat: { state: '24h', ranges: [] }, sun: { state: 'closed', ranges: [] },
+} };
+const TOKO_JADWAL = { ...BSD, openingHours: 'Senin–Jumat 08.00–17.00; Sabtu 24 jam; Minggu tutup', openingSchedule: JADWAL };
+// Senin 2026-10-26 10.00 WIB dan Minggu 2026-11-01 10.00 WIB.
+const SENIN_PAGI = new Date('2026-10-26T10:00:00+07:00');
+const MINGGU = new Date('2026-11-01T10:00:00+07:00');
+
+test('prompt memuat status sekarang dari jadwal dan zona waktu company', () => {
+  const buka = storeLocations.section([TOKO_JADWAL], { now: SENIN_PAGI, timeZone: 'Asia/Jakarta' });
+  assert.match(buka, /jam buka: Senin–Jumat 08\.00–17\.00; Sabtu 24 jam; Minggu tutup; sekarang: buka, tutup pukul 17\.00;/);
+  const tutup = storeLocations.section([TOKO_JADWAL], { now: MINGGU, timeZone: 'Asia/Jakarta' });
+  assert.match(tutup, /sekarang: tutup, buka lagi Senin pukul 08\.00/);
+  // Lokasi yang jam bukanya hanya teks tidak mendapat baris status karangan.
+  assert.ok(!/sekarang:/.test(storeLocations.section([BSD], { now: SENIN_PAGI })));
+});
+
+test('alat toko terdekat ikut membawa status sekarang', async () => {
+  const hasil = await storeLocations.findNearest([TOKO_JADWAL], { lokasi_customer: '-6.31,106.66' }, { now: MINGGU, timeZone: 'Asia/Jakarta' });
+  assert.equal(hasil.status, 'ok');
+  assert.equal(hasil.toko_terdekat[0].sekarang, 'tutup, buka lagi Senin pukul 08.00');
+});
+
+test('simulate: customer tanya "sekarang buka?", AI membaca status yang dihitung kode', async (t) => {
+  const { seen, simulate } = await setup(t, { locations: [TOKO_JADWAL], replyText: 'Sekarang kami buka sampai pukul 17.00 ya kak.' });
+  const res = await simulate('Sekarang buka nggak kak?');
+  assert.equal(res.statusCode, 200);
+  const prompt = seen[0].prompt;
+  const line = prompt.slice(prompt.indexOf('- Toko BSD'));
+  assert.match(line, /jam buka: Senin–Jumat 08\.00–17\.00; Sabtu 24 jam; Minggu tutup; sekarang: (buka|tutup)/);
+  assert.match(prompt, /"sekarang" pada sebuah toko sudah dihitung/);
+});

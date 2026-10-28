@@ -4,6 +4,7 @@ import { useI18n } from '@/lib/i18n';
 import { Button } from '@/components/ui/button';
 import { useConfirm } from '@/components/ui/confirm';
 import { Field, FieldGrid, Row, SelectField, SettingCard, StatusLine, TextField } from './parts';
+import { OpeningHoursEditor, type OpeningSchedule } from './OpeningHoursEditor';
 
 export type CompanyLocation = {
   id: string;
@@ -16,6 +17,8 @@ export type CompanyLocation = {
   contactName: string | null;
   contactPhone: string | null;
   openingHours: string | null;
+  openingSchedule: OpeningSchedule | null;
+  openingNote: string | null;
   openToCustomers: boolean;
   isPickup: boolean;
   notes: string | null;
@@ -81,7 +84,8 @@ export function LocationsSection() {
           address: value('address'),
           contactName: value('contactName'),
           contactPhone: value('contactPhone'),
-          openingHours: value('openingHours'),
+          openingSchedule: value('openingSchedule') ? JSON.parse(value('openingSchedule')) : null,
+          openingNote: value('openingNote'),
           notes: value('notes'),
           openToCustomers: form.get('openToCustomers') === 'on',
           isPickup: form.get('isPickup') === 'on',
@@ -179,12 +183,14 @@ export function LocationsSection() {
           placeholder="081234567890"
           hint={t('locations.contactHint')}
         />
+        <OpeningHoursEditor initial={current?.openingSchedule ?? null} />
         <TextField
-          label={t('locations.hours')}
-          name="openingHours"
+          label={t('locations.hoursNote')}
+          name="openingNote"
           maxLength={300}
-          defaultValue={current?.openingHours ?? ''}
-          placeholder={t('locations.hoursPlaceholder')}
+          // Lokasi lama hanya punya teks bebas: teks itu menjadi catatan sampai diganti.
+          defaultValue={current ? (current.openingNote ?? (current.openingSchedule ? '' : current.openingHours ?? '')) : ''}
+          placeholder={t('locations.hoursNotePlaceholder')}
           className="md:col-span-2"
         />
         <Field label={t('locations.notes')} className="md:col-span-2">

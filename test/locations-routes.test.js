@@ -183,3 +183,50 @@ test('outlet DealPOS: daftar hanya supervisor, lokasi bisa dihubungkan, id asing
   assert.equal((await call(owner, 'PUT', `/v1/locations/${id}`, { name: 'Toko BSD', kind: 'store', dealposOutletId: '' })).json().location.dealposOutletId, null);
   assert.equal(calls.filter((u) => u.includes('/Token/OAuth2')).length, 1, 'daftar outlet dipakai ulang dari cache');
 });
+
+const SCHEDULE = {
+  days: {
+    mon: { state: 'open', ranges: [['08:00', '17:00']] }, tue: { state: 'open', ranges: [['08:00', '17:00']] },
+    wed: { state: 'open', ranges: [['08:00', '17:00']] }, thu: { state: 'open', ranges: [['08:00', '17:00']] },
+    fri: { state: 'open', ranges: [['08:00', '17:00']] }, sat: { state: '24h', ranges: [] }, sun: { state: 'closed', ranges: [] },
+  },
+};
+
+test('jam buka per hari: teks dibuat dari jadwal, catatan ikut, jadwal tak valid ditolak', async (t) => {
+  const { call, owner, agent } = await setup(t);
+  const { openingHours: _legacy, ...base } = TOKO;
+  assert.equal((await call(agent, 'POST', '/v1/locations', { ...base, openingSchedule: SCHEDULE })).statusCode, 403);
+  const bad = await call(owner, 'POST', '/v1/locations', { ...base, openingSchedule: { days: { ...SCHEDULE.days, mon: { state: 'open', ranges: [['17:00', '17:00']] } } } });
+  assert.equal(bad.statusCode, 422);
+  assert.match(bad.json().error, /tidak boleh sama/);
+  assert.equal((await call(owner, 'POST', '/v1/locations', { ...base, openingSchedule: { days: {} } })).statusCode, 422);
+
+  const { location } = (await call(owner, 'POST', '/v1/locations', { ...base, openingSchedule: SCHEDULE, openingNote: 'Tutup tanggal merah' })).json();
+  assert.equal(location.openingHours, 'Senin–Jumat 08.00–17.00; Sabtu 24 jam; Minggu tutup. Tutup tanggal merah');
+  assert.equal(location.openingNote, 'Tutup tanggal merah');
+  assert.equal(location.openingSchedule.days.sat.state, '24h');
+
+  // Mengubah hal lain tidak menyentuh jadwal; mengubah catatan saja menyusun ulang teksnya.
+  const renamed = (await call(owner, 'PUT', `/v1/locations/${location.id}`, { name: 'Toko BSD City', kind: 'store' })).json().location;
+  assert.equal(renamed.openingHours, location.openingHours);
+  const noted = (await call(owner, 'PUT', `/v1/locations/${location.id}`, { name: 'Toko BSD City', kind: 'store', openingNote: '' })).json().location;
+  assert.equal(noted.openingHours, 'Senin–Jumat 08.00–17.00; Sabtu 24 jam; Minggu tutup');
+
+  // null menghapus jadwal; yang tersisa hanya catatan.
+  const cleared = (await call(owner, 'PUT', `/v1/locations/${location.id}`, { name: 'Toko BSD City', kind: 'store', openingSchedule: null, openingNote: 'Hubungi dulu' })).json().location;
+  assert.equal(cleared.openingSchedule, null);
+  assert.equal(cleared.openingHours, 'Hubungi dulu');
+});
+
+test('klien lama yang mengirim teks bebas: teks menggantikan jadwal, lokasi lama tanpa jadwal tetap terbaca', async (t) => {
+  const { call, owner } = await setup(t);
+  const { openingHours: _legacy, ...base } = TOKO;
+  const { location } = (await call(owner, 'POST', '/v1/locations', { ...base, openingSchedule: SCHEDULE })).json();
+  const legacy = (await call(owner, 'PUT', `/v1/locations/${location.id}`, { name: 'Toko BSD', kind: 'store', openingHours: 'Sen–Sab 09.00–18.00' })).json().location;
+  assert.equal(legacy.openingSchedule, null);
+  assert.equal(legacy.openingHours, 'Sen–Sab 09.00–18.00');
+  // Lokasi lama (hanya teks) lalu diberi jadwal: teks lama menjadi catatan sampai diganti.
+  const upgraded = (await call(owner, 'PUT', `/v1/locations/${location.id}`, { name: 'Toko BSD', kind: 'store', openingSchedule: SCHEDULE })).json().location;
+  assert.match(upgraded.openingHours, /^Senin–Jumat 08\.00–17\.00; Sabtu 24 jam; Minggu tutup\. Sen–Sab 09\.00–18\.00$/);
+  assert.equal(upgraded.openingNote, 'Sen–Sab 09.00–18.00');
+});

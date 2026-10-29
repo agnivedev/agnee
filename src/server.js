@@ -52,6 +52,7 @@ const openingHours = require('./opening-hours.js');
 const deliveryQuote = require('./delivery-quote.js');
 const orderSummary = require('./order-summary.js');
 const dealposOrders = require('./dealpos-orders.js');
+const chatMemory = require('./chat-memory.js');
 const storeLocations = require('./store-locations.js');
 const promoRules = require('./promo-rules.js');
 const paymentAccounts = require('./payment-accounts.js');
@@ -1866,7 +1867,10 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
         priceItems = (await dealposPriceCached(companyId).catch(() => ({ products: [] }))).products;
       }
     }
-    const priceTools = priceItems.length ? [priceLookup.toolSpec({ items: priceItems, tagText: priceTagText })] : [];
+    const priceTools = priceItems.length ? [priceLookup.toolSpec({
+      items: priceItems, tagText: priceTagText,
+      onResults: (rows) => chatMemory.remember(chatMemory.shown, companyId, chatId, rows),
+    })] : [];
     // Ongkir Lalamove otomatis: di chat sungguhan hanya mode production
     // (harga sandbox bukan harga asli); simulator tanpa chatId boleh sandbox.
     const lalamoveConn = !ops && !ks && dbLive && canCall('getLalamoveConnection')
@@ -1887,12 +1891,17 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     const lalamoveReady = deliveryQuote.lalamoveUsable(lalamoveConn, { realChat: Boolean(chatId) });
     // Kendaraan ditentukan Management: alat bertanya dulu, AI tidak memilih sendiri.
     const askVehicle = lalamoveReady && lalamoveConn?.vehicleMode === 'management';
-    const quoteForChat = (args = {}, { allowAsk = false } = {}) => (askVehicle
-      ? quoteWithManagement({
-        companyId, chatId, customerText: text, conn: lalamoveConn, args,
-        opts: { stores, promos, lalamoveReady }, allowAsk, onAsked: () => departmentAsked.push('Management'),
-      })
-      : deliveryQuote.quote(lalamoveConn, args, { stores, promos, lalamoveReady }));
+    // Hasil cek_ongkir di chat ini (juga giliran sebelumnya): susun_rincian menolak ongkir yang tidak datang dari sini.
+    const quoteForChat = async (args = {}, { allowAsk = false } = {}) => {
+      const result = await (askVehicle
+        ? quoteWithManagement({
+          companyId, chatId, customerText: text, conn: lalamoveConn, args,
+          opts: { stores, promos, lalamoveReady }, allowAsk, onAsked: () => departmentAsked.push('Management'),
+        })
+        : deliveryQuote.quote(lalamoveConn, args, { stores, promos, lalamoveReady }));
+      if (result?.status === 'ok' && result.ongkir_dibayar_angka != null) chatMemory.remember(chatMemory.quotes, companyId, chatId, result);
+      return result;
+    };
     const deliveryTools = deliveryQuote.isUsable(lalamoveConn, { realChat: Boolean(chatId), promos })
       ? [deliveryQuote.toolSpec({
         conn: lalamoveConn, promos, lalamoveReady, stores: stores.length > 1 ? stores : [],
@@ -1901,7 +1910,13 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       })]
       : [];
     // Rincian WhatsApp sebelum closing: semua company, hanya untuk customer.
-    const summaryTools = !ops && !ks ? [orderSummary.toolSpec()] : [];
+    const summaryTools = !ops && !ks ? [orderSummary.toolSpec({
+      items: priceItems,
+      shippingProof: deliveryTools.length ? () => {
+        const log = chatMemory.list(chatMemory.quotes, companyId, chatId);
+        return { called: log.length > 0, freeConfirmed: log.some((q) => Number(q.ongkir_dibayar_angka) === 0), amounts: log.map((q) => Number(q.ongkir_dibayar_angka)) };
+      } : null,
+    })] : [];
     // Proforma + invoice DealPOS + kurir Lalamove: hanya balasan ke customer di
     // chat sungguhan (allowOrders), saklar per company, dan setelan dokumen
     // lengkap. Simulator dan catatan internal juga membawa chatId, tetapi tidak
@@ -1915,7 +1930,9 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
         const phone = String(chatId).endsWith('@lid') ? await database.phoneForLid(companyId, chatId).catch(() => null) : idPart.replace(/\D/g, '');
         const pickupRow = locations.find((l) => l.isPickup) || null;
         orderTools = dealposOrders.createTools({
-          database, companyId, chatId, phone, dealposConn: posConn, products,
+          database, companyId, chatId, phone, dealposConn: posConn, products, catalogItems: priceItems,
+          shownItems: () => chatMemory.list(chatMemory.shown, companyId, chatId),
+          lastQuote: () => chatMemory.list(chatMemory.quotes, companyId, chatId).slice(-1)[0] || null,
           lalamoveConn, lalamoveReady, pickup: pickupRow,
           quote: (args) => quoteForChat(args),
           onAudit: (event, metadata) => app.log.info({ companyId, chatId, event, ...metadata }, 'Pesanan AI'),

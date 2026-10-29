@@ -72,7 +72,7 @@ test('proforma: kendaraan dari rincian diteruskan ke cek_ongkir', async () => {
   const { tools } = setup({ quote: async (args) => { asked.push(args); return { status: 'ok', ketepatan: 'titik', ongkir_angka: 165000, ongkir_dibayar_angka: 165000, layanan: 'TRUCK175', kendaraan: 'TRUCK175 (Pickup)', titik_antar: { lat: -6.3, lng: 106.6, address: 'BSD' } }; } });
   const out = await tools.buat_proforma.run({ barang: [{ kode: 'MU480', jumlah: 14 }], tujuan: '-6.3,106.6', kendaraan: 'TRUCK175' });
   assert.equal(asked[0].kendaraan, 'TRUCK175');
-  assert.match(out.teks, /Ongkir \(Lalamove, TRUCK175 \(Pickup\)\): Rp 165\.000/);
+  assert.match(out.teks, /Ongkir \(Lalamove\): Rp 165\.000/);
 });
 
 test('proforma: harga dari DB, Estimate dikirim, rincian WhatsApp keluar', async () => {
@@ -170,4 +170,16 @@ test('invoice: ongkir kurir naik >10% dari proforma diminta proforma baru, Invoi
   const out = await next.find((t) => t.name === 'buat_invoice').run({});
   assert.equal(out.status, 'ongkir_berubah');
   assert.equal(log.some((l) => l.url.includes('/api/v3/Invoice')), false);
+});
+
+test('proforma: alamat ketikan customer diterima sebagai tujuan kurir, tanpa alamat butuh_lokasi', async () => {
+  const approx = async () => ({ status: 'ok', ketepatan: 'perkiraan_area', ongkir_angka: 60000, ongkir_dibayar_angka: 60000, layanan: 'MOTORCYCLE', kendaraan: 'MOTORCYCLE', titik_antar: { lat: -6.3, lng: 106.6, address: 'Serpong' } });
+  const { tools, docs } = setup({ quote: approx });
+  const no = await tools.buat_proforma.run({ barang: [{ kode: 'MU480', jumlah: 1, harga_satuan: 313000 }], tujuan: 'BSD' });
+  assert.equal(no.status, 'butuh_lokasi');
+  assert.match(no.pesan, /Kelurahan, Kabupaten, Kota, Provinsi/);
+  const typed = 'Jl. Melati 5, Lengkong Gudang, Tangerang, Kota Tangerang Selatan, Banten';
+  const ok = await tools.buat_proforma.run({ barang: [{ kode: 'MU480', jumlah: 1, harga_satuan: 313000 }], alamat_lengkap: typed });
+  assert.equal(ok.status, 'ok');
+  assert.equal(docs[0].payload.delivery.destination.address, typed);
 });

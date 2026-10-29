@@ -1,0 +1,700 @@
+{
+  "name": "kasus3",
+  "title": "Kasus 3 — Toren, customer menolak tawaran, bukti transfer KURANG",
+  "chatId": "6281390003333@c.us",
+  "nama": "Mas Andi",
+  "timeline": [
+    {
+      "from": "customer",
+      "text": "toren penguin 1050 liter brp kak"
+    },
+    {
+      "from": "agnes",
+      "text": "Halo kak, saya Agnes dari ESBEJE. Toren Penguin 1050 liter ada beberapa pilihan warna dan harga per pcs-nya:\n* PENGUIN TB110 1050L BIRU TUA: Rp 2.619.000\n* PENGUIN TB110 1050L HITAM: Rp 2.619.000\n* PENGUIN TB110 1050L ORANGE: Rp 2.745.000\n* PENGUIN TB110 1050L SANDSTONE: Rp 2.619.000\n* PENGUIN TD110 1050L GALAXY MARBLE: Rp 3.883.000\n* PENGUIN TD110 1050L SANDSTONE: Rp 3.883.000\n\nKakak butuh warna apa dan berapa pcs?",
+      "events": [
+        {
+          "kind": "alat_tersedia",
+          "names": [
+            "cek_harga",
+            "cek_ongkir",
+            "susun_rincian",
+            "buat_proforma",
+            "buat_invoice",
+            "cek_alamat",
+            "ask_department"
+          ]
+        },
+        {
+          "kind": "alat",
+          "name": "cek_harga",
+          "args": {
+            "barang": "Toren Penguin 1050L"
+          },
+          "out": {
+            "status": "ok",
+            "hasil": [
+              {
+                "nama": "PENGUIN TB110 1050L BIRU TUA",
+                "kode": "1000015169",
+                "merek": "PENGUIN",
+                "harga": "Rp 2.619.000 per pcs",
+                "satuan": "pcs",
+                "ribbon": [
+                  "Unggulan"
+                ]
+              },
+              {
+                "nama": "PENGUIN TB110 1050L HITAM",
+                "kode": "1057808067",
+                "merek": "PENGUIN",
+                "harga": "Rp 2.619.000 per pcs",
+                "satuan": "pcs",
+                "ribbon": [
+                  "Unggulan"
+                ]
+              },
+              {
+                "nama": "PENGUIN TB110 1050L ORANGE",
+                "kode": "1000015170",
+                "merek": "PENGUIN",
+                "harga": "Rp 2.745.000 per pcs",
+                "satuan": "pcs",
+                "ribbon": [
+                  "Unggulan"
+                ]
+              },
+              {
+                "nama": "PENGUIN TB110 1050L SANDSTONE",
+                "kode": "1057800080",
+                "merek": "PENGUIN",
+                "harga": "Rp 2.619.000 per pcs",
+                "satuan": "pcs",
+                "ribbon": [
+                  "Unggulan"
+                ]
+              },
+              {
+                "nama": "PENGUIN TD110 1050L GALAXY MARBLE",
+                "kode": "1057800123",
+                "merek": "PENGUIN",
+                "harga": "Rp 3.883.000 per pcs",
+                "satuan": "pcs",
+                "ribbon": [
+                  "Unggulan"
+                ]
+              },
+              {
+                "nama": "PENGUIN TD110 1050L SANDSTONE",
+                "kode": "1057800076",
+                "merek": "PENGUIN",
+                "harga": "Rp 3.883.000 per pcs",
+                "satuan": "pcs",
+                "ribbon": [
+                  "Unggulan"
+                ]
+              },
+              {
+                "nama": "PENGUIN BULKHEAD FITTING 1 1/2 IN VLOK RING TOREN",
+                "kode": "1057800086",
+                "merek": "PENGUIN",
+                "harga": "Rp 30.000 per pcs",
+                "satuan": "pcs",
+                "ribbon": [
+                  "Unggulan"
+                ]
+              },
+              {
+                "nama": "PENGUIN BULKHEAD FITTING 1 IN VLOK RING TOREN",
+                "kode": "1057800085",
+                "merek": "PENGUIN",
+                "harga": "Rp 16.000 per pcs",
+                "satuan": "pcs",
+                "ribbon": [
+                  "Unggulan"
+                ]
+              }
+            ],
+            "catatan": "Harga jual dari POS saat ini. Bukan informasi stok."
+          }
+        }
+      ]
+    },
+    {
+      "from": "customer",
+      "text": "Ada warna apa aja kak?"
+    },
+    {
+      "from": "agnes",
+      "text": "Toren Penguin 1050 liter tersedia dalam warna biru tua, hitam, oranye, sandstone, dan galaxy marble. Kakak butuh berapa pcs?",
+      "events": [
+        {
+          "kind": "alat_tersedia",
+          "names": [
+            "cek_harga",
+            "cek_ongkir",
+            "susun_rincian",
+            "buat_proforma",
+            "buat_invoice",
+            "cek_alamat",
+            "ask_department"
+          ]
+        }
+      ]
+    },
+    {
+      "from": "customer",
+      "text": "1 pcs aja kak, yang warna biru tua."
+    },
+    {
+      "from": "agnes",
+      "text": "Oke kak, 1 pcs Toren Penguin TB110 1050L Biru Tua harganya Rp 2.619.000. Untuk pengirimannya, bisa infokan alamat lengkapnya kak? Formatnya seperti ini ya:\n\nAlamat lengkap:\nKelurahan:\nKabupaten:\nKota:\nProvinsi:",
+      "events": [
+        {
+          "kind": "alat_tersedia",
+          "names": [
+            "cek_harga",
+            "cek_ongkir",
+            "susun_rincian",
+            "buat_proforma",
+            "buat_invoice",
+            "cek_alamat",
+            "ask_department"
+          ]
+        }
+      ]
+    },
+    {
+      "from": "customer",
+      "text": "Alamat lengkap: Jl. Kisamaun No. 20\nKelurahan: Sukasari\nKabupaten: Tangerang\nKota: Tangerang\nProvinsi: Banten"
+    },
+    {
+      "from": "agnes",
+      "text": "Oke kak, untuk pengiriman 1 pcs Toren Penguin TB110 1050L Biru Tua ke Jl. Kisamaun No. 20 Kelurahan Sukasari Kabupaten Tangerang Kota Tangerang Provinsi Banten, estimasi ongkirnya Rp 109.800 via Lalamove.\n\nTotalnya jadi Rp 2.619.000 (toren) + Rp 109.800 (ongkir) = Rp 2.728.800.\n\nKalau sudah sesuai, saya proses ya kak?",
+      "events": [
+        {
+          "kind": "alat_tersedia",
+          "names": [
+            "cek_harga",
+            "cek_ongkir",
+            "susun_rincian",
+            "buat_proforma",
+            "buat_invoice",
+            "cek_alamat",
+            "ask_department"
+          ]
+        },
+        {
+          "kind": "alat",
+          "name": "cek_alamat",
+          "args": {
+            "alamat": "Jl. Kisamaun No. 20 Kelurahan Sukasari Kabupaten Tangerang Kota Tangerang Provinsi Banten"
+          },
+          "out": {
+            "status": "ketemu_jalan",
+            "terbaca": "Jalan Kisamaun, Sukasari, Tangerang, Banten, 15111, Indonesia",
+            "jalan": "Jalan Kisamaun",
+            "kelurahan": "Sukasari",
+            "kecamatan": "Tangerang",
+            "kota": "Tangerang",
+            "provinsi": "Banten"
+          }
+        },
+        {
+          "kind": "lalamove_quote",
+          "serviceType": "PICK_UP_TRUCK",
+          "total": null,
+          "km": 0,
+          "status": 422,
+          "sandbox": true,
+          "error": "Given latitude/longitude is out of service area."
+        },
+        {
+          "kind": "lalamove_quote",
+          "serviceType": "TRUCK175",
+          "total": 109800,
+          "km": 20.7,
+          "status": 201,
+          "sandbox": true
+        },
+        {
+          "kind": "alat",
+          "name": "cek_ongkir",
+          "args": {
+            "tujuan": "Jl. Kisamaun No. 20 Kelurahan Sukasari Kabupaten Tangerang Kota Tangerang Provinsi Banten",
+            "barang": [
+              {
+                "jumlah": 1,
+                "nama": "PENGUIN TB110 1050L BIRU TUA"
+              }
+            ]
+          },
+          "out": {
+            "status": "ok",
+            "ongkir": "Rp 109.800",
+            "ongkir_angka": 109800,
+            "ongkir_dibayar_angka": 109800,
+            "layanan": "TRUCK175",
+            "titik_antar": {
+              "lat": -6.1856318,
+              "lng": 106.6327942,
+              "address": "Jalan Kisamaun, Sukasari, Tangerang, Banten, 15111, Indonesia"
+            },
+            "kendaraan": "TRUCK175",
+            "jarak_km": 20.7,
+            "tujuan": "Jalan Kisamaun, Sukasari, Tangerang, Banten, 15111, Indonesia",
+            "ketepatan": "perkiraan_area",
+            "catatan": "Estimasi Lalamove saat ini; angka final dikonfirmasi saat order dibuat."
+          }
+        }
+      ]
+    },
+    {
+      "from": "customer",
+      "text": "Oke kak, sesuai."
+    },
+    {
+      "from": "agnes",
+      "text": "Baik kak, ini proforma pesanannya ya:\n\n*Proforma Invoice*\n\n1. PENGUIN TB110 1050L BIRU TUA\n   1 pcs x Rp 2.619.000 = Rp 2.619.000\n\nTotal produk: Rp 2.619.000\nOngkir (Lalamove): Rp 109.800\n━━━━━━━━━━━━━━\n*GRAND TOTAL: Rp 2.728.800*\n\nMohon diperiksa kembali ya kak, kalau sudah sesuai saya proses untuk invoice finalnya.",
+      "events": [
+        {
+          "kind": "alat_tersedia",
+          "names": [
+            "cek_harga",
+            "cek_ongkir",
+            "susun_rincian",
+            "buat_proforma",
+            "buat_invoice",
+            "cek_alamat",
+            "ask_department"
+          ]
+        },
+        {
+          "kind": "lalamove_quote",
+          "serviceType": "TRUCK175",
+          "total": 109800,
+          "km": 20.7,
+          "status": 201,
+          "sandbox": true
+        },
+        {
+          "kind": "dealpos_estimate",
+          "body": {
+            "Outlet": "Cisauk Store",
+            "Number": "PF-20261029ZFM4H",
+            "Date": "2026-10-29",
+            "Tag": "WA-AI",
+            "TaxType": "Inclusive",
+            "Customer": {
+              "Code": "WA6281390003333",
+              "Name": "Customer 6281390003333",
+              "Mobile": "081390003333",
+              "Email": ""
+            },
+            "Variants": [
+              {
+                "Code": "1000015169",
+                "Quantity": 1,
+                "Price": 2619000
+              }
+            ]
+          }
+        },
+        {
+          "kind": "alat",
+          "name": "buat_proforma",
+          "args": {
+            "kendaraan": "CDDBAK",
+            "barang": [
+              {
+                "jumlah": 1,
+                "harga_satuan": 2619000,
+                "kode": "TB110",
+                "nama": "Toren Penguin TB110 1050L Biru Tua"
+              }
+            ],
+            "alamat_lengkap": "Jl. Kisamaun No. 20, Kelurahan Sukasari, Kabupaten Tangerang, Kota Tangerang, Provinsi Banten"
+          },
+          "out": {
+            "status": "ok",
+            "nomor": "PF-20261029ZFM4H",
+            "grand_total": 2728800,
+            "teks": "*Proforma Invoice*\n\n1. PENGUIN TB110 1050L BIRU TUA\n   1 pcs x Rp 2.619.000 = Rp 2.619.000\n\nTotal produk: Rp 2.619.000\nOngkir (Lalamove): Rp 109.800\n━━━━━━━━━━━━━━\n*GRAND TOTAL: Rp 2.728.800*",
+            "id_dokumen": "1",
+            "catatan": "Kirim \"teks\" persis, lalu minta customer memeriksa dan menyetujui. Jangan buat invoice sebelum customer setuju."
+          }
+        }
+      ]
+    },
+    {
+      "from": "customer",
+      "text": "Oke kak, sesuai. Transfer ke mana ya?"
+    },
+    {
+      "from": "agnes",
+      "text": "Mohon infokan nama dan nomor HP penerima yang bisa dihubungi kurir ya kak.",
+      "events": [
+        {
+          "kind": "alat_tersedia",
+          "names": [
+            "cek_harga",
+            "cek_ongkir",
+            "susun_rincian",
+            "buat_proforma",
+            "buat_invoice",
+            "cek_alamat",
+            "ask_department"
+          ]
+        },
+        {
+          "kind": "lalamove_quote",
+          "serviceType": "TRUCK175",
+          "total": 109800,
+          "km": 20.7,
+          "status": 201,
+          "sandbox": true
+        },
+        {
+          "kind": "alat",
+          "name": "buat_invoice",
+          "args": {},
+          "out": {
+            "status": "butuh_data_penerima",
+            "pesan": "Tanyakan nama dan nomor HP penerima (yang akan dihubungi kurir)."
+          }
+        }
+      ]
+    },
+    {
+      "from": "customer",
+      "text": "Andi, 081390003333"
+    },
+    {
+      "from": "agnes",
+      "text": "Baik kak, invoice *INV-20261029ZFROJ* sudah kami buat dengan total *Rp 2.728.800*.\n\nPembayaran bisa melalui transfer ke rekening resmi ESBEJE di bawah ini:\nBank: BCA\nNo. Rekening: 1721726989\nAtas nama: PT Karya Warna Kemenangan\n\nSetelah transfer, mohon kirimkan bukti transfernya via chat ini ya kak. Untuk pengiriman, tim akan memesankan kurir Lalamove. Mohon ditunggu ya kak, nanti kami kabari.",
+      "events": [
+        {
+          "kind": "alat_tersedia",
+          "names": [
+            "cek_harga",
+            "cek_ongkir",
+            "susun_rincian",
+            "buat_proforma",
+            "buat_invoice",
+            "cek_alamat",
+            "ask_department"
+          ]
+        },
+        {
+          "kind": "lalamove_quote",
+          "serviceType": "TRUCK175",
+          "total": 109800,
+          "km": 20.7,
+          "status": 201,
+          "sandbox": true
+        },
+        {
+          "kind": "dealpos_invoice",
+          "body": {
+            "Outlet": "Cisauk Store",
+            "Number": "INV-20261029ZFROJ",
+            "Date": "2026-10-29",
+            "Tag": "WA-AI",
+            "TaxType": "Inclusive",
+            "ReferenceNumber": "PF-20261029ZFM4H",
+            "Note": "Dibuat AI Agnee dari proforma PF-20261029ZFM4H. Ongkir (Lalamove): Rp 109.800",
+            "Customer": {
+              "Code": "WA6281390003333",
+              "Name": "Andi",
+              "Mobile": "081390003333",
+              "Email": ""
+            },
+            "Variants": [
+              {
+                "Code": "1000015169",
+                "Quantity": 1,
+                "Price": 2619000
+              }
+            ]
+          }
+        },
+        {
+          "kind": "lalamove_place",
+          "status": 402,
+          "error": "You do not have sufficient credit for the action, please top-up your wallet."
+        },
+        {
+          "kind": "alat",
+          "name": "buat_invoice",
+          "args": {
+            "telepon_penerima": "081390003333",
+            "nama_penerima": "Andi"
+          },
+          "out": {
+            "status": "sebagian",
+            "nomor_invoice": "INV-20261029ZFROJ",
+            "total": "Rp 2.728.800",
+            "pesan": "Invoice sudah dibuat, tetapi kurir Lalamove belum berhasil dipesan. Tim akan memesannya secara manual; jangan menjanjikan jam kirim.",
+            "alasan": "Lalamove menolak permintaan: You do not have sufficient credit for the action, please top-up your wallet."
+          }
+        },
+        {
+          "kind": "alat_tersedia",
+          "names": []
+        }
+      ]
+    },
+    {
+      "from": "customer",
+      "text": "oke kak ditunggu"
+    },
+    {
+      "from": "agnes",
+      "text": "Baik kak, akan kami kabari segera setelah kurir siap.",
+      "events": [
+        {
+          "kind": "alat_tersedia",
+          "names": [
+            "cek_harga",
+            "cek_ongkir",
+            "susun_rincian",
+            "buat_proforma",
+            "buat_invoice",
+            "cek_alamat",
+            "ask_department"
+          ]
+        }
+      ]
+    },
+    {
+      "from": "customer",
+      "text": "oke kak ditunggu"
+    },
+    {
+      "from": "agnes",
+      "text": "Baik kak, sedang kami proses.",
+      "events": [
+        {
+          "kind": "alat_tersedia",
+          "names": [
+            "cek_harga",
+            "cek_ongkir",
+            "susun_rincian",
+            "buat_proforma",
+            "buat_invoice",
+            "cek_alamat",
+            "ask_department"
+          ]
+        }
+      ]
+    },
+    {
+      "from": "customer",
+      "text": "oke kak ditunggu"
+    },
+    {
+      "from": "agnes",
+      "text": "Baik kak, terima kasih sudah menunggu.",
+      "events": [
+        {
+          "kind": "alat_tersedia",
+          "names": [
+            "cek_harga",
+            "cek_ongkir",
+            "susun_rincian",
+            "buat_proforma",
+            "buat_invoice",
+            "cek_alamat",
+            "ask_department"
+          ]
+        }
+      ]
+    },
+    {
+      "from": "customer",
+      "text": "",
+      "image": "kasus3-bukti.png"
+    },
+    {
+      "from": "agnes",
+      "text": "Nominalnya kurang dari total.\nMohon dilampirkan bukti transfer kekurangannya ya kak.\nUntuk transferannya saya belum bisa memastikan sudah masuk atau belum, Kak.\nSaya tanyakan ke tim kami dulu, nanti saya kabari di sini begitu sudah jelas ya.",
+      "events": [
+        {
+          "kind": "baca_gambar",
+          "purpose": "payment_proof",
+          "out": "```json\n{\"isTransferProof\": true,\n \"status\": \"success\",\n \"amount\": 2678800,\n \"date\": \"2026-10-29\",\n \"time\": \"10:42\",\n \"recipientName\": \"PT KARYA WARNA KEMENANGAN\",\n \"recipientBank\": \"BCA\",\n \"recipientAccount\": \"1721726989\",\n \"senderName\": \"ANDI PRATAMA\",\n \"referenceNo\": \"MT29102026C03\",\n \"looksEdited\": false,\n \"notes\": \"bahan bangunan\"}\n```"
+        },
+        {
+          "kind": "alat_tersedia",
+          "names": [
+            "cek_harga",
+            "cek_ongkir",
+            "susun_rincian",
+            "buat_proforma",
+            "buat_invoice",
+            "cek_alamat",
+            "ask_department"
+          ]
+        },
+        {
+          "kind": "alat_tersedia",
+          "names": []
+        },
+        {
+          "kind": "tanya_departemen",
+          "department": "Finance",
+          "question": "Customer menyebut sudah membayar (\"[Customer mengirim foto bukti transfer] [Pemeriksaan bukti transfer (otomatis, bukan keputusan akhir): TIDAK COCOK — Rp2.678.800, total Rp2.728.800, 2026-10-29 — nominal KURANG dari total]\"). Mohon cek apakah dananya sudah masuk dan jumlahnya sesuai. (Sinyal: Menyebut harga yang tak ada sumbernya; Menyatakan pembayaran sudah masuk tanpa konfirmasi.)",
+          "jenis": "general"
+        },
+        {
+          "kind": "pesan_internal",
+          "to": "6281100000001@c.us",
+          "text": "*Perlu ditindaklanjuti*\nCustomer: Mas Andi (+6281390003333)\nBertanya: \"[Customer mengirim foto bukti transfer] [Pemeriksaan bukti transfer (otomatis, bukan keputusan akhir): TIDAK COCOK — Rp2.678.800, total Rp2.728.800, 2026-10-29 — nominal KURANG dari total]\"\nAsisten membalas: \"\"\n\nAsisten sudah menjanjikan akan menyampaikan ini. Mohon dibalas langsung ke customer."
+        },
+        {
+          "kind": "pesan_internal",
+          "to": "6281297393987-1495279348@g.us",
+          "text": "*Pertanyaan dari asisten untuk tim Finance*\nCustomer: +6281390003333\nPertanyaan: \"Customer menyebut sudah membayar (\"[Customer mengirim foto bukti transfer] [Pemeriksaan bukti transfer (otomatis, bukan keputusan akhir): TIDAK COCOK — Rp2.678.800, total Rp2.728.800, 2026-10-29 — nominal KURANG dari total]\"). Mohon cek apakah dananya sudah masuk dan jumlahnya sesuai. (Sinyal: Menyebut harga yang tak ada sumbernya; Menyatakan pembayaran sudah masuk tanpa konfirmasi.)\"\n\nJawab dengan *reply* pesan ini di grup, atau tulis #a1b2c3 di jawabanmu. Bisa juga lewat Agnee (menu Pertanyaan AI). Jawaban pertama yang masuk akan diteruskan ke customer."
+        },
+        {
+          "kind": "pesan_internal",
+          "to": "628110000099@c.us",
+          "text": "*Pertanyaan dari asisten untuk tim Finance*\nCustomer: +6281390003333\nPertanyaan: \"Customer menyebut sudah membayar (\"[Customer mengirim foto bukti transfer] [Pemeriksaan bukti transfer (otomatis, bukan keputusan akhir): TIDAK COCOK — Rp2.678.800, total Rp2.728.800, 2026-10-29 — nominal KURANG dari total]\"). Mohon cek apakah dananya sudah masuk dan jumlahnya sesuai. (Sinyal: Menyebut harga yang tak ada sumbernya; Menyatakan pembayaran sudah masuk tanpa konfirmasi.)\"\n\nMohon dijawab lewat Agnee (menu Pertanyaan AI). Jawaban pertama yang masuk akan diteruskan ke customer."
+        },
+        {
+          "kind": "pesan_internal",
+          "to": "628110000199@c.us",
+          "text": "*Pertanyaan dari asisten untuk tim Finance*\nCustomer: +6281390003333\nPertanyaan: \"Customer menyebut sudah membayar (\"[Customer mengirim foto bukti transfer] [Pemeriksaan bukti transfer (otomatis, bukan keputusan akhir): TIDAK COCOK — Rp2.678.800, total Rp2.728.800, 2026-10-29 — nominal KURANG dari total]\"). Mohon cek apakah dananya sudah masuk dan jumlahnya sesuai. (Sinyal: Menyebut harga yang tak ada sumbernya; Menyatakan pembayaran sudah masuk tanpa konfirmasi.)\"\n\nMohon dijawab lewat Agnee (menu Pertanyaan AI). Jawaban pertama yang masuk akan diteruskan ke customer."
+        }
+      ]
+    },
+    {
+      "from": "system",
+      "events": [
+        {
+          "kind": "jawaban_departemen",
+          "department": "Finance",
+          "answer": "Dana masuk tapi kurang Rp 50.000 dari tagihan. Mohon customer transfer kekurangannya.",
+          "hasil": {
+            "ok": true,
+            "relayed": true
+          }
+        },
+        {
+          "kind": "alat_tersedia",
+          "names": []
+        },
+        {
+          "kind": "alat_tersedia",
+          "names": []
+        }
+      ]
+    },
+    {
+      "from": "agnes",
+      "text": "Kak, dana sudah masuk tapi ada kurang Rp 50.000 dari total tagihan. Mohon transfer kekurangannya ya.",
+      "events": []
+    }
+  ],
+  "docs": [
+    {
+      "id": "1",
+      "status": "open",
+      "kind": "proforma",
+      "chatId": "6281390003333@c.us",
+      "dealposId": "est-sim",
+      "number": "PF-20261029ZFM4H",
+      "total": 2728800,
+      "payload": {
+        "lines": [
+          {
+            "code": "1000015169",
+            "name": "PENGUIN TB110 1050L BIRU TUA",
+            "unit": "pcs",
+            "qty": 1,
+            "unitPrice": 2619000
+          }
+        ],
+        "shipping": 109800,
+        "shippingLabel": "Ongkir (Lalamove)",
+        "pickup": false,
+        "delivery": {
+          "serviceType": "TRUCK175",
+          "lalamoveTotal": 109800,
+          "destination": {
+            "lat": -6.1856318,
+            "lng": 106.6327942,
+            "address": "Jl. Kisamaun No. 20, Kelurahan Sukasari, Kabupaten Tangerang, Kota Tangerang, Provinsi Banten"
+          }
+        },
+        "shippingNote": "Ongkir (Lalamove): Rp 109.800",
+        "recipientName": null,
+        "recipientPhone": "6281390003333"
+      }
+    },
+    {
+      "id": "2",
+      "status": "open",
+      "kind": "invoice",
+      "chatId": "6281390003333@c.us",
+      "dealposId": "inv-sim",
+      "number": "INV-20261029ZFROJ",
+      "total": 2728800,
+      "proformaId": "1",
+      "payload": {
+        "proforma": "PF-20261029ZFM4H",
+        "lines": [
+          {
+            "code": "1000015169",
+            "name": "PENGUIN TB110 1050L BIRU TUA",
+            "unit": "pcs",
+            "qty": 1,
+            "unitPrice": 2619000
+          }
+        ],
+        "shipping": 109800
+      }
+    }
+  ],
+  "proofs": [
+    {
+      "id": "1",
+      "chatId": "6281390003333@c.us",
+      "waMessageId": "m21",
+      "imageSha256": "7dd58029475436b78a7546562cd2f162ce50336541a4def8f574f80de8224ab8",
+      "verdict": "tidak_cocok",
+      "flags": [
+        "nominal_kurang"
+      ],
+      "extracted": {
+        "isTransferProof": true,
+        "status": "success",
+        "amount": 2678800,
+        "date": "2026-10-29",
+        "time": "10:42",
+        "recipientName": "PT KARYA WARNA KEMENANGAN",
+        "recipientBank": "BCA",
+        "recipientAccount": "1721726989",
+        "senderName": "ANDI PRATAMA",
+        "referenceNo": "MT29102026C03",
+        "looksEdited": false,
+        "notes": "bahan bangunan"
+      },
+      "expectedAmount": 2728800,
+      "createdAt": "2026-10-29T03:27:35.472Z"
+    }
+  ],
+  "questions": [
+    {
+      "id": "a1b2c3d4-0000-4000-8000-000000000001",
+      "departmentId": "ec8e2d62-693d-46d3-9269-8b27b60a40b7",
+      "chatId": "6281390003333@c.us",
+      "customerText": "[Customer mengirim foto bukti transfer]\n[Pemeriksaan bukti transfer (otomatis, bukan keputusan akhir): TIDAK COCOK — Rp2.678.800, total Rp2.728.800, 2026-10-29 — nominal KURANG dari total]",
+      "question": "Customer menyebut sudah membayar (\"[Customer mengirim foto bukti transfer] [Pemeriksaan bukti transfer (otomatis, bukan keputusan akhir): TIDAK COCOK — Rp2.678.800, total Rp2.728.800, 2026-10-29 — nominal KURANG dari total]\"). Mohon cek apakah dananya sudah masuk dan jumlahnya sesuai. (Sinyal: Menyebut harga yang tak ada sumbernya; Menyatakan pembayaran sudah masuk tanpa konfirmasi.)",
+      "kind": "general",
+      "payload": null,
+      "status": "answered",
+      "department": "Finance",
+      "answer": "Dana masuk tapi kurang Rp 50.000 dari tagihan. Mohon customer transfer kekurangannya."
+    }
+  ]
+}

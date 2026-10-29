@@ -18,15 +18,17 @@
 const lalamove = require('./lalamove');
 const mapsLink = require('./maps-link');
 const promoRules = require('./promo-rules');
+const addressCheck = require('./address-check');
+const lalamoveVehicles = require('./lalamove-vehicles');
 
 const TOOL_NAME = 'cek_ongkir';
 const COORDS = /^\s*(-?\d{1,2}(?:\.\d+)?)\s*,\s*\+?\s*(-?\d{1,3}(?:\.\d+)?)\s*$/;
 
 const GUIDE = `## ONGKIR LALAMOVE (alat ${TOOL_NAME})
 - Kalau customer menanyakan ongkir atau total, atau barang dan lokasinya sudah diketahui, panggil ${TOOL_NAME}. Jangan menyuruh customer menunggu untuk ongkir yang bisa dihitung alat ini.
-- Isi "tujuan" dengan koordinat dari penanda lokasi atau link Google Maps customer (mis. "-6.301234,106.652345") kalau ada di percakapan. Kalau customer baru menyebut nama daerah atau alamat, isi dengan teks itu apa adanya.
-- Pilih "kendaraan" sesuai berat dan ukuran barang yang dipesan. Kosongkan kalau ragu; kendaraan bawaan toko yang dipakai.
-- Sebut hasilnya sebagai estimasi ongkir via Lalamove, lengkap dengan kendaraannya. Kalau "ketepatan" = "perkiraan_area", katakan itu perkiraan ke area tersebut dan minta customer share location WhatsApp supaya angkanya pas.
+- Isi "tujuan" dengan koordinat dari penanda lokasi atau link Google Maps customer (mis. "-6.301234,106.652345") kalau ada di percakapan. Kalau customer menulis alamat (format Alamat lengkap, Kelurahan, Kabupaten, Kota, Provinsi), isi dengan alamat lengkap itu apa adanya, digabung dalam satu teks.
+- Pilih "kendaraan" yang MUAT dengan ukuran TERKECIL: hitung berat pesanan (mis. semen 40KG x 10 zak = 400 kg), lalu ambil kendaraan dengan kapasitas (maks kg di daftar alat) terkecil yang cukup; jangan memilih truk besar untuk muatan kecil. Isi "barang" (nama lengkap dan jumlah); alat sendiri memilih kendaraan terkecil yang muat dari beratnya di nama barang, dan mencoba kendaraan lebih besar kalau area tak dilayani. Kosongkan "kendaraan" kalau berat tak bisa diperkirakan. Pilihan kendaraan urusan internal: jangan menyebut atau menjelaskan jenis kendaraan maupun kenapa cocok.
+- Sebut hasilnya singkat sebagai estimasi ongkir via Lalamove (angkanya saja). Kalau "ketepatan" = "perkiraan_area", katakan itu perkiraan ke area tersebut dan minta alamat lengkap dengan format WhatsApp (Alamat lengkap, Kelurahan, Kabupaten, Kota, Provinsi) supaya angkanya pas; share location WhatsApp juga boleh.
 - Kalau ada daftar toko di parameter "dari_toko" dan customer ingin barang dikirim dari toko tertentu atau yang terdekat dengannya, isi "dari_toko" dengan nama tokonya. Kosongkan untuk memakai titik jemput bawaan.
 - Kalau ada promo gratis ongkir (lihat bagian PROMO), isi "total_belanja", "jumlah_barang", dan "produk" dari pesanan customer sejauh sudah diketahui. Hasil "promo_gratis_ongkir" menentukan apakah gratis; "ongkir_dibayar_customer" adalah yang harus dibayar customer setelah promo.
 - Alat ini tidak menentukan jadwal kirim; jangan menjanjikan jam.
@@ -36,7 +38,7 @@ const GUIDE = `## ONGKIR LALAMOVE (alat ${TOOL_NAME})
 const GUIDE_MANAGEMENT = `## ONGKIR LALAMOVE (alat ${TOOL_NAME}, kendaraan ditentukan Management)
 - Kalau customer menanyakan ongkir, atau barang dan lokasinya sudah diketahui, panggil ${TOOL_NAME} dengan "tujuan" dan "barang" (nama dan jumlah pesanan, mis. "10 sak MU 301 Plasterplus 40KG"). Isi "tujuan" dengan koordinat dari penanda lokasi atau link Google Maps customer kalau ada; kalau belum, nama tempat atau alamat yang diketik customer.
 - Kamu TIDAK memilih kendaraan. Alat ini yang menanyakannya ke Management. Hasil "menunggu_management" berarti kendaraannya sedang dipastikan: katakan ongkirnya sedang dipastikan dan akan dikabari begitu sudah jelas. JANGAN menyebut angka ongkir, jenis kendaraan, atau siapa yang menentukan, lalu lanjutkan percakapan (mis. tanyakan jumlah barang atau kapan dibutuhkan). Jangan memanggil alat ini lagi untuk chat yang sama selama masih menunggu.
-- Kalau hasilnya "ok", sebut ongkir sebagai estimasi ongkir Lalamove lengkap dengan kendaraannya. Kalau "ketepatan" = "perkiraan_area", katakan itu perkiraan ke area tersebut dan minta customer share location WhatsApp supaya angkanya pas.
+- Kalau hasilnya "ok", sebut ongkir singkat sebagai estimasi ongkir Lalamove, tanpa menyebut atau menjelaskan jenis kendaraan. Kalau "ketepatan" = "perkiraan_area", katakan itu perkiraan ke area tersebut dan minta alamat lengkap dengan format WhatsApp (Alamat lengkap, Kelurahan, Kabupaten, Kota, Provinsi) supaya angkanya pas; share location WhatsApp juga boleh.
 - Kalau barang atau jumlah pesanan BERUBAH sesudah kendaraan ditentukan (lebih banyak atau barang lain), panggil lagi dengan "barang_berubah": true supaya kendaraannya dipastikan ulang.
 - Kalau ada promo gratis ongkir (lihat bagian PROMO), isi "total_belanja", "jumlah_barang", dan "produk" dari pesanan customer sejauh sudah diketahui. Hasil "promo_gratis_ongkir" menentukan apakah gratis; "ongkir_dibayar_customer" adalah yang harus dibayar customer setelah promo.
 - Alat ini tidak menentukan jadwal kirim; jangan menjanjikan jam. Kalau alat gagal atau lokasi tidak terbaca, jangan mengarang angka: minta share location, atau katakan ongkirnya dipastikan dulu.`;
@@ -68,7 +70,9 @@ function toolSpec({ conn, run, stores = [], promos = [], lalamoveReady = true, v
   const byManagement = lalamoveReady && vehicleMode === 'management';
   const services = servicesOf(conn);
   const hasPromo = promoRules.activeRules(promos).length > 0;
-  const vehicleList = services.map((s) => `${s.key}${s.description ? ` (${s.description})` : ''}`).join('; ');
+  // Kapasitas per kendaraan supaya model memilih yang muat dengan ukuran terkecil (bukan truk untuk 10 zak semen).
+  const capacity = new Map(lalamoveVehicles.VEHICLES.map((v) => [v.key, v.loadKg]));
+  const vehicleList = services.map((s) => `${s.key}${capacity.get(s.key) ? ` (maks ${capacity.get(s.key)} kg)` : ''}`).join('; ');
   return {
     name: TOOL_NAME,
     description: `${lalamoveReady ? 'Hitung estimasi ongkir Lalamove dari toko ke lokasi customer.' : 'Cek apakah lokasi customer masuk promo gratis ongkir.'}${hasPromo && lalamoveReady ? ' Sekaligus menentukan apakah promo gratis ongkir berlaku.' : ''}${lalamoveReady && !byManagement ? ` Kendaraan yang tersedia: ${vehicleList || 'bawaan toko'}.` : ''}${byManagement ? ' Kendaraan ditentukan Management: alat ini menanyakannya, jadi hasilnya bisa "menunggu_management".' : ''}`,
@@ -84,7 +88,14 @@ function toolSpec({ conn, run, stores = [], promos = [], lalamoveReady = true, v
           jumlah_barang: { type: 'integer', minimum: 0, description: 'Jumlah seluruh barang yang dipesan, kalau sudah diketahui. Untuk syarat promo.' },
           produk: { type: 'array', maxItems: 20, items: { type: 'string', maxLength: 120 }, description: 'Nama produk yang dipesan. Untuk syarat promo.' },
         } : {}),
-        ...(services.length && lalamoveReady && !byManagement ? { kendaraan: { type: 'string', enum: services.map((s) => s.key), description: 'Kendaraan sesuai berat dan ukuran barang.' } } : {}),
+        ...(services.length && lalamoveReady && !byManagement ? {
+          kendaraan: { type: 'string', enum: services.map((s) => s.key), description: 'Kendaraan sesuai berat dan ukuran barang.' },
+          barang: {
+            type: 'array', maxItems: 30,
+            description: 'Barang yang dipesan (nama lengkap persis dari cek_harga dan jumlahnya). Alat memilih kendaraan terkecil yang muat dari beratnya.',
+            items: { type: 'object', additionalProperties: false, required: ['nama', 'jumlah'], properties: { nama: { type: 'string', maxLength: 200 }, jumlah: { type: 'number', exclusiveMinimum: 0 } } },
+          },
+        } : {}),
         ...(byManagement ? {
           barang: { type: 'string', maxLength: 300, description: 'Nama dan jumlah barang yang dipesan, mis. "10 sak MU 301 Plasterplus 40KG". Dipakai Management untuk menentukan kendaraan.' },
           barang_berubah: { type: 'boolean', description: 'true bila barang atau jumlah pesanan berubah sejak kendaraan ditentukan, supaya kendaraan dipastikan ulang.' },
@@ -129,8 +140,53 @@ async function resolvePoint(raw, { fetchImpl, withAdmin }) {
     if (!place || place.lat === undefined) return null;
     return withComponents({ lat: place.lat, lng: place.lng, address: place.address || place.name || place.query || `${place.lat},${place.lng}`, accuracy: 'titik' });
   }
-  const place = await mapsLink.searchPlace(text, { fetchImpl });
-  return place ? { ...place, accuracy: 'perkiraan_area' } : null;
+  // Alamat ketikan: dari yang paling rinci sampai wilayahnya saja (nomor rumah dan "Kabupaten/Kota" sering membuat pencarian kosong).
+  for (const attempt of addressCheck.variants(text)) {
+    const place = await mapsLink.searchPlace(attempt.q, { fetchImpl });
+    if (place) return { ...place, accuracy: 'perkiraan_area' };
+  }
+  return null;
+}
+
+/** Berat pesanan dari nama barang ("... 40KG" x jumlah). `unknown` = ada barang tanpa berat di namanya. */
+function estimateWeight(barang) {
+  const list = Array.isArray(barang) ? barang : [];
+  let kg = 0;
+  let unknown = 0;
+  for (const item of list) {
+    const qty = Number(item?.jumlah);
+    const perUnit = /(\d+(?:[.,]\d+)?)\s*kg\b/i.exec(String(item?.nama || ''));
+    if (!(qty > 0)) continue;
+    if (perUnit) kg += qty * Number(perUnit[1].replace(',', '.'));
+    else unknown += 1;
+  }
+  return { kg, unknown, any: list.length > 0 };
+}
+
+/**
+ * Kendaraan yang dipakai: yang dipilih model dibatasi kode supaya tidak terlalu
+ * besar. Berat diketahui semua -> yang termuat dengan kapasitas terkecil.
+ * Ada barang tanpa berat -> pilihan model, paling besar pick-up (800 kg).
+ * Urutan cadangan (area tak dilayani satu kendaraan) = dari yang dipilih naik ke yang lebih besar.
+ */
+function vehiclePlan(conn, chosen, barang) {
+  const available = lalamoveVehicles.optionsOf(conn).filter((o) => o.loadKg).sort((a, b) => a.loadKg - b.loadKg);
+  if (!available.length) return [chosen];
+  const weight = estimateWeight(barang);
+  // Barang besar tanpa berat di namanya (toren, pipa, triplek, ...) tidak muat di motor atau sedan.
+  const bulky = (Array.isArray(barang) ? barang : []).some((b) => /\b(toren|tandon|pipa|triplek|plywood|besi|baja|seng|genteng|rangka|kayu|papan|kanopi|tangga)\b|\b\d{3,5}\s?(?:l|ltr|liter)\b/i.test(String(b?.nama || '')));
+  const cap = available.find((o) => o.key === 'PICK_UP_TRUCK')?.loadKg || 800;
+  let start = available.findIndex((o) => o.key === chosen);
+  if (weight.any && weight.kg > 0 && weight.unknown === 0) {
+    const fit = available.findIndex((o) => o.loadKg >= weight.kg);
+    start = fit === -1 ? available.length - 1 : fit;
+  } else if (bulky) {
+    start = Math.max(0, available.findIndex((o) => o.loadKg >= cap));
+  } else if (start === -1 || available[start].loadKg > cap) {
+    start = Math.max(0, available.findIndex((o) => o.loadKg >= Math.min(cap, available[start]?.loadKg || 0)));
+  }
+  const plan = available.slice(start).map((o) => o.key);
+  return plan.length ? plan : [chosen];
 }
 
 const rupiah = (value) => `Rp ${Math.round(Number(value)).toLocaleString('id-ID')}`;
@@ -172,12 +228,26 @@ async function quote(conn, args = {}, {
     ? { lat: Number(store.lat), lng: Number(store.lng), address: store.address || `${store.lat},${store.lng}` }
     : { lat: Number(conn.pickupLat), lng: Number(conn.pickupLng), address: conn.pickupAddress || `${conn.pickupLat},${conn.pickupLng}` };
   try {
-    const result = await getQuotation(conn, { serviceType, stops: [pickup, destination] }, fetchImpl);
+    // Area tertentu tidak dilayani semua kendaraan: coba yang lebih besar sebelum menyerah.
+    const plan = args.jumlah_kendaraan ? [serviceType] : vehiclePlan(conn, serviceType, args.barang);
+    let result = null;
+    let usedType = plan[0];
+    let lastError = null;
+    for (const type of plan.slice(0, 4)) {
+      try {
+        result = await getQuotation(conn, { serviceType: type, stops: [pickup, destination] }, fetchImpl);
+        usedType = type;
+        if (result.total != null) break;
+      } catch (error) {
+        lastError = error;
+        if (!/ERR_OUT_OF_SERVICE_AREA|out of service|service area/i.test(`${error.code || ''} ${error.message || ''}`)) throw error;
+      }
+    }
+    if (!result) throw lastError || new Error('tanpa hasil');
     if (result.total == null) return { status: 'gagal', pesan: 'Lalamove tidak memberi harga. Ongkir dipastikan dulu.', ...promoFields };
     // Beberapa kendaraan sekaligus (mis. 2 motor): harga satu kendaraan dikalikan jumlahnya.
     const vehicleCount = Math.min(10, Math.max(1, Math.floor(Number(args.jumlah_kendaraan)) || 1));
     result.total = Number(result.total) * vehicleCount;
-    const service = services.find((s) => s.key === serviceType);
     const format = (n) => (result.currency === 'IDR' ? rupiah(n) : `${result.currency} ${n}`);
     const pays = promoRules.customerPays(result.total, evaluated);
     return {
@@ -187,9 +257,9 @@ async function quote(conn, args = {}, {
       // Angka mentah untuk alat pesanan (proforma/invoice); model membaca teks di atas.
       ongkir_angka: result.total,
       ongkir_dibayar_angka: pays != null ? pays : result.total,
-      layanan: serviceType,
+      layanan: usedType,
       titik_antar: { lat: destination.lat, lng: destination.lng, address: destination.address },
-      kendaraan: service?.description ? `${serviceType} (${service.description})` : serviceType,
+      kendaraan: usedType,
       ...(vehicleCount > 1 ? { jumlah_kendaraan: vehicleCount } : {}),
       jarak_km: result.distanceMeters != null ? Math.round(result.distanceMeters / 100) / 10 : null,
       dari: store ? store.name : undefined,
@@ -213,4 +283,4 @@ async function quote(conn, args = {}, {
   }
 }
 
-module.exports = { TOOL_NAME, GUIDE, GUIDE_MANAGEMENT, isUsable, lalamoveUsable, servicesOf, toolSpec, resolveDestination, quote };
+module.exports = { TOOL_NAME, GUIDE, GUIDE_MANAGEMENT, estimateWeight, vehiclePlan, isUsable, lalamoveUsable, servicesOf, toolSpec, resolveDestination, quote };

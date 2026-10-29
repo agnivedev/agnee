@@ -16,6 +16,8 @@
 const dealposSync = require('./dealpos-sync');
 const lalamove = require('./lalamove');
 const orderSummary = require('./order-summary');
+const itemMatch = require('./item-match');
+const addressCheck = require('./address-check');
 
 const PROFORMA = 'buat_proforma';
 const INVOICE = 'buat_invoice';
@@ -25,7 +27,8 @@ const INVOICE = 'buat_invoice';
 const SHIPPING_DRIFT = 0.1;
 
 const GUIDE = `## PROFORMA & INVOICE DEALPOS (alat ${PROFORMA}, ${INVOICE})
-- Customer sudah deal (barang, jumlah, dan lokasi jelas): panggil ${PROFORMA} dengan "kode" barang dari DAFTAR HARGA DEALPOS dan "kendaraan" yang sama dengan cek_ongkir di rincian yang sudah disetujui, supaya ongkirnya tidak berubah. Isi "harga_satuan" tiap barang dengan harga yang sudah kamu sebut ke customer; alat menolak bila beda dari daftar.
+- Customer sudah deal (barang, jumlah, dan lokasi jelas): panggil ${PROFORMA} dengan "kode" barang persis dari hasil cek_harga (field "kode") atau daftar harga, dan "kendaraan" yang sama dengan cek_ongkir di rincian yang sudah disetujui, supaya ongkirnya tidak berubah. Isi "harga_satuan" tiap barang dengan harga yang sudah kamu sebut ke customer; alat menolak bila beda dari daftar. Isi "alamat_lengkap" dengan alamat yang diketik customer bila ia tidak mengirim pin.
+- Kalau hasilnya "barang_tidak_dikenal", jangan bertanya kode ke customer maupun ke departemen mana pun: panggil cek_harga dengan nama barangnya, ambil "kode"-nya, lalu panggil ${PROFORMA} lagi di giliran yang sama. Kalau hasilnya "varian_ambigu", tanyakan ke customer varian/warna mana (sebut semua pilihan dengan harganya).
 - Hasil selain "ok" berarti TIDAK ADA proforma. Jangan pernah menulis teks proforma sendiri; sampaikan apa yang perlu diperbaiki atau tanyakan ke tim. Kirim "teks" hasilnya persis seperti diberikan, lalu minta customer memeriksa dan menyetujuinya. Alat ini menghitung harga dan ongkir sendiri; jangan menghitung ulang.
 - Setelah customer menyatakan setuju dengan proforma itu (di pesannya sendiri, bukan tebakanmu), panggil ${INVOICE}. Jangan memanggilnya di giliran yang sama dengan ${PROFORMA}.
 - Kalau customer mengubah pesanan (barang, jumlah, lokasi), buat proforma baru; jangan invoice dari yang lama.
@@ -45,7 +48,7 @@ const MIN_UNIT_PRICE = 100;
  * daftar dikembalikan di `priceMismatch` supaya dokumen tidak terbit dengan
  * angka lain dari yang dijanjikan di chat.
  */
-function resolveItems(products, requested) {
+function resolveItems(products, requested, catalogItems = [], shownItems = []) {
   const byCode = new Map();
   const byName = new Map();
   for (const p of products) {
@@ -53,14 +56,32 @@ function resolveItems(products, requested) {
     byCode.set(String(p.variantId).toLowerCase(), p);
     byName.set(String(p.name).trim().toLowerCase(), p);
   }
+  const unitByCode = new Map(catalogItems.filter((c) => c.code && c.unit).map((c) => [String(c.code).toLowerCase(), c.unit]));
   const lines = [];
   const unknown = [];
   const priceMismatch = [];
   const invalidPrice = [];
+  const ambiguous = [];
   for (const item of Array.isArray(requested) ? requested : []) {
     const key = String(item.kode || '').trim().toLowerCase();
-    const product = byCode.get(key) || byName.get(key);
     const qty = Number(item.jumlah);
+    let product = byCode.get(key) || byName.get(key) || byName.get(String(item.nama || '').trim().toLowerCase());
+    if (!product && qty > 0 && (key || item.nama)) {
+      // Nama bebas ("MU-301", "Toren Penguin 1050L"): pencocokan longgar yang dijaga harga satuan.
+      let hit = itemMatch.resolveLine(products, { kode: item.nama || item.kode, harga: item.harga_satuan });
+      if (hit.status === 'tidak_dikenal' && item.nama && item.kode) hit = itemMatch.resolveLine(products, { kode: item.kode, harga: item.harga_satuan });
+      // Kode karangan model: barang yang sudah ditunjukkan ke customer di chat ini dengan harga yang sama.
+      if (hit.status !== 'ok' && hit.status !== 'varian_ambigu' && item.harga_satuan != null) {
+        const shown = shownItems.filter((x) => Math.round(Number(x.price ?? x.unitPrice)) === Math.round(Number(item.harga_satuan)) && byCode.has(String(x.code || '').toLowerCase()));
+        if (shown.length === 1) hit = { status: 'ok', item: byCode.get(String(shown[0].code).toLowerCase()) };
+        else if (shown.length > 1) hit = { status: 'varian_ambigu', candidates: shown.map((x) => byCode.get(String(x.code).toLowerCase())) };
+      }
+      if (hit.status === 'ok') product = hit.item;
+      else if (hit.status === 'varian_ambigu') {
+        ambiguous.push({ kode: String(item.kode), pilihan: hit.candidates.slice(0, 8).map((c) => `${c.name} Rp ${Math.round(Number(c.unitPrice)).toLocaleString('id-ID')}${unitByCode.get(String(c.code).toLowerCase()) ? ` per ${unitByCode.get(String(c.code).toLowerCase())}` : ''} [kode ${c.code}]`) });
+        continue;
+      }
+    }
     if (!product || !(qty > 0)) { unknown.push(String(item.kode || '?')); continue; }
     const unitPrice = Number(product.unitPrice);
     if (!(unitPrice >= MIN_UNIT_PRICE)) { invalidPrice.push(product.name); continue; }
@@ -68,15 +89,16 @@ function resolveItems(products, requested) {
     if (quoted != null && Math.round(quoted) !== Math.round(unitPrice)) {
       priceMismatch.push({ kode: product.code || product.variantId, nama: product.name, harga_disebut: quoted, harga_daftar: unitPrice });
     }
-    lines.push({ code: product.code || product.variantId, name: product.name, unit: product.unit || '', qty, unitPrice });
+    lines.push({ code: product.code || product.variantId, name: product.name, unit: product.unit || unitByCode.get(String(product.code || '').toLowerCase()) || '', qty, unitPrice });
   }
-  return { lines, unknown, priceMismatch, invalidPrice };
+  return { lines, unknown, priceMismatch, invalidPrice, ambiguous };
 }
 
 function customerBlock({ phone, name, existing }) {
   return {
     Code: existing?.code || `WA${phone}`,
-    Name: existing?.name || name || `Customer ${phone}`,
+    // "kak"/"Customer" bukan nama; jangan masuk ke DealPOS atau kurir.
+    Name: existing?.name || (name && !/^(kak|kakak|customer|bapak|ibu|pak|bu)$/i.test(String(name).trim()) ? name : null) || `Customer ${phone}`,
     Mobile: phone ? `0${String(phone).replace(/^62/, '')}` : '',
     Email: existing?.email || '',
   };
@@ -123,9 +145,12 @@ function createTools(ctx) {
   async function proforma(args = {}) {
     const setupGap = missingSetup(conn.orderOutlet ? { orderOutlet: conn.orderOutlet, orderTag: conn.orderTag, orderTaxType: conn.orderTaxType } : {});
     if (setupGap) return { status: 'gagal', pesan: 'Proforma belum bisa dibuat otomatis. Tim yang akan membuatnya.' };
-    const { lines, unknown, priceMismatch, invalidPrice } = resolveItems(ctx.products, args.barang);
+    const { lines, unknown, priceMismatch, invalidPrice, ambiguous } = resolveItems(ctx.products, args.barang, ctx.catalogItems || [], ctx.shownItems ? ctx.shownItems() : []);
+    if (ambiguous.length) {
+      return { status: 'varian_ambigu', barang: ambiguous, pesan: 'Nama barang cocok dengan beberapa varian (mis. warna). Tanyakan ke customer varian mana yang dipilih, sebutkan semua pilihan beserta harganya, lalu buat proforma dengan kode varian yang dipilih.' };
+    }
     if (unknown.length || (!lines.length && !invalidPrice.length)) {
-      return { status: 'barang_tidak_dikenal', kode: unknown, pesan: 'Kode barang tidak ada di daftar harga. Pakai kode persis dari DAFTAR HARGA DEALPOS, atau tanyakan barangnya ke customer.' };
+      return { status: 'barang_tidak_dikenal', kode: unknown, pesan: 'Kode barang tidak ada di daftar harga. Panggil cek_harga dengan nama barangnya, ambil "kode" dari hasilnya, lalu panggil buat_proforma lagi. Jangan bertanya kode ke customer atau departemen.' };
     }
     if (invalidPrice.length) {
       return { status: 'harga_belum_valid', barang: invalidPrice, pesan: 'Harga barang ini di DealPOS belum berupa harga jual. Pastikan kode barangnya benar; kalau benar, tanyakan harganya ke departemen Management. Proforma tidak dibuat.' };
@@ -144,12 +169,22 @@ function createTools(ctx) {
       shippingLabel = 'Ambil di toko';
     } else {
       if (!ctx.lalamoveReady) return { status: 'gagal', pesan: 'Ongkir otomatis belum aktif. Ongkir dipastikan dulu oleh tim.' };
-      const quote = await ctx.quote({ tujuan: args.tujuan, kendaraan: args.kendaraan, total_belanja: lines.reduce((s, l) => s + l.qty * l.unitPrice, 0), jumlah_barang: lines.reduce((s, l) => s + l.qty, 0), produk: lines.map((l) => l.name) });
+      const typedAddress = String(args.alamat_lengkap || '').trim();
+      // Kendaraan dan jumlahnya sama dengan cek_ongkir yang sudah dilihat customer, supaya ongkir di proforma tidak berubah.
+      const remembered = ctx.lastQuote?.() || null;
+      const quote = await ctx.quote({
+        tujuan: args.tujuan || typedAddress,
+        kendaraan: remembered?.layanan || args.kendaraan,
+        ...(remembered ? { jumlah_kendaraan: remembered.jumlah_kendaraan || 1 } : { barang: lines.map((l) => ({ nama: l.name, jumlah: l.qty })) }),
+        total_belanja: lines.reduce((s, l) => s + l.qty * l.unitPrice, 0), jumlah_barang: lines.reduce((s, l) => s + l.qty, 0), produk: lines.map((l) => l.name),
+      });
       if (quote.status !== 'ok' || quote.ongkir_angka == null) return { status: 'gagal', pesan: quote.pesan || 'Ongkir belum bisa dihitung. Pastikan lokasi customer berupa share location atau link Google Maps.' };
-      if (quote.ketepatan !== 'titik') return { status: 'butuh_lokasi', pesan: 'Lokasi baru berupa perkiraan area. Minta customer share location WhatsApp atau kirim link Google Maps supaya kurir bisa dipesan.' };
+      const fullAddress = addressCheck.normalizeFormatted(typedAddress).split(',').filter((p) => p.trim()).length >= 3;
+      if (quote.ketepatan !== 'titik' && !fullAddress) return { status: 'butuh_lokasi', pesan: 'Alamat belum lengkap. Minta customer menulis alamat lengkap dengan format: Alamat lengkap, Kelurahan, Kabupaten, Kota, Provinsi (atau share location WhatsApp).' };
       shipping = quote.ongkir_dibayar_angka;
-      shippingLabel = `Ongkir (Lalamove${quote.kendaraan ? `, ${quote.kendaraan}` : ''})`;
-      delivery = { serviceType: quote.layanan, lalamoveTotal: quote.ongkir_angka, destination: quote.titik_antar };
+      shippingLabel = 'Ongkir (Lalamove)';
+      // Alamat ketikan customer dipakai sebagai alamat antar kurir; titiknya dari pencarian alamat.
+      delivery = { serviceType: quote.layanan, lalamoveTotal: quote.ongkir_angka, destination: quote.ketepatan === 'titik' || !typedAddress ? quote.titik_antar : { ...quote.titik_antar, address: typedAddress.slice(0, 300) } };
     }
 
     const summary = orderSummary.buildSummary({
@@ -291,13 +326,15 @@ function createTools(ctx) {
             items: {
               type: 'object', additionalProperties: false, required: ['kode', 'jumlah', 'harga_satuan'],
               properties: {
-                kode: { type: 'string', maxLength: 60, description: 'Kode barang persis dari DAFTAR HARGA DEALPOS.' },
+                kode: { type: 'string', maxLength: 60, description: 'Kode barang persis dari hasil cek_harga ("kode") atau DAFTAR HARGA DEALPOS.' },
+                nama: { type: 'string', maxLength: 200, description: 'Nama barang lengkap (varian/warna) seperti hasil cek_harga; dipakai bila kode tidak cocok.' },
                 jumlah: { type: 'number', exclusiveMinimum: 0 },
                 harga_satuan: { type: 'number', minimum: 0, description: 'Harga satuan yang sudah kamu sebut ke customer di rincian, untuk dicocokkan dengan daftar.' },
               },
             },
           },
-          tujuan: { type: 'string', maxLength: 300, description: 'Koordinat "lat,lng" atau link Google Maps dari customer. Tidak perlu bila ambil_di_toko.' },
+          tujuan: { type: 'string', maxLength: 300, description: 'Koordinat "lat,lng" atau link Google Maps dari customer. Tidak perlu bila ambil_di_toko atau alamat_lengkap diisi.' },
+          alamat_lengkap: { type: 'string', maxLength: 300, description: 'Alamat lengkap yang diketik customer (jalan, kelurahan, kabupaten, kota, provinsi), bila tidak ada pin atau link.' },
           ambil_di_toko: { type: 'boolean', description: 'true bila customer mengambil sendiri di toko (tanpa ongkir dan kurir).' },
           kendaraan: { type: 'string', maxLength: 30, description: 'Kode kendaraan Lalamove yang sama dengan cek_ongkir di rincian yang disetujui customer (mis. "TRUCK175").' },
           nama_penerima: { type: 'string', maxLength: 120 },

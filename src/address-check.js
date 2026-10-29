@@ -48,6 +48,23 @@ function toolSpec({ run }) {
   };
 }
 
+/**
+ * Format alamat WhatsApp toko ("Alamat lengkap: ... / Kelurahan: ... / Kabupaten: ... / Kota: ... / Provinsi: ...",
+ * kadang diratakan model jadi satu baris) -> "jalan, kelurahan, kota, provinsi" tanpa isian kosong ("-")
+ * dan tanpa wilayah kembar (Kabupaten Tangerang + Kota Tangerang).
+ */
+function normalizeFormatted(text) {
+  const raw = String(text || '').replace(/\r/g, '');
+  if (!/\b(?:kelurahan|kecamatan|kabupaten|kota|provinsi)\b\s*:/i.test(raw) && !/\b(?:kelurahan|kabupaten|provinsi)\b/i.test(raw)) return raw.trim();
+  const parts = raw
+    .replace(/\b(?:alamat(?:\s+lengkap)?)\s*:\s*/gi, '')
+    .split(/\n|,|\b(?:kelurahan|kecamatan|kabupaten|kota|provinsi)\b\s*:?/gi)
+    .map((p) => p.replace(/\s+/g, ' ').trim())
+    .filter((p) => p && p !== '-' && !/^[-–.]+$/.test(p));
+  const seen = new Set();
+  return parts.filter((p) => { const k = p.toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true; }).join(', ');
+}
+
 /** Nomor rumah, RT/RW, dan awalan wilayah dibuang: Nominatim jarang mengenalnya. */
 function simplify(text) {
   return String(text || '')
@@ -67,7 +84,7 @@ function simplify(text) {
  * bukan jalannya.
  */
 function variants(text) {
-  const raw = String(text || '').replace(/\s+/g, ' ').trim();
+  const raw = normalizeFormatted(text).replace(/\s+/g, ' ').trim();
   const simple = simplify(raw);
   const parts = simple.split(',').map((p) => p.trim()).filter(Boolean);
   const detailed = [...new Set([raw, simple].filter((v) => v.length >= 3))];
@@ -177,4 +194,4 @@ async function cekOpenStreetMap(text, fetchImpl) {
   return { status: 'tidak_ketemu', pesan: 'Alamat belum terbaca di peta. Bukan berarti salah; minta share location atau patokan.' };
 }
 
-module.exports = { TOOL_NAME, GUIDE, toolSpec, check, variants, simplify, nilaiTempat };
+module.exports = { TOOL_NAME, GUIDE, toolSpec, check, variants, simplify, normalizeFormatted, nilaiTempat };

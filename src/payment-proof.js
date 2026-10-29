@@ -166,7 +166,8 @@ function guessExpectedAmount(messages = []) {
   for (let i = messages.length - 1; i >= 0 && i >= messages.length - 12; i -= 1) {
     const m = messages[i];
     if (!m?.fromMe) continue;
-    const hit = pattern.exec(String(m.body || ''));
+    // "Total produk" bukan tagihan; angka yang dibayar customer adalah GRAND TOTAL.
+    const hit = pattern.exec(String(m.body || '').replace(/total produk[^\n]*/gi, ''));
     if (!hit) continue;
     const amount = Number(hit[1].replace(/[.,](?=\d{3}\b)/g, '').replace(/[.,]\d{1,2}$/, ''));
     if (Number.isFinite(amount) && amount >= 1000) return amount;

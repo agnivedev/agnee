@@ -1,0 +1,619 @@
+{
+  "name": "kasus1",
+  "title": "Kasus 1 — Plester dinding, customer MAU barang tambahan",
+  "chatId": "6281390001111@c.us",
+  "nama": "Pak Rudi",
+  "timeline": [
+    {
+      "from": "customer",
+      "text": "kak MU 301 brp ya? butuh 12 sak"
+    },
+    {
+      "from": "agnes",
+      "text": "Kak, MU 301 PLASTERPLUS 40KG harganya Rp 104.000 per zak. Sekalian MU 200 Skimwall buat aciannya, Rp 134.000 per zak.\n\nBisa tolong info alamat lengkapnya, Kak? Supaya saya bisa hitungkan estimasi ongkirnya.",
+      "events": [
+        {
+          "kind": "alat_tersedia",
+          "names": [
+            "cek_harga",
+            "cek_ongkir",
+            "susun_rincian",
+            "buat_proforma",
+            "buat_invoice",
+            "cek_alamat",
+            "ask_department"
+          ]
+        },
+        {
+          "kind": "alat",
+          "name": "cek_harga",
+          "args": {
+            "barang": "MU 301 PLASTERPLUS 40KG"
+          },
+          "out": {
+            "status": "ok",
+            "hasil": [
+              {
+                "nama": "MU 301 PLASTERPLUS 40KG",
+                "kode": "1000011476",
+                "merek": "MORTAR UTAMA",
+                "harga": "Rp 104.000 per zak",
+                "satuan": "zak",
+                "ribbon": [
+                  "Unggulan"
+                ]
+              },
+              {
+                "nama": "MU 100 BASE PLESTER PREMIUM 40KG",
+                "kode": "1000003303",
+                "merek": "MORTAR UTAMA",
+                "harga": "Rp 116.400 per zak",
+                "satuan": "zak",
+                "ribbon": [
+                  "Unggulan"
+                ]
+              },
+              {
+                "nama": "MU 200 SKIMWALL 40KG",
+                "kode": "1000003302",
+                "merek": "MORTAR UTAMA",
+                "harga": "Rp 134.000 per zak",
+                "satuan": "zak",
+                "ribbon": [
+                  "Unggulan"
+                ]
+              },
+              {
+                "nama": "MU 380 THINBED MAX 40KG",
+                "kode": "1000011479",
+                "merek": "MORTAR UTAMA",
+                "harga": "Rp 130.000 per zak",
+                "satuan": "zak",
+                "ribbon": [
+                  "Unggulan"
+                ]
+              },
+              {
+                "nama": "ULTRACHEM UM 301 ACIAN PLESTER 40KG",
+                "kode": "UTM-048",
+                "merek": "ULTRACHEM",
+                "harga": "Rp 120.000 per zak",
+                "satuan": "zak"
+              },
+              {
+                "nama": "APLUS A-110 SEMEN ACIAN 40KG",
+                "kode": "1000036656",
+                "merek": "APLUS",
+                "harga": "Rp 76.000 per zak",
+                "satuan": "zak"
+              },
+              {
+                "nama": "DEMIX A2 PASANGAN BATA/PLESTER /PERATA LANTAI 40Kg",
+                "kode": "1020900070",
+                "merek": "DEMIX",
+                "harga": "Rp 90.900 per zak",
+                "satuan": "zak"
+              },
+              {
+                "nama": "EB 168 EURO BOND PEREKAT BATA RINGAN 40KG",
+                "kode": "1116201226",
+                "merek": "EURO BOND",
+                "harga": "Rp 65.000 per zak",
+                "satuan": "zak"
+              }
+            ],
+            "catatan": "Harga jual dari POS saat ini. Bukan informasi stok."
+          }
+        }
+      ]
+    },
+    {
+      "from": "customer",
+      "text": "Oke kak, sekalian MU 200 nya 4 sak ya.\n\nAlamat lengkap: Jl. BSD Grand Boulevard No. 5\nKelurahan: Lengkong Gudang\nKabupaten: Tangerang\nKota: Tangerang Selatan\nProvinsi: Banten"
+    },
+    {
+      "from": "agnes",
+      "text": "Baik kak, ini rincian pesanannya untuk pengiriman ke Jl. BSD Grand Boulevard No. 5, Lengkong Gudang, Tangerang, Tangerang Selatan, Banten:\n\n*Rincian Pesanan*\n\n1. MU 301 PLASTERPLUS 40KG\n   12 zak x Rp 104.000 = Rp 1.248.000\n2. MU 200 SKIMWALL 40KG\n   4 zak x Rp 134.000 = Rp 536.000\n\nTotal produk: Rp 1.784.000\nOngkir (Lalamove): Rp 74.700\n━━━━━━━━━━━━━━\n*GRAND TOTAL: Rp 1.858.700*\n\nKalau sudah sesuai, saya proses ya kak?",
+      "events": [
+        {
+          "kind": "alat_tersedia",
+          "names": [
+            "cek_harga",
+            "cek_ongkir",
+            "susun_rincian",
+            "buat_proforma",
+            "buat_invoice",
+            "cek_alamat",
+            "ask_department"
+          ]
+        },
+        {
+          "kind": "lalamove_quote",
+          "serviceType": "PICK_UP_TRUCK",
+          "total": null,
+          "km": 0,
+          "status": 422,
+          "sandbox": true,
+          "error": "Given latitude/longitude is out of service area."
+        },
+        {
+          "kind": "lalamove_quote",
+          "serviceType": "TRUCK175",
+          "total": 74700,
+          "km": 7.4,
+          "status": 201,
+          "sandbox": true
+        },
+        {
+          "kind": "alat",
+          "name": "cek_ongkir",
+          "args": {
+            "barang": [
+              {
+                "jumlah": 12,
+                "nama": "MU 301 PLASTERPLUS 40KG"
+              },
+              {
+                "nama": "MU 200 SKIMWALL 40KG",
+                "jumlah": 4
+              }
+            ],
+            "tujuan": "Jl. BSD Grand Boulevard No. 5, Lengkong Gudang, Tangerang, Tangerang Selatan, Banten"
+          },
+          "out": {
+            "status": "ok",
+            "ongkir": "Rp 74.700",
+            "ongkir_angka": 74700,
+            "ongkir_dibayar_angka": 74700,
+            "layanan": "TRUCK175",
+            "titik_antar": {
+              "lat": -6.2986978,
+              "lng": 106.6555136,
+              "address": "Jalan BSD Grand Boulevard, Babakan, BSD City, Serpong, Tangerang Selatan, Banten, 15331, Indonesia"
+            },
+            "kendaraan": "TRUCK175",
+            "jarak_km": 7.4,
+            "tujuan": "Jalan BSD Grand Boulevard, Babakan, BSD City, Serpong, Tangerang Selatan, Banten, 15331, Indonesia",
+            "ketepatan": "perkiraan_area",
+            "catatan": "Estimasi Lalamove saat ini; angka final dikonfirmasi saat order dibuat."
+          }
+        },
+        {
+          "kind": "alat",
+          "name": "susun_rincian",
+          "args": {
+            "keterangan_ongkir": "Ongkir (Lalamove, TRUCK175)",
+            "barang": [
+              {
+                "harga_satuan": 104000,
+                "satuan": "zak",
+                "jumlah": 12,
+                "nama": "MU 301 PLASTERPLUS 40KG"
+              },
+              {
+                "harga_satuan": 134000,
+                "nama": "MU 200 SKIMWALL 40KG",
+                "satuan": "zak",
+                "jumlah": 4
+              }
+            ],
+            "ongkir": 74700,
+            "grand_total_hitunganmu": 1802700
+          },
+          "out": {
+            "status": "koreksi",
+            "teks": "*Rincian Pesanan*\n\n1. MU 301 PLASTERPLUS 40KG\n   12 zak x Rp 104.000 = Rp 1.248.000\n2. MU 200 SKIMWALL 40KG\n   4 zak x Rp 134.000 = Rp 536.000\n\nTotal produk: Rp 1.784.000\nOngkir (Lalamove): Rp 74.700\n━━━━━━━━━━━━━━\n*GRAND TOTAL: Rp 1.858.700*",
+            "total_produk": 1784000,
+            "ongkir": 74700,
+            "grand_total": 1858700,
+            "pesan": "Hitunganmu Rp 1.802.700, hasil periksa Rp 1.858.700. Kirim \"teks\" ini, bukan angkamu."
+          }
+        }
+      ]
+    },
+    {
+      "from": "customer",
+      "text": "Oke kak, sesuai. Transfer ke mana ya?"
+    },
+    {
+      "from": "agnes",
+      "text": "Baik kak. Ini proforma invoice-nya:\n\n*Proforma Invoice*\n\n1. MU 301 PLASTERPLUS 40KG\n   12 zak x Rp 104.000 = Rp 1.248.000\n2. MU 200 SKIMWALL 40KG\n   4 zak x Rp 134.000 = Rp 536.000\n\nTotal produk: Rp 1.784.000\nOngkir (Lalamove): Rp 74.700\n━━━━━━━━━━━━━━\n*GRAND TOTAL: Rp 1.858.700*\n\nMohon diperiksa kembali, kalau sudah sesuai saya proses invoice-nya ya kak.",
+      "events": [
+        {
+          "kind": "alat_tersedia",
+          "names": [
+            "cek_harga",
+            "cek_ongkir",
+            "susun_rincian",
+            "buat_proforma",
+            "buat_invoice",
+            "cek_alamat",
+            "ask_department"
+          ]
+        },
+        {
+          "kind": "lalamove_quote",
+          "serviceType": "TRUCK175",
+          "total": 74700,
+          "km": 7.4,
+          "status": 201,
+          "sandbox": true
+        },
+        {
+          "kind": "dealpos_estimate",
+          "body": {
+            "Outlet": "Cisauk Store",
+            "Number": "PF-20261029ZFIXP",
+            "Date": "2026-10-29",
+            "Tag": "WA-AI",
+            "TaxType": "Inclusive",
+            "Customer": {
+              "Code": "WA6281390001111",
+              "Name": "Customer 6281390001111",
+              "Mobile": "081390001111",
+              "Email": ""
+            },
+            "Variants": [
+              {
+                "Code": "1000011476",
+                "Quantity": 12,
+                "Price": 104000
+              },
+              {
+                "Code": "1000003302",
+                "Quantity": 4,
+                "Price": 134000
+              }
+            ]
+          }
+        },
+        {
+          "kind": "alat",
+          "name": "buat_proforma",
+          "args": {
+            "kendaraan": "PICK_UP_TRUCK",
+            "alamat_lengkap": "Jl. BSD Grand Boulevard No. 5, Lengkong Gudang, Tangerang, Tangerang Selatan, Banten",
+            "barang": [
+              {
+                "jumlah": 12,
+                "harga_satuan": 104000,
+                "kode": "MU-301"
+              },
+              {
+                "harga_satuan": 134000,
+                "jumlah": 4,
+                "kode": "MU-200"
+              }
+            ]
+          },
+          "out": {
+            "status": "ok",
+            "nomor": "PF-20261029ZFIXP",
+            "grand_total": 1858700,
+            "teks": "*Proforma Invoice*\n\n1. MU 301 PLASTERPLUS 40KG\n   12 zak x Rp 104.000 = Rp 1.248.000\n2. MU 200 SKIMWALL 40KG\n   4 zak x Rp 134.000 = Rp 536.000\n\nTotal produk: Rp 1.784.000\nOngkir (Lalamove): Rp 74.700\n━━━━━━━━━━━━━━\n*GRAND TOTAL: Rp 1.858.700*",
+            "id_dokumen": "1",
+            "catatan": "Kirim \"teks\" persis, lalu minta customer memeriksa dan menyetujui. Jangan buat invoice sebelum customer setuju."
+          }
+        }
+      ]
+    },
+    {
+      "from": "customer",
+      "text": "Oke kak, sesuai. Transfer ke mana ya?"
+    },
+    {
+      "from": "agnes",
+      "text": "Mohon informasikan nama dan nomor HP penerima yang bisa dihubungi kurir ya kak.",
+      "events": [
+        {
+          "kind": "alat_tersedia",
+          "names": [
+            "cek_harga",
+            "cek_ongkir",
+            "susun_rincian",
+            "buat_proforma",
+            "buat_invoice",
+            "cek_alamat",
+            "ask_department"
+          ]
+        },
+        {
+          "kind": "lalamove_quote",
+          "serviceType": "TRUCK175",
+          "total": 74700,
+          "km": 7.4,
+          "status": 201,
+          "sandbox": true
+        },
+        {
+          "kind": "alat",
+          "name": "buat_invoice",
+          "args": {},
+          "out": {
+            "status": "butuh_data_penerima",
+            "pesan": "Tanyakan nama dan nomor HP penerima (yang akan dihubungi kurir)."
+          }
+        }
+      ]
+    },
+    {
+      "from": "customer",
+      "text": "Rudi, 081390001111"
+    },
+    {
+      "from": "agnes",
+      "text": "Baik kak Rudi, invoice dengan nomor INV-20261029ZFOVW sebesar Rp 1.858.700 sudah dibuat.\n\nUntuk pembayarannya bisa melalui transfer ke rekening BCA 1721726989 atas nama PT Karya Warna Kemenangan. Mohon kirimkan bukti transfernya di chat ini ya kak.\n\nKurir Lalamove akan dipesan secara manual oleh tim kami.",
+      "events": [
+        {
+          "kind": "alat_tersedia",
+          "names": [
+            "cek_harga",
+            "cek_ongkir",
+            "susun_rincian",
+            "buat_proforma",
+            "buat_invoice",
+            "cek_alamat",
+            "ask_department"
+          ]
+        },
+        {
+          "kind": "lalamove_quote",
+          "serviceType": "TRUCK175",
+          "total": 74700,
+          "km": 7.4,
+          "status": 201,
+          "sandbox": true
+        },
+        {
+          "kind": "dealpos_invoice",
+          "body": {
+            "Outlet": "Cisauk Store",
+            "Number": "INV-20261029ZFOVW",
+            "Date": "2026-10-29",
+            "Tag": "WA-AI",
+            "TaxType": "Inclusive",
+            "ReferenceNumber": "PF-20261029ZFIXP",
+            "Note": "Dibuat AI Agnee dari proforma PF-20261029ZFIXP. Ongkir (Lalamove): Rp 74.700",
+            "Customer": {
+              "Code": "WA6281390001111",
+              "Name": "Rudi",
+              "Mobile": "081390001111",
+              "Email": ""
+            },
+            "Variants": [
+              {
+                "Code": "1000011476",
+                "Quantity": 12,
+                "Price": 104000
+              },
+              {
+                "Code": "1000003302",
+                "Quantity": 4,
+                "Price": 134000
+              }
+            ]
+          }
+        },
+        {
+          "kind": "lalamove_place",
+          "status": 402,
+          "error": "You do not have sufficient credit for the action, please top-up your wallet."
+        },
+        {
+          "kind": "alat",
+          "name": "buat_invoice",
+          "args": {
+            "telepon_penerima": "081390001111",
+            "nama_penerima": "Rudi"
+          },
+          "out": {
+            "status": "sebagian",
+            "nomor_invoice": "INV-20261029ZFOVW",
+            "total": "Rp 1.858.700",
+            "pesan": "Invoice sudah dibuat, tetapi kurir Lalamove belum berhasil dipesan. Tim akan memesannya secara manual; jangan menjanjikan jam kirim.",
+            "alasan": "Lalamove menolak permintaan: You do not have sufficient credit for the action, please top-up your wallet."
+          }
+        }
+      ]
+    },
+    {
+      "from": "customer",
+      "text": "",
+      "image": "kasus1-bukti.png"
+    },
+    {
+      "from": "agnes",
+      "text": "Untuk transferannya saya belum bisa memastikan sudah masuk atau belum, Kak.\nSaya tanyakan ke tim kami dulu, nanti saya kabari di sini begitu sudah jelas ya.",
+      "events": [
+        {
+          "kind": "baca_gambar",
+          "purpose": "payment_proof",
+          "out": "```json\n{\"isTransferProof\": true,\n \"status\": \"success\",\n \"amount\": 1858700,\n \"date\": \"2026-10-29\", \"time\": \"10:42\",\n \"recipientName\": \"PT KARYA WARNA KEMENANGAN\", \"recipientBank\": \"BCA\",\n \"recipientAccount\": \"1721726989\",\n \"senderName\": \"RUDI HARTONO\", \"referenceNo\": \"MT29102026A01\",\n \"looksEdited\": false,\n \"notes\": \"bahan bangunan\"}\n```"
+        },
+        {
+          "kind": "alat_tersedia",
+          "names": [
+            "cek_harga",
+            "cek_ongkir",
+            "susun_rincian",
+            "buat_proforma",
+            "buat_invoice",
+            "cek_alamat",
+            "ask_department"
+          ]
+        },
+        {
+          "kind": "alat_tersedia",
+          "names": []
+        },
+        {
+          "kind": "tanya_departemen",
+          "department": "Finance",
+          "question": "Customer menyebut sudah membayar (\"[Customer mengirim foto bukti transfer] [Pemeriksaan bukti transfer (otomatis, bukan keputusan akhir): tampak cocok (belum diverifikasi staf) — Rp1.858.700, total Rp1.858.700, 2026-10-29]\"). Mohon cek apakah dananya sudah masuk dan jumlahnya sesuai. (Sinyal: Menyatakan pembayaran sudah masuk tanpa konfirmasi.)",
+          "jenis": "general"
+        },
+        {
+          "kind": "pesan_internal",
+          "to": "6281100000001@c.us",
+          "text": "*Perlu ditindaklanjuti*\nCustomer: Pak Rudi (+6281390001111)\nBertanya: \"[Customer mengirim foto bukti transfer] [Pemeriksaan bukti transfer (otomatis, bukan keputusan akhir): tampak cocok (belum diverifikasi staf) — Rp1.858.700, total Rp1.858.700, 2026-10-29]\"\nAsisten membalas: \"\"\n\nAsisten sudah menjanjikan akan menyampaikan ini. Mohon dibalas langsung ke customer."
+        },
+        {
+          "kind": "pesan_internal",
+          "to": "6281297393987-1495279348@g.us",
+          "text": "*Pertanyaan dari asisten untuk tim Finance*\nCustomer: +6281390001111\nPertanyaan: \"Customer menyebut sudah membayar (\"[Customer mengirim foto bukti transfer] [Pemeriksaan bukti transfer (otomatis, bukan keputusan akhir): tampak cocok (belum diverifikasi staf) — Rp1.858.700, total Rp1.858.700, 2026-10-29]\"). Mohon cek apakah dananya sudah masuk dan jumlahnya sesuai. (Sinyal: Menyatakan pembayaran sudah masuk tanpa konfirmasi.)\"\n\nJawab dengan *reply* pesan ini di grup, atau tulis #a1b2c3 di jawabanmu. Bisa juga lewat Agnee (menu Pertanyaan AI). Jawaban pertama yang masuk akan diteruskan ke customer."
+        },
+        {
+          "kind": "pesan_internal",
+          "to": "628110000099@c.us",
+          "text": "*Pertanyaan dari asisten untuk tim Finance*\nCustomer: +6281390001111\nPertanyaan: \"Customer menyebut sudah membayar (\"[Customer mengirim foto bukti transfer] [Pemeriksaan bukti transfer (otomatis, bukan keputusan akhir): tampak cocok (belum diverifikasi staf) — Rp1.858.700, total Rp1.858.700, 2026-10-29]\"). Mohon cek apakah dananya sudah masuk dan jumlahnya sesuai. (Sinyal: Menyatakan pembayaran sudah masuk tanpa konfirmasi.)\"\n\nMohon dijawab lewat Agnee (menu Pertanyaan AI). Jawaban pertama yang masuk akan diteruskan ke customer."
+        },
+        {
+          "kind": "pesan_internal",
+          "to": "628110000199@c.us",
+          "text": "*Pertanyaan dari asisten untuk tim Finance*\nCustomer: +6281390001111\nPertanyaan: \"Customer menyebut sudah membayar (\"[Customer mengirim foto bukti transfer] [Pemeriksaan bukti transfer (otomatis, bukan keputusan akhir): tampak cocok (belum diverifikasi staf) — Rp1.858.700, total Rp1.858.700, 2026-10-29]\"). Mohon cek apakah dananya sudah masuk dan jumlahnya sesuai. (Sinyal: Menyatakan pembayaran sudah masuk tanpa konfirmasi.)\"\n\nMohon dijawab lewat Agnee (menu Pertanyaan AI). Jawaban pertama yang masuk akan diteruskan ke customer."
+        }
+      ]
+    },
+    {
+      "from": "system",
+      "events": [
+        {
+          "kind": "jawaban_departemen",
+          "department": "Finance",
+          "answer": "Sudah masuk, nominal sesuai. Silakan diproses.",
+          "hasil": {
+            "ok": true,
+            "relayed": true
+          }
+        },
+        {
+          "kind": "alat_tersedia",
+          "names": []
+        },
+        {
+          "kind": "alat_tersedia",
+          "names": []
+        }
+      ]
+    },
+    {
+      "from": "agnes",
+      "text": "Terima kasih, kak. Pembayarannya sudah masuk dan sesuai, pesanan langsung kami proses.",
+      "events": []
+    }
+  ],
+  "docs": [
+    {
+      "id": "1",
+      "status": "open",
+      "kind": "proforma",
+      "chatId": "6281390001111@c.us",
+      "dealposId": "est-sim",
+      "number": "PF-20261029ZFIXP",
+      "total": 1858700,
+      "payload": {
+        "lines": [
+          {
+            "code": "1000011476",
+            "name": "MU 301 PLASTERPLUS 40KG",
+            "unit": "zak",
+            "qty": 12,
+            "unitPrice": 104000
+          },
+          {
+            "code": "1000003302",
+            "name": "MU 200 SKIMWALL 40KG",
+            "unit": "zak",
+            "qty": 4,
+            "unitPrice": 134000
+          }
+        ],
+        "shipping": 74700,
+        "shippingLabel": "Ongkir (Lalamove)",
+        "pickup": false,
+        "delivery": {
+          "serviceType": "TRUCK175",
+          "lalamoveTotal": 74700,
+          "destination": {
+            "lat": -6.2986978,
+            "lng": 106.6555136,
+            "address": "Jl. BSD Grand Boulevard No. 5, Lengkong Gudang, Tangerang, Tangerang Selatan, Banten"
+          }
+        },
+        "shippingNote": "Ongkir (Lalamove): Rp 74.700",
+        "recipientName": null,
+        "recipientPhone": "6281390001111"
+      }
+    },
+    {
+      "id": "2",
+      "status": "open",
+      "kind": "invoice",
+      "chatId": "6281390001111@c.us",
+      "dealposId": "inv-sim",
+      "number": "INV-20261029ZFOVW",
+      "total": 1858700,
+      "proformaId": "1",
+      "payload": {
+        "proforma": "PF-20261029ZFIXP",
+        "lines": [
+          {
+            "code": "1000011476",
+            "name": "MU 301 PLASTERPLUS 40KG",
+            "unit": "zak",
+            "qty": 12,
+            "unitPrice": 104000
+          },
+          {
+            "code": "1000003302",
+            "name": "MU 200 SKIMWALL 40KG",
+            "unit": "zak",
+            "qty": 4,
+            "unitPrice": 134000
+          }
+        ],
+        "shipping": 74700
+      }
+    }
+  ],
+  "proofs": [
+    {
+      "id": "1",
+      "chatId": "6281390001111@c.us",
+      "waMessageId": "m11",
+      "imageSha256": "cbecf28d80109bf240dbfdf56130a36b95f35b07d81d3855d7fe67cb64da0909",
+      "verdict": "cocok",
+      "flags": [],
+      "extracted": {
+        "isTransferProof": true,
+        "status": "success",
+        "amount": 1858700,
+        "date": "2026-10-29",
+        "time": "10:42",
+        "recipientName": "PT KARYA WARNA KEMENANGAN",
+        "recipientBank": "BCA",
+        "recipientAccount": "1721726989",
+        "senderName": "RUDI HARTONO",
+        "referenceNo": "MT29102026A01",
+        "looksEdited": false,
+        "notes": "bahan bangunan"
+      },
+      "expectedAmount": 1858700,
+      "createdAt": "2026-10-29T03:27:23.801Z"
+    }
+  ],
+  "questions": [
+    {
+      "id": "a1b2c3d4-0000-4000-8000-000000000001",
+      "departmentId": "ec8e2d62-693d-46d3-9269-8b27b60a40b7",
+      "chatId": "6281390001111@c.us",
+      "customerText": "[Customer mengirim foto bukti transfer]\n[Pemeriksaan bukti transfer (otomatis, bukan keputusan akhir): tampak cocok (belum diverifikasi staf) — Rp1.858.700, total Rp1.858.700, 2026-10-29]",
+      "question": "Customer menyebut sudah membayar (\"[Customer mengirim foto bukti transfer] [Pemeriksaan bukti transfer (otomatis, bukan keputusan akhir): tampak cocok (belum diverifikasi staf) — Rp1.858.700, total Rp1.858.700, 2026-10-29]\"). Mohon cek apakah dananya sudah masuk dan jumlahnya sesuai. (Sinyal: Menyatakan pembayaran sudah masuk tanpa konfirmasi.)",
+      "kind": "general",
+      "payload": null,
+      "status": "answered",
+      "department": "Finance",
+      "answer": "Sudah masuk, nominal sesuai. Silakan diproses."
+    }
+  ]
+}

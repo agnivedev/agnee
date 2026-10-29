@@ -101,6 +101,16 @@ function parseAnswer(text, available = []) {
   // Kode pertanyaan (#a1b2c3) bukan bagian jawaban: dibuang supaya angkanya tak terbaca sebagai jumlah.
   const clean = String(text || '').toLowerCase().replace(/#[0-9a-f]{6}\b/g, ' ').replace(/[^a-z0-9\s.\-]/g, ' ').replace(/\s+/g, ' ').trim();
   if (!clean) return { error: 'kosong' };
+  // "motor ga muat, pakai pick up": kendaraan yang ditolak tidak dihitung sebagai pilihan.
+  const answer = clean
+    .replace(/(?:\b[a-z]+\s+){0,2}\b(?:ga|gak|nggak|ngga|tidak|enggak|kurang)\s+(?:muat|cukup|bisa|kuat|sanggup|usah)\b/g, ' ')
+    .replace(/\bbukan\s+(?:pick ?-?up|[a-z]+)/g, ' ')
+    .replace(/\s+/g, ' ').trim();
+  if (answer) return parseChosen(answer, available);
+  return { error: 'tidak_dikenali' };
+}
+
+function parseChosen(clean, available) {
   if (/(?<![a-z])(container|kontainer|kontener)(?![a-z])/.test(clean)) return { error: 'tidak_tersedia', kata: 'container' };
 
   const found = new Set();

@@ -39,7 +39,7 @@ test('quote: koordinat dari pin customer, kendaraan bawaan toko, hasil berbentuk
   const out = await dq.quote(CONN, { tujuan: '-6.301234,106.652345' }, { getQuotation });
   assert.equal(out.status, 'ok');
   assert.equal(out.ongkir, 'Rp 85.000');
-  assert.equal(out.kendaraan, 'VAN (Van)');
+  assert.equal(out.kendaraan, 'VAN');
   assert.equal(out.jarak_km, 12.3);
   assert.equal(out.ketepatan, 'titik');
   assert.equal(calls[0].serviceType, 'VAN');

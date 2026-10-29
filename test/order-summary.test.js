@@ -19,7 +19,7 @@ test('rincian: total produk, ongkir, garis, grand total dihitung alat', () => {
   assert.match(out.teks, /\*Rincian Pesanan\*/);
   assert.match(out.teks, /10 sak x Rp 313\.000 = Rp 3\.130\.000/);
   assert.match(out.teks, /Total produk: Rp 3\.250\.000/);
-  assert.match(out.teks, /Ongkir \(Lalamove, Motor\): Rp 45\.000\n━+\n\*GRAND TOTAL: Rp 3\.295\.000\*/);
+  assert.match(out.teks, /Ongkir \(Lalamove\): Rp 45\.000\n━+\n\*GRAND TOTAL: Rp 3\.295\.000\*/);
 });
 
 test('rincian: ongkir kosong = menyusul, 0 = GRATIS', () => {

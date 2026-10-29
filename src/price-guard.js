@@ -126,12 +126,51 @@ function splitSentences(text) {
  * Kalimat di balasan yang menyebut harga tanpa sumber.
  * @returns {{ sentence: string, amount: number }[]}
  */
+const SHIPPING_MARK = '\u0001ONGKIR\u0001';
+const SHIPPING_WORD = /ongkir|ongkos/i;
+
+function isSumOfOthers(amount, amounts) {
+  const others = amounts.filter((a) => a !== amount);
+  for (let i = 0; i < others.length; i += 1) {
+    for (let j = i + 1; j < others.length; j += 1) {
+      if (others[i] + others[j] === amount) return true;
+      for (let k = j + 1; k < others.length; k += 1) if (others[i] + others[j] + others[k] === amount) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Sumber boleh membawa bagian fakta ongkir setelah SHIPPING_MARK (hasil cek_ongkir,
+ * baris ongkir di playbook, balasan toko sebelumnya). Angka di kalimat ongkir
+ * hanya sah bila ada di bagian itu: angka lain yang kebetulan ada di prompt
+ * (harga barang lain) bukan ongkir.
+ */
+function findShippingInvented(reply, sourceText, quantityText) {
+  const at = String(sourceText).indexOf(SHIPPING_MARK);
+  if (at === -1) return [];
+  const shipText = String(sourceText).slice(at + SHIPPING_MARK.length);
+  const all = extractAmounts(reply).map((a) => a.amount);
+  const explained = explainer(shipText, { quantityText: `${quantityText}\n${reply}`, replyAmounts: [] });
+  const out = [];
+  for (const sentence of splitSentences(reply)) {
+    // Hanya angka yang langsung mengikuti kata ongkir ("ongkir ... Rp 85.000"), bukan harga lain di kalimat yang sama.
+    for (const m of sentence.matchAll(/(?:ongkir|ongkos)[^\d]{0,40}?(Rp\.?\s*\d[\d.,]*)/gi)) {
+      for (const a of extractAmounts(m[1])) {
+        if (!explained(a.amount) && !isSumOfOthers(a.amount, all)) out.push({ sentence, amount: a.amount });
+      }
+    }
+  }
+  return out;
+}
+
 function findInventedPrices(reply, sourceText, { quantityText = '' } = {}) {
   const amounts = extractAmounts(reply);
   if (!amounts.length) return [];
+  const shipping = findShippingInvented(reply, sourceText, quantityText);
   // Jumlah barang yang sah = yang disebut customer atau di balasan itu sendiri ("10 sak ...").
   const explained = explainer(sourceText, { quantityText: `${quantityText}\n${reply}`, replyAmounts: amounts.map((a) => a.amount) });
-  const invented = new Set(amounts.filter((a) => !explained(a.amount)).map((a) => a.amount));
+  const invented = new Set([...amounts.filter((a) => !explained(a.amount)).map((a) => a.amount), ...shipping.map((h) => h.amount)]);
   if (!invented.size) return [];
   const out = [];
   for (const sentence of splitSentences(reply)) {
@@ -150,4 +189,4 @@ function stripInventedPrices(reply, sourceText, options) {
   return splitSentences(reply).filter((s) => !bad.has(s)).join('\n').trim();
 }
 
-module.exports = { extractAmounts, extractNumbers, explainer, findInventedPrices, stripInventedPrices, rupiah };
+module.exports = { SHIPPING_MARK, extractAmounts, extractNumbers, explainer, findInventedPrices, stripInventedPrices, rupiah };

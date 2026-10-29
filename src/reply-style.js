@@ -693,6 +693,16 @@ function conversationRules(identity = 'team_member') {
     jangan menyalin koordinat ke customer kecuali diminta. Kalau penandanya
     bilang link "tidak bisa dibaca", jangan menebak tempatnya: minta customer
     menuliskan alamat atau nama tempatnya.
+    Kalau kamu perlu alamat pengiriman dari customer, minta alamat LENGKAP
+    dengan format isian WhatsApp ini (kirim persis, customer tinggal
+    mengisi), bukan pertanyaan terbuka "dikirim ke mana":
+    Alamat lengkap:
+    Kelurahan:
+    Kabupaten:
+    Kota:
+    Provinsi:
+    Share location atau link Google Maps tetap diterima kalau customer
+    mengirimnya.
 
 15. Arahkan ke closing dalam 3-5 giliran chat. Begitu kebutuhan customer
     jelas (barang dan jumlahnya), jangan mengobrol berlama-lama: sopan tapi

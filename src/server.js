@@ -53,6 +53,7 @@ const deliveryQuote = require('./delivery-quote.js');
 const orderSummary = require('./order-summary.js');
 const dealposOrders = require('./dealpos-orders.js');
 const chatMemory = require('./chat-memory.js');
+const priceGuard = require('./price-guard.js');
 const storeLocations = require('./store-locations.js');
 const promoRules = require('./promo-rules.js');
 const paymentAccounts = require('./payment-accounts.js');
@@ -2228,11 +2229,29 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
 
   /**
    * Sumber yang sah untuk angka harga di balasan: prompt (playbook, Fakta,
-   * daftar harga, katalog), hasil alat giliran ini, dan kata customer.
+   * daftar harga DealPOS, katalog), hasil alat, dan ingatan chat (barang yang
+   * sudah ditunjukkan cek_harga, ongkir dari cek_ongkir). Angka yang hanya
+   * diketik customer BUKAN sumber harga: harga di luar DealPOS/playbook/katalog
+   * tidak boleh diucapkan, siapa pun yang menyebutnya. Pengecualian: pesan
+   * hasil pemeriksaan bukti transfer, yang memuat nominal untuk dibahas.
+   * Balasan toko sendiri di riwayat tetap sumber (sudah lolos penjaga).
    */
-  function priceSourceOf(ctx, { userMessage = '', history = [] } = {}) {
-    const said = (history || []).map((turn) => turn?.content ?? turn?.text ?? '').filter(Boolean);
-    return [ctx.systemPrompt, userMessage, ...said, ...(ctx.toolOutputs || [])].join('\n');
+  function priceSourceOf(ctx, { userMessage = '', history = [], companyId = null, chatId = null } = {}) {
+    const said = (history || [])
+      .filter((turn) => !['user', 'customer'].includes(turn?.role))
+      .map((turn) => turn?.content ?? turn?.text ?? '').filter(Boolean);
+    const remembered = chatId ? [
+      ...chatMemory.list(chatMemory.shown, companyId, chatId).map((i) => `${i.name} Rp ${Math.round(Number(i.price ?? i.unitPrice)).toLocaleString('id-ID')}`),
+      ...chatMemory.list(chatMemory.quotes, companyId, chatId).map((q) => q.ongkir || ''),
+    ] : [];
+    const proof = uncertainty.PROOF_MARKER.test(userMessage) ? userMessage : '';
+    // Fakta ongkir terpisah: angka di kalimat ongkir harus dari hasil cek_ongkir,
+    // baris ongkir di prompt (promo), atau balasan toko sebelumnya, bukan sembarang angka di prompt.
+    const shippingFacts = [
+      ...String(ctx.systemPrompt || '').split('\n').filter((line) => /ongkir|ongkos/i.test(line)),
+      ...remembered, ...(ctx.toolOutputs || []), ...said,
+    ];
+    return [ctx.systemPrompt, proof, ...said, ...remembered, ...(ctx.toolOutputs || []), priceGuard.SHIPPING_MARK, ...shippingFacts].join('\n');
   }
 
   /**
@@ -2265,7 +2284,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       customerText,
       rawText,
       finalText,
-      priceSource: priceSourceOf(ctx, { userMessage: customerText, history }),
+      priceSource: priceSourceOf(ctx, { userMessage: customerText, history, companyId, chatId }),
       factSource: ctx.factSource || ctx.systemPrompt || '',
       toolText: (ctx.toolOutputs || []).join('\n'),
       toolOutputs: ctx.toolOutputs || [],
@@ -2575,7 +2594,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       systemPrompt: ctx.systemPrompt,
       userMessage: customerText,
       history: conversationHistory,
-      priceSource: priceSourceOf(ctx, { userMessage: customerText, history: conversationHistory }),
+      priceSource: priceSourceOf(ctx, { userMessage: customerText, history: conversationHistory, companyId, chatId: message.from }),
       expectations: replyExpectationsOf(ctx),
     });
     const guarded = await guardUncertainty({

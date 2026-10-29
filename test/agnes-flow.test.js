@@ -162,3 +162,28 @@ test('rincian: label ongkir Lalamove tanpa kode kendaraan; toren 1050L tidak nai
   const conn = { cities: [{ services: ['MOTORCYCLE', 'VAN', 'PICK_UP_TRUCK'].map((key) => ({ key })) }] };
   assert.equal(deliveryQuote.vehiclePlan(conn, 'MOTORCYCLE', [{ nama: 'PENGUIN TB110 1050L SANDSTONE', jumlah: 1 }])[0], 'PICK_UP_TRUCK');
 });
+
+test('penjaga harga: angka yang hanya diketik customer bukan sumber harga', () => {
+  const { findInventedPrices } = require('../src/price-guard.js');
+  const prompt = 'Daftar harga: MU 301 Rp 104.000 per zak';
+  // sumber = prompt saja (pesan customer tidak lagi ikut)
+  assert.equal(findInventedPrices('MU 301 harganya Rp 50.000 kak.', prompt, { quantityText: '' }).length, 1);
+  assert.equal(findInventedPrices('MU 301 harganya Rp 104.000 kak.', prompt, { quantityText: '' }).length, 0);
+});
+
+test('aturan percakapan umum Agnee: minta alamat dengan format isian WhatsApp', () => {
+  const { conversationRules } = require('../src/reply-style.js');
+  const rules = conversationRules();
+  assert.match(rules, /Alamat lengkap:\s+Kelurahan:\s+Kabupaten:\s+Kota:\s+Provinsi:/);
+});
+
+test('penjaga harga: angka ongkir harus dari hasil cek_ongkir, bukan harga barang lain di prompt', () => {
+  const { findInventedPrices, SHIPPING_MARK } = require('../src/price-guard.js');
+  const main = 'Katalog: BLENCONG Rp 85.000 per pcs; MU 301 Rp 104.000 per zak';
+  const withShip = (facts) => `${main}\n${SHIPPING_MARK}\n${facts}`;
+  const reply = 'Perkiraan ongkirnya sekitar Rp 85.000 ya kak.';
+  assert.equal(findInventedPrices(reply, withShip('ongkir Rp 74.700'), { quantityText: '' }).length, 1);
+  assert.equal(findInventedPrices('Perkiraan ongkirnya sekitar Rp 74.700 ya kak.', withShip('"ongkir":"Rp 74.700"'), { quantityText: '' }).length, 0);
+  // total = harga + ongkir tidak dianggap karangan
+  assert.equal(findInventedPrices('MU 301 Rp 104.000, ongkir Rp 74.700, total Rp 178.700.', withShip('Rp 74.700'), { quantityText: '' }).length, 0);
+});

@@ -110,3 +110,9 @@ test('bukti: ringkasan untuk AI memuat peringatan tetapi bukan kata lunas', () =
   assert.match(marker, /REKENING LAMA/);
   assert.doesNotMatch(marker, /lunas|diterima/i);
 });
+
+test('guessExpectedAmount: GRAND TOTAL didahulukan atas Total produk', () => {
+  const body = '*Proforma*\n\nTotal produk: Rp 1.784.000\nOngkir (Lalamove, Pick-up): Rp 94.700\n━━━━\n*GRAND TOTAL: Rp 1.878.700*';
+  assert.equal(proof.guessExpectedAmount([{ fromMe: true, body }]), 1878700);
+  assert.equal(proof.guessExpectedAmount([{ fromMe: true, body: 'Total produk: Rp 1.784.000' }]), null);
+});

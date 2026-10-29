@@ -5572,6 +5572,40 @@ class Database {
     return result.rows[0] || null;
   }
 
+  /** Invoice terbaru di chat yang kurirnya belum dipesan (menunggu dana masuk, atau gagal dan bisa diulang). */
+  async latestCourierInvoice(companyId, chatId) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      SELECT id::text AS id, number, total::float8 AS total, payload
+      FROM ai_sales_documents
+      WHERE company_id = $1 AND chat_id = $2 AND kind = 'invoice'
+        AND payload->'courier'->>'state' IN ('awaiting_payment', 'failed')
+      ORDER BY created_at DESC LIMIT 1
+    `, [companyId, chatId]);
+    return result.rows[0] || null;
+  }
+
+  /** Mengklaim pemesanan kurir secara atomik: hanya satu pemanggil yang menang. */
+  async claimCourierDispatch(companyId, id) {
+    if (!this.enabled) return false;
+    const result = await this.pool.query(`
+      UPDATE ai_sales_documents
+      SET payload = jsonb_set(payload, '{courier,state}', '"dispatching"')
+      WHERE company_id = $1 AND id = $2 AND payload->'courier'->>'state' IN ('awaiting_payment', 'failed')
+      RETURNING id
+    `, [companyId, id]);
+    return result.rowCount > 0;
+  }
+
+  async setCourierState(companyId, id, state, extra = {}) {
+    if (!this.enabled) return;
+    await this.pool.query(`
+      UPDATE ai_sales_documents
+      SET payload = jsonb_set(payload, '{courier}', (payload->'courier') || $3::jsonb)
+      WHERE company_id = $1 AND id = $2
+    `, [companyId, id, JSON.stringify({ state, ...extra })]);
+  }
+
   /** Koneksi menyala yang harganya belum ditarik atau sudah lebih tua dari `hours`. */
   async listDealposProductsDue(hours) {
     if (!this.enabled) return [];

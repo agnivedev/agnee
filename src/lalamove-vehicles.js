@@ -90,6 +90,20 @@ function buildQuestion({ barang, address, approximate, options }) {
 const escape = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const hasWord = (text, word) => new RegExp(`(?<![a-z0-9])${escape(word).replace(/\s+/g, '\\s*[- ]?\\s*')}(?![a-z0-9])`, 'i').test(text);
 
+const NEG = '(?:ga|gak|nggak|ngga|tidak|tak|belum)';
+const VEHICLE_WORD = '(?:sepeda motor|motor|sedan|mobil|mpv|van|pick ?-?up|pickup|truck ?\\d+|truk ?\\d+|engkel(?: box| bak)?|cdd(?: box| bak)?|fuso(?: box| bak)?|lalanow)';
+
+/**
+ * Kendaraan yang ditolak ("motor ga muat", "bukan motor", "tidak pakai van")
+ * dibuang dari jawaban supaya "motor ga muat, pakai pick up" terbaca pick-up.
+ */
+function dropRejected(text) {
+  return text
+    .replace(new RegExp(`${VEHICLE_WORD}(?:\\s+\\d+)?\\s+${NEG}\\s+(?:muat|cukup|bisa|kuat|memungkinkan|cocok)`, 'g'), ' ')
+    .replace(new RegExp(`(?:bukan|jangan|${NEG}\\s+(?:usah\\s+)?(?:pakai|pake|naik|bisa))\\s+${VEHICLE_WORD}`, 'g'), ' ')
+    .replace(/\s+/g, ' ').trim();
+}
+
 /**
  * Jawaban Management -> { key, count, label } atau { error }.
  *  - "engkel" saja = engkel box, "cdd" = CDD box, "fuso" = Fuso box (bak hanya bila disebut)
@@ -99,7 +113,8 @@ const hasWord = (text, word) => new RegExp(`(?<![a-z0-9])${escape(word).replace(
  */
 function parseAnswer(text, available = []) {
   // Kode pertanyaan (#a1b2c3) bukan bagian jawaban: dibuang supaya angkanya tak terbaca sebagai jumlah.
-  const clean = String(text || '').toLowerCase().replace(/#[0-9a-f]{6}\b/g, ' ').replace(/[^a-z0-9\s.\-]/g, ' ').replace(/\s+/g, ' ').trim();
+  let clean = String(text || '').toLowerCase().replace(/#[0-9a-f]{6}\b/g, ' ').replace(/[^a-z0-9\s.\-]/g, ' ').replace(/\s+/g, ' ').trim();
+  clean = dropRejected(clean);
   if (!clean) return { error: 'kosong' };
   // "motor ga muat, pakai pick up": kendaraan yang ditolak tidak dihitung sebagai pilihan.
   const answer = clean

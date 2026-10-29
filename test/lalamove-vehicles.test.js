@@ -73,3 +73,9 @@ test('parseAnswer: yang ambigu, tidak ada, atau tidak tersedia ditolak dengan al
   // Tanpa daftar tersedia, semua jenis yang dikenal dianggap boleh.
   assert.equal(v.parseAnswer('lalanow').key, 'LALANOW');
 });
+
+test('parseAnswer: kendaraan yang ditolak dibuang, "motor ga muat, pakai pick up" = pick-up', () => {
+  assert.equal(v.parseAnswer('motor ga muat, pakai pick up').key, 'PICK_UP_TRUCK');
+  assert.equal(v.parseAnswer('bukan motor, engkel box aja').key, 'ENGKELBOX');
+  assert.equal(v.parseAnswer('motor atau pick up').error, 'lebih_dari_satu');
+});

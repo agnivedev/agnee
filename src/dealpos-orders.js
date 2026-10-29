@@ -32,7 +32,7 @@ const GUIDE = `## PROFORMA & INVOICE DEALPOS (alat ${PROFORMA}, ${INVOICE})
 - Hasil selain "ok" berarti TIDAK ADA proforma. Jangan pernah menulis teks proforma sendiri; sampaikan apa yang perlu diperbaiki atau tanyakan ke tim. Kirim "teks" hasilnya persis seperti diberikan, lalu minta customer memeriksa dan menyetujuinya. Alat ini menghitung harga dan ongkir sendiri; jangan menghitung ulang.
 - Setelah customer menyatakan setuju dengan proforma itu (di pesannya sendiri, bukan tebakanmu), panggil ${INVOICE}. Jangan memanggilnya di giliran yang sama dengan ${PROFORMA}.
 - Kalau customer mengubah pesanan (barang, jumlah, lokasi), buat proforma baru; jangan invoice dari yang lama.
-- Setelah ${INVOICE} berhasil, sampaikan nomor invoice dan, bila ada, tautan pelacakan kurir, lalu jelaskan langkah pembayarannya sesuai playbook. Kalau hasilnya "sebagian" atau "gagal", katakan tim akan menindaklanjuti; jangan mengulang pemanggilan dan jangan menjanjikan kurir sudah berangkat.
+- Setelah ${INVOICE} berhasil, sampaikan nomor invoice dan, bila ada, tautan pelacakan kurir, lalu jelaskan langkah pembayarannya sesuai playbook. Kurir TIDAK dipesan saat invoice: kurir baru dipesan setelah tim Finance mengonfirmasi dana masuk. Jangan bilang kurir sudah dipesan atau berangkat; katakan pesanan dikirim setelah pembayaran terkonfirmasi. Kalau hasilnya "gagal", katakan tim akan menindaklanjuti; jangan mengulang pemanggilan.
 - Kalau alat bilang lokasi belum berupa titik, minta customer share location WhatsApp atau kirim link Google Maps.`;
 
 const todayInJakarta = (now = new Date()) => new Date(now.getTime() + 7 * 3600_000).toISOString().slice(0, 10);
@@ -93,6 +93,12 @@ function resolveItems(products, requested, catalogItems = [], shownItems = []) {
   }
   return { lines, unknown, priceMismatch, invalidPrice, ambiguous };
 }
+
+// Nama bawaan dari nomor ('Customer 62813…', angka saja) bukan nama penerima untuk kurir.
+const realName = (name) => {
+  const n = String(name || '').trim();
+  return n && !/^(customer\s*)?\+?[\d\s-]{6,}$/i.test(n) ? n : '';
+};
 
 function customerBlock({ phone, name, existing }) {
   return {
@@ -212,7 +218,7 @@ function createTools(ctx) {
       payload: {
         lines, shipping: pickup ? 0 : shipping, shippingLabel, pickup, delivery,
         shippingNote: shippingNote(pickup ? 0 : shipping, conn.shippingVariantCode, shippingLabel),
-        recipientName: args.nama_penerima || ctx.customerName || null,
+        recipientName: realName(args.nama_penerima) || realName(ctx.customerName) || null,
         recipientPhone: args.telepon_penerima || ctx.phone || null,
       },
     });
@@ -253,7 +259,7 @@ function createTools(ctx) {
       }
     }
 
-    const recipientName = String(args.nama_penerima || p.recipientName || ctx.customerName || '').trim();
+    const recipientName = realName(args.nama_penerima) || realName(p.recipientName) || realName(ctx.customerName);
     const recipientPhone = String(args.telepon_penerima || p.recipientPhone || ctx.phone || '').trim();
     if (!p.pickup && (!recipientName || !recipientPhone)) {
       return { status: 'butuh_data_penerima', pesan: 'Tanyakan nama dan nomor HP penerima (yang akan dihubungi kurir).' };
@@ -279,39 +285,25 @@ function createTools(ctx) {
       return { status: 'gagal', pesan: 'Invoice belum bisa dibuat di DealPOS. Tim akan menindaklanjuti.', alasan: String(error.message || '').slice(0, 200) };
     }
     const invoiceNumber = created?.Number || number;
+    // Kurir baru dipesan setelah dana masuk (dispatchCourier). Yang disimpan di sini
+    // persis bahan pemesanannya: titik jemput, penerima, dan ongkir yang disetujui.
+    const courier = p.pickup ? null : {
+      state: 'awaiting_payment',
+      serviceType: p.delivery.serviceType,
+      lalamoveTotal: p.delivery.lalamoveTotal,
+      destination: p.delivery.destination,
+      pickup: { lat: ctx.pickup.lat, lng: ctx.pickup.lng, address: ctx.pickup.address, name: ctx.pickup.name, contactName: ctx.pickup.contactName, contactPhone: ctx.pickup.contactPhone },
+      recipientName, recipientPhone,
+    };
     await database.createAiSalesDocument(companyId, {
       kind: 'invoice', chatId, dealposId: created?.ID || null, number: invoiceNumber, total: proformaDoc.total,
-      proformaId: proformaDoc.id, payload: { proforma: proformaDoc.number, lines, shipping: p.shipping },
+      proformaId: proformaDoc.id, payload: { proforma: proformaDoc.number, lines, shipping: p.shipping, ...(courier ? { courier } : {}) },
     });
     ctx.onAudit?.('ai_order.invoice_created', { number: invoiceNumber, total: proformaDoc.total });
 
     const result = { status: 'ok', nomor_invoice: invoiceNumber, total: orderSummary.rupiah(proformaDoc.total) };
     if (p.pickup) return { ...result, kurir: 'Ambil di toko, tidak ada kurir.' };
-
-    try {
-      const placed = await lalamove.placeOrder(ctx.lalamoveConn, {
-        quotationId: fresh.quotationId,
-        sender: { stopId: fresh.stops[0].stopId, name: ctx.pickup.contactName, phone: ctx.pickup.contactPhone },
-        recipients: [{ stopId: fresh.stops[1].stopId, name: recipientName, phone: recipientPhone }],
-        metadata: { source: 'agnee-ai', invoice: invoiceNumber },
-      }, fetchImpl);
-      if (!placed.orderId) throw new Error('Lalamove tidak mengembalikan nomor order.');
-      await database.createLalamoveOrder(companyId, {
-        chatId, orderId: placed.orderId, environment: ctx.lalamoveConn.environment, serviceType: p.delivery.serviceType,
-        status: placed.status || 'ASSIGNING_DRIVER', shareLink: placed.shareLink, total: fresh.total, currency: fresh.currency,
-        pickupName: ctx.pickup.name, pickupAddress: ctx.pickup.address, dropoffAddress: p.delivery.destination.address,
-        recipientName, recipientPhone, createdBy: null,
-      });
-      ctx.onAudit?.('ai_order.delivery_placed', { orderId: placed.orderId, invoice: invoiceNumber });
-      return { ...result, kurir: 'Lalamove sudah dipesan, sedang mencari driver.', tautan_pelacakan: placed.shareLink || undefined };
-    } catch (error) {
-      // Invoice sudah tercatat; hanya kurirnya yang perlu ditangani manusia.
-      return {
-        status: 'sebagian', nomor_invoice: invoiceNumber, total: result.total,
-        pesan: 'Invoice sudah dibuat, tetapi kurir Lalamove belum berhasil dipesan. Tim akan memesannya secara manual; jangan menjanjikan jam kirim.',
-        alasan: String(error.message || '').slice(0, 200),
-      };
-    }
+    return { ...result, kurir: 'Kurir dipesan setelah pembayaran dikonfirmasi tim Finance; jangan menyebut kurir sudah dipesan.' };
   }
 
   return [
@@ -357,4 +349,49 @@ function createTools(ctx) {
   ];
 }
 
-module.exports = { PROFORMA, INVOICE, GUIDE, SHIPPING_DRIFT, MIN_UNIT_PRICE, isUsable, missingSetup, resolveItems, createTools, todayInJakarta };
+/**
+ * Pesan kurir Lalamove untuk invoice terbaru di chat yang masih "menunggu
+ * pembayaran". Dipanggil setelah staf menandai bukti transfer diterima (dana
+ * masuk). Harga diminta ulang (penawaran Lalamove cepat kedaluwarsa); naik
+ * lebih dari SHIPPING_DRIFT dari yang disetujui customer berarti kurir tidak
+ * dipesan dan staf memutuskan. Satu invoice hanya dipesan sekali.
+ */
+async function dispatchCourier({ database, companyId, chatId, lalamoveConn, fetchImpl = globalThis.fetch, onAudit }) {
+  const doc = await database.latestCourierInvoice(companyId, chatId);
+  if (!doc) return { status: 'tidak_ada', pesan: 'Tidak ada invoice yang menunggu kurir di chat ini.' };
+  if (!lalamoveConn?.enabled) return { status: 'gagal', nomor_invoice: doc.number, pesan: 'Lalamove belum aktif; kurir dipesan manual.' };
+  const claimed = await database.claimCourierDispatch(companyId, doc.id);
+  if (!claimed) return { status: 'sudah_diproses', nomor_invoice: doc.number, pesan: 'Kurir untuk invoice ini sedang atau sudah dipesan.' };
+  const c = doc.payload.courier;
+  const fail = async (pesan, alasan) => {
+    await database.setCourierState(companyId, doc.id, 'failed', { reason: String(alasan || pesan).slice(0, 200) });
+    return { status: 'gagal', nomor_invoice: doc.number, pesan, ...(alasan ? { alasan: String(alasan).slice(0, 200) } : {}) };
+  };
+  try {
+    const fresh = await lalamove.getQuotation(lalamoveConn, { serviceType: c.serviceType, stops: [{ lat: c.pickup.lat, lng: c.pickup.lng, address: c.pickup.address }, c.destination] }, fetchImpl);
+    if (!fresh.quotationId || fresh.total == null || (fresh.stops || []).length < 2) return await fail('Lalamove tidak memberi harga. Pesan kurir manual.');
+    if (fresh.total > c.lalamoveTotal * (1 + SHIPPING_DRIFT)) {
+      return await fail(`Ongkir kurir naik menjadi ${orderSummary.rupiah(fresh.total)} dari ${orderSummary.rupiah(c.lalamoveTotal)} yang disetujui customer. Putuskan lalu pesan manual.`);
+    }
+    const placed = await lalamove.placeOrder(lalamoveConn, {
+      quotationId: fresh.quotationId,
+      sender: { stopId: fresh.stops[0].stopId, name: c.pickup.contactName, phone: c.pickup.contactPhone },
+      recipients: [{ stopId: fresh.stops[1].stopId, name: c.recipientName, phone: c.recipientPhone }],
+      metadata: { source: 'agnee-ai', invoice: doc.number },
+    }, fetchImpl);
+    if (!placed.orderId) throw new Error('Lalamove tidak mengembalikan nomor order.');
+    await database.createLalamoveOrder(companyId, {
+      chatId, orderId: placed.orderId, environment: lalamoveConn.environment, serviceType: c.serviceType,
+      status: placed.status || 'ASSIGNING_DRIVER', shareLink: placed.shareLink, total: fresh.total, currency: fresh.currency,
+      pickupName: c.pickup.name, pickupAddress: c.pickup.address, dropoffAddress: c.destination.address,
+      recipientName: c.recipientName, recipientPhone: c.recipientPhone, createdBy: null,
+    });
+    await database.setCourierState(companyId, doc.id, 'ordered', { orderId: placed.orderId });
+    onAudit?.('ai_order.delivery_placed', { orderId: placed.orderId, invoice: doc.number });
+    return { status: 'ok', nomor_invoice: doc.number, order_id: placed.orderId, tautan_pelacakan: placed.shareLink || undefined };
+  } catch (error) {
+    return fail('Kurir belum berhasil dipesan. Pesan manual.', error.message);
+  }
+}
+
+module.exports = { dispatchCourier, PROFORMA, INVOICE, GUIDE, SHIPPING_DRIFT, MIN_UNIT_PRICE, isUsable, missingSetup, resolveItems, createTools, todayInJakarta };

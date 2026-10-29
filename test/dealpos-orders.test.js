@@ -124,7 +124,7 @@ test('invoice: tanpa proforma ditolak', async () => {
   assert.equal((await tools.buat_invoice.run({})).status, 'tidak_ada_proforma');
 });
 
-test('invoice: dari proforma tersimpan, Invoice dikirim lalu Lalamove dipesan dan dicatat', async () => {
+test('invoice: dari proforma tersimpan, Invoice dikirim; kurir TIDAK dipesan sebelum dana masuk', async () => {
   const log = [];
   const first = setup({ fetchLog: log });
   await first.tools.buat_proforma.run({ barang: [{ kode: 'MU480', jumlah: 10 }], tujuan: '-6.3,106.6' });
@@ -147,11 +147,53 @@ test('invoice: dari proforma tersimpan, Invoice dikirim lalu Lalamove dipesan da
   const out = await invoiceTool.run({});
   assert.equal(out.status, 'ok');
   assert.equal(out.nomor_invoice, 'INV-77');
-  assert.equal(out.tautan_pelacakan, 'https://share.lalamove/o1');
+  assert.equal(out.tautan_pelacakan, undefined);
+  assert.match(out.kurir, /setelah pembayaran/);
+  assert.equal(log.some((l) => l.url.includes('/v3/orders')), false);
+  assert.equal(first.lalaOrders.length, 0);
+  const saved = first.docs.find((d) => d.kind === 'invoice');
+  assert.equal(saved.payload.courier.state, 'awaiting_payment');
   const inv = log.find((l) => l.url.includes('/api/v3/Invoice'));
   assert.equal(inv.body.ReferenceNumber, first.docs[0].number);
   assert.deepEqual(inv.body.Variants.map((v) => v.Code), ['MU480', 'ONGKIR']);
+
+  // Dana masuk: kurir dipesan sekali, dengan harga yang diminta ulang.
+  const states = [];
+  const db = {
+    latestCourierInvoice: async () => (saved.payload.courier.state === 'ordered' ? null : { id: '9', number: 'INV-77', payload: saved.payload }),
+    claimCourierDispatch: async () => { if (saved.payload.courier.state === 'dispatching') return false; saved.payload.courier.state = 'dispatching'; return true; },
+    setCourierState: async (c, id, state) => { saved.payload.courier.state = state; states.push(state); },
+    createLalamoveOrder: async (c, o) => { first.lalaOrders.push(o); },
+  };
+  const fetchImpl = async (url) => {
+    if (url.includes('/v3/quotations')) return new Response(JSON.stringify({ data: { quotationId: 'q2', priceBreakdown: { total: '47000', currency: 'IDR' }, stops: [{ stopId: 's0' }, { stopId: 's1' }] } }), { status: 200 });
+    if (url.includes('/v3/orders')) return new Response(JSON.stringify({ data: { orderId: 'o1', status: 'ASSIGNING_DRIVER', shareLink: 'https://share.lalamove/o1' } }), { status: 200 });
+    throw new Error(`unexpected ${url}`);
+  };
+  const done = await orders.dispatchCourier({ database: db, companyId: 'c1', chatId: '6281234@c.us', lalamoveConn: LALA, fetchImpl });
+  assert.equal(done.status, 'ok');
   assert.equal(first.lalaOrders[0].orderId, 'o1');
+  assert.deepEqual(states, ['ordered']);
+  assert.equal((await orders.dispatchCourier({ database: db, companyId: 'c1', chatId: '6281234@c.us', lalamoveConn: LALA, fetchImpl })).status, 'tidak_ada');
+});
+
+test('dispatchCourier: ongkir naik lebih dari 10% = tidak dipesan, ditandai gagal untuk staf', async () => {
+  const payload = { courier: { state: 'awaiting_payment', serviceType: 'MOTORCYCLE', lalamoveTotal: 45000, destination: { lat: -6.3, lng: 106.6, address: 'BSD' }, pickup: { lat: -6.2, lng: 106.7, address: 'Jl. A', name: 'Gudang', contactName: 'Budi', contactPhone: '08111' }, recipientName: 'Dedi', recipientPhone: '0812' } };
+  const states = [];
+  const db = {
+    latestCourierInvoice: async () => ({ id: '9', number: 'INV-1', payload }),
+    claimCourierDispatch: async () => true,
+    setCourierState: async (c, id, state) => { states.push(state); },
+    createLalamoveOrder: async () => { throw new Error('tidak boleh'); },
+  };
+  const fetchImpl = async (url) => {
+    if (url.includes('/v3/quotations')) return new Response(JSON.stringify({ data: { quotationId: 'q', priceBreakdown: { total: '60000', currency: 'IDR' }, stops: [{ stopId: 's0' }, { stopId: 's1' }] } }), { status: 200 });
+    throw new Error(`unexpected ${url}`);
+  };
+  const out = await orders.dispatchCourier({ database: db, companyId: 'c1', chatId: 'x', lalamoveConn: LALA, fetchImpl });
+  assert.equal(out.status, 'gagal');
+  assert.match(out.pesan, /naik/);
+  assert.deepEqual(states, ['failed']);
 });
 
 test('invoice: ongkir kurir naik >10% dari proforma diminta proforma baru, Invoice tidak ditulis', async () => {

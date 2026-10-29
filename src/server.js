@@ -2113,7 +2113,16 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
 
       // Total yang diharapkan: angka total terbaru yang kita tulis di chat ini.
       let expectedAmount = null;
+      // Angka dokumen tersimpan (invoice/proforma terbaru) lebih dapat dipercaya daripada teks chat.
+      if (typeof database.latestAiSalesDocument === 'function') {
+        const docs = (await Promise.all([['invoice', null], ['proforma', 'open']]
+          .map(([kind, status]) => database.latestAiSalesDocument(companyId, message.from, kind, status).catch(() => null))))
+          .filter((d) => d && Number(d.total) >= 1000)
+          .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+        if (docs.length) expectedAmount = Number(docs[0].total);
+      }
       try {
+        if (expectedAmount) throw new Error('sudah diketahui');
         const { client: wa } = await waFor(companyId, message.from);
         if (wa) expectedAmount = paymentProof.guessExpectedAmount((await getMessagesForUi(wa, message.from, 20)).messages);
       } catch { /* total tidak diketahui -> perlu dicek staf */ }
@@ -12152,7 +12161,32 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     const saved = await database.reviewPaymentProof(request.agneeSession.companyId, request.params.id, request.body.status, request.agneeSession.userId);
     if (!saved) return reply.code(404).send({ error: 'Bukti tidak ditemukan.' });
     await catatAudit(request, 'payment_proof.reviewed', { entityType: 'payment_proof', entityId: saved.id, metadata: { status: saved.reviewStatus } });
-    return { proof: { ...saved, summary: paymentProof.summarize(saved) } };
+    // Dana masuk (staf menerima bukti): baru sekarang kurir invoice di chat ini dipesan.
+    const courier = saved.reviewStatus === 'accepted' ? await dispatchCourierForChat(request, saved.chatId) : undefined;
+    return { proof: { ...saved, summary: paymentProof.summarize(saved) }, ...(courier ? { courier } : {}) };
+  });
+
+  async function dispatchCourierForChat(request, chatId) {
+    const { companyId } = request.agneeSession;
+    if (!chatId || !canCall('latestCourierInvoice')) return null;
+    const lalamoveConn = await database.getLalamoveConnection(companyId).catch(() => null);
+    const out = await dealposOrders.dispatchCourier({
+      database, companyId, chatId, lalamoveConn,
+      onAudit: (event, metadata) => app.log.info({ companyId, chatId, event, ...metadata }, 'Pesanan AI'),
+    });
+    if (out.status === 'tidak_ada') return null;
+    await catatAudit(request, out.status === 'ok' ? 'ai_order.courier_placed' : 'ai_order.courier_failed', { entityType: 'chat', entityId: chatId, metadata: { invoice: out.nomor_invoice, status: out.status } });
+    return out;
+  }
+
+  // Dana masuk dikonfirmasi tanpa foto bukti (mis. Finance memeriksa mutasi): pesan kurir manual.
+  app.post('/v1/ai-orders/dispatch-courier', {
+    schema: { body: { type: 'object', required: ['chatId'], additionalProperties: false, properties: { chatId: { type: 'string', maxLength: 100 } } } },
+  }, async (request, reply) => {
+    if (!canCall('latestCourierInvoice')) return reply.code(503).send({ error: 'Database tidak tersedia.' });
+    const out = await dispatchCourierForChat(request, request.body.chatId);
+    if (!out) return reply.code(404).send({ error: 'Tidak ada invoice yang menunggu kurir di chat ini.' });
+    return { courier: out };
   });
 
   // ── Aturan promo (Pengaturan > Promo) ─────────────────────────────────────

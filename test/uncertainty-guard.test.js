@@ -79,6 +79,13 @@ test('hedging di kalimat berisiko memicu; hedging santai tidak', () => {
   assert.deepEqual(codes(run({ customerText: 'halo', finalText: 'Mungkin Kakak sedang sibuk, saya tunggu kabarnya ya.' })), []);
 });
 
+test('pertanyaan ke customer bukan hedging; pencarian harga gagal tapi harga sah tetap lolos', () => {
+  assert.deepEqual(codes(run({ customerText: 'Saya di ruko golden 8', finalText: 'Untuk ongkir yang lebih akurat, bisa share lokasi atau mungkin ada patokan terdekatnya kak?' })), []);
+  const none = JSON.stringify({ status: 'tidak_ketemu', pesan: 'Tidak ada barang yang cocok di daftar harga.' });
+  const said = `${FACTS}\nDanabrite 2290 Brilliant White 5KG Rp 125.000 per gln`;
+  assert.deepEqual(codes(run({ customerText: 'itu aja kak jadi berapa?', finalText: 'Totalnya 1 gln x Rp 125.000 = Rp 125.000 ya kak.', priceSource: said, toolOutputs: [none] })), []);
+});
+
 test('pickDepartment: transfer ke Finance, sisanya Management, stok ke Gudang lebih dulu', () => {
   const names = ['Management', 'Finance', 'Gudang'];
   assert.equal(guard.pickDepartment('transfer', names), 'Finance');

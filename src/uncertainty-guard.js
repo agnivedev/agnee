@@ -207,13 +207,20 @@ function assess({
 
   // 4. Alat tidak menemukan hasil.
   let missingInfo = false;
+  // Pencarian harga gagal tetapi balasan memuat harga yang sah (sudah lolos
+  // pemeriksaan angka karangan di atas): harga itu berasal dari riwayat toko,
+  // jadi pencarian yang gagal bukan alasan untuk membuang jawabannya.
+  const groundedPrice = /\bRp\s*\d/i.test(reply) && !reasons.some((r) => r.code === 'invented_price');
   for (const fail of toolFailures(toolOutputs)) {
+    if (fail.topic === 'harga' && !fail.missing && groundedPrice) continue;
     add('tool_no_result', fail.topic, fail.status);
     if (fail.missing) missingInfo = true;
   }
 
   // 5. Model sendiri berhedging di kalimat berisiko.
   for (const sentence of splitSentences(reply)) {
+    // Pertanyaan ke customer ("atau mungkin ada patokan terdekatnya?") bukan klaim.
+    if (/\?\s*$/.test(sentence)) continue;
     if (HEDGE.test(sentence) && RISK_WORDS.test(sentence)) add('hedge', topicOfSentence(sentence), sentence);
   }
 
@@ -308,7 +315,7 @@ const looksEnglish = (text) => /\b(?:the|how much|price|stock|shipping|do you|ca
   && !/\b(?:mau|ingin|boleh|bisa|tolong|berapa|harga|kak|ada|tidak)\b/i.test(text);
 
 /** Kalimat menunda yang digantikan oleh tindakan nyata. */
-const DELAY_SENTENCE = /\b(?:pastikan|cek|konfirmasi(?:kan)?|tanyakan)\s+dulu\b|\b(?:mohon|harap|silakan)\s+(?:ditunggu|menunggu|tunggu)\b|\bnanti\s+(?:saya|aku|kami)\s+(?:info|kabari|kasih\s+tahu|hubungi)/i;
+const DELAY_SENTENCE = /\b(?:pastikan|cek|konfirmasi(?:kan)?|tanyakan)\s+(?:dulu|lagi)\b|\b(?:mohon|harap|silakan)\s+(?:ditunggu|menunggu|tunggu)\b|\bnanti\s+(?:saya|aku|kami)\s+(?:info|kabari|kasih\s+tahu|hubungi)/i;
 
 /**
  * Susun balasan akhir: bagian balasan model yang aman + pengakuan wajar +

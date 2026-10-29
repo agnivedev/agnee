@@ -187,3 +187,18 @@ test('penjaga harga: angka ongkir harus dari hasil cek_ongkir, bukan harga baran
   // total = harga + ongkir tidak dianggap karangan
   assert.equal(findInventedPrices('MU 301 Rp 104.000, ongkir Rp 74.700, total Rp 178.700.', withShip('Rp 74.700'), { quantityText: '' }).length, 0);
 });
+
+test('usulan Fakta: harus per satu satuan, kasus luas tertentu ditandai bermasalah', () => {
+  const { isAreaCase, draftProblems, DISTILL_SYSTEM_PROMPT } = require('../src/coach-suggestion.js');
+  assert.equal(isAreaCase('Untuk dinding seluas 24 meter persegi, Anda bisa pakai 1 galon Danabrite 2290 atau 1 pail Danabrite 0001.'), true);
+  assert.equal(isAreaCase('1 pail Danabrite 0001 White 25KG menutupi sekitar 80 m2 per lapis.'), false);
+  assert.equal(isAreaCase('Daya sebar cat Danabrite 2290 5KG sekitar 40 m2 per galon per lapis.'), false);
+  const problems = draftProblems({ question: 'Berapa banyak cat untuk dinding seluas 24 meter persegi?', answer: 'Untuk 24 meter persegi pakai 1 galon Danabrite 2290 atau 1 pail Danabrite 0001.', category: 'product' });
+  assert.ok(problems.some((p) => /per SATU satuan/.test(p)));
+  assert.match(DISTILL_SYSTEM_PROMPT, /per SATU satuan jual/i);
+});
+
+test('aturan umum: kebutuhan produk dihitung dari data per satuan, dibulatkan ke atas', () => {
+  const { conversationRules } = require('../src/reply-style.js');
+  assert.match(conversationRules(), /dibulatkan KE ATAS per satuan jual/);
+});

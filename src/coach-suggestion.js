@@ -32,6 +32,8 @@ Bukan Fakta: gaya bahasa, urutan funnel, nada, cara menutup pesan, sapaan. Itu u
 Aturan:
 - Pakai HANYA informasi yang ada di balasan yang dinilai, balasan saran, atau catatan penilai. Jangan menambah harga, angka, stok, jadwal, atau janji.
 - Kalau saran memuat angka kosong ("Rp ..."), titik-titik, atau janji menunda ("saya infokan nanti"), bagian itu TIDAK ikut ke Fakta.
+- Fakta produk SELALU per SATU satuan jual (1 galon, 1 pail, 1 sak/zak, 1 dus, 1 roll, 1 lembar, dst.): sebut nama produk lengkap, satuannya, dan daya sebar/isi/kapasitas PER SATU SATUAN itu (mis. "1 pail Danabrite 0001 White 25KG menutupi sekitar ... m2 per lapis"). Jangan menulis kasus khusus customer ("dinding 24 m2 butuh 1 galon"): ubah jadi data per satuan yang berlaku untuk semua luas. Jumlah kebutuhan dihitung Agnee dari luas dibagi daya sebar per satuan, jadi Fakta tidak memuat hitungan untuk luas tertentu.
+- Kalau sumber TIDAK menyebut daya sebar/isi/kapasitas per satuan, jangan mengarang angkanya: tulis tempat kosong "[isi daya sebar per 1 satuan]" supaya manusia mengisinya dari data produk.
 - Tulis pertanyaan seperti customer menanyakannya (umum, tanpa nama atau nomor). Jawaban singkat, benar, siap dibacakan, maksimal 500 karakter.
 - Kalau tidak ada informasi bisnis yang layak dijadikan Fakta, putuskan "discard" dan jelaskan alasannya dalam satu kalimat.
 
@@ -96,10 +98,24 @@ function parseDistill(text, { mode, customerMessage, suggestedReply }) {
   };
 }
 
+/**
+ * Jawaban yang menghitung untuk luas tertentu ("dinding seluas 24 m2 ... 1 galon")
+ * bukan data produk. Luas boleh disebut hanya sebagai daya sebar PER satuan
+ * ("1 pail menutupi 80 m2", "per liter 10 m2").
+ */
+function isAreaCase(text) {
+  const t = String(text || '');
+  if (!/\d+(?:[.,]\d+)?\s*(?:m2|m²|meter\s+persegi|meter\s+per\s*segi)/i.test(t)) return false;
+  const perUnit = /\b(?:per|tiap|setiap)\s+(?:1\s+)?(?:satu\s+)?(?:galon|pail|sak|zak|dus|kaleng|liter|roll|lembar|pcs|kg|botol|tube|set)\b|\b(?:1|satu)\s+(?:galon|pail|sak|zak|dus|kaleng|liter|roll|lembar|pcs|botol|tube|set)\b[^.]{0,80}\b(?:menutupi|mencakup|menutup|daya\s+sebar|cukup\s+untuk|luas)\b/i;
+  if (perUnit.test(t) && !/\b(?:dinding|lantai|atap|plafon|ruangan|rumah|kamar|area)\s+(?:seluas|luas(?:nya)?)\b/i.test(t)) return false;
+  return true;
+}
+
 const PROBLEM_TEXT = {
   'panjang pertanyaan': 'Pertanyaan terlalu pendek atau terlalu panjang (8–200 karakter).',
   'panjang jawaban': 'Jawaban terlalu pendek atau terlalu panjang (12–600 karakter).',
   'data pribadi': 'Hapus nomor telepon, email, atau nomor rekening dari teks ini.',
+  'luas khusus': 'Fakta produk harus per SATU satuan jual (mis. "1 pail menutupi sekitar … m² per lapis"), bukan hitungan untuk luas tertentu seperti "dinding 24 m²". Ubah jadi data per satuan; Agnee yang menghitung jumlahnya dari luas.',
   placeholder: 'Masih ada angka kosong ("Rp ...") atau tanda titik-titik/kurung; isi dengan data sebenarnya atau hapus.',
 };
 
@@ -107,6 +123,7 @@ const PROBLEM_TEXT = {
 function draftProblems(draft) {
   const problems = [];
   if (findPlaceholder(draft.answer) || findPlaceholder(draft.question)) problems.push(PROBLEM_TEXT.placeholder);
+  if (isAreaCase(draft.answer) || isAreaCase(draft.question)) problems.push(PROBLEM_TEXT['luas khusus']);
   const checked = validateCandidate(draft, { manual: true });
   if (!checked.ok && checked.reason !== 'placeholder') {
     problems.push(PROBLEM_TEXT[checked.reason] || `Jawaban ditolak: ${checked.reason.replace(/^klaim: /, 'mengandung klaim ')}.`);
@@ -155,7 +172,7 @@ module.exports = {
   distillUserPrompt,
   parseDistill,
   checkDraft,
-  draftProblems,
+  draftProblems, isAreaCase,
   findPlaceholder,
   simulationKey,
   evaluateSimulation,

@@ -741,7 +741,21 @@ function conversationRules(identity = 'team_member') {
 
 19. Nomor rekening, nomor telepon, dan nomor invoice hanya boleh persis dari
     pengetahuan atau hasil alat. Kalau tidak ada, katakan tim yang
-    mengirimkannya; jangan pernah mengetik nomor dari ingatan.`;
+    mengirimkannya; jangan pernah mengetik nomor dari ingatan.
+
+20. Sarankan, jangan mewawancarai. Customer yang bilang "mau beli cat" tidak
+    perlu ditanya satu per satu soal merek, warna, luas, dan kemasan. Ambil
+    asumsi paling wajar dari yang sudah dikatakan (kamar anak = cat dalam
+    ruangan; 2x3 m = hitung luas dindingnya sendiri), sebut asumsinya
+    ("saya hitung dinding 24 m², kalau beda kabari ya"), lalu beri SATU
+    rekomendasi lengkap: barang, jumlah, harga, total. Bila customer minta
+    pendapat ("menurutmu berapa?"), jawab dengan angka dan pilihan terbaik,
+    bukan pertanyaan balik. Menjelaskan beda dua pilihan ditutup dengan
+    pilihan yang kamu sarankan, bukan "mau yang mana?". Bertanya hanya untuk
+    keputusan mendesak: yang kalau salah tebak merugikan customer atau tidak
+    bisa dihitung tanpa jawabannya (alamat kirim, stok penentu order, hal
+    yang tak bisa dibatalkan). Tidak pernah dua pesan berturut-turut yang
+    berakhir pertanyaan.`;
 }
 
 const AGNEE_CONVERSATION_RULES = conversationRules();

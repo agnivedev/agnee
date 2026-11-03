@@ -622,7 +622,7 @@ function PlaybookDocs({ refreshKey }: { refreshKey: number }) {
                     </span>
                   </header>
 
-                  <div className="mb-4 flex flex-wrap gap-1.5">
+                  <div className="mb-4 flex flex-wrap items-center gap-1.5">
                     {(['isi', 'ubah', 'obrolan'] as const)
                       // "Ubah lewat obrolan" mengedit dokumen yang sudah ada; di dokumen kosong
                       // yang masuk akal hanya menyusun dari nol.
@@ -640,6 +640,9 @@ function PlaybookDocs({ refreshKey }: { refreshKey: number }) {
                           {t(id === 'isi' ? 'knowledge.tabContent' : id === 'ubah' ? 'knowledge.tabEditChat' : 'knowledge.tabChat')}
                         </button>
                       ))}
+                    {tab === 'isi' && !editing && doc.contentMd.trim() ? (
+                      <Button size="sm" variant="outline" className="ml-auto" onClick={() => setEditing(true)}>{t('knowledge.edit')}</Button>
+                    ) : null}
                   </div>
 
                   {tab === 'obrolan' ? (
@@ -665,12 +668,7 @@ function PlaybookDocs({ refreshKey }: { refreshKey: number }) {
                       onSaved={() => { setEditing(false); setRevision((value) => value + 1); }}
                     />
                   ) : doc.contentMd.trim() ? (
-                    <div className="grid gap-3">
-                      <div className="flex justify-end">
-                        <Button size="sm" variant="outline" onClick={() => setEditing(true)}>{t('knowledge.edit')}</Button>
-                      </div>
-                      <Markdown source={doc.contentMd} />
-                    </div>
+                    <Markdown source={doc.contentMd} />
                   ) : (
                     <div className="grid gap-3 py-6 text-center">
                       <p className="m-0 text-sm text-muted">{t('knowledge.emptyBody')}</p>

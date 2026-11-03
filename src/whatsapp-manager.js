@@ -245,6 +245,36 @@ class WhatsappManager {
     setTimeout(() => { entry.rejecting = false; }, 8000).unref?.();
   }
 
+  /**
+   * Putus atas perintah supervisor: logout dari WhatsApp lalu biarkan mati.
+   * Beda dengan logout biasa, tidak ada client baru dengan QR — klien hanya
+   * dinyalakan lagi saat supervisor membuka dialog QR (`qr-refresh`).
+   */
+  async disconnect(connectionId, log, onStatusUpdate) {
+    const entry = this._getEntry(connectionId);
+    const state = entry.state;
+    entry.rejecting = true; // menahan handler 'disconnected' yang memulai ulang client
+    clearTimeout(entry.restoredSessionTimer);
+    entry.restoredSessionTimer = null;
+    try { await entry.client?.logout(); } catch { /* sudah putus */ }
+    await this.stopClient(connectionId).catch(() => {});
+    this._clearQrMirror(connectionId);
+    state.phase = 'disconnected';
+    state.account = null;
+    state.connectedAt = null;
+    state.qrDataUrl = null;
+    state.qrPayload = null;
+    state.qrGeneratedAt = null;
+    state.pairingCode = null;
+    state.pairingCodeAt = null;
+    state.syncPercent = null;
+    state.lastError = null;
+    log?.info({ connectionId }, 'WhatsApp disconnected by supervisor');
+    this.broadcast(entry.companyId, 'whatsapp_phase', { phase: 'disconnected', connectionId });
+    await onStatusUpdate?.(entry.companyId, 'disconnected', null, connectionId)?.catch?.(() => {});
+    setTimeout(() => { entry.rejecting = false; }, 8000).unref?.();
+  }
+
   /** Broadcast an SSE event to every listener of a company. */
   broadcast(companyId, event, payload) {
     const listeners = this._sse.get(companyId);

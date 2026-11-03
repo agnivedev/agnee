@@ -74,6 +74,23 @@ export function WhatsappNumbersSection() {
 
   const ready = numbers.filter((number) => number.phase === 'ready').length;
 
+  async function disconnectAll() {
+    const ok = await confirm.confirm({
+      title: t('wa.disconnectTitle'),
+      message: t('wa.disconnectCopy'),
+      confirmLabel: t('wa.disconnectConfirm'),
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await api('/v1/whatsapp/disconnect', { method: 'POST', body: {} });
+      setStatus(t('wa.disconnected'));
+      await load();
+    } catch (error) {
+      await confirm.error(error);
+    }
+  }
+
   async function add() {
     setBusy(true);
     setStatus('');
@@ -98,6 +115,13 @@ export function WhatsappNumbersSection() {
       eyebrow={t('wa.numbersEyebrow')}
       title={t('wa.numbersTitle')}
       badge={t('wa.numbersConnected', { ready, total: numbers.length })}
+      badgeAction={
+        ready > 0 ? (
+          <Button size="sm" variant="outline" onClick={() => void disconnectAll()}>
+            {t('wa.disconnect')}
+          </Button>
+        ) : null
+      }
       description={t('wa.numbersCopy')}
     >
       {/* Label menyebut apa yang terjadi kalau dicentang, bukan status saat ini —

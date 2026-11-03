@@ -10,6 +10,7 @@ export function SettingCard({
   title,
   badge,
   badgeTone = 'neutral',
+  badgeAction,
   description,
   children,
   id,
@@ -18,6 +19,7 @@ export function SettingCard({
   title: string;
   badge?: string;
   badgeTone?: 'neutral' | 'on' | 'off';
+  badgeAction?: ReactNode;
   description?: ReactNode;
   children: ReactNode;
   id?: string;
@@ -33,16 +35,19 @@ export function SettingCard({
           <h2 className="m-0 text-xl tracking-[-.02em]">{title}</h2>
         </div>
         {badge ? (
-          <span
-            className={cn(
-              'rounded-full px-3 py-1 font-mono text-[10px] font-semibold tracking-[.06em] uppercase',
-              badgeTone === 'on' && 'bg-green/14 text-green-dark',
-              badgeTone === 'off' && 'bg-ink/8 text-muted',
-              badgeTone === 'neutral' && 'bg-ink text-white',
-            )}
-          >
-            {badge}
-          </span>
+          <div className="flex items-center gap-2">
+            {badgeAction}
+            <span
+              className={cn(
+                'rounded-full px-3 py-1 font-mono text-[10px] font-semibold tracking-[.06em] uppercase',
+                badgeTone === 'on' && 'bg-green/14 text-green-dark',
+                badgeTone === 'off' && 'bg-ink/8 text-muted',
+                badgeTone === 'neutral' && 'bg-ink text-white',
+              )}
+            >
+              {badge}
+            </span>
+          </div>
         ) : null}
       </div>
       {description ? <p className="mt-0 mb-4 text-[13px] leading-[1.6] text-muted">{description}</p> : null}

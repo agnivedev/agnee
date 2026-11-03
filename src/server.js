@@ -12543,6 +12543,40 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     return { ok: true };
   });
 
+  // Putus lalu biarkan mati, tanpa QR baru. Tanpa `connectionId` semua nomor
+  // company ini yang sedang hidup diputus. Status 'disconnected' di database
+  // juga mencegah nomor bangkit sendiri saat server restart.
+  app.post('/v1/whatsapp/disconnect', {
+    schema: {
+      body: {
+        type: 'object', additionalProperties: false,
+        properties: { connectionId: { type: 'string', format: 'uuid' } },
+      },
+    },
+  }, async (request, reply) => {
+    if (!isSupervisor(request.agneeSession)) return reply.code(403).send({ error: 'Hanya supervisor yang dapat mengelola koneksi WhatsApp.' });
+    if (config.demoMode) return reply.code(409).send({ error: 'Cannot disconnect in demo mode' });
+    const companyId = request.agneeSession.companyId;
+    const rows = await listWaConns(companyId);
+    const targets = request.body?.connectionId
+      ? rows.filter((row) => row.id === request.body.connectionId)
+      : rows;
+    if (!targets.length) return reply.code(404).send({ error: 'Nomor tidak ditemukan.' });
+    const callbacks = makeWaCallbacks();
+    const disconnected = [];
+    for (const conn of targets) {
+      const phase = manager.getState(conn.id).phase;
+      if (!manager.getClient(conn.id) && phase !== 'ready') continue;
+      await manager.disconnect(conn.id, app.log, callbacks.onStatusUpdate);
+      disconnected.push(conn.id);
+      await catatAudit(request, 'whatsapp.disconnected', {
+        entityType: 'whatsapp_connection', entityId: conn.id,
+        metadata: { label: conn.label || null },
+      });
+    }
+    return { ok: true, disconnected };
+  });
+
   // ── WhatsApp Cloud API credential management ──────────────────────────────
   app.post('/v1/whatsapp/cloud-api/connect', {
     schema: {

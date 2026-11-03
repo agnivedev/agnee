@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { api, messageFromError } from '@/lib/api';
 import { useI18n } from '@/lib/i18n';
 import { Button } from '@/components/ui/button';
@@ -13,6 +13,21 @@ import { UncertaintyCard } from './UncertaintyCard';
 type Fact = { id: string; category: string; question: string; answer?: string | null; priority?: number };
 type Scenario = { id: string; name: string; persona?: string; openingMessage: string; goal?: string };
 type Turn = { role: 'customer' | 'agent'; text: string };
+
+// Lampiran customer di simulator: dibaca server seperti pesan WhatsApp sungguhan (OCR foto, isi dokumen).
+type Attachment = { name: string; mimeType: string; data: string; size: number; preview?: string };
+const MAX_ATTACHMENTS = 4;
+const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
+const ATTACH_ACCEPT = 'image/jpeg,image/png,image/webp,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.md,.json,.pptx';
+
+function readAsBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(',')[1] || '');
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
 
 type Judge = {
   verdict: 'pass' | 'fail';
@@ -29,6 +44,8 @@ type JudgeResult = {
   judge?: Judge;
   rules?: { passed: boolean; warnings: string[] };
   newGaps?: { question: string }[];
+  // Hasil baca lampiran customer (OCR foto / isi dokumen); disimpan di riwayat supaya giliran berikutnya masih melihatnya.
+  attachmentText?: string | null;
   // Terisi bila penjaga "tidak yakin" mengubah balasan AI (tindakan hanya dilaporkan, tidak dijalankan).
   uncertainty?: { topic: string; action: string; department: string | null; reasons: { code: string; label?: string; sentence?: string }[] } | null;
 };
@@ -461,6 +478,8 @@ function SimulatePane({ scenarios, onNewGaps }: { scenarios: Scenario[]; onNewGa
   const [scenarioId, setScenarioId] = useState('');
   const [mode, setMode] = useState<'ai' | 'human'>('ai');
   const [customerMessage, setCustomerMessage] = useState('');
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const fileInput = useRef<HTMLInputElement>(null);
   const [humanReply, setHumanReply] = useState('');
   const [compare, setCompare] = useState(true);
   const [result, setResult] = useState<JudgeResult | null>(null);
@@ -477,9 +496,36 @@ function SimulatePane({ scenarios, onNewGaps }: { scenarios: Scenario[]; onNewGa
     setCustomerMessage(scenario?.openingMessage || '');
   }
 
+  async function addFiles(list: FileList | null) {
+    if (!list?.length) return;
+    const next: Attachment[] = [...attachments];
+    let notice = '';
+    for (const file of Array.from(list)) {
+      if (next.length >= MAX_ATTACHMENTS) { notice = t('coach.attachMax'); break; }
+      if (file.size > MAX_ATTACHMENT_BYTES) { notice = t('coach.attachTooBig'); continue; }
+      try {
+        const data = await readAsBase64(file);
+        next.push({ name: file.name, mimeType: file.type || 'application/octet-stream', data, size: file.size, preview: file.type.startsWith('image/') ? URL.createObjectURL(file) : undefined });
+      } catch {
+        notice = t('coach.attachFailed');
+      }
+    }
+    setAttachments(next);
+    setStatus(notice);
+    if (fileInput.current) fileInput.current.value = '';
+  }
+
+  function removeAttachment(index: number) {
+    setAttachments((current) => {
+      const target = current[index];
+      if (target?.preview) URL.revokeObjectURL(target.preview);
+      return current.filter((_, i) => i !== index);
+    });
+  }
+
   async function run() {
     const message = customerMessage.trim();
-    if (!message) {
+    if (!message && !attachments.length) {
       setStatus(t('coach.needCustomerMessage'));
       return;
     }
@@ -495,16 +541,21 @@ function SimulatePane({ scenarios, onNewGaps }: { scenarios: Scenario[]; onNewGa
         body: {
           mode,
           customerMessage: message,
+          attachments: attachments.length ? attachments.map(({ name, mimeType, data }) => ({ name, mimeType, data })) : undefined,
           humanReply: mode === 'human' ? humanReply.trim() : undefined,
           transcript,
           scenarioId: scenarioId || null,
           compareWithAi: mode === 'human' && compare,
         },
       });
-      setTranscript((current) => [...current, { role: 'customer', text: message }, { role: 'agent', text: data.reply }]);
+      // Penanda hasil baca lampiran ikut riwayat supaya giliran berikutnya masih "melihat" isinya.
+      const customerText = [message, data.attachmentText].filter(Boolean).join('\n');
+      setTranscript((current) => [...current, { role: 'customer', text: customerText }, { role: 'agent', text: data.reply }]);
       setResult(data);
-      setResultMessage(message);
+      setResultMessage(customerText);
       setCustomerMessage('');
+      attachments.forEach((item) => item.preview && URL.revokeObjectURL(item.preview));
+      setAttachments([]);
       setHumanReply('');
       setStatus('');
       if (data.newGaps?.length) onNewGaps();
@@ -570,6 +621,54 @@ function SimulatePane({ scenarios, onNewGaps }: { scenarios: Scenario[]; onNewGa
           className="w-full rounded-app border border-input bg-white p-2 text-sm"
         />
       </label>
+
+      <div className="grid gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            ref={fileInput}
+            type="file"
+            multiple
+            accept={ATTACH_ACCEPT}
+            className="hidden"
+            onChange={(event) => void addFiles(event.target.files)}
+          />
+          <Button
+            size="sm"
+            variant="outline"
+            type="button"
+            disabled={attachments.length >= MAX_ATTACHMENTS}
+            onClick={() => fileInput.current?.click()}
+          >
+            {t('coach.attach')}
+          </Button>
+          <small className="text-[11px] text-muted">{t('coach.attachHint')}</small>
+        </div>
+        {attachments.length ? (
+          <ul className="m-0 grid list-none gap-1.5 p-0">
+            {attachments.map((item, index) => (
+              <li key={`${item.name}-${index}`} className="flex items-center gap-2 rounded-xl border border-border bg-white/60 p-1.5 text-[12px]">
+                {item.preview ? (
+                  <img src={item.preview} alt="" className="size-10 rounded-md object-cover" />
+                ) : (
+                  <span className="grid size-10 place-items-center rounded-md bg-white font-mono text-[10px] uppercase text-muted">
+                    {item.name.split('.').pop()?.slice(0, 4) || 'file'}
+                  </span>
+                )}
+                <span className="min-w-0 flex-1 truncate">{item.name}</span>
+                <span className="font-mono text-[10px] text-muted">{Math.max(1, Math.round(item.size / 1024))} KB</span>
+                <button
+                  type="button"
+                  aria-label={t('coach.attachRemove')}
+                  onClick={() => removeAttachment(index)}
+                  className="rounded-md px-1.5 text-muted hover:text-text"
+                >
+                  ×
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </div>
 
       <div className="flex flex-wrap gap-3 text-[13px]">
         {(['ai', 'human'] as const).map((option) => (

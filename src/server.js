@@ -53,6 +53,7 @@ const deliveryQuote = require('./delivery-quote.js');
 const orderSummary = require('./order-summary.js');
 const dealposOrders = require('./dealpos-orders.js');
 const chatMemory = require('./chat-memory.js');
+const attachmentReader = require('./attachment-reader.js');
 const priceGuard = require('./price-guard.js');
 const storeLocations = require('./store-locations.js');
 const promoRules = require('./promo-rules.js');
@@ -2167,10 +2168,25 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
    */
   async function readCustomerMedia(companyId, message) {
     try {
-      if (!config.llmEnabled || message.fromMe || !['image', 'video'].includes(message.type)) return null;
+      if (!config.llmEnabled || message.fromMe || !['image', 'video', 'document'].includes(message.type)) return null;
       if (message.from.endsWith('@g.us') || !(database.enabled && database.connected)) return null;
       const companyConfig = await database.getCompanyConfig(companyId).catch(() => null);
       if (companyConfig?.aiReadMedia === false) return null;
+
+      // Dokumen (PDF, Word, Excel, CSV, teks): isinya dibaca jadi teks untuk AI.
+      if (message.type === 'document') {
+        if (typeof message.downloadMedia !== 'function') return null;
+        const media = await message.downloadMedia().catch(() => null);
+        if (!media?.data) return null;
+        const filename = media.filename || message._data?.filename || message.body || 'dokumen';
+        const marker = await attachmentReader.readDocument({ buffer: Buffer.from(media.data, 'base64'), mimeType: media.mimetype, filename });
+        if (!marker) return null;
+        const key = `${companyId}:${inboundMessageId(message)}`;
+        if (mediaMarkers.size >= MEDIA_MARKERS_MAX) mediaMarkers.delete(mediaMarkers.keys().next().value);
+        mediaMarkers.set(key, marker);
+        app.log.info({ companyId, chatId: message.from }, 'Dokumen customer dibaca');
+        return { text: marker };
+      }
 
       // Foto: berkas penuh. Video: hanya gambar pratinjau yang dibawa WhatsApp.
       const isVideo = message.type === 'video';
@@ -6733,9 +6749,17 @@ Aturan:
    * mode 'review' — grade a reply that already went out in a real conversation.
    */
   app.post('/v1/coach/simulate', {
+    bodyLimit: 32 * 1024 * 1024,
     schema: { body: { type: 'object', additionalProperties: false, required: ['mode', 'customerMessage'], properties: {
       mode: { type: 'string', enum: ['ai', 'human', 'review'] },
-      customerMessage: { type: 'string', minLength: 1, maxLength: 4000 },
+      customerMessage: { type: 'string', minLength: 0, maxLength: 4000 },
+      // Lampiran customer (foto, PDF, Word, Excel, CSV, teks) dalam base64; dibaca seperti pesan WhatsApp sungguhan.
+      attachments: {
+        type: 'array', maxItems: attachmentReader.MAX_FILES,
+        items: { type: 'object', additionalProperties: false, required: ['name', 'mimeType', 'data'], properties: {
+          name: { type: 'string', maxLength: 200 }, mimeType: { type: 'string', maxLength: 120 }, data: { type: 'string', maxLength: 7_200_000 },
+        } },
+      },
       humanReply: { type: 'string', maxLength: 4000 },
       transcript: SIM_TRANSCRIPT_SCHEMA,
       scenarioId: { type: ['string', 'null'], maxLength: 100 },
@@ -6753,8 +6777,10 @@ Aturan:
     const companyId = request.agneeSession.companyId;
     const userId = request.agneeSession.userId;
     const { mode, compareWithAi, grade } = request.body;
-    const customerMessage = request.body.customerMessage.trim();
+    const typedMessage = request.body.customerMessage.trim();
     const transcript = request.body.transcript || [];
+    const attachments = request.body.attachments || [];
+    if (!typedMessage && !attachments.length) return reply.code(400).send({ error: 'Tulis pesan customer atau lampirkan file.' });
 
     if (mode !== 'ai' && !String(request.body.humanReply || '').trim()) {
       return reply.code(400).send({ error: 'Isi dulu balasan yang mau dinilai.' });
@@ -6769,6 +6795,31 @@ Aturan:
 
     // Link Google Maps dibaca seperti di chat sungguhan (generateAutoReply);
     // tanpa ini simulator menguji pesan yang berbeda dari yang diterima AI.
+    // Lampiran dibaca seperti di chat sungguhan: foto lewat readCustomerMedia (OCR, pencocokan katalog),
+    // file lewat pembaca dokumen. Penandanya menjadi bagian pesan customer, dan dikembalikan ke layar
+    // supaya giliran berikutnya masih "melihat" isi lampiran.
+    const attachmentMarkers = [];
+    for (const file of attachments) {
+      try {
+        const buffer = Buffer.from(file.data, 'base64');
+        if (!buffer.length) continue;
+        const asMessage = { type: 'image', from: 'simulator@c.us', fromMe: false, body: '', id: { _serialized: `sim-${Date.now()}-${attachmentMarkers.length}` },
+          async downloadMedia() { return { mimetype: file.mimeType, data: file.data, filename: file.name }; } };
+        const document = await attachmentReader.readDocument({ buffer, mimeType: file.mimeType, filename: file.name });
+        if (document) { attachmentMarkers.push(document); continue; }
+        if (!attachmentReader.IMAGE_TYPES.test(String(file.mimeType).split(';')[0])) {
+          attachmentMarkers.push(`[Customer mengirim file "${String(file.name).slice(0, 80)}" (jenis ini belum bisa dibaca otomatis). Minta customer menuliskan poin pentingnya.]`);
+          continue;
+        }
+        const read = await readCustomerMedia(companyId, asMessage);
+        attachmentMarkers.push(read?.text || `[Customer mengirim foto "${String(file.name).slice(0, 80)}" yang tidak bisa dibaca. Minta foto yang lebih jelas atau penjelasan tertulis.]`);
+      } catch (error) {
+        app.log.warn({ err: error, companyId }, 'Lampiran simulasi gagal dibaca');
+        attachmentMarkers.push(`[Customer mengirim file "${String(file.name).slice(0, 80)}" yang gagal dibaca.]`);
+      }
+    }
+    const attachmentText = attachmentMarkers.join('\n');
+    const customerMessage = [typedMessage, attachmentText].filter(Boolean).join('\n');
     const customerRead = await mapsLink.readCustomerText({ type: 'chat', body: customerMessage }).catch(() => customerMessage);
 
     // Same context the live WhatsApp path uses, so results match production.
@@ -6877,6 +6928,8 @@ Aturan:
       judge,
       newGaps,
       runId: saved?.id || null,
+      // Hasil baca lampiran (untuk riwayat giliran berikutnya dan ditampilkan ke penguji).
+      attachmentText: attachmentText || null,
     };
   });
 

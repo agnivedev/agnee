@@ -19,9 +19,10 @@ Jawab HANYA satu objek JSON tanpa teks lain:
  // produk = foto barang yang ingin dibeli/ditanyakan; referensi = contoh desain/model/gaya "yang seperti ini"
  "description": string, // 1-2 kalimat bahasa Indonesia: apa yang terlihat
  "keywords": string[], // 3-8 kata kunci nama barang, jenis, bahan, warna, merek yang tampak
- "textInImage": string|null, // tulisan penting di gambar (merek, kode, label)
+ "textInImage": string|null, // SEMUA tulisan yang terbaca di gambar (OCR), apa adanya: nama produk, merek, kode/SKU, ukuran, spesifikasi, label, harga yang tertera, nominal/bank/tanggal bila bukti transfer; maksimal sekitar 800 karakter
+ "overlayIgnored": string|null, // watermark/logo/overlay yang diabaikan (mis. logo marketplace, nama toko, "Tokopedia", "Shopee", tanda air), atau null
  "searchQuery": string|null} // kueri pencarian singkat bahasa Indonesia untuk menemukan barang ini di web
-Jangan menebak merek atau kode yang tidak tertulis. Jangan memuat data pribadi (nama, nomor) ke description.`;
+Gambar sering diambil dari marketplace (Tokopedia, Shopee, dsb.) dan memuat watermark, logo toko, stiker diskon, dan tulisan promosi. Abaikan watermark, logo, dan stiker itu saat menilai barangnya; bacalah tulisan yang menjelaskan barangnya (nama, ukuran, spesifikasi). Jangan menebak merek atau kode yang tidak tertulis. Jangan memuat data pribadi (nama, nomor telepon) ke description.`;
 
 const VERIFY_PROMPT = `Gambar pertama adalah foto dari customer. Gambar berikutnya adalah barang katalog bernomor 1, 2, dst sesuai urutan.
 Jawab HANYA JSON: {"best": number|null, "confidence": "tinggi"|"sedang"|"rendah"}
@@ -38,7 +39,8 @@ function parseReading(raw) {
     kind: KINDS.includes(d.kind) ? d.kind : 'lainnya',
     description: str(d.description, 300) || '',
     keywords: (Array.isArray(d.keywords) ? d.keywords : []).map((k) => str(k, 40)).filter(Boolean).slice(0, 8),
-    textInImage: str(d.textInImage, 120),
+    textInImage: str(d.textInImage, 900),
+    overlayIgnored: str(d.overlayIgnored, 100),
     searchQuery: str(d.searchQuery, 120),
   };
 }
@@ -56,7 +58,7 @@ function candidates(items, reading) {
   if (!reading || !items?.length) return [];
   // Kata warna saja tidak boleh menjadi alasan cocok ("sofa abu" bukan "keramik abu").
   const COLORS = new Set(['abu', 'abu-abu', 'putih', 'hitam', 'coklat', 'cokelat', 'merah', 'biru', 'hijau', 'kuning', 'krem', 'emas', 'silver', 'gold', 'motif', 'polos']);
-  const words = [...reading.keywords, reading.textInImage || ''].join(' ').split(/\s+/).filter((w) => w && !COLORS.has(w.toLowerCase()));
+  const words = [...reading.keywords, String(reading.textInImage || '').slice(0, 200)].join(' ').split(/\s+/).filter((w) => w && !COLORS.has(w.toLowerCase()));
   const text = words.join(' ');
   return matchProducts(items.filter((i) => i.active !== false), { text }, MAX_CANDIDATES);
 }
@@ -70,7 +72,7 @@ const itemText = (i) => `${i.name}${i.code ? ` [${i.code}]` : ''}${i.price != nu
  */
 function marker({ kind = 'foto', reading, match = null, web = [], videoPreview = false }) {
   const what = videoPreview ? 'video (hanya satu cuplikan pratinjau yang terbaca)' : 'foto';
-  const lines = [`[Customer mengirim ${what}. Isi (dibaca otomatis, bisa keliru): ${reading.description || 'tidak jelas'}${reading.textInImage ? ` Tulisan di gambar: "${reading.textInImage}".` : ''}]`];
+  const lines = [`[Customer mengirim ${what}. Isi (dibaca otomatis, bisa keliru): ${reading.description || 'tidak jelas'}${reading.textInImage ? ` Tulisan di gambar (hasil baca, bisa keliru): "${reading.textInImage.slice(0, 700)}".` : ''}${reading.overlayIgnored ? ` Watermark/logo diabaikan: ${reading.overlayIgnored}.` : ''} Harga atau angka yang tertera di gambar BUKAN harga toko kita; harga hanya dari daftar harga kita.]`];
   if (match?.best) {
     lines.push(`[Barang katalog kita yang ${match.confidence === 'tinggi' ? 'sama' : 'paling mirip'} dengan gambar itu: ${itemText(match.best)}. Tawarkan ini, sebut bahwa mirip bila keyakinannya bukan tinggi, dan minta konfirmasi customer.]`);
   } else if (match?.items?.length) {

@@ -24,3 +24,16 @@ test('panduan menyuruh cek data sendiri dulu dan satu keputusan per pertanyaan',
   assert.match(g, /SATU pertanyaan = SATU keputusan/);
   assert.match(g, /Cek data sendiri DULU/);
 });
+
+test('balasan grup: "ga jadi" dan pertanyaan balik bukan jawaban, "batal" menutup', () => {
+  const c = departmentAsk.classifyGroupReply;
+  assert.equal(c('ini kan ga jadi yah'), 'cancel');
+  assert.equal(c('tidak jadi kak'), 'cancel');
+  assert.equal(c('Dibatalkan.'), 'close');
+  assert.equal(c('batal'), 'close');
+  assert.equal(c('Kenapa ya?'), 'question');
+  assert.equal(c('Gratis ongkir untuk order di atas Rp 500.000 area Jabodetabek.'), 'answer');
+  assert.equal(c('Boleh diskon 3%, pelunasan setelah barang dikirim, tidak perlu batal pesanan.'), 'answer');
+  assert.match(departmentAsk.nonAnswerNotice('cancel', 'ab12cd'), /batal/);
+  assert.doesNotMatch(departmentAsk.nonAnswerNotice('cancel', 'ab12cd'), /CS yang memegang/);
+});

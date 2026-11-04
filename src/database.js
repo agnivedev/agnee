@@ -1811,6 +1811,17 @@ class Database {
     return result.rows[0] || null;
   }
 
+  /** Staf menutup pertanyaan tanpa jawaban (pesanan batal): berhenti diingatkan, tidak diteruskan. */
+  async closeDepartmentQuestion(id, companyId) {
+    if (!this.enabled) return null;
+    const result = await this.pool.query(`
+      UPDATE department_questions SET status = 'expired', answered_at = NOW()
+      WHERE id = $1 AND company_id = $2 AND status IN ('open', 'unresolved', 'review')
+      RETURNING id
+    `, [id, companyId]);
+    return result.rows[0] || null;
+  }
+
   /** Pertanyaan kendaraan terakhir untuk satu chat (apa pun statusnya), atau null. */
   async latestVehicleQuestion(companyId, chatId) {
     if (!this.enabled || !chatId) return null;

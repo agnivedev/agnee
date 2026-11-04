@@ -166,6 +166,35 @@ function toolSpec({ departments, run }) {
   };
 }
 
+const CANCEL_RE = /\b(?:ga|gak|nggak|ngga|enggak|tidak|tak|ndak)\s+jadi\b|\bbatal(?:kan|nya)?\b|\bdibatalkan\b|\bcancel(?:ed|led)?\b/i;
+const CLOSE_RE = /^(?:batal|dibatalkan|cancel|tutup|selesai)[.!\s]*$/i;
+const QUESTION_RE = /\?\s*$/;
+
+/**
+ * Isi balasan staf di grup, setelah kode #xxxxxx dibuang:
+ *  close    perintah menutup ("batal", "tutup"): pertanyaan ditutup tanpa diteruskan
+ *  cancel   kabar pesanan batal dalam kalimat ("ini kan ga jadi yah"): bukan jawaban
+ *  question pertanyaan balik / komentar berakhir tanda tanya: bukan jawaban
+ *  answer   selain itu
+ * Kalimat panjang yang kebetulan memuat "batal" tetap dianggap jawaban.
+ */
+function classifyGroupReply(text) {
+  const t = String(text || '').replace(/\s+/g, ' ').trim();
+  if (CLOSE_RE.test(t)) return 'close';
+  if (t.length <= 60 && CANCEL_RE.test(t)) return 'cancel';
+  if (t.length <= 60 && QUESTION_RE.test(t)) return 'question';
+  return 'answer';
+}
+
+/** Balasan bot di grup untuk pesan yang bukan jawaban. Pertanyaan tetap terbuka. */
+function nonAnswerNotice(kind, code) {
+  const tag = code ? ` #${code}` : '';
+  if (kind === 'cancel') {
+    return `Dicatat, tetapi pesan itu belum dianggap jawaban, jadi pertanyaan masih terbuka dan pengingat tetap jalan. Kalau pesanan memang dibatalkan, balas pesan pertanyaan dengan kata "batal" (atau tulis${tag} batal): pertanyaan ditutup dan tidak ada yang dikirim ke customer. Kalau ada jawaban untuk customer, balas dengan jawabannya.`;
+  }
+  return `Pesan itu berupa pertanyaan, bukan jawaban, jadi pertanyaan masih terbuka. Mohon balas pesan pertanyaan dengan jawabannya (atau "batal" bila tidak jadi).`;
+}
+
 const COMPOUND_MAX = 400;
 
 /**
@@ -236,4 +265,4 @@ function judgeRelay(text) {
 }
 
 module.exports = {
-  compoundProblem, questionCode, codeInText, buildMentionNotice, guideOps, guideThirdPartiesOps, judgeRelay, leaksInternal, UNSURE_TOKEN, guideThirdParties, toolSpecThirdParty, buildThirdPartyMessage, mentionsWaiting, ensureHolding, buildReminderNotice, REMINDER_MINUTES, guide, toolSpec, buildQuestionNotice, relayPrompt, HOLDING_FALLBACK, QUESTION_MAX };
+  classifyGroupReply, nonAnswerNotice, compoundProblem, questionCode, codeInText, buildMentionNotice, guideOps, guideThirdPartiesOps, judgeRelay, leaksInternal, UNSURE_TOKEN, guideThirdParties, toolSpecThirdParty, buildThirdPartyMessage, mentionsWaiting, ensureHolding, buildReminderNotice, REMINDER_MINUTES, guide, toolSpec, buildQuestionNotice, relayPrompt, HOLDING_FALLBACK, QUESTION_MAX };

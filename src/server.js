@@ -1664,7 +1664,11 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     }
     const result = await deliveryQuote.quote(conn, { ...(payload.args || {}), kendaraan: parsed.key, jumlah_kendaraan: parsed.count }, opts);
     if (result.status !== 'ok') {
-      return { ok: false, result: { relayed: false, reason: 'quote_failed', ackText: `Terima kasih, ${parsed.label} dicatat, tapi ongkirnya belum bisa dihitung. CS yang memegang chat akan menindaklanjuti.` } };
+      await database.notifySupervisors({
+        chatId: row.chatId,
+        body: `Management memilih ${parsed.label}, tetapi ongkir belum bisa dihitung otomatis (${result.status}). Mohon dilanjutkan ke customer.`,
+      }, companyId).catch(() => {});
+      return { ok: false, result: { relayed: false, reason: 'quote_failed', ackText: `Terima kasih, ${parsed.label} dicatat, tapi ongkirnya belum bisa dihitung. Supervisor sudah diberi notifikasi untuk menindaklanjuti.` } };
     }
     await database.setDepartmentQuestionPayload(row.id, { ...payload, chosen, quote: { ongkir: result.ongkir, ongkir_angka: result.ongkir_angka, jarak_km: result.jarak_km } }, companyId).catch(() => {});
     const pays = result.ongkir_dibayar_customer || result.ongkir;
@@ -1705,6 +1709,19 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     if (!hit) return false;
     const answer = text.replace(/#[0-9a-f]{6}\b/i, '').trim();
     if (!answer) return false;
+    const replyKind = departmentAsk.classifyGroupReply(answer);
+    if (replyKind === 'close') {
+      const closed = await database.closeDepartmentQuestion(hit.id, companyId);
+      if (closed) broadcastEvent(companyId, 'department_question', { id: hit.id, department: hit.department });
+      await sendOutbound(companyId, message.from, closed
+        ? 'Dicatat, pertanyaan ditutup dan tidak diteruskan ke customer.'
+        : 'Pertanyaan ini sudah tidak terbuka.').catch(() => {});
+      return true;
+    }
+    if (replyKind !== 'answer') {
+      await sendOutbound(companyId, message.from, departmentAsk.nonAnswerNotice(replyKind, departmentAsk.questionCode(hit.id))).catch(() => {});
+      return true;
+    }
     const author = String(message.author || message._data?.author?._serialized || '');
     const member = author.endsWith('@c.us')
       ? await database.findMemberByWhatsapp(companyId, author.replace(/\D/g, '')).catch(() => null)
@@ -1720,10 +1737,31 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     }
     const ack = relay.ackText || (relay.relayed
       ? 'Terima kasih, jawabannya sudah diteruskan ke customer.'
-      : 'Terima kasih, jawabannya tercatat. Belum diteruskan otomatis; CS yang memegang chat akan menyampaikannya.');
+      : await handleUnrelayedAnswer({ companyId, row, department: hit.department, answer, reason: relay.reason }));
     await sendOutbound(companyId, message.from, ack).catch(() => {});
     trackLearning(learnFromDepartmentAnswer({ companyId, questionId: row.id, channel: 'group', groupId: message.from }));
     return true;
+  }
+
+  /**
+   * Jawaban sah tetapi tidak bisa diteruskan otomatis: pastikan ada orang nyata
+   * yang diberi tahu (lonceng ke supervisor) dan kembalikan kalimat jujur untuk
+   * grup yang menyebut siapa yang menindaklanjuti.
+   */
+  async function handleUnrelayedAnswer({ companyId, row, department, answer, reason }) {
+    const routing = await getRouting(row.chatId, companyId).catch(() => null);
+    const holder = routing?.mode === 'human' ? (routing.assigneeName || null) : null;
+    const label = await customerLabelFor(companyId, row.chatId);
+    const why = reason === 'human'
+      ? (holder ? `chat sedang dipegang ${holder}` : 'chat ditandai ditangani manusia')
+      : 'jawabannya belum cukup pasti untuk dikirim otomatis';
+    await database.notifySupervisors({
+      chatId: row.chatId,
+      body: `Jawaban ${department} untuk ${label} belum diteruskan ke customer (${why}). Jawaban: "${String(answer).slice(0, 200)}". Mohon disampaikan ke customer.`,
+    }, companyId).catch(() => {});
+    return reason === 'human'
+      ? `Terima kasih, jawabannya tercatat. Chat customer ini sedang dipegang ${holder || 'tim (belum ada nama yang ditugaskan)'}, jadi tidak dikirim otomatis. Supervisor sudah diberi notifikasi untuk menyampaikannya.`
+      : 'Terima kasih, jawabannya tercatat. Jawaban itu belum cukup jelas untuk dikirim otomatis ke customer, jadi supervisor sudah diberi notifikasi untuk menindaklanjuti. Kalau ada jawaban yang lebih pasti, balas lagi pesan pertanyaannya.';
   }
 
   /**

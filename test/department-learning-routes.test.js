@@ -45,7 +45,7 @@ async function setup(t) {
   await real.pool.query('INSERT INTO department_members (department_id, user_id, company_id) VALUES ($1, $2, $3)', [MGMT, STAFF.id, company]);
   await real.pool.query('INSERT INTO department_members (department_id, user_id, company_id) VALUES ($1, $2, $3)', [MGMT, AGENT.id, company]);
 
-  const state = { prompts: [], assess: null, assessCalls: 0 };
+  const state = { prompts: [], assess: null, assessCalls: 0, notified: [] };
   const known = {
     enabled: true, connected: true,
     async connect() {}, async close() {},
@@ -54,10 +54,11 @@ async function setup(t) {
     async authenticateUser(email, password) { return users.find((u) => u.email === email && password === 'password-123') || null; },
     async getActiveSessionUser(userId) { return users.find((u) => u.id === userId) || null; },
     async setPresence() {},
+    async notifySupervisors(n) { state.notified.push(n); },
     async getAiSettings() { return { enabled: true, modelChain: [], identity: 'team_member' }; },
     async getCompanyConfig() { return { planStatus: 'active', status: 'active', knowledgeClient: 'agnee', aiIdentity: 'team_member' }; },
   };
-  const delegated = /Knowledge|Department|PlaybookFacts|PlaybookContext|listCreditRecipients|recordAuditLog|findMemberByWhatsapp|recordOutboundReply|upsertPlaybookFact/;
+  const delegated = /Knowledge|Department|PlaybookFacts|PlaybookContext|listCreditRecipients|recordAuditLog|findMemberByWhatsapp|recordOutboundReply|upsertPlaybookFact|getConversationRouting/;
   const db = new Proxy(known, {
     get(target, prop) {
       if (prop in target) return target[prop];
@@ -348,4 +349,41 @@ test('database: getDepartmentQuestionForLearning membaca kind, dan satu usulan p
   const base = { chatId: CUSTOMER_CHAT, question: 'Apakah ada gratis ongkir untuk order besar?', answer: RULE_ANSWER, fingerprint: 'fp-dl', origin: 'department', status: 'submitted', department: { questionId: q.id, name: 'Management' } };
   assert.ok(await x.real.createKnowledgeProposal(base, x.company));
   assert.equal(await x.real.createKnowledgeProposal({ ...base, fingerprint: 'fp-dl2' }, x.company), null, 'pertanyaan yang sama tak punya dua usulan');
+});
+
+test('balasan "ga jadi" di grup bukan jawaban: pertanyaan tetap terbuka, tidak diteruskan', { skip }, async (t) => {
+  const x = await setup(t);
+  const q = await x.ask();
+  await x.groupAnswer(q, 'ini kan ga jadi yah');
+  let row = (await x.real.pool.query('SELECT status, answer, relayed_at FROM department_questions WHERE id = $1', [q.id])).rows[0];
+  assert.equal(row.status, 'open');
+  assert.equal(row.answer, null);
+  assert.equal(row.relayed_at, null);
+  await x.groupAnswer(q, 'Kenapa ya?');
+  row = (await x.real.pool.query('SELECT status FROM department_questions WHERE id = $1', [q.id])).rows[0];
+  assert.equal(row.status, 'open', 'pertanyaan balik juga bukan jawaban');
+});
+
+test('balas "batal" menutup pertanyaan tanpa diteruskan; pengingat berhenti', { skip }, async (t) => {
+  const x = await setup(t);
+  const q = await x.ask();
+  await x.groupAnswer(q, 'batal');
+  const row = (await x.real.pool.query('SELECT status, relayed_at FROM department_questions WHERE id = $1', [q.id])).rows[0];
+  assert.equal(row.status, 'expired');
+  assert.equal(row.relayed_at, null);
+});
+
+test('jawaban sah tapi chat dipegang manusia: supervisor diberi notifikasi, bukan "CS" generik', { skip }, async (t) => {
+  const x = await setup(t);
+  await x.real.pool.query(
+    `INSERT INTO conversation_routing (company_id, chat_id, handling_mode, assignee_user_id) VALUES ($1, $2, 'human', $3)`,
+    [x.company, CUSTOMER_CHAT, x.ids.AGENT.id],
+  );
+  const q = await x.ask();
+  await x.groupAnswer(q, RULE_ANSWER);
+  const row = (await x.real.pool.query('SELECT status FROM department_questions WHERE id = $1', [q.id])).rows[0];
+  assert.equal(row.status, 'answered');
+  assert.equal(x.state.notified.length, 1);
+  assert.match(x.state.notified[0].body, /belum diteruskan ke customer \(chat sedang dipegang agen\)/);
+  assert.equal(x.state.notified[0].chatId, CUSTOMER_CHAT);
 });

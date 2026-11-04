@@ -68,6 +68,9 @@ ${list}
 
 Aturan:
 - Pilih SATU departemen yang paling relevan. Tulis pertanyaan yang singkat, lengkap, dan bisa dijawab tanpa membaca chat (sebut produk/hal yang dimaksud). Jangan menyertakan nomor telepon atau data pribadi customer.
+- SATU pertanyaan = SATU keputusan, maksimal 2 kalimat, jawabannya cukup "ya/tidak" atau satu angka. DILARANG menumpuk beberapa pertanyaan bernomor (1)(2)(3) dalam satu panggilan. Kalau customer menanyakan banyak hal, tanyakan dulu yang paling menentukan (biasanya diskon/kebijakan harga), dan lanjutkan hal lain setelah jawabannya masuk.
+- Cek data sendiri DULU, jangan tanyakan yang bisa dijawab alat: stok dan harga lewat cek_harga/katalog, ongkir lewat cek_ongkir, alamat/jam buka/toko lewat data Lokasi, promo lewat aturan Promo. Tanya departemen hanya untuk keputusan yang memang hanya manusia yang boleh memutuskan (diskon di luar aturan, termin DP/tempo, faktur pajak, pengecualian).
+- Tulis angka dan fakta yang sudah kamu cek di pertanyaan (mis. "Semen PCC 50kg 20 zak @Rp57.500 — boleh diskon? berapa?") supaya tim tinggal menjawab dari HP.
 - Setelah alat dipanggil, balas customer dengan 1–2 kalimat sesuai persona: katakan kamu memastikan dulu supaya informasinya akurat, minta ditunggu sebentar, dan kamu akan kabari begitu sudah jelas. Contoh nada: "Baik kak, saya pastikan dulu ya supaya informasinya akurat. Mohon ditunggu sebentar, begitu sudah jelas langsung saya kabari 🙏".
 - JANGAN menyebut proses internal ke customer: tanpa kata "tim", "internal", "departemen", "bagian", "supplier", "pabrik", nama divisi, atau "saya tanyakan ke…". Customer cukup tahu kamu sedang memastikan. Jangan menyebut kata "AI", "alat", atau "sistem", dan jangan menjanjikan jam atau durasi tertentu.
 - Jangan bertanya ke departemen untuk hal yang sudah ada jawabannya di pengetahuan, dan jangan memanggil alat dua kali untuk pertanyaan yang sama.
@@ -149,18 +152,34 @@ function toolSpec({ departments, run }) {
   const names = departments.map((d) => d.name);
   return {
     name: 'ask_department',
-    description: 'Tanya ke departemen internal (semua anggotanya diberi tahu) saat jawaban untuk customer tidak ada di pengetahuan. Jawaban datang belakangan; balas customer dengan kalimat tunggu.',
+    description: 'Tanya ke departemen internal (semua anggotanya diberi tahu) saat jawaban untuk customer tidak ada di pengetahuan dan tidak bisa dicek lewat alat lain. SATU keputusan per pertanyaan, maksimal 2 kalimat, tanpa daftar bernomor. Jawaban datang belakangan; balas customer dengan kalimat tunggu.',
     parameters: {
       type: 'object',
       additionalProperties: false,
       required: ['department', 'question'],
       properties: {
         department: { type: 'string', enum: names, description: 'Nama departemen yang paling berwenang.' },
-        question: { type: 'string', maxLength: QUESTION_MAX, description: 'Pertanyaan singkat yang bisa dipahami tanpa membaca chat.' },
+        question: { type: 'string', maxLength: QUESTION_MAX, description: 'Satu keputusan, maksimal 2 kalimat, bisa dijawab ya/tidak atau satu angka; sebut produk, jumlah, dan harga yang sudah dicek.' },
       },
     },
     run,
   };
+}
+
+const COMPOUND_MAX = 400;
+
+/**
+ * Pertanyaan majemuk (3+ butir bernomor atau terlalu panjang) tidak bisa
+ * dijawab dari HP dan membuat jawaban setengah-setengah. Mengembalikan pesan
+ * penolakan untuk model, atau null bila pertanyaan layak.
+ */
+function compoundProblem(question) {
+  const text = String(question || '');
+  const numbered = (text.match(/(?:^|[\s;:])\(?\d{1,2}[).]\s*\S/g) || []).length;
+  if (numbered >= 3 || text.length > COMPOUND_MAX) {
+    return 'Pertanyaan terlalu majemuk atau panjang. Tanyakan SATU keputusan saja (maksimal 2 kalimat, tanpa daftar bernomor), yang paling menentukan; hal yang bisa dicek lewat alat (stok, harga, ongkir, Lokasi, Promo) cek sendiri dulu. Lanjutkan hal lain setelah jawabannya masuk.';
+  }
+  return null;
 }
 
 /** Pesan WhatsApp ke anggota departemen. */
@@ -216,4 +235,5 @@ function judgeRelay(text) {
   return { kind: 'ok', text: clean };
 }
 
-module.exports = { questionCode, codeInText, buildMentionNotice, guideOps, guideThirdPartiesOps, judgeRelay, leaksInternal, UNSURE_TOKEN, guideThirdParties, toolSpecThirdParty, buildThirdPartyMessage, mentionsWaiting, ensureHolding, buildReminderNotice, REMINDER_MINUTES, guide, toolSpec, buildQuestionNotice, relayPrompt, HOLDING_FALLBACK, QUESTION_MAX };
+module.exports = {
+  compoundProblem, questionCode, codeInText, buildMentionNotice, guideOps, guideThirdPartiesOps, judgeRelay, leaksInternal, UNSURE_TOKEN, guideThirdParties, toolSpecThirdParty, buildThirdPartyMessage, mentionsWaiting, ensureHolding, buildReminderNotice, REMINDER_MINUTES, guide, toolSpec, buildQuestionNotice, relayPrompt, HOLDING_FALLBACK, QUESTION_MAX };

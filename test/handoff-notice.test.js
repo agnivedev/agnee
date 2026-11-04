@@ -48,3 +48,27 @@ test('pembatas: satu per jendela, bisa dilepas, jendela habis boleh lagi', () =>
   now = 1500;
   assert.equal(cd.take('a'), true);
 });
+
+test('label customer: chat @lid tidak pernah menampilkan id lid sebagai nomor', () => {
+  const { describeCustomer } = require('../src/handoff-notice');
+  // lid + nomor hasil peta + nama
+  assert.equal(describeCustomer({ chatId: '214915969200380@lid', name: 'Yohanes', phone: '6281234567890' }), 'Yohanes (+6281234567890)');
+  assert.equal(describeCustomer({ chatId: '214915969200380@lid', phone: '6281234567890' }), '+6281234567890');
+  // lid tanpa peta: nama saja, tanpa angka lid
+  const nameOnly = describeCustomer({ chatId: '214915969200380@lid', name: 'Yohanes' });
+  assert.doesNotMatch(nameOnly, /214915969200380/);
+  assert.match(nameOnly, /Yohanes/);
+  const none = describeCustomer({ chatId: '214915969200380@lid' });
+  assert.doesNotMatch(none, /2149/);
+  // nama yang sama dengan id lid dianggap tidak ada
+  assert.doesNotMatch(describeCustomer({ chatId: '214915969200380@lid', name: '214915969200380' }), /2149/);
+  // chat biasa tetap seperti semula
+  assert.equal(describeCustomer({ chatId: '6281234567890@c.us', name: 'Budi' }), 'Budi (+6281234567890)');
+  assert.equal(describeCustomer({ chatId: '6281234567890@c.us' }), '+6281234567890');
+});
+
+test('buildNotice memakai nomor hasil peta untuk chat @lid', () => {
+  const text = buildNotice({ chatId: '99999999999999@lid', phone: '6285550001111', name: 'Sari', customerText: 'a', aiText: 'b' });
+  assert.match(text, /Customer: Sari \(\+6285550001111\)\n/);
+  assert.doesNotMatch(text, /99999999999999/);
+});

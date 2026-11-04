@@ -26,28 +26,36 @@ function digits(raw) {
   return String(raw || '').replace(/\D/g, '');
 }
 
-/** Nama/nomor customer untuk pesan pemberitahuan; nomor ditulis utuh supaya bisa di-tap. */
-function describeCustomer({ chatId, name }) {
-  const number = String(chatId || '').split('@')[0];
+/**
+ * Nama/nomor customer untuk pesan pemberitahuan; nomor ditulis utuh supaya bisa
+ * di-tap. Chat `@lid` hanya membawa id buram, BUKAN nomor telepon: yang
+ * ditampilkan nomor hasil peta (`phone`) bila ada, kalau tidak nama saja.
+ */
+function describeCustomer({ chatId, name, phone }) {
+  const id = String(chatId || '').split('@')[0];
+  const isLid = String(chatId || '').endsWith('@lid');
+  const number = isLid ? digits(phone) : (digits(phone) || id);
   const clean = String(name || '').trim();
-  return clean && clean !== number ? `${clean} (+${number})` : `+${number}`;
+  if (isLid && !number) return clean && clean !== id ? `${clean} (nomor HP belum terbaca)` : 'Customer (nomor HP belum terbaca)';
+  return clean && clean !== number && clean !== id ? `${clean} (+${number})` : `+${number}`;
 }
 
 /**
  * @param {object} p
  * @param p.chatId        id chat customer
  * @param p.name          nama tampilan customer kalau ada
+ * @param p.phone         nomor HP hasil peta @lid kalau ada
  * @param p.customerText  pesan terakhir customer
  * @param p.aiText        balasan AI yang menjanjikan meneruskan
  */
-function buildNotice({ chatId, name, customerText, aiText }) {
+function buildNotice({ chatId, name, phone, customerText, aiText }) {
   const cut = (value, max) => {
     const text = String(value || '').replace(/\s+/g, ' ').trim();
     return text.length > max ? `${text.slice(0, max - 1)}…` : text;
   };
   const lines = [
     '*Perlu ditindaklanjuti*',
-    `Customer: ${describeCustomer({ chatId, name })}`,
+    `Customer: ${describeCustomer({ chatId, name, phone })}`,
     `Bertanya: "${cut(customerText, 400)}"`,
     `Asisten membalas: "${cut(aiText, 300)}"`,
     '',

@@ -1237,8 +1237,11 @@ async function buildApp(overrides = {}) {
     if (!numbers.length) return;
     const key = `${companyId}:${message.from}`;
     if (!handoffCooldown.take(key)) return;
+    const lidPhone = String(message.from).endsWith('@lid') && canCall('phoneForLid')
+      ? await database.phoneForLid(companyId, message.from).catch(() => null) : null;
     const text = handoffNotice.buildNotice({
       chatId: message.from,
+      phone: lidPhone,
       name: message._data?.notifyName || message.notifyName || null,
       customerText: message.body,
       aiText,
@@ -1509,6 +1512,20 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     }
   }
 
+  /** Label customer untuk pesan ke staf: nomor HP asli (bukan id @lid) + nama profil WA. */
+  async function customerLabelFor(companyId, chatId, knownName = null) {
+    let phone = null;
+    let name = knownName;
+    if (String(chatId).endsWith('@lid') && canCall('phoneForLid')) {
+      phone = await database.phoneForLid(companyId, chatId).catch(() => null);
+    }
+    if (!name && canCall('getContactNamesFor')) {
+      const names = await database.getContactNamesFor(companyId, [chatId]).catch(() => ({}));
+      name = names?.[chatId] || null;
+    }
+    return handoffNotice.describeCustomer({ chatId, name, phone });
+  }
+
   /**
    * Alat ask_department: simpan pertanyaan, beri tahu SEMUA anggota departemen
    * (lonceng di Agnee + WhatsApp bila nomornya diisi). Satu pertanyaan terbuka
@@ -1518,18 +1535,23 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     const dept = departments.find((d) => d.name === args.department);
     const question = String(args.question || '').trim().slice(0, departmentAsk.QUESTION_MAX);
     if (!dept || !question) return { error: 'Departemen atau pertanyaan tidak valid.' };
+    if (!args.fromGuard && (!meta.kind || meta.kind === 'general')) {
+      const problem = departmentAsk.compoundProblem(question);
+      if (problem) return { error: problem };
+    }
     const open = (await database.listDepartmentQuestions(companyId, { status: 'open', limit: 200 }).catch(() => []))
       .find((q) => q.chatId === chatId && q.departmentId === dept.id);
     if (open) return { status: 'already_asked', department: dept.name };
     const created = await database.createDepartmentQuestion({ departmentId: dept.id, chatId, customerText, question, kind: meta.kind || 'general', payload: meta.payload || null }, companyId);
     if (!created) return { error: 'Departemen tidak ditemukan.' };
     broadcastEvent(companyId, 'department_question', { id: created.id, department: dept.name });
+    const customerLabel = await customerLabelFor(companyId, chatId);
     const notice = departmentAsk.buildQuestionNotice({
-      department: dept.name, question, customerLabel: handoffNotice.describeCustomer({ chatId }), askerLabel,
+      department: dept.name, question, customerLabel, askerLabel,
     });
     const groupSent = created.whatsappGroupId
       ? await notifyDepartmentGroup(companyId, created.id, created.whatsappGroupId, departmentAsk.buildQuestionNotice({
-        department: dept.name, question, customerLabel: handoffNotice.describeCustomer({ chatId }), askerLabel,
+        department: dept.name, question, customerLabel, askerLabel,
         code: departmentAsk.questionCode(created.id), group: true,
       }))
       : false;
@@ -2456,6 +2478,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
         const out = await askTool.run({
           department: plan.department,
           question: uncertainty.departmentQuestion({ topic: assessment.topic, customerText, assessment }),
+          fromGuard: true,
         });
         if (out?.status === 'sent' || out?.status === 'already_asked') return plan;
       } catch (error) {
@@ -6025,7 +6048,7 @@ ${thread || '(belum ada)'}${hubContext}`,
       }
       const notice = departmentAsk.buildMentionNotice({
         department: dept.name, authorName: actorName,
-        customerLabel: handoffNotice.describeCustomer({ chatId }), body,
+        customerLabel: await customerLabelFor(companyId, chatId), body,
       });
       for (const member of members) {
         if (!member.whatsappNumber) continue;
@@ -14595,15 +14618,16 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
       });
       for (const row of due) {
         broadcastEvent(row.companyId, 'department_question', { id: row.id, department: row.department });
+        const customerLabel = await customerLabelFor(row.companyId, row.chatId);
         const notice = departmentAsk.buildReminderNotice({
           department: row.department, question: row.question,
-          customerLabel: handoffNotice.describeCustomer({ chatId: row.chatId }),
+          customerLabel,
           reminderCount: row.reminderCount, final: row.final,
         });
         if (row.whatsappGroupId) {
           await notifyDepartmentGroup(row.companyId, row.id, row.whatsappGroupId, departmentAsk.buildReminderNotice({
             department: row.department, question: row.question,
-            customerLabel: handoffNotice.describeCustomer({ chatId: row.chatId }),
+            customerLabel,
             reminderCount: row.reminderCount, final: row.final,
             code: departmentAsk.questionCode(row.id), group: true,
           }));

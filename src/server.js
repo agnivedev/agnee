@@ -2344,6 +2344,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
         mode,
         proofCheck: Boolean(ctx.companyConfig?.paymentProofCheck),
         proofGiven: uncertainty.PROOF_MARKER.test(customerText),
+        proofMissing: assessment.reasons.some((r) => r.code === 'proof_not_attached'),
       });
       if (!dryRun) plan = await executeUncertaintyPlan({ plan, assessment, ctx, askTool, companyId, chatId, customerText, finalText });
       text = uncertainty.compose({ finalText, customerText, assessment, plan });

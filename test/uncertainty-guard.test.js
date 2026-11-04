@@ -139,3 +139,58 @@ test('departmentQuestion menyebut apa yang perlu dipastikan, tanpa memuat nama a
   assert.match(q, /udah tf 1,5jt/);
   assert.doesNotMatch(q, /ask_department/);
 });
+
+// ── Simulasi ESBEJE 4 Nov: janji kosong, bukti palsu, pesanan "sudah diproses" ──
+
+test('"saya cek ketersediaannya dulu" tanpa bertanya ke siapa pun dihitung janji kosong', () => {
+  const a = run({ customerText: 'semen gresiknya ada stok gak?', finalText: 'Saya cek ketersediaannya dulu ya kak.', rawText: 'Saya cek ketersediaannya dulu ya kak.' });
+  assert.ok(codes(a).includes('empty_promise'), codes(a).join());
+  assert.equal(a.topic, 'stok');
+  // Sudah bertanya ke departemen (atau alat menunggu jawaban): janjinya nyata.
+  assert.equal(run({ customerText: 'ada stok?', finalText: 'Saya cek dulu ya kak.', departmentAsked: true }).unsure, false);
+  assert.equal(run({ customerText: 'ongkir ke BSD?', finalText: 'Ongkirnya sedang saya pastikan dulu ya kak.', toolText: '{"status":"menunggu_management"}' }).unsure, false);
+});
+
+test('pertanyaan balik dan sapaan tidak dianggap janji kosong', () => {
+  assert.equal(run({ customerText: 'ada stok?', finalText: 'Boleh saya cek dulu, butuh berapa sak ya kak?' }).unsure, false);
+  assert.equal(run({ customerText: 'halo', finalText: 'Halo kak, ada yang bisa dibantu?' }).unsure, false);
+});
+
+test('"saya cek dulu bukti transfernya" bukan permintaan bukti', () => {
+  const a = run({ customerText: 'sudah saya transfer ya kak', finalText: 'Terima kasih kak. Saya cek dulu bukti transfernya.' });
+  assert.ok(codes(a).includes('transfer_claim_unverified'));
+  const asks = run({ customerText: 'sudah saya transfer ya kak', finalText: 'Terima kasih kak. Boleh dikirim foto bukti transfernya?' });
+  assert.ok(!codes(asks).includes('transfer_claim_unverified'));
+});
+
+test('"ini buktinya" tanpa berkas: minta kirim ulang, jangan pura-pura melihat', () => {
+  const a = run({ customerText: 'udah saya transfer kak, ini buktinya ya', finalText: 'Terima kasih kak Siti.' });
+  assert.ok(codes(a).includes('proof_not_attached'));
+  const plan = guard.chooseAction({ topic: a.topic, departmentNames: ['Finance'], canAsk: true, proofMissing: true });
+  assert.equal(plan.action, 'ask_customer');
+  const text = guard.compose({ finalText: 'Terima kasih kak Siti.', customerText: 'ini buktinya ya', assessment: a, plan });
+  assert.match(text, /belum terlihat masuk/);
+  assert.doesNotMatch(text, /belum bisa memastikan sudah masuk/);
+  // Berkas ada: tak ada alasan.
+  const ok = run({ customerText: 'udah saya transfer kak, ini buktinya ya\n[Customer mengirim foto]', finalText: 'Terima kasih kak, saya periksa.', departmentAsked: true });
+  assert.ok(!codes(ok).includes('proof_not_attached'));
+});
+
+test('"pesanan sudah saya proses" tanpa pesanan yang dibuat adalah klaim kosong', () => {
+  const a = run({ customerText: 'ok saya ambil besok', finalText: 'Baik kak Siti, pesanan sudah saya proses ya.' });
+  assert.ok(codes(a).includes('order_claim'));
+  assert.equal(run({ customerText: 'ok', finalText: 'Pesanan sudah diproses, nomor pesanan SO-12.', toolText: '{"proforma":"SO-12"}' }).unsure, false);
+  assert.equal(run({ customerText: 'ok', finalText: 'Baik kak, saya proses ya setelah transfer masuk.' }).unsure, false);
+});
+
+test('penanda berkas customer yang bocor ke balasan ditangkap kontrak keluaran', () => {
+  const found = findClaimViolations('[Customer mengirim foto]\nTerima kasih kak.');
+  assert.equal(found.length, 1);
+  assert.equal(found[0].sentence, '[Customer mengirim foto]');
+  assert.equal(findClaimViolations('Terima kasih kak, fotonya sudah kami terima.').length, 0);
+});
+
+test('"berapa" saja bukan topik harga: jam buka yang dipastikan dulu tidak dihitung janji kosong harga', () => {
+  const a = run({ customerText: 'Tutup jam berapa', finalText: 'Saya pastikan dulu ya jam bukanya.' });
+  assert.equal(a.unsure, false, codes(a).join());
+});

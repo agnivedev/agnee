@@ -50,6 +50,9 @@ const REASON_LABELS = {
   discount_claim: 'Menyebut diskon/promo yang tak ada di pengetahuan',
   tool_no_result: 'Alat pencarian tidak menemukan hasil',
   hedge: 'Balasan memakai bahasa menebak tentang uang/stok/kirim',
+  proof_not_attached: 'Customer bilang sudah melampirkan bukti, tetapi tidak ada berkas di pesannya',
+  order_claim: 'Menyatakan pesanan sudah diproses padahal tak ada pesanan yang dibuat',
+  empty_promise: 'Berjanji mengecek tanpa bertanya ke siapa pun',
 };
 
 // ── Topik dari pesan customer ───────────────────────────────────────────────
@@ -75,6 +78,15 @@ const TRANSFER_CLAIM = /\b(?:sudah|udah|telah|barusan|baru\s+saja|tadi)\s+(?:di\
 function claimsTransfer(text) { return TRANSFER_CLAIM.test(String(text || '')); }
 
 const PROOF_MARKER = /\[Pemeriksaan bukti transfer/i;
+/** Pesan customer memuat berkas (foto/file/hasil pemeriksaan bukti). */
+const ATTACHMENT_MARKER = /\[(?:Customer mengirim|Pemeriksaan bukti)/i;
+const SAYS_PROOF_ATTACHED = /\b(?:ini|nih|berikut|terlampir|sudah\s+(?:saya\s+)?(?:kirim|lampir)\w*)\s+(?:ya\s+)?(?:bukti|struk|screenshot)\w*|\bbukti(?:nya|\s+transfer(?:nya)?)\s+(?:ini|nih|ya|terlampir|di\s+atas)\b/i;
+/** Balasan benar-benar MEMINTA/menyebut pengiriman bukti, bukan sekadar menyebut kata "bukti". */
+const ASKS_PROOF = /\b(?:kirim(?:kan|lah|ulang)?|lampirkan|unggah|upload|share|sertakan|minta|boleh|mohon|silakan|foto(?:kan)?)\b[^.!?\n]{0,50}\b(?:bukti|struk|screenshot|tangkapan)\b|\b(?:bukti|struk|screenshot)\w*[^.!?\n]{0,30}\b(?:dikirim|difoto|dikirimkan|kirim(?:kan)?)\b/i;
+/** Klaim pesanan selesai diproses/dikonfirmasi (lampau), bukan janji ("saya proses ya"). */
+const ORDER_DONE = /\b(?:sudah|telah)\s+(?:saya\s+|kami\s+)?(?:proses|diproses|dikonfirmasi|tercatat|dicatat|saya\s+catat|dibuatkan|diteruskan\s+ke\s+gudang|disiapkan)\b|\bpesanan\b[^.!?\n]{0,40}\b(?:sudah|telah)\s+(?:diproses|dikonfirmasi|tercatat|dibuat)\b/i;
+/** Menunda tanpa isi; sama maksudnya dengan EMPTY_DELAY_PATTERNS di reply-style. */
+const EMPTY_PROMISE = /\b(?:saya|aku|kami)\s+(?:(?:sedang|lagi)\s+)?(?:pastikan|cek|periksa|konfirmasi(?:kan)?|tanyakan)\b[^.!?\n]{0,40}?\b(?:dulu|terlebih\s+dahulu)\b|\b(?:sedang|lagi)\s+(?:saya\s+|kami\s+)?(?:pastikan|cek|periksa|konfirmasi(?:kan)?|tanyakan)\b|\b(?:mohon|harap|silakan)\s+(?:ditunggu|menunggu|tunggu)\b|\bnanti\s+(?:saya|aku|kami)\s+(?:info(?:kan)?|kabari|kabarkan|kasih\s+tahu|hubungi)\b/i;
 
 // ── Kalimat ─────────────────────────────────────────────────────────────────
 
@@ -185,6 +197,8 @@ function assess({
       if (needsCustomerTopic && !customerTopics.includes(topic)) continue;
       if (code === 'stock_claim' && (/stok\s*[:=]?\s*\d|\bstock\b[^.\n]{0,20}\d/i.test(factSource) || /stok|stock|tersedia/i.test(toolText))) continue;
       if (code === 'payment_claim' && /lunas|paid|sudah\s+dibayar|terbayar/i.test(toolText)) continue;
+      // "setelah transfer masuk saya proses" menyebut syarat, bukan menyatakan dana sudah masuk.
+      if (code === 'payment_claim' && /\b(?:setelah|sesudah|kalau|jika|bila|apabila|begitu|sampai|menunggu|menanti)\b/i.test(sentence.slice(0, m.index))) continue;
       if (code === 'delivery_promise') {
         const token = (m[1] || m[2] || m[3] || '').trim();
         if (token && groundedNear(factSource, token, /kirim|antar|sampai|tiba|estimasi|pengiriman|delivery/)) continue;
@@ -201,8 +215,32 @@ function assess({
 
   // 3. Customer mengaku sudah transfer tetapi tak ada bukti yang diperiksa.
   if (claimsTransfer(customerText) && !PROOF_MARKER.test(customerText) && !departmentAsked) {
-    const asksProof = /\b(bukti|struk|screenshot|tangkapan)\b/i.test(reply) && !reasons.some((r) => r.code === 'payment_claim');
+    // Meminta bukti = ada kata kerja meminta/mengirim di dekat "bukti". Cuma menyebut "saya cek dulu
+    // bukti transfernya" (ESBEJE, simulasi 4 Nov) bukan permintaan: customer tak pernah mengirim apa pun.
+    const asksProof = ASKS_PROOF.test(reply) && !reasons.some((r) => r.code === 'payment_claim');
     if (!asksProof) add('transfer_claim_unverified', 'transfer');
+  }
+
+  // 3b. Customer menyebut sudah melampirkan bukti ("ini buktinya") padahal tak ada berkas di pesan itu.
+  if (SAYS_PROOF_ATTACHED.test(customerText) && !ATTACHMENT_MARKER.test(customerText) && !departmentAsked
+      && !reasons.some((r) => r.code === 'transfer_claim_unverified')) {
+    const asksResend = ASKS_PROOF.test(reply) && /belum\s+(?:masuk|terlihat|terkirim|kelihatan|ada|diterima)|tidak\s+(?:masuk|terlihat|terkirim|kelihatan)|kirim\s+(?:ulang|lagi)/i.test(reply);
+    if (!asksResend) add('proof_not_attached', 'transfer');
+  }
+
+  // 3c. "Pesanan sudah diproses" tanpa pesanan yang benar-benar dibuat (proforma/invoice dari alat).
+  for (const sentence of splitSentences(reply)) {
+    if (ORDER_DONE.test(sentence) && !/proforma|invoice|nomor\s+(?:pesanan|order)|order_id/i.test(toolText)) { add('order_claim', 'order', sentence); break; }
+  }
+
+  // 3d. Janji "saya cek dulu" tanpa tindakan nyata giliran ini (tak bertanya ke departemen, tak menunggu alat).
+  if (!departmentAsked && !/menunggu_management|\bsent\b|already_asked/i.test(toolText)) {
+    // "berapa" saja (mis. "tutup jam berapa") bukan soal harga; jam buka, alamat, dan sapaan tak ikut dijaga.
+    const risky = detectTopics(customerText).filter((t) => t !== 'order' && (t !== 'harga' || /\b(?:harga|price)\b|\bRp\b/i.test(customerText)));
+    for (const sentence of splitSentences(reply)) {
+      if (/\?\s*$/.test(sentence) || !EMPTY_PROMISE.test(sentence)) continue;
+      if (RISK_WORDS.test(sentence) || risky.length) { add('empty_promise', RISK_WORDS.test(sentence) ? topicOfSentence(sentence) : risky[0], sentence); break; }
+    }
   }
 
   // 4. Alat tidak menemukan hasil.
@@ -256,8 +294,10 @@ function pickDepartment(topic, departmentNames = []) {
  *   handoff        mode 'handoff': chat diserahkan ke manusia
  *   notify_staff   selain itu: staf diberi kartu serah-terima, AI tetap membalas
  */
-function chooseAction({ topic, missingInfo = false, departmentNames = [], canAsk = false, mode = 'on', proofCheck = false, proofGiven = false }) {
+function chooseAction({ topic, missingInfo = false, departmentNames = [], canAsk = false, mode = 'on', proofCheck = false, proofGiven = false, proofMissing = false }) {
   if (missingInfo) return { action: 'ask_customer' };
+  // Berkas yang disebut tak pernah masuk: tak ada yang bisa diperiksa Finance, minta kirim ulang.
+  if (proofMissing) return { action: 'ask_customer' };
   const department = canAsk ? pickDepartment(topic, departmentNames) : null;
   if (department) return { action: 'ask_department', department };
   // Simulator tidak boleh membangunkan siapa pun, tetapi tetap memperlihatkan tujuannya.
@@ -293,6 +333,7 @@ const FOLLOW = {
     ask_department: 'Saya tanyakan ke tim kami dulu, nanti saya kabari di sini begitu sudah jelas ya.',
     notify_staff: 'Saya teruskan ke tim kami untuk memastikannya, dan kakak akan dikabari di sini.',
     handoff: 'Saya teruskan percakapan ini ke tim kami, sebentar lagi akan dilanjutkan di sini.',
+    resend_proof: 'Fotonya belum terlihat masuk di sini, Kak. Boleh dikirim ulang bukti transfernya?',
     ask_customer: {
       ongkir: 'Boleh dikirim lokasi atau alamat lengkap tujuan pengirimannya (nama jalan, kecamatan, kota)?',
       transfer: 'Boleh dikirim foto bukti transfernya di sini supaya bisa kami periksa?',
@@ -303,6 +344,7 @@ const FOLLOW = {
     ask_department: "I'll check with our team and get back to you here as soon as it's clear.",
     notify_staff: "I'll pass this to our team to confirm, and you'll hear back here.",
     handoff: "I'm handing this conversation to our team; they'll continue here shortly.",
+    resend_proof: "The photo hasn't come through on my side. Could you send the transfer receipt again?",
     ask_customer: {
       ongkir: 'Could you send the delivery location or full address (street, district, city)?',
       transfer: 'Could you send a photo of the transfer receipt here so we can check it?',
@@ -327,10 +369,13 @@ function compose({ finalText = '', customerText = '', assessment, plan }) {
   const flagged = new Set(assessment.reasons.map((r) => r.sentence).filter(Boolean));
   const kept = splitSentences(finalText).filter((sentence) => !flagged.has(sentence) && !DELAY_SENTENCE.test(sentence));
   const topic = assessment.topic || 'harga';
-  const follow = plan.action === 'ask_customer'
+  const follow = plan.action === 'ask_customer' && assessment.reasons.some((r) => r.code === 'proof_not_attached')
+    ? FOLLOW[lang].resend_proof
+    : plan.action === 'ask_customer'
     ? FOLLOW[lang].ask_customer[topic === 'ongkir' ? 'ongkir' : (topic === 'transfer' ? 'transfer' : 'default')]
     : FOLLOW[lang][plan.action];
-  const intro = plan.action === 'handoff' ? '' : INTRO[lang][topic] || INTRO[lang].harga;
+  const resend = plan.action === 'ask_customer' && assessment.reasons.some((r) => r.code === 'proof_not_attached');
+  const intro = plan.action === 'handoff' || resend ? '' : INTRO[lang][topic] || INTRO[lang].harga;
   return [...kept, intro, follow].filter(Boolean).join('\n');
 }
 

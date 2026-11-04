@@ -51,6 +51,9 @@ const CLAIM_PATTERNS = [
  */
 const PLACEHOLDER_LEAK_PATTERNS = [
   [/\{[a-zA-Z_][a-zA-Z0-9_]{0,24}\}/, 'placeholder template belum diisi'],
+  // ESBEJE, simulasi 4 Nov: "ini buktinya ya" tanpa lampiran dijawab "[Customer mengirim foto]".
+  // Penanda itu catatan untuk model, bukan kalimat untuk customer.
+  [/\[(?:Customer mengirim|Pemeriksaan bukti)[^\]\n]*\]/i, 'penanda internal berkas customer tertulis di balasan'],
 ];
 
 /**
@@ -100,7 +103,9 @@ const INTERNAL_LEAK_PATTERNS = [
  * dibuang, sisa balasannya bisa kosong.
  */
 const EMPTY_DELAY_PATTERNS = [
-  [/\b(?:saya|aku|kami)\s+(?:pastikan|cek|konfirmasi(?:kan)?|tanyakan)\s+(?:dulu|terlebih\s+dahulu)\b/i, 'menunda dengan "saya pastikan/cek dulu" padahal tidak bertanya ke departemen'],
+  // Objek boleh menyelip: "saya cek ketersediaannya dulu" lolos pola lama yang mensyaratkan "cek dulu" berurutan.
+  [/\b(?:saya|aku|kami)\s+(?:(?:sedang|lagi)\s+)?(?:pastikan|cek|periksa|konfirmasi(?:kan)?|tanyakan)\b[^.!?\n]{0,40}?\b(?:dulu|terlebih\s+dahulu)\b/i, 'menunda dengan "saya pastikan/cek dulu" padahal tidak bertanya ke departemen'],
+  [/\b(?:sedang|lagi)\s+(?:saya\s+|kami\s+)?(?:pastikan|cek|periksa|konfirmasi(?:kan)?|tanyakan)\b/i, 'mengaku "sedang dicek" padahal tidak bertanya ke departemen'],
   [/\b(?:mohon|harap|silakan)\s+(?:ditunggu|menunggu|tunggu)\b/i, 'menyuruh menunggu padahal tidak bertanya ke departemen'],
   [/\bnanti\s+(?:saya|aku|kami)\s+(?:info(?:kan)?|kabari|kabarkan|kasih\s+tahu|hubungi)\b/i, 'menunda dengan "nanti saya infokan" padahal tidak bertanya ke departemen'],
 ];

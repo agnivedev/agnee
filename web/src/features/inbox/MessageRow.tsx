@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Pencil, Trash2, Check, X, FileText, Download, Eye, Lightbulb } from 'lucide-react';
+import { Pencil, Trash2, Check, X, FileText, Download, Eye, Lightbulb, ImageOff } from 'lucide-react';
 import { useI18n } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { InlineMarkdown } from './InlineMarkdown';
@@ -418,6 +418,9 @@ function BubbleImage({
   onOpenMedia: (target: MediaTarget) => void;
 }) {
   const { t } = useI18n();
+  // Tanpa pratinjau inline, gambar bubble dimuat dari server; bila WhatsApp
+  // sudah membuangnya, tetap tampilkan kotak yang bisa diklik, bukan hilang.
+  const [gone, setGone] = useState(false);
   const alt =
     message.type === 'sticker' ? t('media.sticker') : message.body || t('media.photo');
   const open = () =>
@@ -432,6 +435,20 @@ function BubbleImage({
         message.inlineImageExtension || (message.type === 'sticker' ? 'webp' : 'jpg')
       }`,
     });
+
+  if (gone) {
+    return (
+      <button
+        type="button"
+        aria-label={alt}
+        onClick={open}
+        className="mx-[-8px] mt-[-5px] mb-2 grid h-[150px] w-[min(100%,260px)] cursor-pointer place-items-center content-center gap-1 rounded-[10px] border-0 bg-ink/6 px-3 text-center text-[11px] leading-[1.4] text-muted"
+      >
+        <ImageOff aria-hidden className="size-6" strokeWidth={1.6} />
+        {t('media.goneShort')}
+      </button>
+    );
+  }
 
   return (
     <img
@@ -449,7 +466,7 @@ function BubbleImage({
           open();
         }
       }}
-      onError={(event) => event.currentTarget.remove()}
+      onError={() => setGone(true)}
       className={cn(
         'mx-[-8px] mt-[-5px] mb-2 block max-h-[360px] cursor-zoom-in rounded-[10px] bg-ink/6 object-cover transition hover:brightness-95',
         message.type === 'sticker' ? '-m-2 size-[150px] bg-transparent object-contain' : 'w-[min(100%,360px)]',

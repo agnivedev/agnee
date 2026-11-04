@@ -27,8 +27,11 @@ export function MediaViewer({ target, onClose }: { target: MediaTarget | null; o
   // File asli tidak bisa diunduh lagi (kedaluwarsa di WhatsApp, nomor terputus):
   // tampilkan pratinjau yang sudah ada, dengan catatan, bukan layar kosong.
   const [usingPreview, setUsingPreview] = useState(false);
-  // iframe tidak melaporkan 404, jadi dokumen dicek dulu sebelum dibingkai.
-  const [docState, setDocState] = useState<'checking' | 'ok' | 'failed'>('checking');
+  // Media diambil lewat fetch lalu diputar dari blob: status HTTP-nya jujur
+  // (iframe/video tidak melaporkan 404), tidak butuh Range, dan tidak
+  // bergantung pada CSP/X-Frame-Options respons server.
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  const [loadState, setLoadState] = useState<'loading' | 'ok' | 'failed'>('loading');
 
   const isImage = target?.kind === 'image';
 
@@ -65,13 +68,32 @@ export function MediaViewer({ target, onClose }: { target: MediaTarget | null; o
   }, [target, reset]);
 
   useEffect(() => {
-    if (target?.kind !== 'document') return;
+    if (!target) return;
     let cancelled = false;
-    setDocState('checking');
+    let created: string | null = null;
+    setBlobUrl(null);
+    setLoadState('loading');
     void fetch(target.src, { credentials: 'same-origin' })
-      .then((response) => { if (!cancelled) setDocState(response.ok ? 'ok' : 'failed'); })
-      .catch(() => { if (!cancelled) setDocState('failed'); });
-    return () => { cancelled = true; };
+      .then(async (response) => {
+        if (!response.ok) throw new Error(String(response.status));
+        const type = (response.headers.get('content-type') || '').split(';')[0];
+        const blob = new Blob([await response.arrayBuffer()], { type });
+        if (cancelled) return;
+        created = URL.createObjectURL(blob);
+        setBlobUrl(created);
+        setLoadState('ok');
+      })
+      .catch(() => {
+        if (cancelled) return;
+        // File asli tidak ada: pakai pratinjau kecil bila ada.
+        if (target.fallbackSrc && target.kind !== 'audio' && target.kind !== 'document') setUsingPreview(true);
+        else setFailed(true);
+        setLoadState('failed');
+      });
+    return () => {
+      cancelled = true;
+      if (created) URL.revokeObjectURL(created);
+    };
   }, [target]);
 
   function onMediaError() {
@@ -112,7 +134,7 @@ export function MediaViewer({ target, onClose }: { target: MediaTarget | null; o
     if (!target) return;
     setDownloading(true);
     try {
-      const response = await fetch(target.src);
+      const response = await fetch(blobUrl || target.src);
       if (!response.ok) throw new Error(t('common.downloadFailed'));
       const blob = await response.blob();
       const href = URL.createObjectURL(blob);
@@ -199,10 +221,15 @@ export function MediaViewer({ target, onClose }: { target: MediaTarget | null; o
         }}
         className={cn('grid min-h-0 place-items-center overflow-hidden px-4', isImage && 'cursor-grab')}
       >
-        {failed || (target.kind === 'document' && docState === 'failed') ? (
-          <p role="alert" className="m-0 max-w-[420px] text-center text-sm leading-[1.5] text-white/75">
-            {t('media.loadFailed')}
-          </p>
+        {failed ? (
+          <div className="grid max-h-full min-h-0 justify-items-center gap-3">
+            {target.fallbackSrc && target.kind !== 'document' ? (
+              <img src={target.fallbackSrc} alt={target.title} className="max-h-[calc(100%-3rem)] max-w-full rounded-lg object-contain" />
+            ) : null}
+            <p role="alert" className="m-0 max-w-[420px] text-center text-sm leading-[1.5] text-white/75">
+              {t('media.loadFailed')}
+            </p>
+          </div>
         ) : usingPreview ? (
           <div className="grid max-h-full min-h-0 justify-items-center gap-3">
             <img src={target.fallbackSrc || ''} alt={target.title} className="max-h-[calc(100%-3rem)] max-w-full rounded-lg object-contain" />
@@ -210,18 +237,18 @@ export function MediaViewer({ target, onClose }: { target: MediaTarget | null; o
               {t('media.previewOnly')}
             </p>
           </div>
+        ) : loadState === 'loading' || !blobUrl ? (
+          <p role="status" className="m-0 text-sm text-white/60">…</p>
         ) : target.kind === 'image' ? (
-          <img ref={image} src={target.src} alt={target.title} onError={onMediaError} className="max-h-full max-w-full origin-center" />
+          <img ref={image} src={blobUrl} alt={target.title} onError={onMediaError} className="max-h-full max-w-full origin-center" />
         ) : target.kind === 'video' ? (
           // eslint-disable-next-line jsx-a11y/media-has-caption
-          <video src={target.src} controls playsInline preload="metadata" autoPlay onError={onMediaError} className="max-h-full max-w-full" />
+          <video src={blobUrl} controls playsInline preload="metadata" autoPlay onError={onMediaError} className="max-h-full max-w-full" />
         ) : target.kind === 'audio' ? (
           // eslint-disable-next-line jsx-a11y/media-has-caption
-          <audio src={target.src} controls preload="metadata" onError={() => setFailed(true)} className="w-[min(100%,480px)]" />
-        ) : docState === 'checking' ? (
-          <p className="m-0 text-sm text-white/60">…</p>
+          <audio src={blobUrl} controls preload="metadata" onError={() => setFailed(true)} className="w-[min(100%,480px)]" />
         ) : (
-          <iframe src={target.src} title={target.title} className="size-full border-0 bg-white" />
+          <iframe src={blobUrl} title={target.title} className="size-full border-0 bg-white" />
         )}
       </div>
 

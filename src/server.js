@@ -3773,6 +3773,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       // supervisor). Gambar tidak menjalankan kode; script tetap 'self'.
       "img-src 'self' data: blob: https:",
       "media-src 'self' blob:",
+      "frame-src 'self' blob:",
       "connect-src 'self'",
       framable ? "frame-ancestors 'self'" : "frame-ancestors 'none'",
     ].join('; ');

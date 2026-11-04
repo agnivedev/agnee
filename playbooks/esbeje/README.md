@@ -32,6 +32,17 @@ Di Agnee, produk yang sudah tertebak menempel ke chat. Kalau customer pindah pro
 2. **Integrasi DealPOS di company ESBEJE.** Per 23 Oktober, koneksi `esbeje.dealpos.co.id` terpasang di company Beweix Digital, bukan ESBEJE. Harga untuk AI dibaca dari koneksi milik company yang sedang membalas.
 3. **Nomor WhatsApp** ESBEJE masih `waiting_for_qr`.
 
+## Panduan memilih material (4 November 2026)
+
+Kasus: Agnes menyarankan triplek blockboard 18 mm untuk plafon. Penyebab: playbook sendiri memetakan triplek ke plafon (tebak pekerjaan, Tanya jawab triplek, tahap Atap dan plafon) dan tidak ada panduan jenis material per fungsi, jadi model memakai barang yang paling cepat ketemu di DealPOS. Perbaikan: bagian "Panduan memilih material" di `umum.md` (plafon, dinding, lantai, bekisting) plus aturan bawaan Agnee butir 21 (semua tenant).
+
+Butir yang perlu dikonfirmasi tim ESBEJE sebelum dianggap final:
+1. Gypsum wet area (Jayaboard) memang dijual untuk kamar mandi/dapur, atau hanya PVC/GRC.
+2. GRC dan PVC sama-sama direkomendasikan untuk plafon luar ruangan (teras, carport).
+3. Triplek hanya untuk plafon dekoratif ruang kering dengan finishing, dan 18 mm dianggap tidak lazim untuk plafon.
+4. Rangka hollow galvanis dan kalsiboard tidak ada di DealPOS per 4 November (yang ada: metal furing, GRC, PVC, gypsum). Apakah dijual, dan atas nama apa.
+5. Sekat ringan: gypsum (kering) dan GRC (lembap).
+
 ## Memuat
 
 ```bash

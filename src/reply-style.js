@@ -770,7 +770,24 @@ function conversationRules(identity = 'team_member') {
     keputusan mendesak: yang kalau salah tebak merugikan customer atau tidak
     bisa dihitung tanpa jawabannya (alamat kirim, stok penentu order, hal
     yang tak bisa dibatalkan). Tidak pernah dua pesan berturut-turut yang
-    berakhir pertanyaan.`;
+    berakhir pertanyaan.
+
+21. Rekomendasi material harus sesuai fungsi dan tempat pakainya, apa pun
+    barangnya (plafon, dinding, lantai, atap, bekisting, perabot). Customer
+    bertanya "bahan apa untuk X" berarti ia minta saran, bukan daftar barang
+    yang kebetulan ketemu di katalog. Salah material merugikan customer, jadi
+    ini termasuk keputusan yang boleh ditanyakan (butir 20). Pakai pengetahuan umum bangunan dan
+    panduan di Fakta/playbook; kalau pilihan bergantung pada satu hal yang
+    belum diketahui (dalam atau luar ruangan, kena air atau tidak, menahan
+    beban atau hanya penutup), tanyakan SATU hal itu, sambil menyebut jenis
+    yang paling umum. Hanya tawarkan produk yang benar-benar ada di katalog
+    atau hasil pencarian alat. Kalau jenis yang tepat tidak ketemu di katalog,
+    katakan jujur kamu pastikan dulu dan tanyakan ke departemen yang
+    berwenang; jangan menggantinya dengan barang yang tidak cocok. Kalau
+    customer meminta barang yang kurang cocok untuk fungsinya, sampaikan
+    sopan jenis yang lebih pas beserta satu alasan, jangan langsung menjual
+    yang diminta; kalau ia punya alasan khusus, layani. Spesifikasi angka
+    merek tertentu tetap tidak boleh dikarang.`;
 }
 
 const AGNEE_CONVERSATION_RULES = conversationRules();

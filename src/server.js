@@ -67,6 +67,7 @@ const { createReplyPacer } = require('./reply-delay.js');
 const handoffNotice = require('./handoff-notice.js');
 const departmentAsk = require('./department-ask.js');
 const uncertainty = require('./uncertainty-guard.js');
+const escalationLib = require('./escalation.js');
 const handoffCard = require('./handoff-card.js');
 const supervisorReport = require('./supervisor-report.js');
 const reportChats = require('./report-chats.js');
@@ -169,6 +170,9 @@ function loadConfig(overrides = {}) {
     openrouterApiKey: process.env.OPENROUTER_API_KEY || '',
     openrouterModel: process.env.OPENROUTER_MODEL || 'google/gemini-2.5-flash',
     llmMaxTokens: Number(process.env.LLM_MAX_TOKENS || 512),
+    // Model lebih kuat untuk giliran yang gagal dinilai penjaga (koma-terpisah).
+    // Tidak diset = model bawaan (hidup); "off" = mati. Lihat src/escalation.js.
+    aiEscalationChain: escalationLib.chainFromEnv(process.env.AI_ESCALATION_CHAIN),
     // Hanya dipakai tanpa database (demo/lokal); lihat knowledgeClientOf().
     knowledgeClient: process.env.KNOWLEDGE_CLIENT || 'agnee',
     databaseUrl: process.env.DATABASE_URL || '',
@@ -2298,14 +2302,9 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
    *
    * @returns {Promise<{ text: string|null, event: object|null }>}
    */
-  async function guardUncertainty({ ctx, companyId, chatId = null, customerText, history = [], rawText = '', enforced, dryRun = false }) {
-    const finalText = enforced?.text || '';
-    const passthrough = { text: finalText || null, event: null };
-    const mode = canCall('getUncertaintyGuard') ? await database.getUncertaintyGuard(companyId).catch(() => 'on') : 'on';
-    if (mode === 'off' || ctx.agentMode === 'internal_ops' || ctx.ks) return passthrough;
-
+  function assessReply({ ctx, companyId, chatId = null, customerText, history = [], rawText = '', finalText = '' }) {
     const quantityText = [customerText, ...(history || []).map((turn) => turn?.content ?? turn?.text ?? '')].join('\n');
-    const assessment = uncertainty.assess({
+    return uncertainty.assess({
       customerText,
       rawText,
       finalText,
@@ -2316,6 +2315,76 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       quantityText,
       departmentAsked: Boolean(ctx.departmentAsked?.length),
     });
+  }
+
+  // Alat yang mengubah dunia nyata (pesanan, kurir, pertanyaan ke departemen):
+  // giliran yang sudah memanggilnya tidak boleh diulang oleh eskalasi.
+  const SIDE_EFFECT_TOOL = /proforma|invoice|order|pesan|kurir|dispatch|ask_|handoff|serah/i;
+
+  /**
+   * Model utama menjawab; bila penjaga menilai jawabannya bermasalah, giliran
+   * yang sama diulang dengan rantai eskalasi (model lebih kuat). Lihat
+   * escalation.js. Mengembalikan `result` (balasan terpilih), `enforced`
+   * (kontrak keluaran atas balasan itu), dan `escalation` (null bila tak ada).
+   */
+  async function generateWithEscalation({ customerText, genContext, ctx, companyId, chatId = null, history = [], escalationChain }) {
+    const enforce = (text) => enforceReplyContract(llmService, {
+      text,
+      systemPrompt: ctx.systemPrompt,
+      userMessage: customerText,
+      history,
+      priceSource: priceSourceOf(ctx, { userMessage: customerText, history, companyId, chatId }),
+      expectations: replyExpectationsOf(ctx),
+    });
+    const first = await llmService.generateReply(customerText, genContext).catch(() => null);
+    const leakFirst = first?.text ? escalationLib.stripToolLeak(first.text) : { text: '', leaked: false };
+    if (first?.text) first.text = leakFirst.text;
+    const chain = escalationLib.pickEscalationChain(escalationChain, first?.model);
+    const eligible = chain.length > 0 && !ctx.ks && ctx.agentMode !== 'internal_ops' && !ctx.departmentAsked?.length
+      && !(first?.toolCalls || []).some((call) => SIDE_EFFECT_TOOL.test(call?.name || ''));
+    if (!eligible) return { result: first, enforced: null, escalation: null };
+
+    const enforcedFirst = first?.text ? await enforce(first.text) : null;
+    const assessFirst = first?.text
+      ? assessReply({ ctx, companyId, chatId, customerText, history, rawText: first.text, finalText: enforcedFirst?.text || '' })
+      : null;
+    // Balasan kosong (semua model utama gagal) juga layak dicoba model lain.
+    const verdict = first?.text
+      ? escalationLib.shouldEscalate({ assessment: assessFirst, enforced: enforcedFirst, leaked: leakFirst.leaked })
+      : { escalate: true, why: ['no_reply'] };
+    if (!verdict.escalate) return { result: first, enforced: enforcedFirst, escalation: null };
+
+    const second = await llmService.generateReply(customerText, { ...genContext, modelChain: chain, maxTokens: 2000 }).catch(() => null);
+    const leakSecond = second?.text ? escalationLib.stripToolLeak(second.text) : { text: '', leaked: false };
+    if (second?.text) second.text = leakSecond.text;
+    const enforcedSecond = second?.text ? await enforce(second.text) : null;
+    const assessSecond = second?.text
+      ? assessReply({ ctx, companyId, chatId, customerText, history, rawText: second.text, finalText: enforcedSecond?.text || '' })
+      : null;
+    const secondVerdict = second?.text
+      ? escalationLib.shouldEscalate({ assessment: assessSecond, enforced: enforcedSecond, leaked: leakSecond.leaked })
+      : { escalate: false, why: [] };
+    const chosen = first?.text
+      ? escalationLib.chooseOutcome({ first: verdict, second: second?.text ? { text: second.text, why: secondVerdict.why } : null })
+      : (second?.text ? 'second' : 'first');
+    const escalation = {
+      from: first?.model || null, to: second?.model || null, why: verdict.why, chosen,
+      remaining: chosen === 'second' ? secondVerdict.why : verdict.why,
+      firstUsage: first?.usage || null, secondUsage: second?.usage || null,
+    };
+    app.log.info({ companyId, chatId, ...escalation }, 'Eskalasi model');
+    return chosen === 'second'
+      ? { result: second, enforced: enforcedSecond, escalation }
+      : { result: first, enforced: enforcedFirst, escalation };
+  }
+
+  async function guardUncertainty({ ctx, companyId, chatId = null, customerText, history = [], rawText = '', enforced, dryRun = false }) {
+    const finalText = enforced?.text || '';
+    const passthrough = { text: finalText || null, event: null };
+    const mode = canCall('getUncertaintyGuard') ? await database.getUncertaintyGuard(companyId).catch(() => 'on') : 'on';
+    if (mode === 'off' || ctx.agentMode === 'internal_ops' || ctx.ks) return passthrough;
+
+    const assessment = assessReply({ ctx, companyId, chatId, customerText, history, rawText, finalText });
     if (!assessment.unsure) return passthrough;
 
     const askTool = (ctx.tools || []).find((tool) => tool?.name === 'ask_department' || tool?.spec?.name === 'ask_department');
@@ -2590,16 +2659,20 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       // Klarifikasi gagal dibuat — lanjut ke jalur normal daripada diam.
     }
 
-    const result = await llmService.generateReply(customerText, {
-      systemPrompt: ctx.systemPrompt,
-      relevantFaqs: ctx.relevantFaqs,
-      leadState: ctx.leadState,
-      history: conversationHistory,
-      historyLimit: ctx.ks ? 12 : undefined,
-      companyId,
-      purpose: 'auto_reply',
-      modelChain: companyAi.modelChain,
-      tools: ctx.tools,
+    const { result, enforced: enforcedByEscalation } = await generateWithEscalation({
+      customerText, ctx, companyId, chatId: message.from, history: conversationHistory,
+      escalationChain: config.aiEscalationChain,
+      genContext: {
+        systemPrompt: ctx.systemPrompt,
+        relevantFaqs: ctx.relevantFaqs,
+        leadState: ctx.leadState,
+        history: conversationHistory,
+        historyLimit: ctx.ks ? 12 : undefined,
+        companyId,
+        purpose: 'auto_reply',
+        modelChain: companyAi.modelChain,
+        tools: ctx.tools,
+      },
     });
     // Alat ask_department sudah jalan: customer HARUS dapat kabar tunggu. Dipaksa
     // di sini, bukan dititipkan ke model, yang kadang menjawab tanpa menyebutnya.
@@ -2615,7 +2688,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     // ada" dan mengarang "perbaikan signifikan di 60 hari pertama". Larangan
     // yang terkubur di prompt panjang tidak dipatuhi konsisten, jadi kontraknya
     // ditegakkan di sini — tepat sebelum pesan sampai ke customer.
-    const enforced = await enforceReplyContract(llmService, {
+    const enforced = enforcedByEscalation || await enforceReplyContract(llmService, {
       text: result.text,
       systemPrompt: ctx.systemPrompt,
       userMessage: customerText,
@@ -6771,6 +6844,8 @@ Aturan:
       grade: { type: 'boolean', default: true },
       // Uji sebagai mode agent tertentu; kosong = 'standard' seperti sebelumnya.
       agentMode: { type: 'string', enum: agentModes.MODES },
+      // Uji banding model eskalasi (koma-terpisah; '' mematikannya). Hanya dipakai admin platform.
+      escalationChain: { type: 'string', maxLength: 500 },
     } } },
   }, async (request, reply) => {
     if (!requireCoachSupervisor(request, reply)) return;
@@ -6836,20 +6911,33 @@ Aturan:
     let aiReply = null;
     let aiModel = null;
     let uncertaintyEvent = null;
+    let escalationEvent = null;
+    let aiUsage = null;
     if (mode === 'ai' || compareWithAi) {
-      const generated = await llmService.generateReply(customerRead, {
-        systemPrompt: ctx.systemPrompt,
-        relevantFaqs: ctx.relevantFaqs,
-        leadState: ctx.leadState,
-        history,
-        companyId,
-        purpose: 'simulate',
-        modelChain: companyAi.modelChain,
-        // Alat yang sama dengan balasan WhatsApp sungguhan (alat Hub untuk
-        // company yang menyalakannya) — simulasi tanpa alat itu menguji balasan
-        // yang tidak akan pernah diterima customer.
-        tools: ctx.tools,
-      }).catch(() => null);
+      const { result: generated, enforced: enforcedByEscalation, escalation: escalationSim } = await generateWithEscalation({
+        customerText: customerRead, ctx, companyId, history,
+        // Simulator boleh menimpa rantai eskalasi per permintaan (uji banding); string kosong mematikannya.
+        escalationChain: typeof request.body.escalationChain === 'string' && isPlatformAdmin(request.agneeSession)
+          ? request.body.escalationChain : config.aiEscalationChain,
+        genContext: {
+          systemPrompt: ctx.systemPrompt,
+          relevantFaqs: ctx.relevantFaqs,
+          leadState: ctx.leadState,
+          history,
+          companyId,
+          purpose: 'simulate',
+          modelChain: companyAi.modelChain,
+          // Alat yang sama dengan balasan WhatsApp sungguhan (alat Hub untuk
+          // company yang menyalakannya) — simulasi tanpa alat itu menguji balasan
+          // yang tidak akan pernah diterima customer.
+          tools: ctx.tools,
+        },
+      }).catch(() => ({ result: null, enforced: null, escalation: null }));
+      // Id model asli hanya untuk konsol platform admin (lihat maskModelFields): from/to diberi label tingkatan.
+      escalationEvent = escalationSim
+        ? { ...escalationSim, from: escalationSim.from && modelTiers.labelForId(escalationSim.from), to: escalationSim.to && modelTiers.labelForId(escalationSim.to) }
+        : null;
+      aiUsage = generated?.usage || null;
       if (!generated?.text && mode === 'ai') {
         return reply.code(502).send({ error: 'AI tidak menghasilkan balasan.' });
       }
@@ -6862,7 +6950,7 @@ Aturan:
       // generateAutoReply.
       let teks = generated?.text || null;
       if (teks) {
-        const enforcedSim = await enforceReplyContract(llmService, {
+        const enforcedSim = enforcedByEscalation || await enforceReplyContract(llmService, {
           text: teks,
           systemPrompt: ctx.systemPrompt,
           userMessage: customerRead,
@@ -6924,6 +7012,8 @@ Aturan:
       model: aiModel,
       // Alasan "AI tidak yakin" bila balasan ini diubah penjaga (null bila tidak).
       uncertainty: uncertaintyEvent,
+      escalation: escalationEvent,
+      usage: aiUsage,
       product: ctx.product ? { id: ctx.product.id, name: ctx.product.name } : null,
       rules,
       judge,

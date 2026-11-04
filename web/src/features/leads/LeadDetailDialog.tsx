@@ -9,6 +9,7 @@ import type { PipelineStage, TeamMember } from '@/features/inbox/types';
 import { cn } from '@/lib/utils';
 import { customerLabel } from '@/lib/customer-label';
 import { NoteThread } from '@/components/mentions/NoteThread';
+import { LeadChatHistory } from './LeadChatHistory';
 
 type Row = Record<string, string>;
 
@@ -127,9 +128,9 @@ export function LeadDetailDialog({ row, onClose, onSaved }: { row: Row | null; o
     && (isSupervisor || member.id === user?.userId));
 
   return (
-    <Dialog open={Boolean(row)} onClose={onClose} labelledBy="lead-detail-title" className="w-[min(94vw,640px)] max-h-[88vh]">
+    <Dialog open={Boolean(row)} onClose={onClose} labelledBy="lead-detail-title" className="w-[min(94vw,980px)] max-h-[88vh]">
       {row ? (
-        <div className="grid max-h-[88vh] grid-rows-[auto_1fr] overflow-hidden">
+        <div className="grid max-h-[88vh] grid-rows-[auto_minmax(0,1fr)] overflow-hidden">
           <div className="flex items-center justify-between border-b border-border px-6 py-4">
             <div>
               <p className="eyebrow mb-0">{t('leads.editEyebrow')}</p>
@@ -139,7 +140,8 @@ export function LeadDetailDialog({ row, onClose, onSaved }: { row: Row | null; o
             <DialogClose onClick={onClose} label={t('lead.close')} />
           </div>
 
-          <div className="overflow-y-auto px-6 py-5">
+          <div className="grid min-h-0 grid-rows-[minmax(0,1fr)] overflow-y-auto lg:grid-cols-[minmax(0,1fr)_320px] lg:overflow-hidden">
+          <div className="px-6 py-5 lg:overflow-y-auto">
             <section className="grid gap-3 sm:grid-cols-2">
               <ReadOnlyField label={t('leads.servedByNumber')} value={row.servedByNumber} />
               <ReadOnlyField label={t('leads.firstSeenAt')} value={row.firstSeenAt} />
@@ -257,6 +259,10 @@ export function LeadDetailDialog({ row, onClose, onSaved }: { row: Row | null; o
                 {saving ? t('common.loading') : t('common.save')}
               </Button>
             </div>
+          </div>
+          <aside className="max-h-[50vh] border-t border-border lg:max-h-none lg:border-t-0 lg:border-l">
+            <LeadChatHistory chatId={chatId} />
+          </aside>
           </div>
         </div>
       ) : null}

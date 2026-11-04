@@ -2,7 +2,9 @@ import { useEffect, useMemo, useState } from 'react';
 import { api, messageFromError } from '@/lib/api';
 import { useI18n } from '@/lib/i18n';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { inputClass } from '@/components/ui/input';
+import { SuggestInput } from '@/components/ui/suggest-input';
+import { fuzzyFilter } from '@/lib/fuzzy';
 import { Dialog, DialogClose } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 
@@ -52,15 +54,14 @@ export function LeadListPicker({ open, onClose, onImport }: {
   );
 
   const matching = useMemo(() => {
-    const needle = query.trim().toLocaleLowerCase('id-ID');
-    return usable.filter((row) => {
+    const rows = usable.filter((row) => {
       if (stage && row.leadStage !== stage) return false;
       if (relation && row.relation !== relation) return false;
       if (activity && row.activity !== activity) return false;
       if (label && !String(row.waLabels || '').split(', ').includes(label)) return false;
-      if (!needle) return true;
-      return `${row.name || ''} ${row.phone || ''}`.toLocaleLowerCase('id-ID').includes(needle);
+      return true;
     });
+    return fuzzyFilter(rows, query, (row) => `${row.name || ''} ${row.phone || ''}`);
   }, [usable, query, stage, relation, activity, label]);
 
   const shown = matching.slice(0, LIST_LIMIT);
@@ -102,13 +103,14 @@ export function LeadListPicker({ open, onClose, onImport }: {
         {rows ? (
           <>
             <div className="flex flex-wrap items-center gap-2">
-              <Input
+              <SuggestInput
                 type="search"
                 value={query}
-                onChange={(event) => setQuery(event.target.value)}
+                onChange={setQuery}
+                suggestions={usable.map((row) => row.name)}
                 placeholder={t('leads.searchPlaceholder')}
                 aria-label={t('leads.searchPlaceholder')}
-                className="min-h-11 flex-[1_1_200px] rounded-[10px] bg-white px-3 py-1.5"
+                className={cn(inputClass, 'min-h-11 rounded-[10px] bg-white px-3 py-1.5')}
               />
               {stages.length ? (
                 <select value={stage} onChange={(e) => setStage(e.target.value)} aria-label={t('leads.filterStage')} className={select}>

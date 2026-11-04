@@ -6,7 +6,8 @@ import { useSession } from '@/lib/session';
 import { subscribeLiveEvent } from '@/lib/live-events';
 import { AppSidebar } from '@/components/AppSidebar';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { inputClass } from '@/components/ui/input';
+import { SuggestInput } from '@/components/ui/suggest-input';
 import { Dialog, DialogClose } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 import { customerLabel } from '@/lib/customer-label';
@@ -312,13 +313,17 @@ function AssignDialog({
         </div>
         <p className="m-0 text-[13px] text-muted">{t('tasks.searchHint')}</p>
 
-        <Input
-          type="search"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder={t('tasks.searchChats')}
-          aria-label={t('tasks.searchChats')}
-        />
+        <div className="flex">
+          <SuggestInput
+            type="search"
+            value={query}
+            onChange={setQuery}
+            suggestions={chats.map((chat) => chat.name)}
+            placeholder={t('tasks.searchChats')}
+            aria-label={t('tasks.searchChats')}
+            className={inputClass}
+          />
+        </div>
 
         <div className="max-h-[36vh] overflow-auto rounded-xl border border-border bg-white">
           {chats.length ? (

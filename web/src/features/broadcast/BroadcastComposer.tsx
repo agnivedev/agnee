@@ -2,7 +2,9 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, messageFromError } from '@/lib/api';
 import { useI18n } from '@/lib/i18n';
 import { Button } from '@/components/ui/button';
-import { Input, Textarea } from '@/components/ui/input';
+import { Input, Textarea, inputClass } from '@/components/ui/input';
+import { SuggestInput } from '@/components/ui/suggest-input';
+import { fuzzyFilter } from '@/lib/fuzzy';
 import { Switch } from '@/components/ui/switch';
 import { useConfirm } from '@/components/ui/confirm';
 import { cn } from '@/lib/utils';
@@ -156,10 +158,7 @@ export function BroadcastComposer({ onCancel, onCreated }: { onCancel: () => voi
   const selectedUnproven = useMemo(() => selected.filter((row) => row.relation === 'unproven').length, [selected]);
 
   const listed = useMemo(() => {
-    const needle = search.trim().toLowerCase();
-    const rows = needle
-      ? matching.filter((row) => (row.name || '').toLowerCase().includes(needle) || displayPhone(row).includes(needle.replace(/\D/g, '') || needle))
-      : matching;
+    const rows = fuzzyFilter(matching, search, (row) => `${row.name || ''} ${displayPhone(row)}`);
     return { all: rows, rows: rows.slice(0, LIST_LIMIT), total: rows.length };
   }, [matching, search]);
 
@@ -470,7 +469,7 @@ export function BroadcastComposer({ onCancel, onCreated }: { onCancel: () => voi
                 <Button variant="ghost" size="sm" onClick={() => setAll(false)}>{t('broadcast.uncheckAll')}</Button>
               </div>
               <div className="border-b border-border px-3 py-2">
-                <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={t('broadcast.searchPlaceholder')} className="py-2" aria-label={t('broadcast.searchPlaceholder')} />
+                <SuggestInput value={search} onChange={setSearch} suggestions={matching.map((row) => row.name)} placeholder={t('broadcast.searchPlaceholder')} className={cn(inputClass, 'py-2')} aria-label={t('broadcast.searchPlaceholder')} />
               </div>
               {listed.rows.length ? (
                 <ul className="m-0 max-h-[360px] list-none overflow-auto p-0">

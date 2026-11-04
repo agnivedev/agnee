@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { fuzzyFilter } from '@/lib/fuzzy';
 import { useI18n } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import type { Mention, Mentionable } from './types';
@@ -47,13 +48,7 @@ export function MentionInput({
 
   const matches = useMemo(() => {
     if (query === null) return [];
-    const needle = query.toLowerCase();
-    return people
-      .filter((person) => {
-        const name = (person.displayName || person.email || '').toLowerCase();
-        return !needle || name.includes(needle);
-      })
-      .slice(0, 6);
+    return fuzzyFilter(people, query, (person) => `${person.displayName || ''} ${person.email || ''}`).slice(0, 6);
   }, [people, query]);
 
   useEffect(() => { setActive(0); }, [query]);

@@ -40,6 +40,8 @@ export function useInbox() {
   // Tab per nomor: null = semua nomor.
   const [numberId, setNumberId] = useState<string | null>(null);
   const [numbers, setNumbers] = useState<InboxNumber[]>([]);
+  // Nama yang pernah tampil di daftar: bahan autosuggest, tetap ada walau daftar sedang tersaring.
+  const [nameHints, setNameHints] = useState<string[]>([]);
   const [listError, setListError] = useState<string>();
   // Sebelum balasan pertama tiba, daftar kosong BUKAN berarti tidak ada
   // percakapan — tanpa penanda ini layar menulis "belum ada percakapan".
@@ -87,6 +89,11 @@ export function useInbox() {
           locallyRead.current.has(chat.id) ? { ...chat, unreadCount: 0 } : chat,
         );
         setChats((current) => (reset ? received : [...current, ...received]));
+        setNameHints((current) => {
+          const names = new Set(current);
+          for (const chat of received) if (chat.name) names.add(chat.name);
+          return names.size === current.length ? current : [...names].slice(-500);
+        });
         setHasMoreChats(Boolean(data.hasMore));
         // The server returns `phase` instead of an error while WhatsApp is not
         // ready, so an empty list can mean "still connecting" rather than
@@ -237,6 +244,7 @@ export function useInbox() {
     setNumberId,
     numbers,
     refreshNumbers,
+    nameHints,
     loadChats,
     loadMessages,
     loadOlderMessages,

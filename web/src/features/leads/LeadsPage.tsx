@@ -5,7 +5,9 @@ import { useI18n, usePageTitle } from '@/lib/i18n';
 import { useSession } from '@/lib/session';
 import { AppSidebar } from '@/components/AppSidebar';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { inputClass } from '@/components/ui/input';
+import { SuggestInput } from '@/components/ui/suggest-input';
+import { fuzzyFilter } from '@/lib/fuzzy';
 import { Dialog, DialogClose } from '@/components/ui/dialog';
 import { useConfirm } from '@/components/ui/confirm';
 import { LeadDetailDialog } from './LeadDetailDialog';
@@ -199,18 +201,18 @@ export function LeadsPage() {
   );
 
   const visibleRows = useMemo(() => {
-    const needle = query.trim().toLocaleLowerCase('id-ID');
     let filtered = rows.filter((row) => {
       if (stage && row.leadStage !== stage) return false;
       if (handling && row.handlingMode !== handling) return false;
       if (relation && row.relation !== relation) return false;
       if (activity && row.activity !== activity) return false;
       if (waLabel && !String(row.waLabels || '').split(', ').includes(waLabel)) return false;
-      if (!needle) return true;
-      return Object.values(row).some((value) =>
-        String(value).toLocaleLowerCase('id-ID').includes(needle),
-      );
+      return true;
     });
+    // Fuzzy atas semua kolom teks; tanpa urutan pilihan pemakai, yang paling cocok di atas.
+    filtered = fuzzyFilter(filtered, query, (row) =>
+      Object.values(row).filter((value) => typeof value === 'string' || typeof value === 'number').join(' '),
+    );
     if (sort) {
       const direction = sort.direction === 'asc' ? 1 : -1;
       filtered = [...filtered].sort(
@@ -262,13 +264,14 @@ export function LeadsPage() {
 
         <section className="mt-6 md:mt-8 md:rounded-panel md:border md:border-border md:bg-card md:p-5">
           <div className="flex flex-wrap items-center gap-2">
-            <Input
+            <SuggestInput
               type="search"
               value={query}
-              onChange={(event) => setQuery(event.target.value)}
+              onChange={setQuery}
+              suggestions={rows.map((row) => row.name)}
               placeholder={t('leads.searchPlaceholder')}
               aria-label={t('leads.searchPlaceholder')}
-              className="min-h-11 min-w-0 flex-1 rounded-[10px] bg-white px-3 py-1.5 md:min-h-[38px] md:flex-[1_1_240px]"
+              className={cn(inputClass, 'min-h-11 min-w-0 rounded-[10px] bg-white px-3 py-1.5 md:min-h-[38px]')}
             />
             <Button size="sm" variant="outline" className="md:hidden" aria-expanded={filtersOpen} onClick={() => setFiltersOpen((open) => !open)}>
               {t('leads.filters')}{[stage, handling, relation, activity, waLabel].filter(Boolean).length ? ` · ${[stage, handling, relation, activity, waLabel].filter(Boolean).length}` : ''}

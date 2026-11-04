@@ -45,6 +45,7 @@ const gsheets = require('./gsheets-sync.js');
 const { HUB_REPLY_WORKING_DAYS, addWorkingDays, workingDaysSince } = require('./hub-followup.js');
 const mayarSync = require('./mayar-sync.js');
 const dealposSync = require('./dealpos-sync.js');
+const { fuzzyFilter } = require('./fuzzy');
 const lalamove = require('./lalamove.js');
 const lalamoveVehicles = require('./lalamove-vehicles.js');
 const priceLookup = require('./price-lookup.js');
@@ -13063,7 +13064,7 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
       chats = chats.filter((chat, index) => !chat.archived && ['qualified', 'assigned'].includes(states[index].stage));
     }
     if (filter === 'all') chats = chats;
-    if (query) chats = chats.filter((chat) => `${chat.name} ${chat.preview}`.toLocaleLowerCase('id-ID').includes(query));
+    if (query) chats = fuzzyFilter(chats, query, (chat) => `${chat.name || ''} ${chat.preview || ''} ${String(chat.id || '').replace(/@.*$/, '')}`);
     chats.sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) || Number(b.timestamp || 0) - Number(a.timestamp || 0));
     const page = chats.slice(offset, offset + limit);
     if (provider !== 'cloud_api' && !config.demoMode) await fillEmptyPreviews(page);

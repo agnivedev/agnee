@@ -19,6 +19,7 @@ import { Rail, type RailAction } from './Rail';
 import { DialogShell, UtilityDialog, type UtilityState } from './UtilityDialog';
 import { messagePreview } from './format';
 import type { Chat, MediaTarget, Message, WhatsappStatus } from './types';
+import { SuggestInput } from '@/components/ui/suggest-input';
 import { useInbox, type InboxFilter, type InboxTab } from './useInbox';
 import { useLiveEvents } from './useLiveEvents';
 
@@ -335,11 +336,12 @@ export function InboxPage() {
           <span aria-hidden className="text-muted">
             ⌕
           </span>
-          <input
+          <SuggestInput
             type="search"
             value={inbox.search}
             placeholder={t('inbox.search')}
-            onChange={(event) => inbox.setSearch(event.target.value)}
+            onChange={inbox.setSearch}
+            suggestions={inbox.nameHints}
             className="w-full border-0 bg-transparent text-ink outline-none"
           />
         </label>

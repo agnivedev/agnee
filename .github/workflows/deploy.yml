@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - main
+  # Tombol manual (Actions > Run workflow). Dipakai bila trigger push hilang,
+  # seperti 4 Nov 2026 saat insiden GitHub menelan dua push tanpa membuat run.
+  workflow_dispatch:
 
 jobs:
   test:

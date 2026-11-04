@@ -1779,6 +1779,24 @@ class Database {
     return result.rows[0] || null;
   }
 
+  /**
+   * Pertanyaan departemen yang masih bisa dijawab anggota ini lewat DM WhatsApp:
+   * open/unresolved, dari departemen tempat ia menjadi anggota, bukan pihak ketiga.
+   */
+  async listOpenQuestionsForMember(companyId, userId) {
+    if (!this.enabled || !userId) return [];
+    const result = await this.pool.query(`
+      SELECT q.id, q.chat_id AS "chatId", q.question, d.name AS department
+      FROM department_questions q
+      JOIN departments d ON d.id = q.department_id
+      WHERE q.company_id = $1 AND q.status IN ('open', 'unresolved') AND q.third_party_id IS NULL
+        AND EXISTS (SELECT 1 FROM department_members dm WHERE dm.department_id = q.department_id AND dm.user_id = $2)
+      ORDER BY q.created_at DESC
+      LIMIT 20
+    `, [companyId, userId]);
+    return result.rows;
+  }
+
   async listDepartmentQuestions(companyId, { userId = null, status = 'open', limit = 50 } = {}) {
     if (!this.enabled) return [];
     // Pertanyaan ke pihak ketiga tidak punya departemen: hanya terlihat saat

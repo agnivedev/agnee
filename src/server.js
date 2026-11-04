@@ -1040,6 +1040,12 @@ async function buildApp(overrides = {}) {
         return;
       }
     }
+    // Anggota departemen yang membalas DM pertanyaan AI: itu jawaban, bukan chat customer.
+    if (!message.from.endsWith('@g.us') && canCall('listOpenQuestionsForMember')) {
+      const handled = await captureMemberDmAnswer(companyId, message)
+        .catch((error) => { app.log.warn({ err: error, companyId }, 'Balasan DM anggota departemen gagal diproses'); return false; });
+      if (handled) return;
+    }
     rememberInbound(companyId, message.from, message.body);
     scheduleAutoInsight(companyId, message.from);
     // Catat pesan masuk supaya "pesan terakhir" tetap terbaca walau client
@@ -1553,6 +1559,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     const customerLabel = await customerLabelFor(companyId, chatId);
     const notice = departmentAsk.buildQuestionNotice({
       department: dept.name, question, customerLabel, askerLabel,
+      code: departmentAsk.questionCode(created.id), dm: true,
     });
     const groupSent = created.whatsappGroupId
       ? await notifyDepartmentGroup(companyId, created.id, created.whatsappGroupId, departmentAsk.buildQuestionNotice({
@@ -1713,38 +1720,80 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     if (!hit) return false;
     const answer = text.replace(/#[0-9a-f]{6}\b/i, '').trim();
     if (!answer) return false;
+    const author = String(message.author || message._data?.author?._serialized || '');
+    const member = author.endsWith('@c.us')
+      ? await database.findMemberByWhatsapp(companyId, author.replace(/\D/g, '')).catch(() => null)
+      : null;
+    return processStaffAnswer({ companyId, hit, answer, ackTo: message.from, userId: member?.userId || null, channel: 'group', groupId: message.from });
+  }
+
+  /**
+   * Jawaban staf (dari grup atau DM) atas satu pertanyaan: ditutup, ditolak
+   * sebagai bukan-jawaban, atau dicatat lalu diteruskan ke customer. Selalu
+   * membalas pengirim lewat `ackTo` dan mengembalikan true (pesan sudah ditangani).
+   */
+  async function processStaffAnswer({ companyId, hit, answer, ackTo, userId, channel, groupId = null }) {
     const replyKind = departmentAsk.classifyGroupReply(answer);
     if (replyKind === 'close') {
       const closed = await database.closeDepartmentQuestion(hit.id, companyId);
       if (closed) broadcastEvent(companyId, 'department_question', { id: hit.id, department: hit.department });
-      await sendOutbound(companyId, message.from, closed
+      await sendOutbound(companyId, ackTo, closed
         ? 'Dicatat, pertanyaan ditutup dan tidak diteruskan ke customer.'
         : 'Pertanyaan ini sudah tidak terbuka.').catch(() => {});
       return true;
     }
     if (replyKind !== 'answer') {
-      await sendOutbound(companyId, message.from, departmentAsk.nonAnswerNotice(replyKind, departmentAsk.questionCode(hit.id))).catch(() => {});
+      await sendOutbound(companyId, ackTo, departmentAsk.nonAnswerNotice(replyKind, departmentAsk.questionCode(hit.id))).catch(() => {});
       return true;
     }
-    const author = String(message.author || message._data?.author?._serialized || '');
-    const member = author.endsWith('@c.us')
-      ? await database.findMemberByWhatsapp(companyId, author.replace(/\D/g, '')).catch(() => null)
-      : null;
-    const row = await database.answerDepartmentQuestion(hit.id, { answer, userId: member?.userId || null }, companyId);
+    const row = await database.answerDepartmentQuestion(hit.id, { answer, userId: userId || null }, companyId);
     if (!row) return true;
     broadcastEvent(companyId, 'department_question', { id: row.id, department: hit.department });
     let relay = { relayed: false };
     try {
       relay = await relayDepartmentAnswer({ ...row, department: hit.department }, companyId);
     } catch (error) {
-      app.log.warn({ err: error, companyId }, 'Jawaban dari grup gagal diteruskan ke customer');
+      app.log.warn({ err: error, companyId }, 'Jawaban staf gagal diteruskan ke customer');
     }
     const ack = relay.ackText || (relay.relayed
       ? 'Terima kasih, jawabannya sudah diteruskan ke customer.'
       : await handleUnrelayedAnswer({ companyId, row, department: hit.department, answer, reason: relay.reason }));
-    await sendOutbound(companyId, message.from, ack).catch(() => {});
-    trackLearning(learnFromDepartmentAnswer({ companyId, questionId: row.id, channel: 'group', groupId: message.from }));
+    await sendOutbound(companyId, ackTo, ack).catch(() => {});
+    trackLearning(learnFromDepartmentAnswer({ companyId, questionId: row.id, channel, groupId }));
     return true;
+  }
+
+  /**
+   * Anggota departemen membalas DM pertanyaan AI. Dikenali lewat nomor WhatsApp
+   * di profilnya (termasuk peta @lid). Hanya ditangani bila ia punya pertanyaan
+   * terbuka; selain itu pesannya berjalan normal. Satu pertanyaan terbuka =
+   * itulah yang dijawab; lebih dari satu = wajib menyertakan #kode.
+   */
+  async function captureMemberDmAnswer(companyId, message) {
+    const text = String(message.body || '').trim();
+    if (!text || message.from.endsWith('@g.us')) return false;
+    let digits = String(message.from).endsWith('@c.us') ? message.from.split('@')[0] : null;
+    if (!digits && String(message.from).endsWith('@lid') && canCall('phoneForLid')) {
+      digits = String(await database.phoneForLid(companyId, message.from).catch(() => '') || '').replace(/\D/g, '') || null;
+    }
+    if (!digits) return false;
+    const member = await database.findMemberByWhatsapp(companyId, digits).catch(() => null);
+    if (!member) return false;
+    const open = await database.listOpenQuestionsForMember(companyId, member.userId).catch(() => []);
+    if (!open.length) return false;
+    const code = departmentAsk.codeInText(text);
+    const hit = code
+      ? open.find((q) => departmentAsk.questionCode(q.id) === code)
+      : (open.length === 1 ? open[0] : null);
+    if (!hit) {
+      await sendOutbound(companyId, message.from, code
+        ? 'Kode itu tidak cocok dengan pertanyaan yang masih terbuka.'
+        : departmentAsk.ambiguousDmNotice(open)).catch(() => {});
+      return true;
+    }
+    const answer = text.replace(/#[0-9a-f]{6}\b/i, '').trim();
+    if (!answer) return true;
+    return processStaffAnswer({ companyId, hit, answer, ackTo: message.from, userId: member.userId, channel: 'dm' });
   }
 
   /**
@@ -14668,7 +14717,22 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
           department: row.department, question: row.question,
           customerLabel,
           reminderCount: row.reminderCount, final: row.final,
+          code: departmentAsk.questionCode(row.id), dm: true,
         });
+        // 12 jam tanpa jawaban: customer diberi kabar jujur, bukan dibiarkan menunggu.
+        // Chat yang dipegang manusia dilewati (supervisor sudah dilonceng).
+        if (row.final && row.chatId && !String(row.chatId).endsWith('@g.us')) {
+          try {
+            const routing = await getRouting(row.chatId, row.companyId).catch(() => null);
+            if (routing?.mode !== 'human') {
+              const text = departmentAsk.unresolvedCustomerNotice();
+              const sent = await sendOutbound(row.companyId, row.chatId, text);
+              await database.recordOutboundReply({ chatId: row.chatId, messageId: sent?.messageId || null, author: 'ai', body: text }, row.companyId).catch(() => {});
+            }
+          } catch (error) {
+            app.log.warn({ err: error, companyId: row.companyId }, 'Kabar pertanyaan tak terjawab ke customer gagal terkirim');
+          }
+        }
         if (row.whatsappGroupId) {
           await notifyDepartmentGroup(row.companyId, row.id, row.whatsappGroupId, departmentAsk.buildReminderNotice({
             department: row.department, question: row.question,

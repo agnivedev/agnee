@@ -51,13 +51,14 @@ function codeInText(text) {
 }
 
 /** Baris cara menjawab: dari grup (reply atau kode) atau dari Agnee. */
-function answerHint({ code, group }) {
+function answerHint({ code, group, dm = false }) {
+  if (dm && !group) return `Balas pesan ini langsung dengan jawabannya. Kalau ada beberapa pertanyaan terbuka, tulis #${code} di jawabanmu. Bisa juga lewat Agnee (menu Pertanyaan AI).`;
   return group
     ? `Jawab dengan *reply* pesan ini di grup, atau tulis #${code} di jawabanmu. Bisa juga lewat Agnee (menu Pertanyaan AI).`
     : 'Mohon dijawab lewat Agnee (menu Pertanyaan AI).';
 }
 
-function buildReminderNotice({ department, question, customerLabel, reminderCount, final, code = null, group = false }) {
+function buildReminderNotice({ department, question, customerLabel, reminderCount, final, code = null, group = false, dm = false }) {
   const cut = (v, n) => { const t = String(v || '').replace(/\s+/g, ' ').trim(); return t.length > n ? `${t.slice(0, n - 1)}…` : t; };
   return [
     final ? `*Pengingat terakhir — tim ${department}*` : `*Pengingat ${reminderCount}/4 — tim ${department}*`,
@@ -65,8 +66,8 @@ function buildReminderNotice({ department, question, customerLabel, reminderCoun
     `Pertanyaan: "${cut(question, 650)}"`,
     '',
     final
-      ? `Belum ada yang menjawab selama 12 jam. Customer ditandai belum terjawab. ${answerHint({ code, group })}`
-      : `Customer masih menunggu. ${answerHint({ code, group })}`,
+      ? `Belum ada yang menjawab selama 12 jam. Customer ditandai belum terjawab. ${answerHint({ code, group, dm })}`
+      : `Customer masih menunggu. ${answerHint({ code, group, dm })}`,
   ].join('\n');
 }
 
@@ -207,6 +208,18 @@ function nonAnswerNotice(kind, code) {
   return `Pesan itu berupa pertanyaan, bukan jawaban, jadi pertanyaan masih terbuka. Mohon balas pesan pertanyaan dengan jawabannya (atau "batal" bila tidak jadi).`;
 }
 
+/** Kabar jujur ke customer saat pertanyaan 12 jam tak terjawab. Tanpa menyebut proses internal. */
+function unresolvedCustomerNotice() {
+  return 'Mohon maaf kak, informasi ini belum bisa kami pastikan sampai sekarang. Kami masih menindaklanjutinya dan akan mengabari kakak begitu sudah jelas ya 🙏';
+}
+
+/** Daftar pertanyaan terbuka untuk anggota yang membalas DM tanpa kode. */
+function ambiguousDmNotice(items) {
+  const cut = (v, n) => { const t = String(v || '').replace(/\s+/g, ' ').trim(); return t.length > n ? `${t.slice(0, n - 1)}…` : t; };
+  const list = items.slice(0, 5).map((q) => `#${questionCode(q.id)} — ${cut(q.question, 80)}`).join('\n');
+  return `Ada ${items.length} pertanyaan yang masih terbuka, jadi jawabanmu belum bisa dicocokkan. Tulis kodenya di jawabanmu, mis. "#${questionCode(items[0].id)} jawaban":\n${list}`;
+}
+
 const COMPOUND_MAX = 400;
 
 /**
@@ -224,14 +237,14 @@ function compoundProblem(question) {
 }
 
 /** Pesan WhatsApp ke anggota departemen. */
-function buildQuestionNotice({ department, question, customerLabel, askerLabel = null, code = null, group = false }) {
+function buildQuestionNotice({ department, question, customerLabel, askerLabel = null, code = null, group = false, dm = false }) {
   const cut = (v, n) => { const t = String(v || '').replace(/\s+/g, ' ').trim(); return t.length > n ? `${t.slice(0, n - 1)}…` : t; };
   return [
     `*Pertanyaan dari asisten untuk tim ${department}*`,
     askerLabel ? `Penanya: ${askerLabel}` : `Customer: ${customerLabel}`,
     `Pertanyaan: "${cut(question, 650)}"`,
     '',
-    `${answerHint({ code, group })} Jawaban pertama yang masuk akan diteruskan ke ${askerLabel ? 'penanya' : 'customer'}.`,
+    `${answerHint({ code, group, dm })} Jawaban pertama yang masuk akan diteruskan ke ${askerLabel ? 'penanya' : 'customer'}.`,
   ].join('\n');
 }
 
@@ -277,4 +290,5 @@ function judgeRelay(text) {
 }
 
 module.exports = {
+  unresolvedCustomerNotice, ambiguousDmNotice,
   classifyGroupReply, nonAnswerNotice, compoundProblem, questionCode, codeInText, buildMentionNotice, guideOps, guideThirdPartiesOps, judgeRelay, leaksInternal, UNSURE_TOKEN, guideThirdParties, toolSpecThirdParty, buildThirdPartyMessage, mentionsWaiting, ensureHolding, buildReminderNotice, REMINDER_MINUTES, guide, toolSpec, buildQuestionNotice, relayPrompt, HOLDING_FALLBACK, QUESTION_MAX };

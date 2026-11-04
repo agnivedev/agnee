@@ -274,6 +274,9 @@ function assess({
 const DEPARTMENT_PATTERNS = {
   transfer: [/finance|keuangan|kasir|accounting/i],
   stok: [/gudang|warehouse|stok|inventory/i, /management|manajemen|owner|pimpinan/i],
+  ongkir: [/logistik|pengiriman|kurir|delivery/i, /management|manajemen|owner|pimpinan/i],
+  waktu_kirim: [/logistik|pengiriman|kurir|delivery/i, /management|manajemen|owner|pimpinan/i],
+  diskon: [/management|manajemen|owner|pimpinan/i, /sales|penjualan/i],
   default: [/management|manajemen|owner|pimpinan/i, /admin|sales|penjualan/i],
 };
 
@@ -330,9 +333,9 @@ const INTRO = {
 
 const FOLLOW = {
   id: {
-    ask_department: 'Saya tanyakan ke tim kami dulu, nanti saya kabari di sini begitu sudah jelas ya.',
-    notify_staff: 'Saya teruskan ke tim kami untuk memastikannya, dan kakak akan dikabari di sini.',
-    handoff: 'Saya teruskan percakapan ini ke tim kami, sebentar lagi akan dilanjutkan di sini.',
+    ask_department: 'Segera kami get back ke kakak ya, ini sedang kami pastikan dulu ke tim terkait.',
+    notify_staff: 'Segera kami get back ke kakak ya, ini sedang kami teruskan ke tim terkait.',
+    handoff: 'Segera kami get back ke kakak ya, percakapan ini kami teruskan ke tim.',
     resend_proof: 'Fotonya belum terlihat masuk di sini, Kak. Boleh dikirim ulang bukti transfernya?',
     ask_customer: {
       ongkir: 'Boleh dikirim lokasi atau alamat lengkap tujuan pengirimannya (nama jalan, kecamatan, kota)?',

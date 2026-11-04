@@ -111,7 +111,7 @@ test('ESBEJE: barang tak ada di katalog, model mengarang harga -> tidak menebak,
   const reply = await chat('dinding saya retak perlu diperbaiki, pakai apa dan berapa?');
   assert.doesNotMatch(reply, /75\.000/);
   assert.match(reply, /belum bisa memastikan/);
-  assert.match(reply, /tim kami/);
+  assert.match(reply, /get back ke kakak/);
   assert.doesNotMatch(reply, INTERNAL);
   assert.equal(state.questions.length, 1);
   assert.equal(state.questions[0].departmentId, 'd1', 'harga/produk -> Management');
@@ -164,7 +164,7 @@ test('ongkir dengan alamat yang tak terbaca: AI bertanya balik ke customer, tida
 test('tanpa departemen: staf diberi kartu serah-terima dan AI tetap membalas', async (t) => {
   const { state, chat } = await harness(t, { departments: DEPTS.none, script: async () => 'Stok MU 480 ready Kak.' });
   const reply = await chat('MU 480 ready gak?');
-  assert.match(reply, /Saya teruskan ke tim kami untuk memastikannya/);
+  assert.match(reply, /Segera kami get back ke kakak/);
   assert.equal(state.events[0].action, 'notify_staff');
   assert.equal(state.routing.length, 0, 'chat tidak diserahkan di mode "on"');
 });
@@ -172,7 +172,7 @@ test('tanpa departemen: staf diberi kartu serah-terima dan AI tetap membalas', a
 test('mode handoff tanpa departemen: chat diserahkan ke manusia', async (t) => {
   const { state, chat } = await harness(t, { departments: DEPTS.none, mode: 'handoff', script: async () => 'Stok MU 480 ready Kak.' });
   const reply = await chat('MU 480 ready gak?');
-  assert.match(reply, /Saya teruskan percakapan ini ke tim kami/);
+  assert.match(reply, /Segera kami get back ke kakak/);
   assert.equal(state.routing.length, 1);
   assert.equal(state.routing[0].mode, 'human');
   assert.equal(state.events[0].action, 'handoff');

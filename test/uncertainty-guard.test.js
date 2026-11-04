@@ -94,6 +94,8 @@ test('pickDepartment: transfer ke Finance, sisanya Management, stok ke Gudang le
   assert.equal(guard.pickDepartment('stok', ['Management']), 'Management');
   assert.equal(guard.pickDepartment('transfer', ['Management']), null, 'transfer tak dikirim ke Management');
   assert.equal(guard.pickDepartment('harga', []), null);
+  assert.equal(guard.pickDepartment('ongkir', ['Management', 'Logistik']), 'Logistik');
+  assert.equal(guard.pickDepartment('diskon', ['Finance', 'Management']), 'Management');
 });
 
 test('chooseAction mengikuti konteks dan mode', () => {
@@ -116,7 +118,7 @@ test('compose: pengakuan wajar, tanpa teks internal, kalimat tebakan dan menunda
   assert.doesNotMatch(out, /ready ya/);
   assert.doesNotMatch(out, /saya pastikan dulu/);
   assert.match(out, /belum bisa memastikan/);
-  assert.match(out, /tim kami/);
+  assert.match(out, /get back ke kakak/);
   assert.doesNotMatch(out, /Management|ask_department|cek_|belum diisi|tidak ada di (?:prompt|katalog)/i);
   // Tidak memicu penjaga gaya/kebocoran yang ada.
   assert.deepEqual(findClaimViolations(out), []);

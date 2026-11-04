@@ -30,8 +30,8 @@ const WASTE = 1.05;
 
 const GUIDE = `## HITUNG KEBUTUHAN MATERIAL (alat ${TOOL_NAME})
 - Kalau customer menyebut luas atau volume pekerjaan lalu bertanya butuh berapa (zak semen, bata, pasir), panggil ${TOOL_NAME} DI TURN YANG SAMA. Itu hitungan, bukan fakta yang harus ditanyakan ke departemen: JANGAN memanggil ask_department dan JANGAN menulis "saya pastikan dulu" / "mohon ditunggu" untuk hitungan ini.
-- Balasan harus memuat angka hasil alat (perkiraan zak untuk kemasan yang ada di katalog, dan bata/pasir bila relevan), dengan kata "perkiraan" dan asumsi singkatnya. Jangan membuat hitungan sendiri di luar alat.
-- SETELAH angkanya, tetap tanyakan SATU hal yang paling menentukan ketepatan (mis. luas 60 m² itu luas bangunan atau luas dindingnya, atau kemasan yang diinginkan). Menanyakan tidak boleh menggantikan menghitung.
+- Balasan harus memuat angka hasil alat untuk KEDUA kemasan sekaligus (zak 40 kg dan zak 50 kg; sebut harga hanya untuk yang ada di katalog), plus bata/pasir bila relevan, dengan kata "perkiraan", asumsi singkatnya, dan toleransi waste 5% yang sudah termasuk. Jangan membuat hitungan sendiri di luar alat.
+- SETELAH angkanya, tanyakan data yang menentukan ketepatan dalam SATU kalimat tanya singkat: luas dinding bersih (bila yang disebut luas bangunan), ukuran/tebal bata, dan tebal spesi (adukan). Menanyakan tidak boleh menggantikan menghitung, dan jangan menulis "mohon ditunggu".
 - Pakai harga dari katalog/cek_harga untuk kemasan yang dihitung; jangan mengarang harga. Total harga hanya bila harganya sudah ada dari sumber itu.`;
 
 function toolSpec({ run = calculate } = {}) {
@@ -68,15 +68,17 @@ function calculate(args = {}) {
     semen_kg: Math.ceil(semenKg),
     zak_40kg: Math.ceil(semenKg / 40),
     zak_50kg: Math.ceil(semenKg / 50),
+    waste_persen: 5,
     asumsi: [
-      'perkiraan koefisien SNI, termasuk cadangan 5%',
+      'perkiraan koefisien SNI, termasuk toleransi waste 5%',
+      'bata merah ukuran standar, tebal pasangan 1/2 bata, tebal spesi ±1 cm',
       fromBuilding
         ? `luas ${luas} m² dianggap luas bangunan, dinding ≈ ${WALL_PER_FLOOR}x luasnya (${round1(wall)} m²)`
         : `luas ${luas} m² dianggap luas dinding`,
     ],
     perlu_ditanyakan: fromBuilding
-      ? 'apakah luas itu luas bangunan atau luas dindingnya; bila dinding sudah diketahui, hitungan jadi lebih tepat'
-      : null,
+      ? 'luas dinding bersih (luas tadi dianggap luas bangunan), ukuran/tebal bata, dan tebal spesi; makin lengkap hitungan makin tepat'
+      : 'ukuran/tebal bata dan tebal spesi bila berbeda dari asumsi',
   };
   if (work.bata) out.bata_buah = Math.ceil(wall * work.bata * WASTE);
   if (work.pasirM3) out.pasir_m3 = round1(wall * work.pasirM3 * WASTE);

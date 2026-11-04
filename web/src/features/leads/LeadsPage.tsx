@@ -11,6 +11,7 @@ import { useConfirm } from '@/components/ui/confirm';
 import { LeadDetailDialog } from './LeadDetailDialog';
 import { LeadFileImportDialog } from './LeadFileImportDialog';
 import { cn } from '@/lib/utils';
+import { customerLabel, formatPhoneDigits, type CustomerLabel } from '@/lib/customer-label';
 import { saveLeadHandoff } from '@/features/broadcast/handoff';
 
 type Column = { key: string; label: string };
@@ -19,6 +20,10 @@ type Column = { key: string; label: string };
 // baris, dan isGroup untuk menandai baris yang tidak punya nomor.
 type Row = Record<string, string> & { chatId?: string; isGroup?: boolean; mayarTotalAmount?: number | null; broadcastChatId?: string | null };
 type SortDirection = 'asc' | 'desc';
+
+function labelOf(row: Row, t: (key: string) => string): CustomerLabel {
+  return customerLabel({ chatId: row.chatId, name: row.name, phone: row.phone, isGroup: row.isGroup }, t);
+}
 
 /** Keadaan satu proses impor chat, persis seperti yang dilaporkan server. */
 type ImportRun = {
@@ -78,7 +83,8 @@ export function LeadsPage() {
    * tidak pernah masuk kembali ke Agnee.
    */
   async function openInWhatsapp(row: Row) {
-    if (!row.phone) return;
+    const digits = labelOf(row, t).phone;
+    if (!digits) return;
     const ok = await confirm({
       title: t('leads.waMeWarnTitle'),
       message: t('leads.waMeWarnBody'),
@@ -94,16 +100,16 @@ export function LeadsPage() {
     // adalah harga yang lebih mahal daripada satu baris yang hilang.
     await api('/v1/audit/wa-me', {
       method: 'POST',
-      body: { chatId: row.chatId || row.phone, phone: row.phone, contactName: row.name || '' },
+      body: { chatId: row.chatId || digits, phone: digits, contactName: row.name || '' },
     }).catch(() => {});
-    window.open(`https://wa.me/${row.phone.replace(/[^\d]/g, '')}`, '_blank', 'noopener,noreferrer');
+    window.open(`https://wa.me/${digits}`, '_blank', 'noopener,noreferrer');
   }
 
   function openInInbox(row: Row) {
     if (!row.chatId) return;
     setChoiceRow(null);
     // Judul memakai nama kalau ada: itu yang dikenali agent, bukan nomornya.
-    const title = row.name || row.phone || row.chatId;
+    const title = labelOf(row, t).title;
     navigate(`/?chat=${encodeURIComponent(row.chatId)}&title=${encodeURIComponent(title)}`);
   }
 
@@ -373,7 +379,7 @@ export function LeadsPage() {
           <ul className="m-0 mt-2 list-none divide-y divide-border p-0 md:hidden">
             {visibleRows.map((row, index) => {
               const clickable = Boolean(row.chatId || row.phone);
-              const title = row.name || row.phone || (row.isGroup ? t('leads.groupRow') : t('leads.noName'));
+              const label = labelOf(row, t);
               const preview = row.summary || row.lastInboundBody || '';
               return (
                 <li key={row.chatId || index}>
@@ -381,13 +387,13 @@ export function LeadsPage() {
                     type="button"
                     disabled={!clickable}
                     onClick={() => setChoiceRow(row)}
-                    className="grid min-h-11 w-full cursor-pointer gap-1 border-0 bg-transparent px-0 py-3.5 text-left"
+                    className="grid min-h-11 w-full min-w-0 cursor-pointer grid-cols-[minmax(0,1fr)] gap-1 border-0 bg-transparent px-0 py-3.5 text-left"
                   >
                     <span className="flex items-baseline justify-between gap-3">
-                      <strong className="min-w-0 truncate text-[15px] text-ink">{title}</strong>
+                      <strong className="min-w-0 truncate text-[15px] text-ink">{label.title}</strong>
                       {row.leadStage ? <span className="shrink-0 text-xs font-semibold text-green-dark">{row.leadStage}</span> : null}
                     </span>
-                    {row.name && row.phone ? <span className="text-[13px] text-muted">{row.phone}</span> : null}
+                    {label.subtitle ? <span className="truncate text-[13px] text-muted tabular-nums">{label.subtitle}</span> : null}
                     {preview ? <span className="line-clamp-2 text-[13px] leading-snug text-[#3d5a50]">{preview}</span> : null}
                   </button>
                 </li>
@@ -445,14 +451,19 @@ export function LeadsPage() {
                     className="group cursor-pointer"
                   >
                     {columns.map((column) => {
-                      const raw = row[column.key] ?? '';
+                      const identity = column.key === 'name' || column.key === 'phone' ? labelOf(row, t) : null;
+                      const raw = identity
+                        ? (column.key === 'name'
+                            ? (identity.hasName ? identity.title : '')
+                            : (identity.phone ? formatPhoneDigits(identity.phone) : ''))
+                        : row[column.key] ?? '';
                       // Grup tidak punya nomor, dan namanya belum terekam
                       // (notifyName di pesan grup adalah nama pengirim). Tanpa
                       // penanda, baris grup tampil sebagai dua sel kosong dan
                       // terbaca seperti data rusak.
                       const isBlankIdentity = !raw && (column.key === 'name' || column.key === 'phone');
                       const value = isBlankIdentity
-                        ? (row.isGroup ? (column.key === 'name' ? t('leads.groupRow') : '—') : t('leads.noName'))
+                        ? (row.isGroup ? (column.key === 'name' ? t('leads.groupRow') : '—') : t(column.key === 'name' ? 'leads.noName' : 'customer.phoneUnresolved'))
                         : raw;
                       const muted = isBlankIdentity;
                       return (
@@ -485,7 +496,7 @@ export function LeadsPage() {
           <div className="grid gap-3 p-6">
             <div className="flex items-center justify-between">
               <h2 id="row-choice-title" className="m-0 text-base">
-                {t('leads.rowChoiceTitle', { phone: choiceRow.phone || choiceRow.name || t('leads.groupRow') })}
+                {t('leads.rowChoiceTitle', { phone: labelOf(choiceRow, t).title })}
               </h2>
               <DialogClose onClick={() => setChoiceRow(null)} label={t('lead.close')} />
             </div>
@@ -527,7 +538,7 @@ export function LeadsPage() {
               </button>
             ) : null}
             {/* Grup tidak punya nomor, jadi tidak ada yang bisa dibuka di WhatsApp. */}
-            {choiceRow.phone ? (
+            {labelOf(choiceRow, t).phone ? (
               <button
                 type="button"
                 onClick={() => void openInWhatsapp(choiceRow)}

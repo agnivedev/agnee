@@ -7,10 +7,9 @@
  */
 export type NotificationKind = 'mention' | 'reply' | 'task' | 'sla' | 'hub' | 'credit' | 'knowledge';
 
-export function notificationHref(chatId: string, chatName?: string | null): string {
+export function notificationHref(chatId: string, title?: string | null): string {
   if (chatId.startsWith('hub:')) return `/hub?thread=${encodeURIComponent(chatId.slice(4))}`;
-  const title = chatName || chatId.replace(/@.*$/, '');
-  return `/?chat=${encodeURIComponent(chatId)}&title=${encodeURIComponent(title)}`;
+  return `/?chat=${encodeURIComponent(chatId)}` + (title ? `&title=${encodeURIComponent(title)}` : '');
 }
 
 export function notificationVerbKey(kind: NotificationKind): string {

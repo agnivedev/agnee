@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogClose } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
+import { customerLabel } from '@/lib/customer-label';
 
 type Task = {
   chatId: string;
@@ -84,7 +85,7 @@ export function TasksPage() {
   }
 
   function openChat(task: Task) {
-    const title = task.contactName || task.chatId.replace(/@.*$/, '');
+    const title = customerLabel({ chatId: task.chatId, name: task.contactName }, t).title;
     navigate(`/?chat=${encodeURIComponent(task.chatId)}&title=${encodeURIComponent(title)}`);
   }
   const grouped = useMemo(() => {
@@ -147,7 +148,9 @@ export function TasksPage() {
                       {t(`tasks.priority.${priority}`)} · {items.length}
                     </h2>
                     <div className="grid gap-2">
-                      {items.map((task) => (
+                      {items.map((task) => {
+                        const label = customerLabel({ chatId: task.chatId, name: task.contactName }, t);
+                        return (
                         <div
                           key={task.chatId}
                           className={cn(
@@ -160,9 +163,8 @@ export function TasksPage() {
                             onClick={() => openChat(task)}
                             className="grid min-w-0 flex-1 cursor-pointer gap-0.5 border-0 bg-transparent p-0 text-left"
                           >
-                            <strong className="truncate text-sm">
-                              {task.contactName || task.chatId.replace(/@.*$/, '')}
-                            </strong>
+                            <strong className="truncate text-sm">{label.title}</strong>
+                            {label.subtitle ? <span className="truncate text-xs text-muted tabular-nums">{label.subtitle}</span> : null}
                             <span className="font-mono text-[10px] text-muted">
                               {!isSupervisor && task.assigneeName ? `${task.assigneeName} · ` : ''}
                               {task.assignedAt ? new Date(task.assignedAt).toLocaleString(dateLocale) : ''}
@@ -205,7 +207,8 @@ export function TasksPage() {
                             ))}
                           </TaskSelect>
                         </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 );

@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, messageFromError } from '@/lib/api';
 import { useSession } from '@/lib/session';
+import { useI18n } from '@/lib/i18n';
+import { customerLabel } from '@/lib/customer-label';
 import { subscribeLiveEvent } from '@/lib/live-events';
 import { notificationHref, type NotificationKind } from '@/lib/notification-link';
 
@@ -28,6 +30,7 @@ export type Notification = {
 export function useNotifications(limit: number) {
   const navigate = useNavigate();
   const { isSupervisor } = useSession();
+  const { t } = useI18n();
   const [items, setItems] = useState<Notification[]>([]);
   const [unread, setUnread] = useState(0);
   const [error, setError] = useState('');
@@ -60,8 +63,10 @@ export function useNotifications(limit: number) {
       .then(load);
     // Usulan knowledge: supervisor langsung ke layar tinjauan; agent ke chat asalnya.
     if (item.kind === 'knowledge' && isSupervisor) navigate('/knowledge#usulan');
-    else if (item.chatId) navigate(notificationHref(item.chatId, item.chatName));
-  }, [isSupervisor, load, navigate]);
+    else if (item.chatId) {
+      navigate(notificationHref(item.chatId, customerLabel({ chatId: item.chatId, name: item.chatName }, t).title));
+    }
+  }, [isSupervisor, load, navigate, t]);
 
   return { items, unread, error, loaded, load, markAllRead, openItem };
 }

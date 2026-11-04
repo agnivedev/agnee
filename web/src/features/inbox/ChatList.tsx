@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useI18n } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
+import { customerLabel } from '@/lib/customer-label';
 import { Avatar } from './Avatar';
 import { formatTime } from './format';
 import type { Chat } from './types';
@@ -118,6 +119,7 @@ function ChatItem({
   onSelect: () => void;
 }) {
   const { t } = useI18n();
+  const label = customerLabel({ chatId: chat.id, name: chat.name, phone: chat.phone, isGroup: chat.isGroup }, t);
   const preview = chat.preview
     || (chat.unreadCount ? t('inbox.unreadNoPreview', { count: chat.unreadCount }) : t('inbox.noMessageYet'));
   return (
@@ -130,13 +132,13 @@ function ChatItem({
       )}
     >
       <Avatar
-        name={chat.name}
+        name={label.title}
         isGroup={chat.isGroup}
         src={demoMode ? null : `/v1/chats/${encodeURIComponent(chat.id)}/avatar`}
       />
       <span className="min-w-0">
         <strong className="block truncate text-[13px]">
-          {chat.name}
+          {label.title}
           {showNumber && chat.connectionLabel ? (
             <span className="ml-1.5 rounded-[5px] bg-ink/[.06] px-1.5 py-px align-middle text-[10px] font-medium text-muted">
               {chat.connectionLabel}

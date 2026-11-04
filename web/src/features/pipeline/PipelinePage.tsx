@@ -5,6 +5,7 @@ import { useI18n, usePageTitle } from '@/lib/i18n';
 import { AppSidebar } from '@/components/AppSidebar';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { customerLabel } from '@/lib/customer-label';
 import { PIPELINE_STAGES, usePipelineStage } from '@/features/inbox/usePipelineStage';
 import { useLiveEvents } from '@/features/inbox/useLiveEvents';
 import type { Lead, PipelineLead, PipelineStage } from '@/features/inbox/types';
@@ -16,12 +17,6 @@ import type { Lead, PipelineLead, PipelineStage } from '@/features/inbox/types';
  * 'unsafe-inline') — lihat SENDER_TEXT_CLASSES di features/inbox/format.ts
  * untuk alasan yang sama. API native tidak butuh style inline sama sekali.
  */
-/** Nomor telepon yang masuk akal; id samaran atau sisa tes ('0') bukan nomor. */
-function realPhone(phone?: string | null) {
-  const digits = String(phone || '').replace(/\D/g, '');
-  return digits.length >= 7 ? digits : null;
-}
-
 export function PipelinePage() {
   const { t } = useI18n();
   const navigate = useNavigate();
@@ -131,28 +126,27 @@ export function PipelinePage() {
                 </div>
 
                 <div className="flex flex-1 flex-col gap-2 overflow-y-auto">
-                  {cards.map((lead) => (
+                  {cards.map((lead) => {
+                    const label = customerLabel({ chatId: lead.chatId, name: lead.contactName, phone: lead.phone }, t);
+                    return (
                     <div
                       key={lead.chatId}
                       draggable
                       onDragStart={(event) => onCardDragStart(event, lead.chatId)}
                       onClick={() =>
                         navigate(
-                          `/?chat=${encodeURIComponent(lead.chatId)}` +
-                            (lead.contactName || realPhone(lead.phone)
-              ? `&title=${encodeURIComponent(lead.contactName || `+${realPhone(lead.phone)}`)}`
-              : '') +
-            (realPhone(lead.phone) ? `&phone=${encodeURIComponent(realPhone(lead.phone) || '')}` : ''),
+                          `/?chat=${encodeURIComponent(lead.chatId)}&title=${encodeURIComponent(label.title)}` +
+                            (label.phone ? `&phone=${encodeURIComponent(label.phone)}` : ''),
                         )
                       }
-                      className="grid cursor-grab gap-1.5 rounded-xl border border-border bg-white/80 p-2.5 text-left active:cursor-grabbing"
+                      className="grid min-w-0 cursor-grab gap-1.5 rounded-xl border border-border bg-white/80 p-2.5 text-left active:cursor-grabbing"
                     >
-                      <strong className="text-[13px]">
-                        {lead.contactName || (realPhone(lead.phone) ? `+${realPhone(lead.phone)}` : t('pipeline.unnamed'))}
-                      </strong>
-                      {lead.contactName && realPhone(lead.phone) ? (
-                        <span className="text-[11px] text-muted">+{realPhone(lead.phone)}</span>
-                      ) : null}
+                      <span className="grid min-w-0 gap-0.5">
+                        <strong className="truncate text-[13px]" title={label.title}>{label.title}</strong>
+                        {label.subtitle ? (
+                          <span className={cn('truncate text-xs text-muted', label.phone && 'tabular-nums')}>{label.subtitle}</span>
+                        ) : null}
+                      </span>
                       {lead.pipelineStageUpdatedBy === 'ai' ? (
                         <div onClick={(event) => event.stopPropagation()} className="mt-1 grid gap-1.5 text-[11px]">
                           {lead.pipelineStageReason ? (
@@ -207,7 +201,8 @@ export function PipelinePage() {
                         </div>
                       ) : null}
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             );

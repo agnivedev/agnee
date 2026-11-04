@@ -169,23 +169,3 @@ export function formatFileSize(bytes: number) {
     ? `${Math.max(1, Math.round(bytes / 1024))} KB`
     : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
-
-/**
- * Nomor telepon dari id chat WhatsApp (`628123@c.us` → `628123`).
- *
- * Grup mengembalikan null: idnya (`1203...@g.us`) bukan nomor telepon, dan
- * menampilkannya sebagai nomor adalah cara paling cepat membuat orang
- * menyalin angka yang tidak bisa dihubungi.
- */
-export function phoneFromChatId(chatId?: string | null) {
-  // Id @lid dan id grup bukan nomor telepon; angkanya hanya menyesatkan.
-  if (!chatId || chatId.endsWith('@g.us') || chatId.endsWith('@lid')) return null;
-  const digits = chatId.replace(/@.*$/, '').replace(/[^\d]/g, '');
-  return digits.length >= 7 ? digits : null;
-}
-
-/** `628123456789` → `+62 812 3456 789`, supaya terbaca dan mudah dicocokkan. */
-export function formatPhone(digits?: string | null) {
-  if (!digits) return '';
-  return `+${digits}`.replace(/^(\+\d{2})(\d{3})(\d{3,4})(\d+)$/, '$1 $2 $3 $4');
-}

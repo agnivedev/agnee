@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { PIPELINE_STAGES, usePipelineStage } from '@/features/inbox/usePipelineStage';
 import type { PipelineStage, TeamMember } from '@/features/inbox/types';
 import { cn } from '@/lib/utils';
+import { customerLabel } from '@/lib/customer-label';
 import { NoteThread } from '@/components/mentions/NoteThread';
 
 type Row = Record<string, string>;
@@ -116,6 +117,10 @@ export function LeadDetailDialog({ row, onClose, onSaved }: { row: Row | null; o
 
   // Aturan yang sama dengan panel inbox dan server: agent hanya bisa mengambil
   // percakapan untuk dirinya sendiri.
+  const label = row
+    ? customerLabel({ chatId: row.chatId, name: row.name, phone: row.phone, isGroup: String(row.isGroup) === 'true' }, t)
+    : null;
+
   const assignable = team.filter((member) =>
     ['owner', 'supervisor', 'admin', 'agent'].includes(member.role)
     && member.status === 'active'
@@ -128,9 +133,8 @@ export function LeadDetailDialog({ row, onClose, onSaved }: { row: Row | null; o
           <div className="flex items-center justify-between border-b border-border px-6 py-4">
             <div>
               <p className="eyebrow mb-0">{t('leads.editEyebrow')}</p>
-              <h2 id="lead-detail-title" className="m-0 text-lg">
-                {row.phone}
-              </h2>
+              <h2 id="lead-detail-title" className="m-0 truncate text-lg">{label?.title}</h2>
+              {label?.subtitle ? <p className="m-0 mt-0.5 truncate text-[13px] text-muted tabular-nums">{label.subtitle}</p> : null}
             </div>
             <DialogClose onClick={onClose} label={t('lead.close')} />
           </div>

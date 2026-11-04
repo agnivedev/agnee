@@ -11,7 +11,8 @@ import { KnowledgeChip } from '../knowledge-proposals/KnowledgeChip';
 import { ProposalDialog, type ProposalDraft, type SubmitOutcome } from '../knowledge-proposals/ProposalDialog';
 import { useKnowledgeSuggestions } from '../knowledge-proposals/useKnowledgeSuggestions';
 import type { Proposal } from '../knowledge-proposals/types';
-import { dayKey, dayLabel, formatPhone, messagePreview, phoneFromChatId, runPosition } from './format';
+import { dayKey, dayLabel, messagePreview, runPosition } from './format';
+import { customerLabel } from '@/lib/customer-label';
 import type { Chat, MediaTarget, Message, WhatsappStatus } from './types';
 import type { InboxApi } from './useInbox';
 
@@ -127,7 +128,7 @@ export function ConversationPane({
   // Nomor customer menggantikan label "lead aktif" yang tidak memberi
   // informasi apa pun. Agent sering perlu nomornya untuk mencocokkan lead
   // dengan catatan atau data di luar Agnee.
-  const headerPhone = formatPhone(chat?.phone || phoneFromChatId(chat?.id));
+  const headerLabel = chat ? customerLabel({ chatId: chat.id, name: chat.name, phone: chat.phone, isGroup: chat.isGroup }, t) : null;
   const [highlighted, setHighlighted] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
@@ -214,15 +215,15 @@ export function ConversationPane({
           ←
         </button>
         <Avatar
-          name={chat?.name}
+          name={headerLabel?.title}
           isGroup={chat?.isGroup}
           src={chat && !inbox.whatsapp?.demoMode ? `/v1/chats/${encodeURIComponent(chat.id)}/avatar` : null}
           className="size-[42px] text-sm"
         />
         <div className="ml-3 min-w-0 flex-1">
-          <h2 className="m-0 truncate text-base">{chat?.name || t('conversation.choose')}</h2>
+          <h2 className="m-0 truncate text-base">{headerLabel?.title || t('conversation.choose')}</h2>
           <p className="mt-[3px] mb-0 truncate font-mono text-[10px] text-muted">
-            {chat ? (chat.isGroup ? groupMeta : headerPhone || t('conversation.activeLead')) : 'WhatsApp'}
+            {headerLabel ? (headerLabel.isGroup ? groupMeta || headerLabel.subtitle : headerLabel.subtitle || t('conversation.activeLead')) : 'WhatsApp'}
           </p>
         </div>
         {isSupervisor ? (

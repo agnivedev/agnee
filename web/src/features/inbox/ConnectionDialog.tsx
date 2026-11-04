@@ -159,6 +159,25 @@ export function ConnectionDialog({
     }
   }, [open, phase, qrFromEvent, whatsapp, onClose, onReady, t]);
 
+  // Cadangan bila event SSE 'whatsapp_phase' terlewat (stream putus/disangga
+  // proxy, atau QR terbit sebelum dialog terbuka): selama dialog masih menunggu
+  // gambar QR, tanya server tiap 3 detik sampai gambarnya ada.
+  const waitingForImage = view.kind === 'qr' && !view.dataUrl && !usePhone;
+  useEffect(() => {
+    if (!open || !waitingForImage) return;
+    const timer = setInterval(() => {
+      api<{ qrDataUrl?: string }>('/v1/whatsapp/qr-refresh', {
+        method: 'POST',
+        body: connectionId ? { connectionId } : {},
+      })
+        .then((data) => {
+          if (data?.qrDataUrl) setView({ kind: 'qr', dataUrl: data.qrDataUrl, note: t('wa.updated') });
+        })
+        .catch(() => {});
+    }, 3_000);
+    return () => clearInterval(timer);
+  }, [open, waitingForImage, connectionId, t]);
+
   async function changeNumber() {
     setChangingNumber(true);
     try {

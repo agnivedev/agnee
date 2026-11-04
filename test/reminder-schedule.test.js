@@ -9,8 +9,8 @@ const departmentAsk = require('../src/department-ask');
 const wib = (day, hh, mm = 0) => Date.UTC(2026, 10, day, hh - 7, mm);
 const Z = 'Asia/Jakarta';
 
-test('jadwal pengingat: 30 mnt, 2 jam, 6 jam, 12 jam kerja', () => {
-  assert.deepEqual(rs.REMINDER_WORK_MINUTES, [30, 120, 360, 720]);
+test('jadwal pengingat: 30 mnt, 2 jam, 8 jam, 18 jam jam-buka', () => {
+  assert.deepEqual(rs.REMINDER_WORK_MINUTES, [30, 120, 480, 1080]);
   assert.deepEqual(departmentAsk.REMINDER_MINUTES, rs.REMINDER_WORK_MINUTES);
 });
 
@@ -39,13 +39,12 @@ test('kasus gypsum: pertanyaan 18.42 (lewat jam kerja) -> pengingat pertama 09.3
 
 test('pengingat terakhir tidak pernah keluar dini hari atau di luar jam kerja', () => {
   const createdMs = wib(3, 10, 0);
-  // 720 menit kerja = 8 Nov? Senin-Sabtu 9 jam sehari: tercapai Jumat 5 Nov 10.00 (9 jam Rabu... sejak Selasa 3 Nov)
   const target = rs.REMINDER_WORK_MINUTES[3];
-  assert.equal(target, 720);
+  assert.equal(target, 1080);
   for (const h of [0, 3, 5, 8, 18, 19, 23]) {
-    assert.equal(rs.isReminderDue({ createdMs, lastRemindedMs: wib(3, 12), reminderCount: 3, nowMs: wib(7, h, 38), zone: Z }), false, `jam ${h}`);
+    assert.equal(rs.isReminderDue({ createdMs, lastRemindedMs: wib(3, 12), reminderCount: 3, nowMs: wib(9, h, 38), zone: Z }), false, `jam ${h}`);
   }
-  assert.equal(rs.isReminderDue({ createdMs, lastRemindedMs: wib(3, 12), reminderCount: 3, nowMs: wib(7, 10, 0), zone: Z }), true);
+  assert.equal(rs.isReminderDue({ createdMs, lastRemindedMs: wib(3, 12), reminderCount: 3, nowMs: wib(9, 10, 0), zone: Z }), true);
 });
 
 test('Minggu libur: tidak ada pengingat hari Minggu', () => {
@@ -78,9 +77,9 @@ test('pengingat ringkas: kode, nama customer, satu cuplikan; bukan seluruh perta
   assert.equal(text.split('\n').length, 4);
 });
 
-test('pengingat terakhir menyebut 12 jam kerja', () => {
+test('pengingat terakhir menyebut 18 jam buka', () => {
   const text = departmentAsk.buildReminderNotice({ department: 'Management', question: 'q', customerLabel: '+62', reminderCount: 4, final: true, code: 'abc123', dm: true });
-  assert.match(text, /12 jam kerja/);
+  assert.match(text, /18 jam buka/);
   assert.match(text, /#abc123/);
 });
 
@@ -115,4 +114,49 @@ test('claimDueDepartmentReminders: hanya yang jatuh tempo menurut jam kerja yang
   assert.equal(rows.length, 1);
   const none = await Database.prototype.claimDueDepartmentReminders.call(fake, wib(5, 3, 38));
   assert.equal(none.length, 0, 'dini hari tak ada pengingat');
+});
+
+test('jeda pengingat 3 dan 4 sengaja lama: 8 jam dan 18 jam jam-buka sejak pertanyaan', () => {
+  const createdMs = wib(2, 9, 0); // Senin
+  const prev = wib(2, 11, 0);
+  // 3/4: belum di 7 jam, jatuh tempo di 8 jam jam-buka (Senin 17.00)
+  assert.equal(rs.isReminderDue({ createdMs, lastRemindedMs: prev, reminderCount: 2, nowMs: wib(2, 16, 59), zone: Z }), false);
+  assert.equal(rs.isReminderDue({ createdMs, lastRemindedMs: prev, reminderCount: 2, nowMs: wib(2, 17, 0), zone: Z }), true);
+  // 4/4: 18 jam buka = 9 jam Senin + 9 jam Selasa -> Selasa 18.00 (di luar jam), jadi Rabu 09.00
+  const last3 = wib(2, 17, 0);
+  assert.equal(rs.isReminderDue({ createdMs, lastRemindedMs: last3, reminderCount: 3, nowMs: wib(3, 17, 59), zone: Z }), false);
+  assert.equal(rs.isReminderDue({ createdMs, lastRemindedMs: last3, reminderCount: 3, nowMs: wib(4, 9, 0), zone: Z }), true);
+});
+
+test('jam buka lokasi dipakai: toko buka 08-20 mengirim pengingat jam 19.00, bukan jam 21.00', () => {
+  const schedule = { days: Object.fromEntries(['mon', 'tue', 'wed', 'thu', 'fri', 'sat'].map((d) => [d, { state: 'open', ranges: [['08:00', '20:00']] }]).concat([['sun', { state: 'closed', ranges: [] }]])) };
+  const windows = rs.windowsFromSchedules([schedule, null]);
+  const createdMs = wib(4, 18, 42);
+  assert.equal(rs.isReminderDue({ createdMs, reminderCount: 0, nowMs: wib(4, 19, 10), zone: Z, windows }), false);
+  assert.equal(rs.isReminderDue({ createdMs, reminderCount: 0, nowMs: wib(4, 19, 15), zone: Z, windows }), true);
+  assert.equal(rs.isReminderDue({ createdMs, reminderCount: 0, nowMs: wib(4, 20, 30), zone: Z, windows }), false);
+  assert.equal(rs.inWorkHours(wib(4, 7, 59), Z, windows), false);
+  assert.equal(rs.inWorkHours(wib(4, 8, 0), Z, windows), true);
+  assert.equal(rs.inWorkHours(wib(8, 12, 0), Z, windows), false, 'Minggu tutup');
+});
+
+test('jadwal lokasi digabung: dua lokasi, rentang lewat tengah malam, dan tanpa jadwal -> jam kerja SLA', () => {
+  const night = { days: Object.fromEntries(['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'].map((d) => [d, { state: 'open', ranges: [['18:00', '02:00']] }])) };
+  const w = rs.windowsFromSchedules([night]);
+  assert.equal(rs.inWorkHours(wib(4, 1, 0), Z, w), true);
+  assert.equal(rs.inWorkHours(wib(4, 12, 0), Z, w), false);
+  assert.equal(rs.inWorkHours(wib(4, 12, 0), Z, rs.windowsFromSchedules([])), true);
+  assert.equal(rs.inWorkHours(wib(4, 20, 0), Z, rs.windowsFromSchedules([])), false);
+});
+
+test('nomor HP tak terbaca: label memuat nomor yang ditulis customer (berlabel), tanpa id lid dan tanpa mengarang', () => {
+  const handoff = require('../src/handoff-notice');
+  const texts = ['Siap', 'Nama : Suyato Kenzie Jundi\nAlamat kirim : Perumahan Griya\nHp : 0813 1814 0229'];
+  const chatNumber = handoff.phoneInTexts(texts);
+  assert.equal(chatNumber, '0813 1814 0229');
+  const label = handoff.describeCustomer({ chatId: '56702326050881@lid', name: 'Suyato', phone: null, chatNumber });
+  assert.equal(label, 'Suyato (nomor HP belum terbaca · nomor di chat: 0813 1814 0229)');
+  assert.equal(handoff.describeCustomer({ chatId: '56702326050881@lid', name: 'Suyato', phone: null }), 'Suyato (nomor HP belum terbaca)');
+  assert.equal(handoff.describeCustomer({ chatId: '56702326050881@lid', name: 'Suyato', phone: '6281318140229' }), 'Suyato (+6281318140229)');
+  assert.equal(handoff.phoneInTexts(['harga 147.500 untuk 4 lembar', 'tanggal 20261104']), null);
 });

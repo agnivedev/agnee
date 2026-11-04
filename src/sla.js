@@ -252,5 +252,5 @@ async function putaranSla({ database, sekarangMs = Date.now(), log = console, on
 
 module.exports = {
   AMBANG_MENIT, JAM_KERJA, menitKerja, statusSla, sebagaiDurasi, putaranSla,
-  offsetZona, tanggalLokal, instanUntukLokal,
+  offsetZona, tanggalLokal, instanUntukLokal, hariPekan, besok,
 };

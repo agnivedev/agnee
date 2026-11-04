@@ -31,13 +31,28 @@ function digits(raw) {
  * di-tap. Chat `@lid` hanya membawa id buram, BUKAN nomor telepon: yang
  * ditampilkan nomor hasil peta (`phone`) bila ada, kalau tidak nama saja.
  */
-function describeCustomer({ chatId, name, phone }) {
+function describeCustomer({ chatId, name, phone, chatNumber = null }) {
   const id = String(chatId || '').split('@')[0];
   const isLid = String(chatId || '').endsWith('@lid');
   const number = isLid ? digits(phone) : (digits(phone) || id);
   const clean = String(name || '').trim();
-  if (isLid && !number) return clean && clean !== id ? `${clean} (nomor HP belum terbaca)` : 'Customer (nomor HP belum terbaca)';
+  if (isLid && !number) {
+    // Nomor tak terbaca dari identitas WhatsApp. Angka id @lid bukan nomor HP dan
+    // tak pernah ditampilkan; yang boleh: nomor yang customer tulis sendiri di
+    // chat, diberi label jelas.
+    const who = clean && clean !== id ? clean : 'Customer';
+    return chatNumber ? `${who} (nomor HP belum terbaca · nomor di chat: ${chatNumber})` : `${who} (nomor HP belum terbaca)`;
+  }
   return clean && clean !== number && clean !== id ? `${clean} (+${number})` : `+${number}`;
+}
+
+/** Nomor HP Indonesia yang ditulis customer di chat ("Hp : 0813 1814 0229"); yang terbaru menang. Tak pernah dijadikan nomor chat. */
+function phoneInTexts(texts) {
+  for (const text of texts || []) {
+    const m = /(?<![\d])(?:\+?62|0)8[\d\s().-]{7,14}\d/.exec(String(text || ''));
+    if (m) { const d = m[0].replace(/\D/g, ''); if (d.length >= 10 && d.length <= 14) return m[0].replace(/\s+/g, ' ').trim(); }
+  }
+  return null;
 }
 
 /**
@@ -87,4 +102,4 @@ function createCooldown({ windowMs = 20 * 60_000, now = () => Date.now() } = {})
   };
 }
 
-module.exports = { claimsForward, buildNotice, createCooldown, describeCustomer, digits };
+module.exports = { phoneInTexts, claimsForward, buildNotice, createCooldown, describeCustomer, digits };

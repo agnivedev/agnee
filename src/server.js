@@ -1070,6 +1070,11 @@ async function buildApp(overrides = {}) {
       await database.upsertContactName(companyId, message.from, senderName)
         .catch((error) => app.log.warn({ err: error }, 'Could not record contact name'));
     }
+    if (message.from.endsWith('@lid') && canCall('phoneForLid')) {
+      void database.phoneForLid(companyId, message.from)
+        .then((known) => (known ? null : lookupLidPhone(companyId, message.from)))
+        .catch(() => {});
+    }
     // The customer spoke, so any follow-up sequence for this chat is over.
     // Done before the AI reply so a slow model can't leave a stale sequence
     // running long enough for the scheduler to send on top of a live reply.
@@ -1520,34 +1525,55 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     }
   }
 
+  /**
+   * Nomor HP di balik id @lid: tanya WhatsApp langsung (dua jalur), simpan bila
+   * ketemu. Dulu hanya Lead List yang mencoba, jadi chat yang tak pernah
+   * dibuka di sana tak punya nomor. Selalu mengembalikan alasan kegagalan
+   * (juga ke log) supaya "nomor belum terbaca" bisa ditelusuri. Tidak pernah
+   * mengarang nomor.
+   */
+  async function lookupLidPhone(companyId, chatId) {
+    if (!String(chatId).endsWith('@lid')) return { phone: null, reason: 'bukan_lid' };
+    let reason = 'tidak_ketemu';
+    try {
+      const { client: wa, state } = await waFor(companyId, chatId);
+      if (!wa) reason = 'whatsapp_tak_terhubung';
+      else if (state?.phase !== 'ready') reason = `whatsapp_belum_siap_${state?.phase || 'tak_dikenal'}`;
+      else {
+        let found = await resolvePhoneForLid(wa, chatId).catch(() => null);
+        if (!found) {
+          const contact = await wa.getContactById(chatId).catch(() => null);
+          found = contact?.number || null;
+          if (!found) reason = 'whatsapp_tak_memberi_nomor';
+        }
+        const digitsOnly = found ? String(found).replace(/@.*$/, '').replace(/\D/g, '') : '';
+        if (digitsOnly) {
+          if (canCall('savePhoneForLid')) await database.savePhoneForLid(companyId, chatId, digitsOnly).catch(() => {});
+          return { phone: digitsOnly, reason: null };
+        }
+      }
+    } catch (error) { reason = `galat_${String(error?.message || error).slice(0, 60)}`; }
+    app.log.info({ companyId, chatId, reason }, 'Nomor HP untuk id @lid belum terbaca');
+    return { phone: null, reason };
+  }
+
   /** Label customer untuk pesan ke staf: nomor HP asli (bukan id @lid) + nama profil WA. */
   async function customerLabelFor(companyId, chatId, knownName = null) {
     let phone = null;
     let name = knownName;
     if (String(chatId).endsWith('@lid') && canCall('phoneForLid')) {
       phone = await database.phoneForLid(companyId, chatId).catch(() => null);
-      // Belum ada di peta: tanya WhatsApp langsung (jalur yang sama dengan Lead
-      // List), lalu simpan. Gagal/WhatsApp belum siap = tetap tanpa nomor, tidak
-      // pernah mengarang nomor dari isi chat.
-      if (!phone && typeof resolvePhoneForLid === 'function') {
-        try {
-          const { client: wa, state } = await waFor(companyId, chatId);
-          if (wa && state?.phase === 'ready') {
-            const resolved = await resolvePhoneForLid(wa, chatId);
-            const digitsOnly = resolved ? String(resolved).replace(/@.*$/, '').replace(/\D/g, '') : '';
-            if (digitsOnly) {
-              phone = digitsOnly;
-              if (canCall('savePhoneForLid')) await database.savePhoneForLid(companyId, chatId, digitsOnly).catch(() => {});
-            }
-          }
-        } catch { /* tanpa nomor */ }
-      }
+      if (!phone) phone = (await lookupLidPhone(companyId, chatId)).phone;
     }
     if (!name && canCall('getContactNamesFor')) {
       const names = await database.getContactNamesFor(companyId, [chatId]).catch(() => ({}));
       name = names?.[chatId] || null;
     }
-    return handoffNotice.describeCustomer({ chatId, name, phone });
+    let chatNumber = null;
+    if (!phone && String(chatId).endsWith('@lid') && canCall('recentInboundTexts')) {
+      chatNumber = handoffNotice.phoneInTexts(await database.recentInboundTexts(companyId, chatId, 30).catch(() => []));
+    }
+    return handoffNotice.describeCustomer({ chatId, name, phone, chatNumber });
   }
 
   /**
@@ -14729,8 +14755,8 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     timer.unref?.();
   }
 
-  // Pengingat ke departemen yang belum menjawab: 30 mnt, 2 jam, 6 jam, 12 jam
-  // KERJA (jam kerja company, tak pernah dini hari; reminder-schedule.js),
+  // Pengingat ke departemen yang belum menjawab: 30 mnt, 2 jam, 8 jam, 18 jam
+  // JAM BUKA lokasi (tak pernah dini hari; reminder-schedule.js),
   // lalu berhenti (pertanyaan menjadi 'unresolved'). Lonceng dibuat di database;
   // di sini hanya WhatsApp-nya.
   function startDepartmentQuestionSweeper() {

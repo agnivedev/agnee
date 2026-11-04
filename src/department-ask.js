@@ -37,9 +37,9 @@ function ensureHolding(text) {
   return clean ? `${clean}\n\n${hold}` : hold;
 }
 
-// Jadwal pengingat ke departemen: MENIT KERJA sejak pertanyaan (reminder-schedule.js),
+// Jadwal pengingat ke departemen: MENIT JAM BUKA sejak pertanyaan (reminder-schedule.js),
 // bukan menit dinding. Yang ke-4 terakhir; setelah itu 'unresolved'.
-const { REMINDER_WORK_MINUTES: REMINDER_MINUTES } = require('./reminder-schedule');
+const { REMINDER_WORK_MINUTES: REMINDER_MINUTES, FINAL_HOURS } = require('./reminder-schedule');
 
 /** Dua pertanyaan dianggap sama bila kata bermaknanya cukup tumpang tindih (Jaccard >= 0,5). */
 function sameQuestion(a, b, threshold = 0.5) {
@@ -86,7 +86,7 @@ function buildReminderNotice({ department, question, customerLabel, reminderCoun
     `${customerLabel}${code ? ` · #${code}` : ''}`,
     `"${cut(question, 110)}"`,
     final
-      ? `Belum ada yang menjawab selama 12 jam kerja. Customer ditandai belum terjawab. ${shortAnswerHint({ code, group, dm })}`
+      ? `Belum ada yang menjawab selama ${FINAL_HOURS} jam buka. Customer ditandai belum terjawab. ${shortAnswerHint({ code, group, dm })}`
       : `Customer masih menunggu. ${shortAnswerHint({ code, group, dm })}`,
   ].join('\n');
 }

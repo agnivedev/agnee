@@ -1879,8 +1879,8 @@ class Database {
 
   /**
    * Pengingat yang jatuh tempo, dihitung dalam JAM KERJA company (lihat
-   * reminder-schedule.js): 30 mnt, 2 jam, 6 jam, 12 jam kerja sejak pertanyaan
-   * dibuat, hanya dikirim saat jam kerja, jarak minimal 30 mnt kerja. Jatuh
+   * reminder-schedule.js): 30 mnt, 2 jam, 8 jam, 18 jam jam-buka sejak pertanyaan
+   * dibuat, hanya dikirim saat jam buka lokasi, jarak minimal 30 mnt. Jatuh
    * tempo ditentukan di JS; klaimnya (UPDATE ... WHERE reminder_count = lama
    * RETURNING) atomik, jadi dua penyapu tidak mengirim dobel. Pengingat ke-4
    * terakhir: pertanyaan menjadi 'unresolved' dan supervisor diberi lonceng.
@@ -1889,10 +1889,19 @@ class Database {
     if (!this.enabled) return [];
     const open = await this.pool.query(`
       SELECT q.id, q.reminder_count AS "reminderCount", q.created_at AS "createdAt",
-             q.last_reminded_at AS "lastRemindedAt", COALESCE(c.timezone, 'Asia/Jakarta') AS timezone
+             q.last_reminded_at AS "lastRemindedAt", COALESCE(c.timezone, 'Asia/Jakarta') AS timezone,
+             q.company_id AS "companyId"
       FROM department_questions q JOIN companies c ON c.id = q.company_id
       WHERE q.status = 'open' AND q.reminder_count < 4
     `);
+    // Jam buka lokasi per company (Pengaturan > Lokasi), dibaca sekali per putaran.
+    const windowsByCompany = new Map();
+    for (const companyId of new Set(open.rows.map((q) => q.companyId))) {
+      const schedules = await this.pool.query(
+        'SELECT opening_schedule AS s FROM company_locations WHERE company_id = $1 AND opening_schedule IS NOT NULL', [companyId],
+      ).then((r) => r.rows.map((x) => x.s)).catch(() => []);
+      windowsByCompany.set(companyId, reminderSchedule.windowsFromSchedules(schedules));
+    }
     const claimed = { rows: [] };
     for (const q of open.rows) {
       let due = false;
@@ -1900,7 +1909,7 @@ class Database {
         due = reminderSchedule.isReminderDue({
           createdMs: new Date(q.createdAt).getTime(),
           lastRemindedMs: q.lastRemindedAt ? new Date(q.lastRemindedAt).getTime() : null,
-          reminderCount: q.reminderCount, nowMs, zone: q.timezone,
+          reminderCount: q.reminderCount, nowMs, zone: q.timezone, windows: windowsByCompany.get(q.companyId),
         });
       } catch { due = false; }
       if (!due) continue;
@@ -1921,7 +1930,7 @@ class Database {
         const tp = await this.pool.query('SELECT name FROM third_parties WHERE id = $1', [row.thirdPartyId]);
         const name = tp.rows[0]?.name || 'pihak ketiga';
         const body = row.final
-          ? `${name} belum membalas setelah 12 jam kerja; customer ditandai belum terjawab (menunggu pihak ketiga): ${String(row.question).slice(0, 300)}`
+          ? `${name} belum membalas setelah ${reminderSchedule.FINAL_HOURS} jam buka; customer ditandai belum terjawab (menunggu pihak ketiga): ${String(row.question).slice(0, 300)}`
           : `Pengingat ${row.reminderCount}/4: ${name} belum membalas pertanyaan AI: ${String(row.question).slice(0, 300)}`;
         await this.pool.query(`
           INSERT INTO notifications (company_id, user_id, kind, chat_id, actor_kind, body)
@@ -1943,7 +1952,7 @@ class Database {
       const department = members.rows[0]?.department || 'terkait';
       const people = members.rows.filter((m) => m.userId);
       const body = row.final
-        ? `Belum ada jawaban dari ${department} setelah 12 jam kerja; customer ditandai belum terjawab (menunggu internal): ${String(row.question).slice(0, 300)}`
+        ? `Belum ada jawaban dari ${department} setelah ${reminderSchedule.FINAL_HOURS} jam buka; customer ditandai belum terjawab (menunggu internal): ${String(row.question).slice(0, 300)}`
         : `Pengingat ${row.reminderCount}/4: pertanyaan AI untuk ${department} belum dijawab: ${String(row.question).slice(0, 300)}`;
       const targets = new Set(people.map((m) => m.userId));
       if (row.final) {
@@ -4805,6 +4814,16 @@ class Database {
   }
 
   /** Nomor telepon (digit) di balik chat @lid, atau null. */
+  /** Teks pesan masuk terbaru dari satu chat (terbaru dulu). */
+  async recentInboundTexts(companyId, chatId, limit = 30) {
+    if (!this.enabled) return [];
+    const r = await this.pool.query(
+      `SELECT body FROM inbound_messages WHERE company_id = $1 AND chat_id = $2 AND body IS NOT NULL AND body <> '' ORDER BY "timestamp" DESC LIMIT $3`,
+      [companyId, chatId, Math.min(Math.max(Number(limit) || 30, 1), 100)],
+    );
+    return r.rows.map((x) => x.body);
+  }
+
   async phoneForLid(companyId, chatId) {
     if (!this.enabled) return null;
     const idPart = String(chatId).split('@')[0];

@@ -74,6 +74,7 @@ const reportChats = require('./report-chats.js');
 const { createTypingHooks } = require('./typing-indicator.js');
 const mapsLink = require('./maps-link.js');
 const addressCheck = require('./address-check.js');
+const materialCalc = require('./material-calc.js');
 const { buildXlsx } = require('./xlsx-writer.js');
 const Database = require('./database.js');
 const { extractPlaybookText } = require('./playbook-extractor.js');
@@ -1973,6 +1974,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     const addressTools = !ops && !ks
       ? [addressCheck.toolSpec({ run: (args = {}) => addressCheck.check(args.alamat) })]
       : [];
+    const calcTools = !ops && !ks ? [materialCalc.toolSpec()] : [];
     // Departemen hanya dipakai pada chat nyata (ada chatId): simulator Coach
     // tidak boleh membangunkan anggota departemen sungguhan.
     let departmentTools = [];
@@ -2045,6 +2047,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       summaryTools.length ? orderSummary.GUIDE : '',
       orderTools.length ? dealposOrders.GUIDE : '',
       addressTools.length ? addressCheck.GUIDE : '',
+      calcTools.length ? materialCalc.GUIDE : '',
       promoRules.section(promos),
       // Mode agent: blok peran + panduan tambahan company. 'standard' kosong,
       // jadi nomor lama persis seperti sebelum ada mode.
@@ -2071,7 +2074,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       playbookContext,
       paymentContext,
       companyConfig,
-      tools: [...hubTools, ...priceTools, ...deliveryTools, ...summaryTools, ...orderTools, ...locationTools, ...addressTools, ...departmentTools]
+      tools: [...hubTools, ...priceTools, ...deliveryTools, ...summaryTools, ...orderTools, ...locationTools, ...addressTools, ...calcTools, ...departmentTools]
         .map((tool) => ({
           ...tool,
           // Hasil alat dicatat: angka di dalamnya sah disebut ke customer (penjaga harga).

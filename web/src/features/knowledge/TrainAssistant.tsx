@@ -18,6 +18,9 @@ import { uploadReference } from './BriefSection';
  * mengobrol.
  */
 
+// Bagian playbook yang bisa dipilih sebagai tujuan obrolan.
+const PLAYBOOK_TARGETS = ['persona', 'compliance', 'qna', 'discovery', 'objection', 'closing', 'followup', 'handoff'];
+
 // Sama dengan batas server: isi lampiran ikut terkirim tiap giliran.
 const MAX_ATTACHMENTS = 3;
 // Batas multipart server. Dicek dulu di sini supaya file besar tidak diunggah
@@ -284,6 +287,9 @@ export function TrainAssistant({ onChanged }: { onChanged: () => void }) {
   // Yang dikirim ke server: balasan asisten + catatan usulan yang ia buat.
   const [history, setHistory] = useState<Turn[]>([]);
   const [draft, setDraft] = useState('');
+  // '' = otomatis: AI yang memilih bagian. Selain itu, pilihan pemilik; AI boleh
+  // keberatan lewat pertanyaan, tapi tidak menulis ke bagian lain tanpa setuju.
+  const [target, setTarget] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [outcomes, setOutcomes] = useState<Record<string, Outcome>>({});
@@ -375,6 +381,7 @@ export function TrainAssistant({ onChanged }: { onChanged: () => void }) {
         body: {
           message,
           history: history.slice(-20),
+          ...(target ? { target } : {}),
           ...(attachments.length ? { attachments: attachments.map((a) => ({ name: a.name, kind: a.kind, ...(a.text ? { text: a.text } : {}) })) } : {}),
         },
       });
@@ -520,6 +527,20 @@ export function TrainAssistant({ onChanged }: { onChanged: () => void }) {
         </div>
 
         <form onSubmit={send} className="flex flex-wrap gap-2 border-t border-border p-3">
+          <label className="flex w-full items-center gap-2 text-[12px] text-muted">
+            {t('trainChat.target')}
+            <select
+              value={target}
+              onChange={(event) => setTarget(event.target.value)}
+              disabled={busy}
+              className="min-w-0 flex-1 rounded-lg border border-border bg-white px-2 py-1.5 text-[12px] text-ink"
+            >
+              <option value="">{t('trainChat.targetAuto')}</option>
+              {PLAYBOOK_TARGETS.map((kind) => (
+                <option key={kind} value={kind}>{t(`playbook.kind.${kind}`)}</option>
+              ))}
+            </select>
+          </label>
           {attachments.length || reading ? (
             <ul className="m-0 grid w-full list-none gap-1.5 p-0">
               {attachments.map((attachment) => (

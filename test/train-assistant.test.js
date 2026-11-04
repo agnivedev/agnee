@@ -466,6 +466,26 @@ test('balasan yang seluruhnya pertanyaan: teks dikosongkan, kartu yang membawa p
   assert.equal(body.question.options[0].recommended, true);
 });
 
+test('bagian pilihan pemilik: menulis ke bagian lain ditolak sampai ia setuju, dan target tak dikenal ditolak', async (t) => {
+  const { chat, a, state } = await setup(t);
+  state.script = [
+    ['propose_playbook_edit', { kind: 'closing', summary: 'larangan nyasar', edits: [{ action: 'append', text: '- Jangan janji diskon.' }] }],
+  ];
+  const blocked = await chat(a, 'jangan janji diskon', { target: 'persona' });
+  assert.equal(blocked.statusCode, 200);
+  assert.deepEqual(blocked.json().proposals, []);
+  assert.match(state.last.systemPrompt, /BAGIAN YANG DIPILIH PEMILIK: persona/);
+
+  state.script = [
+    ['propose_playbook_edit', { kind: 'closing', summary: 'pindah disetujui', movedWithConsent: true, edits: [{ action: 'append', text: '- Jangan janji diskon.' }] }],
+  ];
+  const moved = await chat(a, 'ya pindahkan ke closing', { target: 'persona' });
+  assert.equal(moved.json().proposals[0].kind, 'closing');
+
+  const bad = await chat(a, 'x', { target: 'bukan-bagian' });
+  assert.equal(bad.statusCode, 400);
+});
+
 test('lampiran: file apa saja dibaca tanpa disimpan, hanya supervisor; isinya ikut ke AI sebagai data', async (t) => {
   const { chat, attach, a, agent, state, database } = await setup(t);
   const csv = await attach(a, 'harga.csv', 'kelas,harga\nE-zone,1750000', 'text/csv');

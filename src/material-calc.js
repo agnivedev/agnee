@@ -83,4 +83,20 @@ function calculate(args = {}) {
   return out;
 }
 
-module.exports = { TOOL_NAME, GUIDE, toolSpec, calculate, WORK };
+const QTY_ASK = /\b(?:butuh|perlu|kebutuhan|berapa)\b[^.?!]*\b(?:zak|sak|sack|kg|bata|pasir|semen|m3|kubik)\b|\b(?:zak|sak|bata|pasir)\b[^.?!]*\bberapa\b/i;
+const AREA = /\b\d+(?:[.,]\d+)?\s*(?:m2|m²|meter\s*persegi|meter|mtr)(?![\w])/i;
+
+/**
+ * Pertanyaan "butuh berapa zak untuk luas N m²" adalah hitungan, bukan
+ * keputusan manusia. Dipakai sebagai pengaman di ask_department: bila model
+ * tetap menunda hitungan ke departemen, alat menolak dan menyuruhnya
+ * memanggil hitung_kebutuhan.
+ */
+function isCalculable(...texts) {
+  const joined = texts.map((t) => String(t || '')).join(' \n ');
+  return QTY_ASK.test(joined) && AREA.test(joined);
+}
+
+const REFUSE_ASK = `Ini hitungan kebutuhan material, bukan keputusan yang perlu ditanyakan ke departemen. Panggil ${TOOL_NAME} sekarang, jawab customer dengan angka perkiraan dan asumsinya, lalu tanyakan SATU hal yang paling menentukan. Jangan menulis "mohon ditunggu".`;
+
+module.exports = { isCalculable, REFUSE_ASK, TOOL_NAME, GUIDE, toolSpec, calculate, WORK };

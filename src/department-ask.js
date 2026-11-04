@@ -17,10 +17,22 @@ const HOLDING_FALLBACK = () =>
 const WAITING = /\b(tunggu|menunggu|ditunggu|konfirmasi|konfirmasikan|kukonfirmasi|cek(?:kan)?|tanyakan|kabari|kabarin|kasih\s?kabar|hubungi)\b/i;
 function mentionsWaiting(text) { return WAITING.test(String(text || '')); }
 
+/**
+ * Satu pesan tidak boleh berjanji "mohon ditunggu" sekaligus bertanya balik
+ * ("mau 40KG atau 50KG?"): customer bingung harus menunggu atau menjawab.
+ * Pertanyaan yang memang dibutuhkan sudah ada di pertanyaan departemen, jadi
+ * kalimat tanya ke customer dibuang dan sisanya (fakta, kabar tunggu) dipertahankan.
+ */
+function dropQuestionsBesideHolding(text) {
+  const parts = String(text).split(/(?<=[.!?])\s+|\n+/).map((x) => x.trim()).filter(Boolean);
+  const kept = parts.filter((part) => !/\?\s*(?:\p{Extended_Pictographic}|\s)*$/u.test(part));
+  return kept.length && kept.length !== parts.length && kept.some(mentionsWaiting) ? kept.join('\n') : String(text);
+}
+
 /** Pastikan balasan setelah ask_department memuat kabar tunggu; bila tidak, tambahkan. */
 function ensureHolding(text) {
   const clean = String(text || '').trim();
-  if (clean && mentionsWaiting(clean)) return clean;
+  if (clean && mentionsWaiting(clean)) return dropQuestionsBesideHolding(clean);
   const hold = HOLDING_FALLBACK();
   return clean ? `${clean}\n\n${hold}` : hold;
 }

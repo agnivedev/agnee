@@ -1536,6 +1536,10 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     const dept = departments.find((d) => d.name === args.department);
     const question = String(args.question || '').trim().slice(0, departmentAsk.QUESTION_MAX);
     if (!dept || !question) return { error: 'Departemen atau pertanyaan tidak valid.' };
+    // Hitungan kebutuhan material (luas -> zak/bata/pasir) dijawab alat hitung_kebutuhan, bukan departemen.
+    if (!args.fromGuard && !askerLabel && (!meta.kind || meta.kind === 'general') && materialCalc.isCalculable(question, customerText)) {
+      return { error: materialCalc.REFUSE_ASK };
+    }
     if (!args.fromGuard && (!meta.kind || meta.kind === 'general')) {
       const problem = departmentAsk.compoundProblem(question);
       if (problem) return { error: problem };

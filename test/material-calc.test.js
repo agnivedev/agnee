@@ -30,3 +30,17 @@ test('panduan melarang menunda hitungan dan mewajibkan tetap bertanya', () => {
   assert.match(GUIDE, /tetap tanyakan/i);
   assert.equal(toolSpec().name, 'hitung_kebutuhan');
 });
+
+const { isCalculable, REFUSE_ASK } = require('../src/material-calc');
+
+test('pertanyaan kasus Pak Rian dikenali sebagai hitungan, bukan keputusan departemen', () => {
+  assert.ok(isCalculable('Berapa zak semen Gresik untuk luas 60m2?', 'Saya lg pasang bata merah untuk bangun rumah luas 60m2. Butuh berapa zak yah?'));
+  assert.ok(isCalculable('butuh berapa sak semen', 'luas 45 m² pasang bata'));
+  assert.match(REFUSE_ASK, /hitung_kebutuhan/);
+});
+
+test('pertanyaan harga/stok/verifikasi tidak dikira hitungan', () => {
+  assert.ok(!isCalculable('Semen Gresik 50kg 20 zak boleh diskon berapa?', 'ada diskon ga kalau ambil 20 zak?'));
+  assert.ok(!isCalculable('Ada kode verifikasi Facebook?', 'tolong kirim kode verifikasi facebook saya'));
+  assert.ok(!isCalculable('stok semen ada berapa zak?', 'stok semen gresik ada berapa zak?'));
+});

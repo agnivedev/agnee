@@ -213,3 +213,11 @@ test('prompt relay: santun, hanya isi jawaban, tanpa proses internal, token belu
   assert.match(departmentAsk.relayPrompt({ customerText: 'c', question: 'q', answer: 'a', strict: true }), /menyebut proses internal/);
   assert.match(departmentAsk.guide([{ name: 'Product', description: '' }]), /JANGAN menyebut proses internal ke customer/);
 });
+
+test('kabar tunggu tidak berdampingan dengan pertanyaan balik ke customer (kasus 4 Nov)', () => {
+  const raw = 'Baik kak, saya pastikan dulu ya berapa kebutuhannya. Mohon ditunggu sebentar, begitu sudah jelas langsung saya kabari. Semen Gresik 40KG Rp 61.500 per zak. Kakak mau pakai yang kemasan 40KG atau 50KG?';
+  const out = departmentAsk.ensureHolding(raw);
+  assert.doesNotMatch(out, /\?/);
+  assert.match(out, /ditunggu sebentar/);
+  assert.match(out, /Rp 61\.500/);
+});

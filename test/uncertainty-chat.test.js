@@ -222,3 +222,38 @@ test('pengaturan: supervisor mengubah mode dan membaca jejak', async (t) => {
   const events = await server.inject({ method: 'GET', url: '/v1/ai-uncertainty/events', headers: { cookie: login } });
   assert.equal(events.statusCode, 200);
 });
+
+test('kasus 4 Nov (Pak Rian): hitungan kebutuhan semen ditolak sebagai pertanyaan departemen, dihitung alat', async (t) => {
+  let askResult;
+  let calc;
+  const { state, chat } = await harness(t, {
+    script: async (text, opts) => {
+      const ask = (opts.tools || []).find((x) => x.name === 'ask_department');
+      const hitung = (opts.tools || []).find((x) => x.name === 'hitung_kebutuhan');
+      assert.ok(ask && hitung, 'alat tanya departemen dan hitung_kebutuhan sama-sama tersedia');
+      askResult = await ask.run({ department: 'Management', question: 'Berapa zak semen Gresik untuk pasang bata merah luas 60m2?' });
+      calc = await hitung.run({ pekerjaan: 'pasang_bata', luas_m2: 60, jenis_luas: 'bangunan' });
+      return `Perkiraan kebutuhan sekitar ${calc.zak_50kg} zak semen 50KG (asumsi bata merah 1/2 bata, campuran 1:4). Luas 60 m² itu luas bangunan atau luas dindingnya, Kak?`;
+    },
+  });
+  const reply = await chat('Saya lg pasang bata merah untuk bangun rumah luas 60m2. Butuh berapa zak yah?');
+  assert.match(askResult.error, /hitung_kebutuhan/);
+  assert.equal(state.questions.length, 0, 'hitungan tidak ditunda ke departemen');
+  assert.match(reply, /37 zak/);
+  assert.doesNotMatch(reply, /ditunggu|saya pastikan dulu|kabari/i);
+  assert.match(reply, /\?$/);
+});
+
+test('regresi: diskon di luar aturan tetap boleh ditanyakan ke departemen (bukan dikira hitungan)', async (t) => {
+  let out;
+  const { state, chat } = await harness(t, {
+    script: async (text, opts) => {
+      const ask = (opts.tools || []).find((x) => x.name === 'ask_department');
+      out = await ask.run({ department: 'Management', question: 'Semen Gresik 50kg 20 zak boleh diskon berapa?' });
+      return 'Baik kak, saya pastikan dulu ya, mohon ditunggu sebentar.';
+    },
+  });
+  await chat('kalau ambil 20 zak semen bisa diskon berapa?');
+  assert.ok(!out.error);
+  assert.equal(state.questions.length, 1);
+});

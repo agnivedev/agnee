@@ -5,6 +5,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { Pool } = require('pg');
 const { normalizeStageToggles } = require('./follow-up-stage');
+const reminderSchedule = require('./reminder-schedule');
 
 /**
  * Jenis pesan yang masuk lewat jalur pesan customer tetapi dibuat WhatsApp
@@ -1877,22 +1878,42 @@ class Database {
   }
 
   /**
-   * Pengingat yang jatuh tempo: 5 mnt, 15 mnt, 2 jam, 12 jam sejak pertanyaan
-   * dibuat. Setiap panggilan "mengklaim" pengingat secara atomik (UPDATE ...
-   * RETURNING), jadi dua penyapu tidak mengirim dobel. Pengingat ke-4 adalah yang
+   * Pengingat yang jatuh tempo, dihitung dalam JAM KERJA company (lihat
+   * reminder-schedule.js): 30 mnt, 2 jam, 6 jam, 12 jam kerja sejak pertanyaan
+   * dibuat, hanya dikirim saat jam kerja, jarak minimal 30 mnt kerja. Jatuh
+   * tempo ditentukan di JS; klaimnya (UPDATE ... WHERE reminder_count = lama
+   * RETURNING) atomik, jadi dua penyapu tidak mengirim dobel. Pengingat ke-4
    * terakhir: pertanyaan menjadi 'unresolved' dan supervisor diberi lonceng.
    */
-  async claimDueDepartmentReminders() {
+  async claimDueDepartmentReminders(nowMs = Date.now()) {
     if (!this.enabled) return [];
-    const claimed = await this.pool.query(`
-      UPDATE department_questions q
-      SET reminder_count = reminder_count + 1, last_reminded_at = NOW(),
-          status = CASE WHEN reminder_count + 1 >= 4 THEN 'unresolved' ELSE status END
+    const open = await this.pool.query(`
+      SELECT q.id, q.reminder_count AS "reminderCount", q.created_at AS "createdAt",
+             q.last_reminded_at AS "lastRemindedAt", COALESCE(c.timezone, 'Asia/Jakarta') AS timezone
+      FROM department_questions q JOIN companies c ON c.id = q.company_id
       WHERE q.status = 'open' AND q.reminder_count < 4
-        AND q.created_at + make_interval(mins => (ARRAY[5, 15, 120, 720])[q.reminder_count + 1]) <= NOW()
-      RETURNING q.id, q.company_id AS "companyId", q.department_id AS "departmentId", q.third_party_id AS "thirdPartyId", q.chat_id AS "chatId",
-                q.question, q.reminder_count AS "reminderCount", (q.reminder_count >= 4) AS final
     `);
+    const claimed = { rows: [] };
+    for (const q of open.rows) {
+      let due = false;
+      try {
+        due = reminderSchedule.isReminderDue({
+          createdMs: new Date(q.createdAt).getTime(),
+          lastRemindedMs: q.lastRemindedAt ? new Date(q.lastRemindedAt).getTime() : null,
+          reminderCount: q.reminderCount, nowMs, zone: q.timezone,
+        });
+      } catch { due = false; }
+      if (!due) continue;
+      const r = await this.pool.query(`
+        UPDATE department_questions q
+        SET reminder_count = reminder_count + 1, last_reminded_at = NOW(),
+            status = CASE WHEN reminder_count + 1 >= 4 THEN 'unresolved' ELSE status END
+        WHERE q.id = $1 AND q.status = 'open' AND q.reminder_count = $2
+        RETURNING q.id, q.company_id AS "companyId", q.department_id AS "departmentId", q.third_party_id AS "thirdPartyId", q.chat_id AS "chatId",
+                  q.question, q.reminder_count AS "reminderCount", (q.reminder_count >= 4) AS final
+      `, [q.id, q.reminderCount]);
+      claimed.rows.push(...r.rows);
+    }
     const rows = [];
     for (const row of claimed.rows) {
       if (row.thirdPartyId) {
@@ -1900,7 +1921,7 @@ class Database {
         const tp = await this.pool.query('SELECT name FROM third_parties WHERE id = $1', [row.thirdPartyId]);
         const name = tp.rows[0]?.name || 'pihak ketiga';
         const body = row.final
-          ? `${name} belum membalas setelah 12 jam; customer ditandai belum terjawab (menunggu pihak ketiga): ${String(row.question).slice(0, 300)}`
+          ? `${name} belum membalas setelah 12 jam kerja; customer ditandai belum terjawab (menunggu pihak ketiga): ${String(row.question).slice(0, 300)}`
           : `Pengingat ${row.reminderCount}/4: ${name} belum membalas pertanyaan AI: ${String(row.question).slice(0, 300)}`;
         await this.pool.query(`
           INSERT INTO notifications (company_id, user_id, kind, chat_id, actor_kind, body)
@@ -1922,7 +1943,7 @@ class Database {
       const department = members.rows[0]?.department || 'terkait';
       const people = members.rows.filter((m) => m.userId);
       const body = row.final
-        ? `Belum ada jawaban dari ${department} setelah 12 jam; customer ditandai belum terjawab (menunggu internal): ${String(row.question).slice(0, 300)}`
+        ? `Belum ada jawaban dari ${department} setelah 12 jam kerja; customer ditandai belum terjawab (menunggu internal): ${String(row.question).slice(0, 300)}`
         : `Pengingat ${row.reminderCount}/4: pertanyaan AI untuk ${department} belum dijawab: ${String(row.question).slice(0, 300)}`;
       const targets = new Set(people.map((m) => m.userId));
       if (row.final) {

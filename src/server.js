@@ -1526,6 +1526,22 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     let name = knownName;
     if (String(chatId).endsWith('@lid') && canCall('phoneForLid')) {
       phone = await database.phoneForLid(companyId, chatId).catch(() => null);
+      // Belum ada di peta: tanya WhatsApp langsung (jalur yang sama dengan Lead
+      // List), lalu simpan. Gagal/WhatsApp belum siap = tetap tanpa nomor, tidak
+      // pernah mengarang nomor dari isi chat.
+      if (!phone && typeof resolvePhoneForLid === 'function') {
+        try {
+          const { client: wa, state } = await waFor(companyId, chatId);
+          if (wa && state?.phase === 'ready') {
+            const resolved = await resolvePhoneForLid(wa, chatId);
+            const digitsOnly = resolved ? String(resolved).replace(/@.*$/, '').replace(/\D/g, '') : '';
+            if (digitsOnly) {
+              phone = digitsOnly;
+              if (canCall('savePhoneForLid')) await database.savePhoneForLid(companyId, chatId, digitsOnly).catch(() => {});
+            }
+          }
+        } catch { /* tanpa nomor */ }
+      }
     }
     if (!name && canCall('getContactNamesFor')) {
       const names = await database.getContactNamesFor(companyId, [chatId]).catch(() => ({}));
@@ -1551,9 +1567,19 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       const problem = departmentAsk.compoundProblem(question);
       if (problem) return { error: problem };
     }
-    const open = (await database.listDepartmentQuestions(companyId, { status: 'open', limit: 200 }).catch(() => []))
-      .find((q) => q.chatId === chatId && q.departmentId === dept.id);
-    if (open) return { status: 'already_asked', department: dept.name };
+    // Pertanyaan yang sama tak diulang. Pertanyaan BERBEDA di chat yang sama (mis.
+    // gypsum masih terbuka, lalu customer menanyakan cat) tetap dibuat: dulu
+    // keduanya dianggap sama dan yang kedua ditelan diam-diam padahal customer
+    // sudah dijanjikan "saya cek dulu". Maksimal 3 terbuka per chat per departemen.
+    const openHere = (await database.listDepartmentQuestions(companyId, { status: 'open', limit: 200 }).catch(() => []))
+      .filter((q) => q.chatId === chatId && q.departmentId === dept.id);
+    // Sama bila pesan customer-nya sama (model mengulang di giliran yang sama)
+    // atau isi pertanyaannya hampir identik.
+    const isRepeat = (q) => (q.customerText && customerText && departmentAsk.sameQuestion(q.customerText, customerText))
+      || departmentAsk.sameQuestion(q.question, question, 0.75);
+    if (openHere.some(isRepeat) || openHere.length >= 3) {
+      return { status: 'already_asked', department: dept.name };
+    }
     const created = await database.createDepartmentQuestion({ departmentId: dept.id, chatId, customerText, question, kind: meta.kind || 'general', payload: meta.payload || null }, companyId);
     if (!created) return { error: 'Departemen tidak ditemukan.' };
     broadcastEvent(companyId, 'department_question', { id: created.id, department: dept.name });
@@ -14703,7 +14729,8 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     timer.unref?.();
   }
 
-  // Pengingat ke departemen yang belum menjawab: 5 mnt, 15 mnt, 2 jam, 12 jam,
+  // Pengingat ke departemen yang belum menjawab: 30 mnt, 2 jam, 6 jam, 12 jam
+  // KERJA (jam kerja company, tak pernah dini hari; reminder-schedule.js),
   // lalu berhenti (pertanyaan menjadi 'unresolved'). Lonceng dibuat di database;
   // di sini hanya WhatsApp-nya.
   function startDepartmentQuestionSweeper() {

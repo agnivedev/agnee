@@ -37,9 +37,19 @@ function ensureHolding(text) {
   return clean ? `${clean}\n\n${hold}` : hold;
 }
 
-// Jadwal pengingat ke departemen (menit sejak pertanyaan): sama dengan SQL
-// claimDueDepartmentReminders. Yang ke-4 terakhir; setelah itu 'unresolved'.
-const REMINDER_MINUTES = [5, 15, 120, 720];
+// Jadwal pengingat ke departemen: MENIT KERJA sejak pertanyaan (reminder-schedule.js),
+// bukan menit dinding. Yang ke-4 terakhir; setelah itu 'unresolved'.
+const { REMINDER_WORK_MINUTES: REMINDER_MINUTES } = require('./reminder-schedule');
+
+/** Dua pertanyaan dianggap sama bila kata bermaknanya cukup tumpang tindih (Jaccard >= 0,5). */
+function sameQuestion(a, b, threshold = 0.5) {
+  const words = (t) => new Set(String(t || '').toLowerCase().match(/[a-z0-9]{3,}/g) || []);
+  const x = words(a); const y = words(b);
+  if (!x.size || !y.size) return String(a || '').trim() === String(b || '').trim();
+  let shared = 0;
+  for (const w of x) if (y.has(w)) shared += 1;
+  return shared / (x.size + y.size - shared) >= threshold;
+}
 
 /** Kode pendek pertanyaan (#ab12cd) untuk menjawab dari grup tanpa reply. */
 function questionCode(id) { return String(id || '').replace(/-/g, '').slice(0, 6).toLowerCase(); }
@@ -58,16 +68,26 @@ function answerHint({ code, group, dm = false }) {
     : 'Mohon dijawab lewat Agnee (menu Pertanyaan AI).';
 }
 
+/** Cara menjawab di pengingat: satu kalimat, kodenya sudah ada di baris atas. */
+function shortAnswerHint({ code, group, dm = false }) {
+  if (dm && !group) return `Balas pesan ini dengan jawabannya (tulis #${code} bila ada beberapa pertanyaan terbuka).`;
+  return group ? `Reply pesan ini di grup atau tulis #${code} di jawabanmu.` : 'Mohon dijawab lewat Agnee (menu Pertanyaan AI).';
+}
+
+/**
+ * Pengingat sengaja ringkas: isi lengkap pertanyaan hanya ada di pesan
+ * pertama. Di sini cukup siapa customernya, kode #xxxxxx, dan satu baris
+ * cuplikan supaya pembaca tahu pertanyaan yang mana.
+ */
 function buildReminderNotice({ department, question, customerLabel, reminderCount, final, code = null, group = false, dm = false }) {
   const cut = (v, n) => { const t = String(v || '').replace(/\s+/g, ' ').trim(); return t.length > n ? `${t.slice(0, n - 1)}…` : t; };
   return [
     final ? `*Pengingat terakhir — tim ${department}*` : `*Pengingat ${reminderCount}/4 — tim ${department}*`,
-    `Customer: ${customerLabel}`,
-    `Pertanyaan: "${cut(question, 650)}"`,
-    '',
+    `${customerLabel}${code ? ` · #${code}` : ''}`,
+    `"${cut(question, 110)}"`,
     final
-      ? `Belum ada yang menjawab selama 12 jam. Customer ditandai belum terjawab. ${answerHint({ code, group, dm })}`
-      : `Customer masih menunggu. ${answerHint({ code, group, dm })}`,
+      ? `Belum ada yang menjawab selama 12 jam kerja. Customer ditandai belum terjawab. ${shortAnswerHint({ code, group, dm })}`
+      : `Customer masih menunggu. ${shortAnswerHint({ code, group, dm })}`,
   ].join('\n');
 }
 
@@ -83,6 +103,7 @@ Aturan:
 - Pilih SATU departemen yang paling relevan. Tulis pertanyaan yang singkat, lengkap, dan bisa dijawab tanpa membaca chat (sebut produk/hal yang dimaksud). Jangan menyertakan nomor telepon atau data pribadi customer.
 - SATU pertanyaan = SATU keputusan, maksimal 2 kalimat, jawabannya cukup "ya/tidak" atau satu angka. DILARANG menumpuk beberapa pertanyaan bernomor (1)(2)(3) dalam satu panggilan. Kalau customer menanyakan banyak hal, tanyakan dulu yang paling menentukan (biasanya diskon/kebijakan harga), dan lanjutkan hal lain setelah jawabannya masuk.
 - Cek data sendiri DULU, jangan tanyakan yang bisa dijawab alat: stok dan harga lewat cek_harga/katalog, ongkir lewat cek_ongkir, alamat/jam buka/toko lewat data Lokasi, promo lewat aturan Promo. Tanya departemen hanya untuk keputusan yang memang hanya manusia yang boleh memutuskan (diskon di luar aturan, termin DP/tempo, faktur pajak, pengecualian).
+- Sertakan juga fakta yang sudah disebut STAF di chat (harga, stok, kondisi barang, merek) apa adanya, jangan hanya "tidak ada di katalog", supaya tim melihat gambaran yang benar. Jangan menyebut fakta yang tidak ada di chat atau data.
 - Tulis angka dan fakta yang sudah kamu cek di pertanyaan (mis. "Semen PCC 50kg 20 zak @Rp57.500 — boleh diskon? berapa?") supaya tim tinggal menjawab dari HP.
 - Setelah alat dipanggil, balas customer dengan 1–2 kalimat sesuai persona: katakan kamu memastikan dulu supaya informasinya akurat, minta ditunggu sebentar, dan kamu akan kabari begitu sudah jelas. Contoh nada: "Baik kak, saya pastikan dulu ya supaya informasinya akurat. Mohon ditunggu sebentar, begitu sudah jelas langsung saya kabari 🙏".
 - JANGAN menyebut proses internal ke customer: tanpa kata "tim", "internal", "departemen", "bagian", "supplier", "pabrik", nama divisi, atau "saya tanyakan ke…". Customer cukup tahu kamu sedang memastikan. Jangan menyebut kata "AI", "alat", atau "sistem", dan jangan menjanjikan jam atau durasi tertentu.
@@ -290,5 +311,5 @@ function judgeRelay(text) {
 }
 
 module.exports = {
-  unresolvedCustomerNotice, ambiguousDmNotice,
+  sameQuestion, unresolvedCustomerNotice, ambiguousDmNotice,
   classifyGroupReply, nonAnswerNotice, compoundProblem, questionCode, codeInText, buildMentionNotice, guideOps, guideThirdPartiesOps, judgeRelay, leaksInternal, UNSURE_TOKEN, guideThirdParties, toolSpecThirdParty, buildThirdPartyMessage, mentionsWaiting, ensureHolding, buildReminderNotice, REMINDER_MINUTES, guide, toolSpec, buildQuestionNotice, relayPrompt, HOLDING_FALLBACK, QUESTION_MAX };

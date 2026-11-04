@@ -257,3 +257,14 @@ test('regresi: diskon di luar aturan tetap boleh ditanyakan ke departemen (bukan
   assert.ok(!out.error);
   assert.equal(state.questions.length, 1);
 });
+
+test('kasus 4 Nov (gypsum + Mowilex): pertanyaan kedua yang berbeda di chat yang sama tidak ditelan; pengulangan tetap tak dobel', async (t) => {
+  const { state, chat } = await harness(t, { script: async () => 'Harganya Rp 75.000 per sak ya Kak.' });
+  await chat('berapa harga gypsum anti air 9mm untuk 4 lembar?');
+  assert.equal(state.questions.length, 1);
+  await chat('berapa harga cat mowilex emulsion 5 kg warna putih?');
+  assert.equal(state.questions.length, 2, 'pertanyaan cat dibuat sendiri, bukan dikira pengulangan gypsum');
+  assert.match(state.questions[1].question, /mowilex/i);
+  await chat('berapa harga cat mowilex emulsion 5 kg warna putih?');
+  assert.equal(state.questions.length, 2, 'pesan yang sama tak membuat pertanyaan dobel');
+});

@@ -104,8 +104,8 @@ test('kabar tunggu dipaksa: balasan tanpa kata tunggu ditambah teks cadangan', (
   assert.equal(departmentAsk.ensureHolding(ok), ok);
 });
 
-test('jadwal pengingat 5 mnt, 15 mnt, 2 jam, 12 jam dan pengingat terakhir menyebut 12 jam', () => {
-  assert.deepEqual(departmentAsk.REMINDER_MINUTES, [5, 15, 120, 720]);
+test('jadwal pengingat 30 mnt, 2 jam, 6 jam, 12 jam kerja dan pengingat terakhir menyebut 12 jam', () => {
+  assert.deepEqual(departmentAsk.REMINDER_MINUTES, [30, 120, 360, 720]);
   const last = departmentAsk.buildReminderNotice({ department: 'Product', question: 'q', customerLabel: '+62', reminderCount: 4, final: true });
   assert.match(last, /12 jam/);
   assert.match(departmentAsk.buildReminderNotice({ department: 'Product', question: 'q', customerLabel: '+62', reminderCount: 2, final: false }), /2\/4/);

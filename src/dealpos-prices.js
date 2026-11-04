@@ -107,6 +107,8 @@ const STOP = new Set([
   'untuk', 'dengan', 'dari', 'saya', 'aku', 'kami', 'kita', 'tolong', 'info', 'stok', 'ready', 'beli', 'pesan',
   'order', 'butuh', 'perlu', 'buat', 'pakai', 'sama', 'juga', 'aja', 'saja', 'dong', 'nya', 'per', 'customer',
   'pelanggan', 'tanya', 'menanyakan', 'kirim', 'lokasi', 'tahap', 'pembangunan',
+  // Kemasan keramik di pesan penawaran ("1dus=10 keping") bukan nama barang.
+  'dus', 'keping',
   // Kata obrolan yang juga muncul di nama barang ("GOLOK BAGUS", "BELONI HURUF
   // RUMAH") dan membuat barang acak ikut menang.
   'brp', 'apa', 'bagus', 'gimana', 'gmn', 'kakak', 'mas', 'mbak', 'mba', 'pak', 'sis', 'rumah', 'bangun', 'baru',

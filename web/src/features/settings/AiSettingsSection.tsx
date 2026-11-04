@@ -121,6 +121,7 @@ export function AiSettingsSection() {
         <span className="grid gap-0.5">
           <strong>{t('ai.escalation.title')}</strong>
           <small className="text-[11px] text-muted">{t('ai.escalation.hint')}</small>
+          <small className="text-[11px] text-muted">{t(escalation ? 'ai.escalation.effectOn' : 'ai.escalation.effectOff')}</small>
         </span>
       </label>
 

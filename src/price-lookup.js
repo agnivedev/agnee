@@ -26,8 +26,8 @@ const GUIDE = `## CEK HARGA (alat ${TOOL_NAME})
 - Cek di sini DULU. Bertanya ke departemen hanya bila ${TOOL_NAME} tidak menemukan barangnya atau kamu ragu barang mana yang dimaksud; jangan bertanya ke departemen untuk harga atau kode barang yang ada di hasil.
 - Sebut varian, harga, dan satuan (UOM) PERSIS seperti hasilnya: nama lengkap varian, "harga", dan "satuan" (zak, pcs, dus, set, dst.). Jangan menebak atau mengganti satuan (jangan "sak"/"unit"/"kardus"/"piece" kalau hasilnya "zak"/"pcs"/"dus"). Kalau satuan tidak dicantumkan, jangan menyebut satuan.
 - Kalau hasilnya berisi beberapa varian (warna, ukuran, kemasan) dari barang yang sama, sebutkan SEMUA pilihannya langsung beserta harganya dalam satu pesan (mis. "Biru tua Rp 2.619.000, hitam Rp 2.619.000, orange Rp 2.745.000 per pcs") lalu tanyakan mau yang mana. Jangan menanyakan warna tanpa menyebut pilihannya dan jangan berkata semua varian sama saja.
-- Customer yang menyebut BANYAK barang dalam satu pesan (daftar kebutuhan/penawaran): panggil ${TOOL_NAME} SEKALI dengan "daftar" berisi semua barangnya (satu teks per barang, persis seperti ditulis customer, termasuk kode dari kemasan), jangan berhenti di barang pertama. Jawab per barang: yang ketemu langsung sebut varian, harga per satuan, dan subtotal (harga x jumlah yang disebut customer); yang tidak ketemu katakan jujur per barang.
-- Barang yang statusnya "tidak_ketemu" TIDAK ADA di daftar harga/POS toko: sampaikan jelas bahwa barang itu belum terdaftar di sistem kami, jangan menyebut angka, jangan menawarkan barang merek/model lain sebagai pembanding kecuali customer memintanya, dan jangan minta nama atau kode lagi bila customer sudah menuliskan nama dan kodenya. Harganya lalu diteruskan ke staf lewat alat tanya departemen bila ada; jangan menulis "saya pastikan dulu" tanpa benar-benar bertanya.
+- Customer yang menyebut BANYAK barang dalam satu pesan (daftar kebutuhan/penawaran): panggil ${TOOL_NAME} SEKALI dengan "daftar" berisi semua barangnya (satu teks per barang, persis seperti ditulis customer, termasuk kode dari kemasan), jangan berhenti di barang pertama. Jawab per barang: yang ketemu langsung sebut varian, harga per satuan, dan subtotal (harga x jumlah yang disebut customer); yang tidak ketemu diteruskan ke tim (lihat di bawah).
+- Barang yang statusnya "tidak_ketemu" tidak ada di daftar harga/POS: langsung tanyakan ke tim/Management lewat alat tanya departemen bila ada (satu pertanyaan berisi semua barang yang belum ketemu beserta jumlah dan syarat yang diminta customer), tanpa menyuruh customer mengulang nama atau kode yang sudah ia tulis. Ke customer cukup bilang akan dicek dulu ke tim dan kamu kabari; JANGAN mengatakan barangnya "tidak terdaftar/tidak ada di sistem/daftar" (customer tidak perlu tahu urusan teknis; ini belum tentu barang tidak dijual). Jangan menyebut angka, dan jangan menawarkan barang merek/model lain sebagai pembanding kecuali customer memintanya. Jangan menulis "saya pastikan dulu" tanpa benar-benar bertanya.
 - Daftar harga tidak menyatakan apakah sudah termasuk PPN. Jangan menghitung atau menyebut "harga include PPN" sendiri; bila customer minta harga inc. PPN, sebut harga dari hasil apa adanya dan katakan PPN/faktur pajak dikonfirmasi staf.
 - Jumlah yang dihitung dari kemasan ("1 dus = 10 keping") hanya boleh memakai satuan yang tertulis di hasil; jangan mengubah satuan harga menjadi per keping atau per m2 bila hasilnya tidak menyebut isi dus.
 - Harga di sini bukan informasi stok.`;
@@ -118,7 +118,7 @@ function searchOne(items, rawQuery, { tagText } = {}) {
 
 function missingNote(found) {
   const codeNote = found.codes.length ? ` Kode "${found.codes.join('", "')}" juga tidak ada di daftar.` : '';
-  return `Barang ini TIDAK ADA di daftar harga/POS toko.${codeNote} Jangan menyebut harga, jangan menawarkan merek atau model lain sebagai pembanding kecuali customer memintanya, dan jangan meminta nama atau kode lagi bila customer sudah menuliskannya. Sampaikan jelas bahwa barang ini belum terdaftar di sistem kami dan teruskan ke staf lewat alat tanya departemen bila tersedia.`;
+  return `Barang ini tidak ada di daftar harga/POS (belum tentu tidak dijual).${codeNote} Jangan menyebut harga, jangan menawarkan merek atau model lain sebagai pembanding kecuali customer memintanya, dan jangan meminta nama atau kode lagi bila customer sudah menuliskannya. Langsung tanyakan ke tim/Management lewat alat tanya departemen bila tersedia; ke customer cukup katakan akan dicek dulu ke tim, jangan bilang barangnya tidak terdaftar atau tidak ada di sistem.`;
 }
 
 /** Hasil pencarian untuk model. Tidak pernah melempar. */
@@ -146,7 +146,7 @@ function lookup(items, args = {}, { tagText, onResults } = {}) {
     : { dicari: text, status: 'tidak_ketemu', pesan: missingNote(found) }));
   const okCount = per.filter((r) => r.status === 'ok').length;
   const out = { status: okCount === 0 ? 'tidak_ketemu' : okCount === per.length ? 'ok' : 'sebagian', per_barang: per, catatan: 'Harga jual dari POS saat ini. Bukan informasi stok.' };
-  if (okCount === 0) out.pesan = 'Tidak ada satu pun barang yang cocok di daftar harga. Jangan menyebut harga; sampaikan jelas per barang bahwa belum terdaftar di sistem kami.';
+  if (okCount === 0) out.pesan = 'Tidak ada satu pun barang yang cocok di daftar harga. Jangan menyebut harga; tanyakan semuanya ke tim/Management dalam satu pertanyaan; ke customer cukup katakan akan dicek dulu ke tim, jangan bilang tidak terdaftar atau tidak ada di sistem.';
   return out;
 }
 

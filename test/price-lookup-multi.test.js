@@ -47,6 +47,8 @@ test('tiga barang kasus Rajawali: tidak ada di POS, tak ada pembanding yang meny
   assert.ok(out.per_barang.every((r) => r.status === 'tidak_ketemu' && !r.hasil));
   assert.match(out.per_barang[0].pesan, /REC-?DF91502|recdf91502/i);
   assert.match(out.per_barang[0].pesan, /jangan meminta nama atau kode lagi/);
+  assert.match(out.per_barang[0].pesan, /jangan bilang barangnya tidak terdaftar/);
+  assert.ok(!/sampaikan jelas/i.test(out.per_barang[0].pesan));
 });
 
 test('banyak barang dalam satu panggilan: yang ketemu dihargai, yang tidak dilaporkan per barang', () => {
@@ -82,7 +84,7 @@ test('simulate (chat sebagai customer, kasus Rajawali): model memanggil cek_harg
     async generateReply(message, options) {
       const tool = options.tools.find((x) => x.name === 'cek_harga');
       calls.push(await tool.run({ daftar: PESAN }));
-      return { text: 'Baik Pak Yohanes. Ketiga keramik itu belum terdaftar di sistem kami, jadi saya teruskan ke staf untuk penawarannya.', model: 'tiruan', usage: {} };
+      return { text: 'Baik Pak Yohanes. Ketiga keramik itu saya cek dulu ke tim ya, nanti saya kabari penawarannya.', model: 'tiruan', usage: {} };
     },
   };
   const known = {

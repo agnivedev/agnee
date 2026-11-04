@@ -11,6 +11,8 @@
  *     --owner citilux2000@gmail.com --owner-name "Citilux" \
  *     --agent cscitilux@gmail.com   --agent-name "CS Citilux"
  *
+ * --agent dan --agent-name boleh diulang untuk beberapa agent.
+ *
  * --plan personal membatasi 1 pengguna, jadi agent hanya bisa ditambah dengan
  * --plan company (5 pengguna). Tanpa --agent, hanya owner yang dibuat.
  *
@@ -28,10 +30,17 @@ function parseArgs(argv) {
     '--owner': 'owner', '--owner-name': 'ownerName',
     '--agent': 'agent', '--agent-name': 'agentName',
   };
+  args.agents = [];
   for (let i = 0; i < argv.length; i += 2) {
     const key = keys[argv[i]];
     if (!key || argv[i + 1] === undefined) return null;
-    args[key] = argv[i + 1];
+    // --agent / --agent-name boleh diulang; pasangannya menurut urutan.
+    if (key === 'agent') args.agents.push({ email: argv[i + 1] });
+    else if (key === 'agentName') {
+      const last = args.agents[args.agents.length - 1];
+      if (!last) return null;
+      last.name = argv[i + 1];
+    } else args[key] = argv[i + 1];
   }
   return args;
 }
@@ -50,7 +59,7 @@ async function main() {
     console.error('Pemakaian: node scripts/create-company-user.js --company <nama> --plan <personal|company> --owner <email> [--owner-name <nama>] [--agent <email>] [--agent-name <nama>]');
     process.exit(1);
   }
-  if (args.agent && args.plan === 'personal') {
+  if (args.agents.length && args.plan === 'personal') {
     console.error('Paket personal hanya 1 pengguna. Pakai --plan company untuk menambah agent.');
     process.exit(1);
   }
@@ -73,11 +82,11 @@ async function main() {
     });
     created.push({ role: 'owner (supervisor)', email: signup.email, password: ownerPassword });
 
-    if (args.agent) {
+    for (const agent of args.agents) {
       const agentPassword = randomPassword();
       const member = await database.createTeamMember({
-        email: args.agent.trim().toLowerCase(),
-        displayName: args.agentName || `CS ${args.company}`,
+        email: agent.email.trim().toLowerCase(),
+        displayName: agent.name || `CS ${args.company}`,
         password: agentPassword,
         role: 'agent',
       }, signup.companyId);

@@ -111,3 +111,14 @@ test('simulate (chat sebagai customer, kasus Rajawali): model memanggil cek_harg
   assert.equal(calls[0].status, 'tidak_ketemu');
   assert.ok(!/Rp\s?\d/.test(String(res.json().reply || '')), 'tak ada harga karangan');
 });
+
+test('panduan penawaran: kepastian proses, syarat dicatat, satu pertanyaan lengkap ke tim, tanpa bahasa teknis', () => {
+  const { GUIDE } = require('../src/price-lookup');
+  assert.match(GUIDE, /Permintaan PENAWARAN/);
+  assert.match(GUIDE, /kepastian proses/);
+  assert.match(GUIDE, /inc\. PPN, DP, pelunasan setelah kirim, free ongkir/);
+  assert.match(GUIDE, /tanpa menyetujui atau menolaknya sendiri/);
+  assert.match(GUIDE, /nama customer dan perusahaan, semua barang dengan kode dan jumlah/);
+  assert.match(GUIDE, /jangan dipecah per barang atau per syarat/);
+  assert.match(GUIDE, /JANGAN mengatakan barangnya "tidak terdaftar/);
+});

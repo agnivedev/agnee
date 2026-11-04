@@ -1408,7 +1408,7 @@ class Database {
              payment_method AS "paymentMethod", payment_link AS "paymentLink",
              bank_name AS "bankName", bank_account AS "bankAccount",
              bank_holder AS "bankHolder", payment_notes AS "paymentNotes",
-             payment_proof_check AS "paymentProofCheck", ai_read_media AS "aiReadMedia",
+             payment_proof_check AS "paymentProofCheck", ai_read_media AS "aiReadMedia", ai_escalation AS "aiEscalation",
              whatsapp_provider AS "whatsappProvider",
              ai_enabled AS "aiEnabled", ai_model_chain AS "aiModelChain",
              hub_tools_enabled AS "hubToolsEnabled",
@@ -2047,7 +2047,7 @@ class Database {
     return result.rows[0]?.numbers || [];
   }
 
-  async updateCompanyConfig({ plan, planStatus, knowledgeClient, aiMessageLimit, maxUsers, maxPlaybooks, maxWhatsapp, paymentMethod, paymentLink, bankName, bankAccount, bankHolder, paymentNotes, paymentProofCheck, aiReadMedia, whatsappProvider, rotationEnabled, replyDelayEnabled, replyDelayMinSeconds, replyDelayMaxSeconds }, companyId) {
+  async updateCompanyConfig({ plan, planStatus, knowledgeClient, aiMessageLimit, maxUsers, maxPlaybooks, maxWhatsapp, paymentMethod, paymentLink, bankName, bankAccount, bankHolder, paymentNotes, paymentProofCheck, aiReadMedia, aiEscalation, whatsappProvider, rotationEnabled, replyDelayEnabled, replyDelayMinSeconds, replyDelayMaxSeconds }, companyId) {
     if (!this.enabled) return null;
     const fields = [];
     const values = [];
@@ -2066,6 +2066,7 @@ class Database {
     if (bankHolder !== undefined) { fields.push(`bank_holder = $${i++}`); values.push(bankHolder || null); }
     if (paymentNotes !== undefined) { fields.push(`payment_notes = $${i++}`); values.push(paymentNotes || null); }
     if (aiReadMedia !== undefined) { fields.push(`ai_read_media = $${i++}`); values.push(Boolean(aiReadMedia)); }
+    if (aiEscalation !== undefined) { fields.push(`ai_escalation = $${i++}`); values.push(Boolean(aiEscalation)); }
     if (paymentProofCheck !== undefined) { fields.push(`payment_proof_check = $${i++}`); values.push(Boolean(paymentProofCheck)); }
     if (whatsappProvider !== undefined) { fields.push(`whatsapp_provider = $${i++}`); values.push(whatsappProvider); }
     if (rotationEnabled !== undefined) { fields.push(`rotation_enabled = $${i++}`); values.push(rotationEnabled); }

@@ -15,7 +15,7 @@ const SUP = {
   displayName: 'Supervisor', role: 'supervisor', status: 'active', isPlatformAdmin: true,
 };
 
-function fakeDatabase() {
+function fakeDatabase(extraConfig = {}) {
   const known = {
     enabled: true, connected: true,
     async connect() {}, async close() {},
@@ -25,7 +25,7 @@ function fakeDatabase() {
     async getActiveSessionUser(userId) { return userId === SUP.id ? SUP : null; },
     async setPresence() {},
     async getAiSettings() { return { enabled: true, modelChain: ['murah/model'], identity: 'team_member' }; },
-    async getCompanyConfig() { return { planStatus: 'active', status: 'active', knowledgeClient: 'agnee', aiIdentity: 'team_member' }; },
+    async getCompanyConfig() { return { planStatus: 'active', status: 'active', knowledgeClient: 'agnee', aiIdentity: 'team_member', ...extraConfig }; },
     async recordSimulationRun() { return { id: 'run-1' }; },
   };
   return new Proxy(known, {
@@ -40,7 +40,7 @@ function fakeDatabase() {
 const BAD = 'Dana sudah masuk Kak, pesanan langsung kami proses ya.';
 const GOOD = 'Terima kasih Kak. Boleh kirim foto bukti transfernya supaya tim kami cek?';
 
-async function setup(t, replies, { toolCalls = [] } = {}) {
+async function setup(t, replies, { toolCalls = [], config = {} } = {}) {
   const calls = [];
   const llm = {
     enabled: true, model: 'murah/model',
@@ -53,7 +53,7 @@ async function setup(t, replies, { toolCalls = [] } = {}) {
       return { text, model, usage: { cost: model === 'kuat/model' ? 0.01 : 0.001 }, toolCalls: model === 'murah/model' ? toolCalls : [] };
     },
   };
-  const app = await buildApp({ logger: false, startupEnabled: false, demoMode: true, sessionSecret: 'esc', database: fakeDatabase(), llmService: llm });
+  const app = await buildApp({ logger: false, startupEnabled: false, demoMode: true, sessionSecret: 'esc', database: fakeDatabase(config), llmService: llm });
   t.after(async () => { await app.close(); });
   const login = await app.inject({ method: 'POST', url: '/v1/auth/login', payload: { email: SUP.email, password: 'password-123' } });
   const cookie = login.headers['set-cookie'].split(';')[0];
@@ -117,4 +117,20 @@ test('model murah tak membalas sama sekali: model kuat mengambil alih', async (t
   assert.equal(body.reply, GOOD);
   assert.equal(body.escalation.chosen, 'second');
   assert.deepEqual(body.escalation.why, ['no_reply']);
+});
+
+test('saklar company mati (aiEscalation=false): model kuat tak dipanggil walau jawaban bermasalah', async (t) => {
+  const { calls, simulate } = await setup(t, { 'murah/model': BAD, 'kuat/model': GOOD }, { config: { aiEscalation: false } });
+  const body = (await simulate({ escalationChain: 'kuat/model' })).json();
+  assert.equal(body.escalation, null);
+  assert.deepEqual(calls.map((c) => c.model), ['murah/model']);
+});
+
+test('saklar company hidup atau belum pernah diset: eskalasi jalan', async (t) => {
+  for (const config of [{ aiEscalation: true }, {}]) {
+    const { calls, simulate } = await setup(t, { 'murah/model': BAD, 'kuat/model': GOOD }, { config });
+    const body = (await simulate({ escalationChain: 'kuat/model' })).json();
+    assert.equal(body.escalation.chosen, 'second');
+    assert.deepEqual(calls.map((c) => c.model), ['murah/model', 'kuat/model']);
+  }
 });

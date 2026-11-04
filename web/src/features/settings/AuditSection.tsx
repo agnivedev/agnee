@@ -78,6 +78,7 @@ const AUDIT_ACTIONS = [
   'knowledge.rejected',
   'knowledge.learning_toggled',
   'ai_uncertainty.mode_changed',
+  'ai_escalation.changed',
   'payment_account.created',
   'payment_account.updated',
   'payment_account.deleted',

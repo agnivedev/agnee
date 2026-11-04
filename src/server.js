@@ -2340,7 +2340,8 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     const leakFirst = first?.text ? escalationLib.stripToolLeak(first.text) : { text: '', leaked: false };
     if (first?.text) first.text = leakFirst.text;
     const chain = escalationLib.pickEscalationChain(escalationChain, first?.model);
-    const eligible = chain.length > 0 && !ctx.ks && ctx.agentMode !== 'internal_ops' && !ctx.departmentAsked?.length
+    // Supervisor bisa mematikan eskalasi per company (Pengaturan > AI); kolom baru bawaan hidup.
+    const eligible = chain.length > 0 && ctx.companyConfig?.aiEscalation !== false && !ctx.ks && ctx.agentMode !== 'internal_ops' && !ctx.departmentAsked?.length
       && !(first?.toolCalls || []).some((call) => SIDE_EFFECT_TOOL.test(call?.name || ''));
     if (!eligible) return { result: first, enforced: null, escalation: null };
 
@@ -5562,6 +5563,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       paymentNotes: { type: 'string', maxLength: 500 },
       paymentProofCheck: { type: 'boolean' },
       aiReadMedia: { type: 'boolean' },
+      aiEscalation: { type: 'boolean' },
       rotationEnabled: { type: 'boolean' },
       replyDelayEnabled: { type: 'boolean' },
       replyDelayMinSeconds: { type: 'integer', minimum: 0, maximum: 120 },
@@ -5601,6 +5603,11 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       await catatAudit(request, 'payment.changed', {
         entityType: 'company', entityId: request.agneeSession.companyId,
         metadata: { fields: berubah, method: request.body.paymentMethod ?? null },
+      });
+    }
+    if (request.body.aiEscalation !== undefined) {
+      await catatAudit(request, 'ai_escalation.changed', {
+        entityType: 'company', entityId: request.agneeSession.companyId, metadata: { enabled: request.body.aiEscalation === true },
       });
     }
     return hasil;

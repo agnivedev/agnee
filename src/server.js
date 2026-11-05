@@ -4,6 +4,7 @@ const crypto = require('node:crypto');
 const fs = require('node:fs/promises');
 const fsSync = require('node:fs');
 const path = require('node:path');
+const waMediaDecrypt = require('./wa-media-decrypt');
 const Fastify = require('fastify');
 const modelTiers = require('./model-tiers');
 const creditPlans = require('./credit-plans');
@@ -13910,34 +13911,50 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
           signal: new AbortController().signal,
           downloadQpl: mockQpl,
         });
+        const mediaType = message.mediaData.type || (message.type === 'interactive' ? 'image' : message.type);
+        const mimetype = message.mimetype || message.mediaData?.mimetype || (message.type === 'sticker' ? 'image/webp' : 'application/octet-stream');
+        const detail = (e) => `${e?.name || 'Error'}:${e?.message || e}${e?.status ? `:${e.status}` : ''}`;
         let bytes;
         try {
           bytes = await fetchBytes();
         } catch (firstError) {
-          // Biasanya CDN sudah membuang file (kedaluwarsa). Satu kali minta
-          // pengirim mengunggah ulang lewat ponselnya, lalu coba lagi.
-          const detail = (e) => `${e?.name || 'Error'}:${e?.message || e}${e?.status ? `:${e.status}` : ''}`;
+          // Pengunduh WhatsApp Web kadang menolak file yang masih ada
+          // (mis. CDN mengirim application/octet-stream untuk gambar). Pakai
+          // salinan yang sudah ada di memori bila ada; kalau tidak, serahkan
+          // kunci ke server untuk diunduh dan dibuka langsung dari CDN.
           try {
-            await Promise.race([
-              message.downloadMedia({ downloadEvenIfExpensive: true, rmrReason: 1 }),
-              new Promise((resolve) => setTimeout(resolve, 15000)),
-            ]);
-            bytes = await fetchBytes();
-          } catch (retryError) {
-            return { reason: 'download-failed', detail: detail(firstError), retry: detail(retryError), stage: message.mediaData.mediaStage };
+            const blob = await message.mediaData.mediaBlob?.forceToBlob?.();
+            if (blob && blob.size) bytes = await blob.arrayBuffer();
+          } catch { /* lanjut ke jalur server */ }
+          if (!bytes) {
+            return {
+              reason: 'download-failed',
+              detail: detail(firstError),
+              stage: message.mediaData.mediaStage,
+              direct: message.directPath && message.mediaKey
+                ? { directPath: message.directPath, mediaKey: message.mediaKey, type: mediaType }
+                : null,
+              mimetype,
+              filename: message.filename || null,
+            };
           }
         }
         return {
           data: await window.WWebJS.arrayBufferToBase64Async(bytes),
-          mimetype: message.mimetype || message.mediaData?.mimetype || (message.type === 'sticker' ? 'image/webp' : 'application/octet-stream'),
+          mimetype,
           filename: message.filename || null,
         };
       }, request.params.messageId);
-      if (!media?.data) {
-        app.log.warn({ messageId: request.params.messageId, reason: media?.reason || 'empty', detail: media?.detail, retry: media?.retry, stage: media?.stage }, 'Message media is unavailable');
+      let buffer = media?.data ? Buffer.from(media.data, 'base64') : null;
+      let directError = null;
+      if (!buffer && media?.direct) {
+        buffer = await waMediaDecrypt.downloadAndDecrypt(media.direct)
+          .catch((error) => { directError = error?.message || String(error); return null; });
+      }
+      if (!buffer) {
+        app.log.warn({ messageId: request.params.messageId, reason: media?.reason || 'empty', detail: media?.detail, direct: directError, stage: media?.stage }, 'Message media is unavailable');
         return reply.code(404).send();
       }
-      const buffer = Buffer.from(media.data, 'base64');
       if (buffer.length > 40 * 1024 * 1024) return reply.code(413).send();
       // Hanya jenis yang aman dirender browser yang boleh tampil di dalam
       // halaman; sisanya (docx, xlsx, zip, svg, html…) selalu diunduh.

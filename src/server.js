@@ -13900,7 +13900,7 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
           return { reason: `stage-${message.mediaData.mediaStage}` };
         }
         const mockQpl = { addAnnotations() { return this; }, addPoint() { return this; } };
-        const bytes = await window.require('WAWebDownloadManager').downloadManager.downloadAndMaybeDecrypt({
+        const fetchBytes = () => window.require('WAWebDownloadManager').downloadManager.downloadAndMaybeDecrypt({
           directPath: message.directPath,
           encFilehash: message.encFilehash,
           filehash: message.filehash,
@@ -13910,6 +13910,23 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
           signal: new AbortController().signal,
           downloadQpl: mockQpl,
         });
+        let bytes;
+        try {
+          bytes = await fetchBytes();
+        } catch (firstError) {
+          // Biasanya CDN sudah membuang file (kedaluwarsa). Satu kali minta
+          // pengirim mengunggah ulang lewat ponselnya, lalu coba lagi.
+          const detail = (e) => `${e?.name || 'Error'}:${e?.message || e}${e?.status ? `:${e.status}` : ''}`;
+          try {
+            await Promise.race([
+              message.downloadMedia({ downloadEvenIfExpensive: true, rmrReason: 1 }),
+              new Promise((resolve) => setTimeout(resolve, 15000)),
+            ]);
+            bytes = await fetchBytes();
+          } catch (retryError) {
+            return { reason: 'download-failed', detail: detail(firstError), retry: detail(retryError), stage: message.mediaData.mediaStage };
+          }
+        }
         return {
           data: await window.WWebJS.arrayBufferToBase64Async(bytes),
           mimetype: message.mimetype || message.mediaData?.mimetype || (message.type === 'sticker' ? 'image/webp' : 'application/octet-stream'),
@@ -13917,7 +13934,7 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
         };
       }, request.params.messageId);
       if (!media?.data) {
-        app.log.warn({ messageId: request.params.messageId, reason: media?.reason || 'empty' }, 'Message media is unavailable');
+        app.log.warn({ messageId: request.params.messageId, reason: media?.reason || 'empty', detail: media?.detail, retry: media?.retry, stage: media?.stage }, 'Message media is unavailable');
         return reply.code(404).send();
       }
       const buffer = Buffer.from(media.data, 'base64');

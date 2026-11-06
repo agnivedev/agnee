@@ -1755,7 +1755,8 @@ class Database {
   async findGroupDepartmentQuestion(companyId, groupId, { stanzaId = null, code = null } = {}) {
     if (!this.enabled || (!stanzaId && !code)) return null;
     const result = await this.pool.query(`
-      SELECT q.id, q.chat_id AS "chatId", d.name AS department
+      SELECT q.id, q.chat_id AS "chatId", d.name AS department, q.department_id AS "departmentId",
+             q.question, q.customer_text AS "customerText"
       FROM department_questions q
       JOIN departments d ON d.id = q.department_id
       WHERE q.company_id = $1 AND d.whatsapp_group_id = $2
@@ -1787,7 +1788,8 @@ class Database {
   async listOpenQuestionsForMember(companyId, userId) {
     if (!this.enabled || !userId) return [];
     const result = await this.pool.query(`
-      SELECT q.id, q.chat_id AS "chatId", q.question, d.name AS department
+      SELECT q.id, q.chat_id AS "chatId", q.question, d.name AS department, q.department_id AS "departmentId",
+             q.customer_text AS "customerText"
       FROM department_questions q
       JOIN departments d ON d.id = q.department_id
       WHERE q.company_id = $1 AND q.status IN ('open', 'unresolved') AND q.third_party_id IS NULL

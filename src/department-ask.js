@@ -254,9 +254,12 @@ const QUESTION_RE = /\?\s*$/;
  *  answer   selain itu
  * Kalimat panjang yang kebetulan memuat "batal" tetap dianggap jawaban.
  */
+const COMPLAINT_RE = /\b(?:ud[ah]*h?|sudah|dah)\s+(?:di)?jawab\b|\b(?:nanya|tanya)\s+lagi\b|\bkok\s+(?:nanya|tanya)\b/i;
+
 function classifyGroupReply(text) {
   const t = String(text || '').replace(/\s+/g, ' ').trim();
   if (CLOSE_RE.test(t)) return 'close';
+  if (t.length <= 120 && COMPLAINT_RE.test(t)) return 'complaint';
   if (t.length <= 60 && CANCEL_RE.test(t)) return 'cancel';
   if (t.length <= 60 && QUESTION_RE.test(t)) return 'question';
   return 'answer';
@@ -265,6 +268,9 @@ function classifyGroupReply(text) {
 /** Balasan bot di grup untuk pesan yang bukan jawaban. Pertanyaan tetap terbuka. */
 function nonAnswerNotice(kind, code) {
   const tag = code ? ` #${code}` : '';
+  if (kind === 'complaint') {
+    return 'Maaf kak, itu pertanyaan kembar dari asisten. Pesan ini dicatat sebagai keluhan, bukan jawaban, dan tidak dikirim ke customer.';
+  }
   if (kind === 'cancel') {
     return `Dicatat, tetapi pesan itu belum dianggap jawaban, jadi pertanyaan masih terbuka dan pengingat tetap jalan. Kalau pesanan memang dibatalkan, balas pesan pertanyaan dengan kata "batal" (atau tulis${tag} batal): pertanyaan ditutup dan tidak ada yang dikirim ke customer. Kalau ada jawaban untuk customer, balas dengan jawabannya.`;
   }

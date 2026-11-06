@@ -1630,6 +1630,18 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     if (openHere.some(isRepeat) || openHere.length >= 3) {
       return { status: 'already_asked', department: dept.name };
     }
+    // Sudah dijawab dalam 3 jam terakhir untuk barang yang sama: pakai jawaban itu, jangan tanya lagi.
+    const answeredHere = (await database.listDepartmentQuestions(companyId, { status: 'answered', limit: 200 }).catch(() => []))
+      .filter((q) => q.chatId === chatId && q.departmentId === dept.id && q.answer
+        && Date.now() - new Date(q.answeredAt || q.createdAt).getTime() < 3 * 60 * 60 * 1000
+        && departmentAsk.sameTopic(`${q.question} ${q.customerText || ''}`, `${question} ${customerText || ''}`));
+    if (answeredHere.length) {
+      return {
+        status: 'already_asked', department: dept.name,
+        previous_answer: String(answeredHere[0].answer).slice(0, 500),
+        note: 'Barang ini sudah dijawab departemen beberapa saat lalu. Pakai jawaban itu untuk customer, jangan bertanya lagi.',
+      };
+    }
     const created = await database.createDepartmentQuestion({ departmentId: dept.id, chatId, customerText, question, kind: meta.kind || 'general', payload: meta.payload || null }, companyId);
     if (!created) return { error: 'Departemen tidak ditemukan.' };
     broadcastEvent(companyId, 'department_question', { id: created.id, department: dept.name });
@@ -1819,6 +1831,16 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
         : 'Pertanyaan ini sudah tidak terbuka.').catch(() => {});
       return true;
     }
+    if (replyKind === 'complaint') {
+      // "udah dijawab, nanya lagi": pertanyaan kembar. Bila saudaranya sudah dijawab, tutup yang ini.
+      const dup = (await database.listDepartmentQuestions(companyId, { status: 'answered', limit: 200 }).catch(() => []))
+        .some((q) => q.chatId === hit.chatId && q.departmentId === hit.departmentId
+          && departmentAsk.sameTopic(`${q.question} ${q.customerText || ''}`, `${hit.question} ${hit.customerText || ''}`));
+      if (dup) {
+        const closed = await database.closeDepartmentQuestion(hit.id, companyId);
+        if (closed) broadcastEvent(companyId, 'department_question', { id: hit.id, department: hit.department });
+      }
+    }
     if (replyKind !== 'answer') {
       await sendOutbound(companyId, ackTo, departmentAsk.nonAnswerNotice(replyKind, departmentAsk.questionCode(hit.id))).catch(() => {});
       return true;
@@ -1826,6 +1848,19 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     const row = await database.answerDepartmentQuestion(hit.id, { answer, userId: userId || null }, companyId);
     if (!row) return true;
     broadcastEvent(companyId, 'department_question', { id: row.id, department: hit.department });
+    // Pertanyaan kembar yang masih terbuka untuk barang yang sama ikut ditutup:
+    // satu jawaban cukup, dan pengingatnya berhenti.
+    try {
+      const siblings = (await database.listDepartmentQuestions(companyId, { status: 'open', limit: 200 }).catch(() => []))
+        .filter((q) => q.id !== row.id && q.chatId === row.chatId && q.departmentId === hit.departmentId
+          && departmentAsk.sameTopic(`${q.question} ${q.customerText || ''}`, `${row.question} ${row.customerText || ''}`));
+      for (const q of siblings) {
+        const closed = await database.closeDepartmentQuestion(q.id, companyId);
+        if (closed) broadcastEvent(companyId, 'department_question', { id: q.id, department: hit.department });
+      }
+    } catch (error) {
+      app.log.warn({ err: error, companyId }, 'Menutup pertanyaan kembar gagal');
+    }
     let relay = { relayed: false };
     try {
       relay = await relayDepartmentAnswer({ ...row, department: hit.department }, companyId);

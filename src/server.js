@@ -1848,19 +1848,6 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     const row = await database.answerDepartmentQuestion(hit.id, { answer, userId: userId || null }, companyId);
     if (!row) return true;
     broadcastEvent(companyId, 'department_question', { id: row.id, department: hit.department });
-    // Pertanyaan kembar yang masih terbuka untuk barang yang sama ikut ditutup:
-    // satu jawaban cukup, dan pengingatnya berhenti.
-    try {
-      const siblings = (await database.listDepartmentQuestions(companyId, { status: 'open', limit: 200 }).catch(() => []))
-        .filter((q) => q.id !== row.id && q.chatId === row.chatId && q.departmentId === hit.departmentId
-          && departmentAsk.sameTopic(`${q.question} ${q.customerText || ''}`, `${row.question} ${row.customerText || ''}`));
-      for (const q of siblings) {
-        const closed = await database.closeDepartmentQuestion(q.id, companyId);
-        if (closed) broadcastEvent(companyId, 'department_question', { id: q.id, department: hit.department });
-      }
-    } catch (error) {
-      app.log.warn({ err: error, companyId }, 'Menutup pertanyaan kembar gagal');
-    }
     let relay = { relayed: false };
     try {
       relay = await relayDepartmentAnswer({ ...row, department: hit.department }, companyId);

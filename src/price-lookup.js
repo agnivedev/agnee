@@ -101,7 +101,7 @@ function searchOne(items, rawQuery, { tagText } = {}) {
   const codes = codeCandidates(query);
   if (codes.length) {
     const byCode = items.filter((i) => i.code && codes.includes(compact(i.code)));
-    if (byCode.length) return { query, codes, matches: byCode.slice(0, MAX_RESULTS) };
+    if (byCode.length) return { query, codes, matches: byCode.slice(0, MAX_RESULTS), byCode: true };
   }
   const loose = matchProducts(items, { text: query }, 40, tagText ? { tagText } : undefined);
   const ident = [...new Set(tokens(query).filter((t) => !/\d/.test(t) && !GENERIC.has(t) && t.length >= 3))];
@@ -122,36 +122,87 @@ function missingNote(found) {
   return `Barang ini tidak ada di daftar harga/POS (belum tentu tidak dijual).${codeNote} Jangan menyebut harga, jangan menawarkan merek atau model lain sebagai pembanding kecuali customer memintanya, dan jangan meminta nama atau kode lagi bila customer sudah menuliskannya. Langsung tanyakan ke tim/Management lewat alat tanya departemen bila tersedia; ke customer cukup katakan akan dicek dulu ke tim, jangan bilang barangnya tidak terdaftar atau tidak ada di sistem.`;
 }
 
-/** Hasil pencarian untuk model. Tidak pernah melempar. */
-function lookup(items, args = {}, { tagText, onResults } = {}) {
-  const list = [
+function normalizeList(args = {}) {
+  return [
     ...(Array.isArray(args.daftar) ? args.daftar : []),
     ...(args.barang ? [args.barang] : []),
   ].map((v) => String(v || '').replace(/\s+/g, ' ').trim().slice(0, 300)).filter(Boolean).slice(0, MAX_ITEMS);
-  if (!list.length || list.every((v) => v.length < 2)) return { status: 'kueri_kosong', pesan: 'Sebut nama barangnya.' };
+}
 
-  const results = list.map((text) => ({ text, found: searchOne(items, text, { tagText }) }));
+function matchedNote(text, found) {
+  return `Customer menulis "${text}"${found.barang ? ` (dipahami sebagai ${found.barang})` : ''}; di katalog namanya seperti di "nama". Sebut nama katalog itu, dan bila ada beberapa varian sebutkan semuanya lalu pastikan ke customer mana yang dimaksud.`;
+}
+
+function hasilOf(text, found) {
+  const rows = found.matches.map(rowOf);
+  return found.via === 'llm' ? rows.map((r) => ({ ...r, dicocokkan_dari: text })) : rows;
+}
+
+function formatResults(results, onResults) {
   const seen = results.flatMap((r) => r.found.matches);
   if (seen.length) onResults?.(seen);
 
-  if (list.length === 1) {
-    const { found } = results[0];
+  if (results.length === 1) {
+    const { text, found } = results[0];
     if (!found.matches.length) {
       return { status: 'tidak_ketemu', pesan: `Tidak ada barang yang cocok di daftar harga. ${missingNote(found)}` };
     }
-    return { status: 'ok', hasil: found.matches.map(rowOf), catatan: 'Harga jual dari POS saat ini. Bukan informasi stok.' };
+    const out = { status: 'ok', hasil: hasilOf(text, found), catatan: 'Harga jual dari POS saat ini. Bukan informasi stok.' };
+    if (found.via === 'llm') out.pencocokan = matchedNote(text, found);
+    return out;
   }
 
-  const per = results.map(({ text, found }) => (found.matches.length
-    ? { dicari: text, status: 'ok', hasil: found.matches.map(rowOf) }
-    : { dicari: text, status: 'tidak_ketemu', pesan: missingNote(found) }));
+  const per = results.map(({ text, found }) => {
+    if (!found.matches.length) return { dicari: text, status: 'tidak_ketemu', pesan: missingNote(found) };
+    const row = { dicari: text, status: 'ok', hasil: hasilOf(text, found) };
+    if (found.via === 'llm') row.pencocokan = matchedNote(text, found);
+    return row;
+  });
   const okCount = per.filter((r) => r.status === 'ok').length;
   const out = { status: okCount === 0 ? 'tidak_ketemu' : okCount === per.length ? 'ok' : 'sebagian', per_barang: per, catatan: 'Harga jual dari POS saat ini. Bukan informasi stok.' };
   if (okCount === 0) out.pesan = 'Tidak ada satu pun barang yang cocok di daftar harga. Jangan menyebut harga; tanyakan semuanya ke tim/Management dalam satu pertanyaan; ke customer cukup katakan akan dicek dulu ke tim, jangan bilang tidak terdaftar atau tidak ada di sistem.';
   return out;
 }
 
-function toolSpec({ items, tagText, onResults }) {
+/** Hasil pencarian untuk model (hanya pencarian kata). Tidak pernah melempar. */
+function lookup(items, args = {}, { tagText, onResults } = {}) {
+  const list = normalizeList(args);
+  if (!list.length || list.every((v) => v.length < 2)) return { status: 'kueri_kosong', pesan: 'Sebut nama barangnya.' };
+  return formatResults(list.map((text) => ({ text, found: searchOne(items, text, { tagText }) })), onResults);
+}
+
+// Paling banyak sekian barang per panggilan yang dipastikan LLM: tiap barang
+// dua panggilan model (lalu disimpan sementara per istilah).
+const MAX_LLM_RESOLVES = 6;
+
+/**
+ * Seperti `lookup`, tetapi barangnya dipastikan oleh `resolve` (pencocok LLM,
+ * price-match-llm.js): LLM membaca maksud customer, memilih kategori, lalu
+ * memilih barang dari kandidat (hasil pencarian kata + kategori). Hanya barang
+ * katalog yang bisa terpilih. Kode barang yang cocok persis tidak perlu LLM.
+ * Bila LLM gagal atau lambat, hasil pencarian kata dipakai seperti dulu.
+ */
+async function lookupAsync(items, args = {}, { tagText, onResults, resolve } = {}) {
+  const list = normalizeList(args);
+  if (!list.length || list.every((v) => v.length < 2)) return { status: 'kueri_kosong', pesan: 'Sebut nama barangnya.' };
+  const results = list.map((text) => ({ text, found: searchOne(items, text, { tagText }) }));
+  if (resolve) {
+    const pending = results.filter((r) => !r.found.byCode).slice(0, MAX_LLM_RESOLVES);
+    await Promise.all(pending.map(async (r) => {
+      const loose = matchProducts(items, { text: cleanQuery(r.text) }, 20, tagText ? { tagText } : undefined);
+      const seed = [...r.found.matches, ...loose];
+      const got = await Promise.resolve().then(() => resolve(r.text, seed)).catch(() => null);
+      // LLM gagal atau belum memutuskan: pakai pencarian kata seperti dulu.
+      if (!got || got.undecided || !Array.isArray(got.matches)) return;
+      const sameAsWords = got.matches.length === r.found.matches.length
+        && got.matches.every((m) => r.found.matches.includes(m));
+      r.found = { ...r.found, matches: got.matches.slice(0, MAX_RESULTS), via: sameAsWords ? r.found.via : 'llm', barang: got.barang || '' };
+    }));
+  }
+  return formatResults(results, onResults);
+}
+
+function toolSpec({ items, tagText, onResults, resolve }) {
   return {
     name: TOOL_NAME,
     description: 'Cari harga barang di katalog/daftar harga toko berdasarkan nama atau kodenya (satu barang lewat "barang", banyak barang sekaligus lewat "daftar"). Wajib dipakai sebelum menyebut harga barang yang belum tertulis di daftar di prompt.',
@@ -163,8 +214,10 @@ function toolSpec({ items, tagText, onResults }) {
         daftar: { type: 'array', maxItems: MAX_ITEMS, items: { type: 'string', maxLength: 300 }, description: 'Beberapa barang sekaligus (daftar kebutuhan customer), satu teks per barang persis seperti ditulis customer, termasuk kode. Pakai ini bila ada lebih dari satu barang.' },
       },
     },
-    run: (args = {}) => lookup(items, args, { tagText, onResults }),
+    run: (args = {}) => (resolve
+      ? lookupAsync(items, args, { tagText, onResults, resolve })
+      : lookup(items, args, { tagText, onResults })),
   };
 }
 
-module.exports = { TOOL_NAME, GUIDE, lookup, toolSpec, searchOne, cleanQuery, codeCandidates };
+module.exports = { TOOL_NAME, GUIDE, lookup, lookupAsync, toolSpec, searchOne, cleanQuery, codeCandidates };

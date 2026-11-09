@@ -51,6 +51,48 @@ function sameQuestion(a, b, threshold = 0.5) {
   return shared / (x.size + y.size - shared) >= threshold;
 }
 
+// Kata pengisi yang ditulis model di hampir setiap pertanyaan ke departemen.
+// Tanpa daftar ini, dua pertanyaan tentang barang berbeda tampak "sama" karena
+// sama-sama memuat "customer menanyakan harga ... mohon konfirmasi".
+const TOPIC_FILLER = new Set(`customer pelanggan pembeli menanyakan tanya tanyakan minta meminta mohon tolong
+konfirmasi konfirmasikan pastikan dipastikan berapa harga harganya satuan per batang lembar unit pcs buah dus sak zak
+kilo meter daftar dealpos katalog ditemukan ditemukannya dicari nama tersebut tidak belum sudah bisa apakah ada
+yang dari dengan untuk atau dan juga jika kalau agar supaya dibuatkan rincian sebelumnya disebut kondisi masing
+kedua ketiga ketiganya keduanya semua item barang produk merek merk ukuran tersedia ketersediaan stok ready
+pesanan pesan memesan order lokasi kirim pengiriman alamat diketahui jumlah inci inch mohon jawab jawabannya
+cukup jawab berikan tentang terkait soal sebutkan informasi info data punya datanya menebak sinyal balasan
+memakai bahasa uang kirim mau ingin butuh perlu dibutuhkan untuknya beserta serta lain lainnya rekomendasi
+direkomendasikan kegunaannya selain promo potongan diskon harganya total tetapi tapi jadi dikirim dikirimkan`.split(/\s+/));
+
+// Kalimat baku yang ditempel penjaga "tidak yakin" (uncertainty-guard.js) ke
+// setiap pertanyaannya; bukan bagian dari topik.
+const GUARD_BOILERPLATE = [
+  /\(sinyal:[^)]*\)/gi,
+  /ai tidak punya datanya dan tidak mau menebak;?\s*mohon dipastikan jawabannya\.?/gi,
+];
+
+function topicTokens(text) {
+  let clean = String(text || '').toLowerCase();
+  for (const re of GUARD_BOILERPLATE) clean = clean.replace(re, ' ');
+  const words = clean.match(/[a-z]{4,}/g) || [];
+  return new Set(words.filter((w) => !TOPIC_FILLER.has(w)));
+}
+
+/**
+ * Dua pertanyaan membahas barang/hal yang sama: setidaknya separuh kata
+ * bermakna milik pertanyaan yang lebih pendek ada di pertanyaan lain.
+ * Audit ESBEJE: "paralon 4\" dan 3/4\"", "paralon Rucika 4 inch dan 3/4 inch",
+ * dan "paralon 4 inci dan 3/4 inci" dibuat sebagai tiga pertanyaan dalam 5
+ * menit (Jaccard teks utuh hanya ~0,4). Gypsum lalu cat tetap dua pertanyaan.
+ */
+function sameTopic(a, b) {
+  const x = topicTokens(a); const y = topicTokens(b);
+  if (!x.size || !y.size) return false;
+  let shared = 0;
+  for (const w of x) if (y.has(w)) shared += 1;
+  return shared >= 1 && shared / Math.min(x.size, y.size) >= 0.5;
+}
+
 /** Kode pendek pertanyaan (#ab12cd) untuk menjawab dari grup tanpa reply. */
 function questionCode(id) { return String(id || '').replace(/-/g, '').slice(0, 6).toLowerCase(); }
 
@@ -290,26 +332,101 @@ function leaksInternal(text) { return INTERNAL_LEAK.test(String(text || '')); }
 
 const RELAY_RULES = `Aturan keras:
 - Pakai HANYA isi jawaban yang diberikan. Jangan menambah fakta, angka, janji, atau kepastian yang tidak ada di sana.
+- Angka harga ditulis PERSIS seperti di hasil. JANGAN menjumlahkan, mengalikan, atau menghitung total sendiri; kalau customer perlu total, sebut harga satuannya saja.
+- Jangan menjanjikan langkah berikutnya yang tidak ada di hasil (memproses pesanan, menghitung ongkir, mengirim barang, menghubungi lagi).
+- Jangan menanyakan lagi hal yang sudah dijawab customer di riwayat percakapan.
 - Kalau jawabannya belum pasti (mengandung "kurang tahu", "belum tahu", "mungkin", "sepertinya", "nanti dicek", atau tidak menjawab pertanyaan), JANGAN menyampaikannya sebagai fakta. Keluarkan HANYA tulisan ${UNSURE_TOKEN} dan tidak ada yang lain.
+- Kalau hasilnya berupa instruksi untuk staf, bukan informasi untuk customer, keluarkan HANYA tulisan ${UNSURE_TOKEN}.
 - Jangan menceritakan apa yang terjadi di dalam: tanpa kata "tim", "internal", "departemen", "divisi", "bagian", "supplier", "pabrik", "vendor", tanpa nama orang atau divisi, tanpa "sudah kami tanyakan/bahas". Sampaikan hasilnya saja. Menahan detail proses itu boleh; memalsukannya tidak.
 - JANGAN berbohong: jangan mengaku melakukan hal yang tidak kamu lakukan (mis. "sudah saya cek langsung ke gudang"), jangan mengarang sumber, angka, atau kepastian. Hanya katakan apa yang memang ada di hasil di atas.
 - Nada santun, hangat, dan rendah hati. Tidak menggurui, tidak sombong, tidak menyalahkan, tidak membesar-besarkan, tidak berlebihan memohon maaf. Singkat (1–3 kalimat), sesuai persona.
 - Keluarkan HANYA pesannya.`;
 
-/** Perintah ke model untuk menyusun balasan ke customer dari jawaban yang sudah ditinjau. */
-function relayPrompt({ customerText, question, answer, strict = false }) {
-  return `Customer sebelumnya menulis: "${customerText}"\nKamu memastikan hal ini: "${question}"\nHasil yang sudah dipastikan: "${answer}"\n\nTulis balasan ke customer berdasarkan hasil itu.\n\n${RELAY_RULES}${strict ? '\n\nPERHATIAN: percobaan sebelumnya menyebut proses internal. Ulangi tanpa menyebut siapa pun atau proses apa pun, hanya hasilnya.' : ''}`;
+function historyBlock(history = []) {
+  const lines = (Array.isArray(history) ? history : [])
+    .filter((m) => m && String(m.content || m.body || '').trim())
+    .slice(-8)
+    .map((m) => {
+      const who = (m.role ? m.role === 'assistant' : m.fromMe) ? 'Kamu' : 'Customer';
+      const body = String(m.content || m.body).replace(/\s+/g, ' ').trim();
+      return `${who}: ${body.length > 300 ? `${body.slice(0, 299)}…` : body}`;
+    });
+  return lines.length ? `Riwayat percakapan terakhir (lama ke baru):\n${lines.join('\n')}\n\n` : '';
 }
 
-/** Bacaan model: pasti / belum pasti / bocor. */
-function judgeRelay(text) {
+/** Perintah ke model untuk menyusun balasan ke customer dari jawaban yang sudah ditinjau. */
+function relayPrompt({ customerText, question, answer, history = [], strict = false, numbersStrict = false }) {
+  const notes = [];
+  if (strict) notes.push('PERHATIAN: percobaan sebelumnya menyebut proses internal. Ulangi tanpa menyebut siapa pun atau proses apa pun, hanya hasilnya.');
+  if (numbersStrict) notes.push('PERHATIAN: percobaan sebelumnya memuat angka yang tidak ada di hasil. Tulis hanya angka yang tertulis persis di hasil, tanpa total atau hitungan.');
+  return `${historyBlock(history)}Customer sebelumnya menulis: "${customerText}"\nKamu memastikan hal ini: "${question}"\nHasil yang sudah dipastikan: "${answer}"\n\nTulis balasan ke customer berdasarkan hasil itu.\n\n${RELAY_RULES}${notes.length ? `\n\n${notes.join('\n')}` : ''}`;
+}
+
+/**
+ * Jawaban staf yang tidak boleh diteruskan ke customer dalam bentuk apa pun:
+ *  stop_ai   perintah agar chat ini tidak dijawab ("jangan dijawab", "abaikan")
+ *  mention   menyebut orang lain di grup (@628…): ditujukan ke rekan, bukan customer
+ * Audit ESBEJE 9 Nov: "kalo dapet message dari nomer ini jangan dijawab"
+ * diteruskan apa adanya ke bot tagihan Telkomsel.
+ */
+const STOP_AI_RE = /\b(?:jangan|ga\s*usah|gak\s*usah|nggak\s*usah|ngga\s*usah|tidak\s+usah|gausah|gk\s*usah|ndak\s*usah)\s+(?:di)?(?:jawab|balas|bales|respon|respons|ladeni|layani|tanggapi)\b|^\s*(?:abaikan|cuekin|skip|blokir|block)\b|\b(?:spam|penipuan|nomor\s+tagihan|bukan\s+customer|bukan\s+pelanggan)\b/i;
+const MENTION_RE = /@\d{6,}/;
+
+function answerProblem(answer) {
+  const t = String(answer || '').replace(/\s+/g, ' ').trim();
+  if (!t) return null;
+  if (STOP_AI_RE.test(t)) return 'stop_ai';
+  if (MENTION_RE.test(t)) return 'mention';
+  return null;
+}
+
+/**
+ * Angka rupiah dalam teks, dinormalkan ke bilangan bulat: "Rp 1.508.500",
+ * "193.500", "193500", "193rb", "193,5 rb", "1,5jt". Angka kecil (< 1.000)
+ * tanpa satuan diabaikan: itu jumlah barang, ukuran, atau jam.
+ */
+function moneyAmounts(text) {
+  const out = new Set();
+  const src = String(text || '');
+  const re = /(rp\.?\s*)?(\d{1,3}(?:[.,]\d{3})+|\d+(?:[.,]\d+)?)\s*(rb|ribu|k|jt|juta)?\b/gi;
+  let m;
+  while ((m = re.exec(src))) {
+    const [, rp, numRaw, unitRaw] = m;
+    const unit = String(unitRaw || '').toLowerCase();
+    let value;
+    if (/^\d{1,3}(?:[.,]\d{3})+$/.test(numRaw)) value = Number(numRaw.replace(/[.,]/g, ''));
+    else value = Number(numRaw.replace(',', '.'));
+    if (!Number.isFinite(value)) continue;
+    if (unit === 'rb' || unit === 'ribu' || unit === 'k') value *= 1000;
+    else if (unit === 'jt' || unit === 'juta') value *= 1000000;
+    value = Math.round(value);
+    if (!rp && !unit && value < 1000) continue;
+    if (value < 100) continue;
+    out.add(value);
+  }
+  return out;
+}
+
+/** Angka rupiah di balasan yang tidak ada di jawaban staf (mis. total hasil hitungan model). */
+function foreignAmounts(text, answer) {
+  const allowed = moneyAmounts(answer);
+  return [...moneyAmounts(text)].filter((v) => !allowed.has(v));
+}
+
+/** Bacaan model: pasti / belum pasti / bocor / angka asing. */
+function judgeRelay(text, answer = null) {
   const clean = String(text || '').trim();
   if (!clean) return { kind: 'empty' };
   if (clean.includes(UNSURE_TOKEN)) return { kind: 'unsure' };
   if (leaksInternal(clean)) return { kind: 'leak' };
+  if (answer != null) {
+    const foreign = foreignAmounts(clean, answer);
+    if (foreign.length) return { kind: 'numbers', foreign };
+  }
   return { kind: 'ok', text: clean };
 }
 
 module.exports = {
+  sameTopic, topicTokens, answerProblem, moneyAmounts, foreignAmounts, historyBlock,
   sameQuestion, unresolvedCustomerNotice, ambiguousDmNotice,
   classifyGroupReply, nonAnswerNotice, compoundProblem, questionCode, codeInText, buildMentionNotice, guideOps, guideThirdPartiesOps, judgeRelay, leaksInternal, UNSURE_TOKEN, guideThirdParties, toolSpecThirdParty, buildThirdPartyMessage, mentionsWaiting, ensureHolding, buildReminderNotice, REMINDER_MINUTES, guide, toolSpec, buildQuestionNotice, relayPrompt, HOLDING_FALLBACK, QUESTION_MAX };

@@ -1825,7 +1825,7 @@ class Database {
       UPDATE department_questions SET status = 'answered', answer = $3, answered_by = $4, answered_at = NOW()
       WHERE id = $1 AND company_id = $2 AND status IN ('open', 'unresolved', 'review')
       RETURNING id, third_party_id AS "thirdPartyId", chat_id AS "chatId", customer_text AS "customerText", question, answer,
-                kind, payload
+                kind, payload, created_at AS "createdAt"
     `, [id, companyId, String(answer).slice(0, 2000), userId || null]);
     return result.rows[0] || null;
   }
@@ -1919,7 +1919,8 @@ class Database {
             status = CASE WHEN reminder_count + 1 >= 4 THEN 'unresolved' ELSE status END
         WHERE q.id = $1 AND q.status = 'open' AND q.reminder_count = $2
         RETURNING q.id, q.company_id AS "companyId", q.department_id AS "departmentId", q.third_party_id AS "thirdPartyId", q.chat_id AS "chatId",
-                  q.question, q.reminder_count AS "reminderCount", (q.reminder_count >= 4) AS final
+                  q.question, q.reminder_count AS "reminderCount", (q.reminder_count >= 4) AS final,
+                  q.created_at AS "createdAt"
       `, [q.id, q.reminderCount]);
       claimed.rows.push(...r.rows);
     }
@@ -7322,6 +7323,21 @@ class Database {
       ) recent ORDER BY "at" ASC
     `, [companyId, chatId, limit]);
     return result.rows;
+  }
+
+  /**
+   * Chat ini menerima pesan berjenis tertentu (mis. template resmi akun bisnis)
+   * dalam `withinSec` detik terakhir. Dipakai untuk mengenali bot tagihan.
+   */
+  async hasRecentInboundOfType(companyId, chatId, types, withinSec = 600) {
+    if (!this.enabled || !chatId || !Array.isArray(types) || !types.length) return false;
+    const result = await this.pool.query(`
+      SELECT 1 FROM inbound_messages
+      WHERE company_id = $1 AND chat_id = $2 AND message_type = ANY($3::text[])
+        AND timestamp > EXTRACT(EPOCH FROM NOW())::bigint - $4::int
+      LIMIT 1
+    `, [companyId, chatId, types, withinSec]);
+    return result.rowCount > 0;
   }
 
   /** Kapan pesan masuk ini pertama kali dicatat, atau null kalau belum pernah. */

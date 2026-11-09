@@ -50,6 +50,7 @@ const { fuzzyFilter } = require('./fuzzy');
 const lalamove = require('./lalamove.js');
 const lalamoveVehicles = require('./lalamove-vehicles.js');
 const priceLookup = require('./price-lookup.js');
+const priceMatchLlm = require('./price-match-llm.js');
 const openingHours = require('./opening-hours.js');
 const deliveryQuote = require('./delivery-quote.js');
 const orderSummary = require('./order-summary.js');
@@ -57,6 +58,7 @@ const dealposOrders = require('./dealpos-orders.js');
 const chatMemory = require('./chat-memory.js');
 const attachmentReader = require('./attachment-reader.js');
 const priceGuard = require('./price-guard.js');
+const nonCustomerGuard = require('./non-customer-guard.js');
 const storeLocations = require('./store-locations.js');
 const promoRules = require('./promo-rules.js');
 const paymentAccounts = require('./payment-accounts.js');
@@ -1115,6 +1117,12 @@ async function buildApp(overrides = {}) {
       }
       return;
     }
+    // Bot tagihan/OTP: tidak dibaca sebagai bukti transfer dan tidak dijawab.
+    if (await isAutomatedSender(companyId, message)) {
+      app.log.info({ companyId, chatId: message.from, type: message.type },
+        'Pesan otomatis/tagihan dari akun bisnis, AI tidak membalas');
+      return;
+    }
     // Foto bukti transfer: dibaca dulu; hasilnya menggantikan isi pesan bagi AI
     // dan staf diberi tahu seperti serah-terima.
     const proofCheck = await checkPaymentProof(companyId, message, meta);
@@ -1215,6 +1223,18 @@ async function buildApp(overrides = {}) {
    * Gagal ke semua penerima melepas pembatas, supaya balasan berikutnya mencoba lagi.
    */
   const handoffCooldown = handoffNotice.createCooldown();
+  const priceMatcher = priceMatchLlm.createMatcher({
+    ask: async (prompt, systemPrompt, { companyId } = {}) => {
+      const companyAi = await getCompanyAi(companyId).catch(() => ({}));
+      const result = await llmService.generateReply(prompt, {
+        systemPrompt, companyId, purpose: 'price_match', modelChain: companyAi.modelChain,
+      });
+      return result?.text || '';
+    },
+  });
+  // Alasan relay yang berarti jawaban staf memang bukan untuk customer: tidak
+  // dijadikan bahan belajar AI.
+  const NOT_FOR_CUSTOMER = new Set(['stop_ai', 'mention']);
   const cardCooldown = handoffNotice.createCooldown();
 
   /**
@@ -1600,10 +1620,13 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     // sudah dijanjikan "saya cek dulu". Maksimal 3 terbuka per chat per departemen.
     const openHere = (await database.listDepartmentQuestions(companyId, { status: 'open', limit: 200 }).catch(() => []))
       .filter((q) => q.chatId === chatId && q.departmentId === dept.id);
-    // Sama bila pesan customer-nya sama (model mengulang di giliran yang sama)
-    // atau isi pertanyaannya hampir identik.
+    // Sama bila pesan customer-nya sama (model mengulang di giliran yang sama),
+    // isi pertanyaannya hampir identik, atau membahas barang yang sama (satu
+    // pertanyaan terbuka per topik: tiga parafrase "paralon 4 inch" dalam
+    // 5 menit dulu menjadi tiga pertanyaan dan 12 pengingat).
     const isRepeat = (q) => (q.customerText && customerText && departmentAsk.sameQuestion(q.customerText, customerText))
-      || departmentAsk.sameQuestion(q.question, question, 0.75);
+      || departmentAsk.sameQuestion(q.question, question, 0.75)
+      || departmentAsk.sameTopic(q.question, question);
     if (openHere.some(isRepeat) || openHere.length >= 3) {
       return { status: 'already_asked', department: dept.name };
     }
@@ -1813,7 +1836,8 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       ? 'Terima kasih, jawabannya sudah diteruskan ke customer.'
       : await handleUnrelayedAnswer({ companyId, row, department: hit.department, answer, reason: relay.reason }));
     await sendOutbound(companyId, ackTo, ack).catch(() => {});
-    trackLearning(learnFromDepartmentAnswer({ companyId, questionId: row.id, channel, groupId }));
+    if (relay.reason !== 'mention') await closeSiblingQuestions(companyId, row, { all: relay.reason === 'stop_ai' });
+    if (!NOT_FOR_CUSTOMER.has(relay.reason)) trackLearning(learnFromDepartmentAnswer({ companyId, questionId: row.id, channel, groupId }));
     return true;
   }
 
@@ -1861,11 +1885,16 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     const label = await customerLabelFor(companyId, row.chatId);
     const why = reason === 'human'
       ? (holder ? `chat sedang dipegang ${holder}` : 'chat ditandai ditangani manusia')
-      : 'jawabannya belum cukup pasti untuk dikirim otomatis';
+      : reason === 'human_replied'
+        ? 'CS sudah membalas customer sejak pertanyaan dibuat, jadi tidak dikirim otomatis supaya tidak dobel'
+        : 'jawabannya belum cukup pasti untuk dikirim otomatis';
     await database.notifySupervisors({
       chatId: row.chatId,
       body: `Jawaban ${department} untuk ${label} belum diteruskan ke customer (${why}). Jawaban: "${String(answer).slice(0, 200)}". Mohon disampaikan ke customer.`,
     }, companyId).catch(() => {});
+    if (reason === 'human_replied') {
+      return 'Terima kasih, jawabannya tercatat. CS sudah membalas customer ini sejak pertanyaan dibuat, jadi jawaban tidak dikirim otomatis supaya tidak dobel. Supervisor sudah diberi notifikasi.';
+    }
     return reason === 'human'
       ? `Terima kasih, jawabannya tercatat. Chat customer ini sedang dipegang ${holder || 'tim (belum ada nama yang ditugaskan)'}, jadi tidak dikirim otomatis. Supervisor sudah diberi notifikasi untuk menyampaikannya.`
       : 'Terima kasih, jawabannya tercatat. Jawaban itu belum cukup jelas untuk dikirim otomatis ke customer, jadi supervisor sudah diberi notifikasi untuk menindaklanjuti. Kalau ada jawaban yang lebih pasti, balas lagi pesan pertanyaannya.';
@@ -1876,6 +1905,48 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
    * customer. Bila chat sudah dipegang manusia, tidak dikirim otomatis —
    * jawabannya tetap tersimpan dan terlihat oleh yang memegang chat.
    */
+  /**
+   * Satu jawaban menutup pertanyaan terbuka lain di chat yang sama yang
+   * membahas topik yang sama (atau semua pertanyaan chat itu bila staf meminta
+   * AI berhenti). Tanpa ini pengingat untuk saudaranya terus jalan dan
+   * customer menerima "belum bisa kami pastikan" padahal harga sudah dikirim.
+   */
+  async function closeSiblingQuestions(companyId, row, { all = false } = {}) {
+    if (!row?.chatId || !canCall('listDepartmentQuestions') || !canCall('closeDepartmentQuestion')) return 0;
+    const open = (await database.listDepartmentQuestions(companyId, { status: 'open', limit: 200 }).catch(() => []))
+      .filter((q) => q.chatId === row.chatId && q.id !== row.id && (all || departmentAsk.sameTopic(q.question, row.question)));
+    let closed = 0;
+    for (const q of open) {
+      if (await database.closeDepartmentQuestion(q.id, companyId).catch(() => null)) {
+        closed += 1;
+        broadcastEvent(companyId, 'department_question', { id: q.id, department: q.department });
+      }
+    }
+    if (closed) app.log.info({ companyId, chatId: row.chatId, closed }, 'Pertanyaan departemen bertopik sama ditutup oleh satu jawaban');
+    return closed;
+  }
+
+  /**
+   * Riwayat singkat chat untuk relay: dari WhatsApp bila bisa, selain itu dari
+   * catatan Agnee sendiri. Tanpa riwayat, relay 6 Nov menanyakan lagi "butuh
+   * berapa batang?" yang sudah dijawab customer sehari sebelumnya.
+   */
+  async function recentHistoryFor(companyId, chatId, limit = 8) {
+    try {
+      const { client: wa } = await waFor(companyId, chatId);
+      if (wa) {
+        const hiddenTypes = new Set(['e2e_notification', 'protocol', 'notification_template', 'gp2', 'call_log']);
+        const { messages = [] } = await getMessagesForUi(wa, chatId, limit + 6);
+        const rows = messages.filter((m) => !hiddenTypes.has(m.type) && m.body)
+          .map((m) => ({ role: m.fromMe ? 'assistant' : 'user', content: m.body }));
+        if (rows.length) return rows.slice(-limit);
+      }
+    } catch { /* jatuh ke catatan Agnee */ }
+    if (!canCall('listRecentChatTexts')) return [];
+    const rows = await database.listRecentChatTexts(companyId, chatId, limit).catch(() => []);
+    return rows.map((r) => ({ role: r.fromMe ? 'assistant' : 'user', content: r.body }));
+  }
+
   async function relayDepartmentAnswer(row, companyId) {
     // Pertanyaan kendaraan Lalamove: jawaban dibaca menjadi kendaraan, ongkir dihitung,
     // lalu hasilnya yang diteruskan ke customer (bukan teks mentah Management).
@@ -1884,8 +1955,31 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       if (!prepared.ok) return prepared.result;
       row = { ...row, answer: prepared.answer, question: prepared.question };
     }
+    // Jawaban yang ditujukan ke staf, bukan ke customer, tidak pernah diteruskan.
+    const problem = departmentAsk.answerProblem(row.answer);
+    if (problem === 'stop_ai') {
+      await saveRouting({
+        chatId: row.chatId, mode: 'human', assigneeUserId: null, actorUserId: null,
+        note: `AI berhenti membalas chat ini atas jawaban ${row.department || 'departemen'}: "${String(row.answer).slice(0, 160)}"`,
+        priority: 'normal',
+      }, companyId).catch((error) => app.log.warn({ err: error, chatId: row.chatId }, 'Chat gagal dipindah ke manusia'));
+      return { relayed: false, reason: 'stop_ai', ackText: 'Dicatat. Jawaban itu tidak dikirim ke customer, dan chat ini tidak dijawab AI lagi (dipindah ke penanganan manusia).' };
+    }
+    if (problem === 'mention') {
+      await database.reopenDepartmentQuestion(row.id, companyId).catch(() => {});
+      return { relayed: false, reason: 'mention', ackText: 'Pesan yang menyebut rekan belum dianggap jawaban dan tidak dikirim ke customer, jadi pertanyaan masih terbuka. Balas pesan pertanyaan dengan jawaban untuk customer (atau "batal").' };
+    }
     const routing = await getRouting(row.chatId, companyId).catch(() => null);
     if (routing?.mode === 'human') return { relayed: false, reason: 'human' };
+    // CS manusia sudah membalas customer sejak pertanyaan dibuat: isi jawabannya
+    // mungkin sudah tersampaikan (C6: "stok kosong" dikirim AI 1,5 jam setelah
+    // CS menyampaikan hal yang sama). Supervisor yang memutuskan.
+    if (row.createdAt && canCall('getLastHumanReplyAt')) {
+      const humanAt = await database.getLastHumanReplyAt(companyId, row.chatId).catch(() => null);
+      if (humanAt && new Date(humanAt).getTime() > new Date(row.createdAt).getTime()) {
+        return { relayed: false, reason: 'human_replied' };
+      }
+    }
     const companyAi = await getCompanyAi(companyId);
     const relayMode = await resolveAgentMode(companyId, row.chatId);
     const ctx = await buildReplyContext({ companyId, text: row.customerText, chatId: row.chatId, allowOrders: true, agentMode: relayMode });
@@ -1908,14 +2002,22 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     // Sampai dua percobaan: yang pertama biasa, yang kedua lebih ketat bila
     // yang pertama membocorkan proses internal. Jawaban yang belum pasti atau
     // tetap bocor TIDAK dikirim; staf diberi tahu dan menghubungi customer.
+    // Angka rupiah di balasan wajib ada di jawaban staf: total hasil hitungan
+    // model pernah salah Rp 105.000 (1.508.500 untuk 7×193.500 + 7×37.000).
+    const history = await recentHistoryFor(companyId, row.chatId);
     let verdict = { kind: 'empty' };
-    for (const strict of [false, true]) {
+    let retry = {};
+    for (let attempt = 0; attempt < 2; attempt += 1) {
       const result = await llmService.generateReply(
-        departmentAsk.relayPrompt({ customerText: row.customerText, question: row.question, answer: row.answer, strict }),
+        departmentAsk.relayPrompt({ customerText: row.customerText, question: row.question, answer: row.answer, history, ...retry }),
         { systemPrompt: ctx.systemPrompt, companyId, purpose: 'auto_reply', modelChain: companyAi.modelChain },
       ).catch(() => null);
-      verdict = departmentAsk.judgeRelay(stripLinks(result?.text || ''));
+      verdict = departmentAsk.judgeRelay(stripLinks(result?.text || ''), row.answer);
       if (verdict.kind === 'ok' || verdict.kind === 'unsure') break;
+      retry = { strict: verdict.kind === 'leak', numbersStrict: verdict.kind === 'numbers' };
+    }
+    if (verdict.kind === 'numbers') {
+      app.log.warn({ companyId, chatId: row.chatId, foreign: verdict.foreign }, 'Relay jawaban departemen memuat angka yang tidak ada di jawaban; tidak dikirim');
     }
     if (verdict.kind !== 'ok') return { relayed: false, reason: verdict.kind === 'unsure' ? 'unsure' : 'unsafe' };
     const text = verdict.text;
@@ -2044,6 +2146,12 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     const priceTools = priceItems.length ? [priceLookup.toolSpec({
       items: priceItems, tagText: priceTagText,
       onResults: (rows) => chatMemory.remember(chatMemory.shown, companyId, chatId, rows),
+      // LLM memastikan barang yang dimaksud: istilah lapangan ("paralon 4",
+      // "siltip") dicocokkan lewat kategori, dan hasil pencarian kata yang
+      // salah jenis ("tali tambang" -> besi hollow) dibuang (price-match-llm.js).
+      resolve: config.llmEnabled
+        ? (query, seed) => priceMatcher.resolve({ scope: companyId, items: priceItems, query, seed, meta: { companyId } })
+        : null,
     })] : [];
     // Ongkir Lalamove otomatis: di chat sungguhan hanya mode production
     // (harga sandbox bukan harga asli); simulator tanpa chatId boleh sandbox.
@@ -2651,7 +2759,65 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     return plan;
   }
 
+  /**
+   * Pesan dari akun bisnis atau bot (tagihan, OTP, template resmi WhatsApp):
+   * bukan customer, tidak dijawab AI dan tidak dibaca sebagai bukti transfer.
+   * Audit ESBEJE 9 Nov: SPayLater, SPinjam, dan Telkomsel Halo dibalas seperti
+   * pembeli, dan instruksi internal "jangan dijawab" ikut terkirim ke bot.
+   * Template resmi bisa tiba sedetik sebelum atau sesudah teksnya, jadi chat
+   * yang baru menerima template dalam 10 menit terakhir ikut dianggap bot.
+   */
+  async function isAutomatedSender(companyId, message) {
+    if (String(message.from || '').endsWith('@g.us')) return false;
+    if (nonCustomerGuard.isBusinessTemplateType(message.type)) return true;
+    if (nonCustomerGuard.isAutomatedNotice(message.body)) return true;
+    if (canCall('hasRecentInboundOfType')) {
+      return database.hasRecentInboundOfType(companyId, message.from, ['notification_template'], 600)
+        .catch(() => false);
+    }
+    return false;
+  }
+
+  /**
+   * Balasan otomatis plus penjaga putaran: tawaran kosong ketiga berturut-turut
+   * ("Ada yang bisa saya bantu?") ke orang yang tidak membicarakan jual-beli
+   * tidak dikirim, dan chatnya diserahkan ke manusia. Aturan ini dulu hanya di
+   * prompt; di chat teman pemilik ESBEJE AI tetap membalas 31 kali.
+   */
   async function generateAutoReply(message, companyId, meta = {}) {
+    if (await isAutomatedSender(companyId, message)) {
+      app.log.info({ companyId, chatId: message.from, type: message.type },
+        'Pesan otomatis/tagihan dari akun bisnis, AI tidak membalas');
+      return null;
+    }
+    const seen = {};
+    const text = await composeAutoReply(message, companyId, meta, seen);
+    if (!text) return text;
+    // Riwayat WhatsApp kosong (Cloud API, halaman macet): pakai catatan Agnee.
+    let history = seen.history || [];
+    if (!history.length && canCall('listRecentChatTexts')) {
+      const rows = await database.listRecentChatTexts(companyId, message.from, 10).catch(() => []);
+      history = rows.map((r) => ({ role: r.fromMe ? 'assistant' : 'user', content: r.body }));
+      // Pesan yang sedang dijawab sudah tercatat; jangan dihitung dua kali.
+      if (history.length && history[history.length - 1].role === 'user' && history[history.length - 1].content === message.body) history.pop();
+    }
+    if (!nonCustomerGuard.isStuckLoop({ history, reply: text, customerText: message.body })) return text;
+    app.log.warn({ companyId, chatId: message.from },
+      'AI berputar: tiga tawaran kosong berturut-turut, chat diserahkan ke manusia');
+    const members = await getTeamMembers(companyId).catch(() => []);
+    const supervisor = members.find((member) => PRIVILEGED_DB_ROLES.includes(member.role) && member.status === 'active');
+    await saveRouting({
+      chatId: message.from,
+      mode: 'human',
+      assigneeUserId: supervisor?.id || null,
+      actorUserId: null,
+      note: 'AI berhenti membalas: tiga balasan berturut-turut tanpa kemajuan, kemungkinan bukan customer. Periksa dan kembalikan ke AI bila ini customer.',
+      priority: 'normal',
+    }, companyId).catch((error) => app.log.warn({ err: error, chatId: message.from }, 'Chat yang berputar gagal diserahkan ke manusia'));
+    return null;
+  }
+
+  async function composeAutoReply(message, companyId, meta = {}, seen = {}) {
     if (!config.llmEnabled) return null;
     if (message.from.endsWith('@g.us')) return null;
     if (!message.body || !message.body.trim()) return null;
@@ -2775,6 +2941,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     // dan tanpa dicatat hanya bisa dikira-kira dari teks balasannya.
     app.log.info({ companyId, chatId: message.from, riwayat: conversationHistory.length },
       'Riwayat percakapan untuk balasan otomatis');
+    seen.history = conversationHistory;
 
     const jenisBalasanPendek = classifyShortReply(message.body, conversationHistory);
 
@@ -5469,7 +5636,8 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       app.log.warn({ err: error, companyId: s.companyId }, 'Jawaban departemen gagal diteruskan ke customer');
       relay = { relayed: false, reason: 'send_failed' };
     }
-    trackLearning(learnFromDepartmentAnswer({ companyId: s.companyId, questionId: row.id, channel: 'web' }));
+    if (relay.reason !== 'mention') await closeSiblingQuestions(s.companyId, row, { all: relay.reason === 'stop_ai' });
+    if (!NOT_FOR_CUSTOMER.has(relay.reason)) trackLearning(learnFromDepartmentAnswer({ companyId: s.companyId, questionId: row.id, channel: 'web' }));
     return { ok: true, ...relay };
   });
 
@@ -14793,6 +14961,26 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
   // JAM BUKA lokasi (tak pernah dini hari; reminder-schedule.js),
   // lalu berhenti (pertanyaan menjadi 'unresolved'). Lonceng dibuat di database;
   // di sini hanya WhatsApp-nya.
+  /**
+   * Kabar "belum bisa kami pastikan" hanya bila masih benar dan belum dikirim:
+   * tidak bila CS manusia sudah membalas sejak pertanyaan dibuat (C7 menerima
+   * kabar itu setelah CS menutup percakapan), dan tidak dua kali dalam 24 jam
+   * di chat yang sama (C3 menerimanya dua kali dalam dua menit).
+   */
+  async function unresolvedNoticeStillUseful(row) {
+    if (row.createdAt && canCall('getLastHumanReplyAt')) {
+      const humanAt = await database.getLastHumanReplyAt(row.companyId, row.chatId).catch(() => null);
+      if (humanAt && new Date(humanAt).getTime() > new Date(row.createdAt).getTime()) return false;
+    }
+    if (canCall('listRecentChatTexts')) {
+      const notice = departmentAsk.unresolvedCustomerNotice();
+      const recent = await database.listRecentChatTexts(row.companyId, row.chatId, 30).catch(() => []);
+      const dayAgo = Date.now() - 24 * 3600_000;
+      if (recent.some((m) => m.fromMe && m.body === notice && new Date(m.at).getTime() > dayAgo)) return false;
+    }
+    return true;
+  }
+
   function startDepartmentQuestionSweeper() {
     const jalankan = async () => {
       const due = await database.claimDueDepartmentReminders().catch((error) => {
@@ -14813,7 +15001,7 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
         if (row.final && row.chatId && !String(row.chatId).endsWith('@g.us')) {
           try {
             const routing = await getRouting(row.chatId, row.companyId).catch(() => null);
-            if (routing?.mode !== 'human') {
+            if (routing?.mode !== 'human' && await unresolvedNoticeStillUseful(row)) {
               const text = departmentAsk.unresolvedCustomerNotice();
               const sent = await sendOutbound(row.companyId, row.chatId, text);
               await database.recordOutboundReply({ chatId: row.chatId, messageId: sent?.messageId || null, author: 'ai', body: text }, row.companyId).catch(() => {});

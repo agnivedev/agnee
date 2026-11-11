@@ -118,6 +118,39 @@ class Database {
    * Resolve a company by id or slug. Used by API-key callers, which must name
    * the company they act for — there is no implicit default tenant.
    */
+  // ---- NervAgent proaktif (src/nerva-proactive.js) ----
+  /** true bila baru diklaim; false bila kunci itu sudah pernah terkirim. */
+  async claimNervaSent(companyId, chat, kind, key) {
+    if (!this.enabled) return false;
+    const r = await this.pool.query(
+      `INSERT INTO nerva_proactive_sent (company_id, chat, kind, dedupe_key) VALUES ($1, $2, $3, $4)
+       ON CONFLICT DO NOTHING`, [companyId, chat, kind, key]);
+    return r.rowCount > 0;
+  }
+
+  async releaseNervaSent(companyId, chat, kind, key) {
+    if (!this.enabled) return;
+    await this.pool.query(
+      'DELETE FROM nerva_proactive_sent WHERE company_id = $1 AND chat = $2 AND kind = $3 AND dedupe_key = $4',
+      [companyId, chat, kind, key]);
+  }
+
+  async countNervaSentSince(companyId, chat, kind, sinceMs) {
+    if (!this.enabled) return 0;
+    const r = await this.pool.query(
+      'SELECT COUNT(*)::int AS n FROM nerva_proactive_sent WHERE company_id = $1 AND chat = $2 AND kind = $3 AND sent_at >= $4',
+      [companyId, chat, kind, new Date(sinceMs)]);
+    return r.rows[0].n;
+  }
+
+  async recordNervaAudit(companyId, entry) {
+    if (!this.enabled) return;
+    await this.pool.query(
+      `INSERT INTO nerva_audit (company_id, chat, role, action, target, outcome, detail) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [companyId, String(entry.chat || '').slice(0, 80), String(entry.role || '').slice(0, 60), String(entry.action || '').slice(0, 40),
+        entry.target ? String(entry.target).slice(0, 80) : null, String(entry.outcome || '').slice(0, 20), entry.detail ? String(entry.detail).slice(0, 160) : null]);
+  }
+
   async resolveCompanyId(idOrSlug) {
     if (!this.enabled || !idOrSlug) return null;
     const value = String(idOrSlug);

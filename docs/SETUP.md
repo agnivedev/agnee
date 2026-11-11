@@ -130,6 +130,9 @@ Salin `.env.example` menjadi `.env`. Jangan commit `.env`.
 | `NERVA_COMPANY_SLUGS` | Company yang boleh memakai alat NERVA | Tidak |
 | `NERVA_ALLOWED_CHATS` | Nomor owner uji untuk alat toko NERVA | Internal |
 | `NERVA_CHAT_SCOPES` | Peran jaringan retail per nomor: `store:<id>`, `region:<id>`, `national` | Internal |
+| `NERVA_AGENT_TOOLS` | Alat NervAgent (briefing, saran, tugas, analisis) di chat berperan; bawaan mati (18a) | Tidak |
+| `NERVA_BRIEFING_MORNING_AT`, `NERVA_BRIEFING_CLOSING_AT` | Jam briefing otomatis WIB (`HH:MM`); kosong = mati | Tidak |
+| `NERVA_ALERTS_ENABLED`, `NERVA_ALERTS_MIN_SEVERITY`, `NERVA_ALERTS_POLL_SECONDS`, `NERVA_ALERTS_MAX_PER_HOUR`, `NERVA_ALERTS_QUIET`, `NERVA_PROACTIVE_COMPANY` | Alert proaktif NERVA; bawaan mati (18a) | Tidak |
 
 Gunakan secret acak berbeda minimal 32 byte. `scripts/server.sh init` membuat
 secret secara otomatis dan memberi permission `600` pada `.env`.
@@ -743,6 +746,96 @@ Alat `nerva_case_media`, `nerva_network_chart`, `nerva_build_store_report`, dan
 
 Pratinjau Coach, follow-up, dan jalur selain auto-reply tidak punya outbox, jadi tidak mengirim
 media dan model diberi tahu tidak ada lampiran. Belum diuji ke WhatsApp asli.
+
+### NervAgent: briefing, alert, dan persetujuan lewat WhatsApp
+
+Tiga hal baru di atas jaringan retail per peran. **Semuanya BAWAAN MATI**; tanpa env di bawah, perilaku
+Agnee sama persis seperti sebelumnya. Kode: `src/nerva-tools.js` (alat dan konfirmasi),
+`src/nerva-proactive.js` (penjadwal dan poller), tabel `nerva_proactive_sent` dan `nerva_audit`
+(migrasi `104_nerva_proactive.sql`). Tes: `test/nerva-proactive.test.js`, `test/nerva-proactive-db.test.js`.
+
+> Kontrak REST NERVA untuk alat baru dikumpulkan di satu tabel `ENDPOINTS` di `src/nerva-tools.js`.
+> Sampai kontrak final dari repo NERVA dicocokkan, path dan nama field di tabel itu adalah dugaan.
+
+| Variabel | Arti | Bawaan |
+| --- | --- | --- |
+| `NERVA_AGENT_TOOLS=1` | Chat di `NERVA_CHAT_SCOPES` mendapat alat `nerva_briefing`, `nerva_alerts_feed`, `nerva_staffing_plan`, `nerva_suggestions_list`, `nerva_tasks_list`, `nerva_explain_change`, `nerva_case_explain`, `nerva_stock_forecast`, `nerva_weekly_plan`, `nerva_network_compare` (tidak untuk manajer toko), dan alat tulis `nerva_suggestion_decide`, `nerva_task_create`, `nerva_task_update` | mati |
+| `NERVA_BRIEFING_MORNING_AT=09:30` | Kirim briefing pagi (WIB) ke tiap chat di `NERVA_CHAT_SCOPES` sesuai perannya | kosong = mati |
+| `NERVA_BRIEFING_CLOSING_AT=22:15` | Briefing penutupan | kosong = mati |
+| `NERVA_ALERTS_ENABLED=1` | Poller `nerva_alerts_feed` per chat terdaftar | mati |
+| `NERVA_ALERTS_MIN_SEVERITY` | `low`, `medium`, `high`, `critical` | `high` |
+| `NERVA_ALERTS_POLL_SECONDS` | Jeda antar putaran (30-3600) | `120` |
+| `NERVA_ALERTS_MAX_PER_HOUR` | Maksimal alert per chat per jam (1-60) | `6` |
+| `NERVA_ALERTS_QUIET` | Jam senyap WIB `HH:MM-HH:MM`, boleh melewati tengah malam | `22:30-08:00` |
+| `NERVA_PROACTIVE_COMPANY` | Slug company pengirim (harus ada di `NERVA_COMPANY_SLUGS`) | slug pertama |
+
+Perilaku:
+
+- **Briefing**: pemeriksa jalan tiap 30 detik. Briefing dikirim sekali per chat per hari (klaim di
+  Postgres, tahan restart) bila jamnya sudah lewat dan belum lewat 45 menit. Proses yang menyala siang
+  hari tidak mengirim briefing pagi terlambat. Bila NERVA atau WhatsApp gagal, klaim dilepas dan dicoba
+  lagi selama jendela itu. Jam senyap tidak berlaku untuk briefing (jamnya Anda yang pilih).
+- **Alert**: hanya alert baru. Kunci dedupe `dedupe_key` per chat disimpan di `nerva_proactive_sent`.
+  Di bawah ambang severity dibuang; yang parah dikirim dulu; maksimal 5 per putaran dan
+  `NERVA_ALERTS_MAX_PER_HOUR` per chat per jam. Yang tertahan jam senyap atau batas laju tidak ditandai
+  terkirim, jadi keluar di putaran berikutnya (mundur maksimal 12 jam). Foto kasus dari alert ikut
+  lewat media outbox (maksimal 2); sambungan Cloud API tetap hanya teks.
+- **Persetujuan**: manajer membalas "setuju S-12", "tolak", atau "buat task ...". AI memanggil alat
+  tulis dua langkah. Langkah 1 hanya menyimpan niat dan menghasilkan pertanyaan konfirmasi. Langkah 2
+  (`confirmed=true`) hanya jalan bila niat yang sama diminta dalam 10 menit terakhir **dan** pesan
+  terakhir manajer berupa persetujuan (`ya`, `setuju`, `oke`, ...). Ini ditegakkan di kode, bukan hanya
+  di prompt. Id saran/tugas dicek ke daftar scope peran chat itu sebelum menulis (token NERVA membuka
+  semua scope); pembuatan tugas selalu dikunci ke toko/region peran. Alat tulis tidak ada di simulator
+  dan pratinjau (tanpa `chatId`).
+- **Audit**: tiap percobaan (ditolak, berhasil, gagal) masuk `nerva_audit`: company, nomor, peran,
+  aksi, id sasaran, hasil, waktu. Tanpa token dan tanpa isi pesan.
+  `SELECT at, chat, role, action, target, outcome FROM nerva_audit ORDER BY at DESC LIMIT 50;`
+
+Contoh Q&A WhatsApp (manajer toko Senayan):
+
+```
+Manajer: briefing pagi dong
+Agnee:   [teks briefing dari NERVA apa adanya]
+Manajer: ada saran apa yang nunggu?
+Agnee:   Ada 1 saran: S-12, transfer 6 unit iPhone dari Bekasi DC ke Senayan (data dummy)...
+Manajer: setujui S-12
+Agnee:   Setujui saran S-12? Balas ya.
+Manajer: ya
+Agnee:   Saran S-12 sudah disetujui. [hasil dari NERVA]
+Manajer: buat task cek kamera pintu
+Agnee:   Buat tugas "Cek kamera pintu"? Balas ya.
+```
+
+Alert proaktif tiba tanpa diminta, mis. `[alert dari NERVA]`, dan manajer bisa membalas "tolak" atau
+"buat task ..." di percakapan yang sama; AI mencari id sarannya lewat `nerva_suggestions_list`.
+
+Mengaktifkan (di `.env` server lalu `docker compose up -d app`; JANGAN saat ada deploy lain berjalan):
+
+```
+NERVA_AGENT_TOOLS=1
+NERVA_BRIEFING_MORNING_AT=09:30
+NERVA_BRIEFING_CLOSING_AT=22:15
+NERVA_ALERTS_ENABLED=1
+NERVA_ALERTS_MIN_SEVERITY=high
+```
+
+Pengiriman proaktif memakai `NERVA_CHAT_SCOPES` sebagai daftar penerima (nomor + `@c.us`). Mulailah
+dengan satu nomor uji. Log: `NervAgent proaktif menyala` saat boot, `nerva proaktif: ... gagal` saat
+gagal.
+
+**Rollback**: hapus `NERVA_BRIEFING_*_AT`, `NERVA_ALERTS_ENABLED`, dan `NERVA_AGENT_TOOLS` dari `.env`
+lalu `up -d app` (tanpa migrasi balik; tabel baru tidak mengganggu). Mematikan salah satunya cukup
+untuk menghentikan jenis itu. Peran per chat di `NERVA_CHAT_SCOPES` tidak berubah.
+
+### Lampiran PDF laporan
+
+Penyebab PDF laporan Senayan tidak sampai (log produksi 11-12 Nov): WhatsApp Web menolak persiapan
+media dengan `Data passed to getter must include an id property (it's how we memoize) but got
+undefined` (filehash kosong), jadi teks balasan sampai tetapi lampiran dilewati. Perbaikan: PDF kini
+dikirim dengan `sendMediaAsDocument` (jalur dokumen eksplisit), dan bila lampiran tetap gagal, owner
+menerima pesan pengganti yang menunjuk ke tautan laporan. Sambungan Cloud API tidak berubah (hanya
+teks). Perbaikan jalur dokumen ini BELUM terbukti di WhatsApp asli; periksa log
+`Media NERVA dilewati` setelah deploy dan minta satu laporan dari nomor uji.
 
 ## 19. Security checklist
 

@@ -72,6 +72,7 @@ const { createReplyPacer } = require('./reply-delay.js');
 const handoffNotice = require('./handoff-notice.js');
 const departmentAsk = require('./department-ask.js');
 const nervaTools = require('./nerva-tools.js');
+const nervaProactive = require('./nerva-proactive.js');
 const uncertainty = require('./uncertainty-guard.js');
 const escalationLib = require('./escalation.js');
 const handoffCard = require('./handoff-card.js');
@@ -1162,6 +1163,8 @@ async function buildApp(overrides = {}) {
   const typingWarnedAt = new Map();
   // Media NERVA yang dicatat alat nerva_* selama satu giliran auto-reply.
   const nervaOutbox = nervaTools.createOutbox();
+  // Konfirmasi dua langkah untuk alat tulis NERVA (setuju/tolak saran, tugas).
+  const nervaConfirmations = nervaTools.createConfirmations();
   function warnTypingFailure(companyId, error) {
     const last = typingWarnedAt.get(companyId) || 0;
     if (Date.now() - last < 10 * 60_000) return;
@@ -2238,7 +2241,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
 
     const hubTools = companyConfig?.hubToolsEnabled && !ops ? hubListingTools() : [];
     // NERVA: data toko dan jaringan retail untuk chat yang terdaftar saja (company + nomor di env).
-    const nervaConfig = nervaTools.readConfig();
+    const nervaConfig = { ...nervaTools.readConfig(), log: app.log };
     const nervaChatIds = chatId ? [chatId] : [];
     // Chat @lid tidak membawa nomor HP; pakai peta @lid milik company ini.
     if (!ops && !ks && nervaConfig.apiUrl && String(chatId || '').endsWith('@lid') && canCall('phoneForLid')) {
@@ -2252,7 +2255,20 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     const outboxKey = `${companyId}:${chatId}`;
     if (mediaOutbox && chatId) nervaOutbox.reset(outboxKey);
     const recordMedia = mediaOutbox && chatId ? (attachments) => nervaOutbox.add(outboxKey, attachments) : null;
-    const nerva = !ops && !ks ? nervaTools.forChat(nervaConfig, { companyConfig, chatIds: nervaChatIds }, fetch, recordMedia) : { tools: [], guide: '' };
+    // Alat tulis NERVA hanya di chat sungguhan (ada chatId): pesan terakhir lawan
+    // bicara menentukan apakah konfirmasi dianggap diberikan, dan tiap percobaan
+    // dicatat ke jejak audit tanpa token atau isi pesan.
+    const nervaAgent = chatId ? {
+      key: outboxKey,
+      lastUserText: text || '',
+      confirmations: nervaConfirmations,
+      audit: (entry) => {
+        if (!canCall('recordNervaAudit')) return;
+        database.recordNervaAudit(companyId, { ...entry, chat: String(chatId).split('@')[0] })
+          .catch((error) => app.log.warn({ err: error?.message }, 'Jejak audit NERVA gagal dicatat'));
+      },
+    } : {};
+    const nerva = !ops && !ks ? nervaTools.forChat(nervaConfig, { companyConfig, chatIds: nervaChatIds, agent: nervaAgent }, fetch, recordMedia) : { tools: [], guide: '' };
     const nervaToolList = nerva.tools;
     // Cek harga: prompt hanya memuat barang yang namanya cocok dengan pesan
     // customer, jadi model perlu cara mencari barang yang disebut playbook.
@@ -3856,6 +3872,10 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
           waitUntilMsgSent: false,
           quotedMessageId: sendOptions.quotedMessageId || undefined,
           media: sendOptions.attachment || undefined,
+          // PDF selalu dikirim sebagai dokumen: tanpa ini persiapan media WhatsApp
+          // Web menganggap PDF dari NERVA tanpa filehash ("Data passed to getter
+          // must include an id property") dan pengiriman gagal.
+          sendMediaAsDocument: sendOptions.attachment?.mimetype === 'application/pdf' || undefined,
           caption: sendOptions.attachment && content ? content : undefined,
           isCaptionByUser: Boolean(sendOptions.attachment && content),
         });
@@ -15209,6 +15229,48 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     timer.unref?.();
   }
 
+  /**
+   * NervAgent proaktif (briefing dan alert ke chat di NERVA_CHAT_SCOPES).
+   * BAWAAN MATI: tanpa satu pun env jadwal/alert, tidak ada timer dan tidak ada
+   * pengiriman. Lihat src/nerva-proactive.js dan docs/SETUP.md 18a.
+   */
+  function startNervaProactive() {
+    const nervaCfg = { ...nervaTools.readConfig(), log: app.log };
+    const pc = nervaProactive.readProactiveConfig();
+    if (!nervaProactive.proactiveEnabled(pc) || !nervaCfg.apiUrl || !nervaCfg.token || !nervaCfg.chatScopes.length) return;
+    const store = {
+      claim: (c, chat, kind, key) => database.claimNervaSent(c, chat, kind, key),
+      release: (c, chat, kind, key) => database.releaseNervaSent(c, chat, kind, key),
+      countSince: (c, chat, kind, since) => database.countNervaSentSince(c, chat, kind, since),
+    };
+    const proactive = nervaProactive.createProactive({
+      nervaCfg, pc, store, log: app.log,
+      resolveCompany: (slug) => database.resolveCompanyId(slug),
+      toChatId: (number) => { try { return normalizeChatId(number, config.defaultCountryCode); } catch { return null; } },
+      sendText: async (cid, chatId, text) => {
+        const sent = await sendOutbound(cid, chatId, text);
+        await database.recordOutboundReply({ chatId, messageId: sent?.messageId || sent?.id?._serialized || null, author: 'ai', body: text }, cid)
+          .catch((error) => app.log.warn({ err: error?.message }, 'Pesan proaktif NERVA tidak tercatat'));
+        return sent;
+      },
+      sendMedia: async (cid, chatId, items) => {
+        const provider = await getWhatsappProvider(cid).catch(() => 'whatsapp_web');
+        return nervaTools.deliverOutbox(nervaCfg, items, {
+          provider, log: app.log, context: { companyId: cid, proactive: true },
+          send: async (caption, options) => {
+            const sent = await sendOutbound(cid, chatId, caption, options);
+            await database.recordOutboundReply({ chatId, messageId: sent?.messageId || sent?.id?._serialized || null, author: 'ai', body: caption }, cid).catch(() => {});
+            return sent;
+          },
+        });
+      },
+    });
+    app.log.info({ briefingMorning: pc.morningAt != null, briefingClosing: pc.closingAt != null, alerts: pc.alertsEnabled, recipients: nervaCfg.chatScopes.length }, 'NervAgent proaktif menyala');
+    const timer = setInterval(() => { proactive.tick().catch(() => {}); }, 30_000);
+    timer.unref?.();
+    app.addHook('onClose', async () => clearInterval(timer));
+  }
+
   app.decorate('startWhatsapp', async () => {
     if (!config.startupEnabled || config.demoMode) return;
 
@@ -15230,6 +15292,7 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     if (canCall('listEnabledMayarConnections') && canCall('syncPosCatalog')) startMayarCatalogRefresher();
     if (database.enabled && database.connected) startBroadcastSender();
     if (database.enabled && database.connected) startWedgeWatch();
+    if (database.enabled && database.connected) startNervaProactive();
 
     // No default company to boot: resume exactly those companies whose last
     // known session was live. Everyone else starts on demand when a supervisor

@@ -2155,7 +2155,13 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     const hubTools = companyConfig?.hubToolsEnabled && !ops ? hubListingTools() : [];
     // NERVA: data toko untuk owner uji yang terdaftar saja (company + nomor di env).
     const nervaConfig = nervaTools.readConfig();
-    const nervaToolList = !ops && !ks && nervaTools.enabledFor(nervaConfig, { companyConfig, chatId })
+    const nervaChatIds = chatId ? [chatId] : [];
+    // Chat @lid tidak membawa nomor HP; pakai peta @lid milik company ini.
+    if (!ops && !ks && nervaConfig.apiUrl && String(chatId || '').endsWith('@lid') && canCall('phoneForLid')) {
+      const lidPhone = await database.phoneForLid(companyId, chatId).catch(() => null);
+      if (lidPhone) nervaChatIds.push(lidPhone);
+    }
+    const nervaToolList = !ops && !ks && nervaTools.enabledFor(nervaConfig, { companyConfig, chatIds: nervaChatIds })
       ? nervaTools.toolSpecs(nervaConfig)
       : [];
     // Cek harga: prompt hanya memuat barang yang namanya cocok dengan pesan

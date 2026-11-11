@@ -20,6 +20,8 @@ test('chatAllowed: nomor dalam format apa pun, chatId persis, dan angka pendek d
   assert.equal(nerva.chatAllowed(allowed, '6289999999@c.us'), false);
   assert.equal(nerva.chatAllowed(allowed, '12@c.us'), false, 'entri kurang dari 6 digit tidak dipakai');
   assert.equal(nerva.chatAllowed(allowed, null), false);
+  assert.equal(nerva.chatAllowed(['082123422800'], '6282123422800@c.us'), true, 'awalan 0 sama dengan 62');
+  assert.equal(nerva.chatAllowed(['6282123422800'], '082123422800'), true);
 });
 
 test('enabledFor: butuh URL, token, slug company, dan chat yang terdaftar', () => {
@@ -100,6 +102,7 @@ async function setup(t, { slug = 'beweix-digital' } = {}) {
     async getFollowUpSettings() { return { enabled: false }; },
     async recordInboundMessage() { return true; },
     async markFollowUpReplied() {}, async stopFollowUpSequence() {}, async upsertContactName() {},
+    async phoneForLid(_c, id) { return id === '99887766554433@lid' ? '6281234567890' : null; },
   };
   const llmService = {
     enabled: true,
@@ -126,6 +129,14 @@ test('owner uji di company terdaftar mendapat alat NERVA dan panduannya; alatnya
   const report = await p.tools.find((x) => x.name === 'nerva_build_store_report').run({});
   assert.equal(report.fileName, REPORT);
   assert.match(report.url, /\/nerva\/reports\//);
+});
+
+test('chat @lid milik owner dikenali lewat peta @lid; @lid lain tidak', async (t) => {
+  const { server, prompts } = await setup(t);
+  await server.handleInboundMessage('co-1', inbound('99887766554433@lid'), { connectionId: 'conn-1' });
+  assert.ok(toolNames(prompts.at(-1)).includes('nerva_store_overview'), toolNames(prompts.at(-1)).join(','));
+  await server.handleInboundMessage('co-1', inbound('11112222333344@lid', 'Halo'), { connectionId: 'conn-1' });
+  assert.ok(!toolNames(prompts.at(-1)).some((n) => n.startsWith('nerva_')));
 });
 
 test('customer lain di nomor yang sama, atau company lain, tidak mendapat alat NERVA', async (t) => {

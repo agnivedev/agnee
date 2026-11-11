@@ -19,6 +19,8 @@ const DEPARTMENTS = ['Security', 'Inventory', 'Warehouse', 'Store Operations', '
 
 const list = (value) => String(value || '').split(',').map((s) => s.trim()).filter(Boolean);
 const digits = (value) => String(value || '').replace(/\D/g, '');
+/** "0812…" dan "62812…" adalah nomor yang sama. */
+const phone = (value) => { const d = digits(value); return d.startsWith('0') ? `62${d.slice(1)}` : d; };
 
 function readConfig(env = process.env) {
   return {
@@ -29,19 +31,21 @@ function readConfig(env = process.env) {
   };
 }
 
-/** "6281234@c.us" cocok dengan "6281234", "+62 812-34", atau chatId persis. */
+/** "6281234@c.us" cocok dengan "6281234", "081234", "+62 812-34", atau chatId persis. */
 function chatAllowed(allowedChats, chatId) {
   if (!chatId) return false;
   const id = String(chatId);
-  const number = digits(id.split('@')[0]);
-  return allowedChats.some((entry) => entry === id || (digits(entry).length >= 6 && digits(entry) === number));
+  const number = phone(id.split('@')[0]);
+  return allowedChats.some((entry) => entry === id || (digits(entry).length >= 6 && phone(entry) === number));
 }
 
-function enabledFor(cfg, { companyConfig, chatId }) {
+/** chatIds: chatId percakapan, ditambah nomor HP hasil peta @lid bila ada. */
+function enabledFor(cfg, { companyConfig, chatId, chatIds }) {
+  const ids = (chatIds || [chatId]).filter(Boolean);
   return Boolean(
     cfg.apiUrl && cfg.token
     && companyConfig?.slug && cfg.companySlugs.includes(companyConfig.slug)
-    && chatAllowed(cfg.allowedChats, chatId),
+    && ids.some((id) => chatAllowed(cfg.allowedChats, id)),
   );
 }
 

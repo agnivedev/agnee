@@ -126,6 +126,10 @@ Salin `.env.example` menjadi `.env`. Jangan commit `.env`.
 | `INBOUND_WEBHOOK_URL` | Endpoint n8n/service internal | Internal |
 | `INBOUND_WEBHOOK_SECRET` | Auth webhook | Ya |
 | `WA_ACK_ENABLED`, `WA_ACK_TEXT` | Acknowledgement prototype | Tidak |
+| `NERVA_API_URL`, `NERVA_API_TOKEN` | API NERVA dan token bearer-nya (lihat 18a) | Token: Ya |
+| `NERVA_COMPANY_SLUGS` | Company yang boleh memakai alat NERVA | Tidak |
+| `NERVA_ALLOWED_CHATS` | Nomor owner uji untuk alat toko NERVA | Internal |
+| `NERVA_CHAT_SCOPES` | Peran jaringan retail per nomor: `store:<id>`, `region:<id>`, `national` | Internal |
 
 Gunakan secret acak berbeda minimal 32 byte. `scripts/server.sh init` membuat
 secret secara otomatis dan memberi permission `600` pada `.env`.
@@ -642,7 +646,7 @@ recreate lagi. Setelah mengubah `.env`:
 - refresh chat dan lakukan reconciliation;
 - cek acknowledgement WhatsApp.
 
-## 18a. NERVA untuk owner toko
+## 18a. NERVA untuk owner toko dan manajer jaringan retail
 
 Agent auto-reply bisa membaca data toko dari NERVA (repo `smartnet/nerva`, folder `mcp/`) lewat
 alat `nerva_store_overview`, `nerva_list_cases`, `nerva_pending_approvals`, `nerva_device_health`, dan
@@ -664,7 +668,60 @@ docker run -d --name nerva --network agnee_net3 --restart unless-stopped \
 
 Di `.env` Agnee: `NERVA_API_URL=http://nerva:4300` dan `NERVA_API_TOKEN=<token yang sama>`.
 Tautan PDF laporan `https://app.agnee.agnive.co/nerva/reports/<nama>` diteruskan Agnee ke container
-NERVA tanpa login. Nama file memuat 16 hex acak dan kedaluwarsa 24 jam di NERVA.
+NERVA tanpa login. Nama file memuat 16 hex acak dan kedaluwarsa 24 jam di NERVA. Pola nama yang
+diteruskan: `laporan-(toko|region|nasional)-<slug>-<tanggal>-<16 hex>.pdf` (`REPORT_NAME`).
+
+### Jaringan retail per peran (manajer toko, region, nasional)
+
+Alat kedua untuk jaringan toko kamera dummy di NERVA (6 toko di 3 region plus gudang pusat
+`bekasi-dc`). AI mengerjakan analisis manajer lewat WhatsApp; LLM jalan di Agnee, NERVA hanya
+memberi data. **Semua angka jaringan adalah data dummy**, dan panduan prompt mewajibkan AI
+menyebutnya begitu.
+
+| Alat | Endpoint NERVA |
+| --- | --- |
+| `nerva_network_scopes` | `GET /api/v1/network/scopes` |
+| `nerva_network_overview` | `GET /api/v1/network/overview` |
+| `nerva_sales_mapping` | `GET /api/v1/network/sales` |
+| `nerva_traffic_by_hour` | `GET /api/v1/network/traffic` |
+| `nerva_top_products` | `GET /api/v1/network/products` |
+| `nerva_stock_status` | `GET /api/v1/network/stock` |
+| `nerva_compare_stores` | `GET /api/v1/network/compare` |
+| `nerva_suggest_stock_transfer` | `GET /api/v1/network/suggestions/transfers` |
+| `nerva_suggest_promo` | `GET /api/v1/network/suggestions/promos` |
+| `nerva_build_network_report` | `POST /api/v1/network/report` |
+
+Parameter query: `level` (`store`, `region`, `national`, `warehouse` hanya untuk stok), `id`,
+`period` (`today`, `7d`, `28d`), `by` (`category`, `brand`, `category_brand`), `filter`
+(`problems`, `out`, `low`, `over`, `aged`, `all`), `limit` (1-20). Nilai di luar daftar dibuang
+sebelum dikirim. Scope yang tidak dikenal dijawab NERVA dengan 400; pesannya diteruskan ke model.
+
+Peran per chat diatur di `NERVA_CHAT_SCOPES` (butuh juga `NERVA_API_URL`, `NERVA_API_TOKEN`, dan
+slug company di `NERVA_COMPANY_SLUGS`):
+
+```
+NERVA_CHAT_SCOPES=6281200000001=store:senayan;6281300000002=region:jabodetabek;6281100000003=national
+```
+
+Nomor dicocokkan seperti `NERVA_ALLOWED_CHATS` (awalan `0` sama dengan `62`, chat `@lid` lewat
+peta @lid). Entri yang salah format dibuang. Chat tanpa peran tidak mendapat alat jaringan. Peran
+jaringan tidak membuka alat toko; owner yang butuh keduanya didaftarkan di kedua variabel.
+
+Token NERVA membuka semua scope, jadi `clampScope()` di `src/nerva-tools.js` satu-satunya batas
+per peran. Setiap `run()` menyempitkan `level`/`id`:
+
+| Peran | Boleh | Permintaan lain |
+| --- | --- | --- |
+| `store:<id>` | toko itu saja | dikunci ke toko itu; tanpa `nerva_network_scopes` dan `nerva_compare_stores` (perbandingan memuat toko lain) |
+| `region:<id>` | region itu dan tokonya (daftar toko dari `/api/v1/network/scopes`) | dikunci ke region itu; nasional dan gudang juga |
+| `national` | semua, termasuk gudang | tidak dibatasi |
+
+Bila permintaan dikunci, hasil alat memuat `scopeNote` dan AI menjelaskannya ke lawan bicara.
+Saran transfer dan promo adalah usulan; yang memutuskan adalah approver yang disebut di hasilnya.
+Untuk laporan, AI mengirim `whatsappMessage` dari `nerva_build_network_report` apa adanya.
+
+Catatan: usulan transfer untuk satu toko bisa menyebut stok toko sumber di region yang sama,
+karena itu bagian dari usulan.
 
 ## 19. Security checklist
 

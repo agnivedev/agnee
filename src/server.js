@@ -2153,7 +2153,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       : '';
 
     const hubTools = companyConfig?.hubToolsEnabled && !ops ? hubListingTools() : [];
-    // NERVA: data toko untuk owner uji yang terdaftar saja (company + nomor di env).
+    // NERVA: data toko dan jaringan retail untuk chat yang terdaftar saja (company + nomor di env).
     const nervaConfig = nervaTools.readConfig();
     const nervaChatIds = chatId ? [chatId] : [];
     // Chat @lid tidak membawa nomor HP; pakai peta @lid milik company ini.
@@ -2161,9 +2161,9 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       const lidPhone = await database.phoneForLid(companyId, chatId).catch(() => null);
       if (lidPhone) nervaChatIds.push(lidPhone);
     }
-    const nervaToolList = !ops && !ks && nervaTools.enabledFor(nervaConfig, { companyConfig, chatIds: nervaChatIds })
-      ? nervaTools.toolSpecs(nervaConfig)
-      : [];
+    // Alat toko (NERVA_ALLOWED_CHATS) dan alat jaringan per peran (NERVA_CHAT_SCOPES).
+    const nerva = !ops && !ks ? nervaTools.forChat(nervaConfig, { companyConfig, chatIds: nervaChatIds }) : { tools: [], guide: '' };
+    const nervaToolList = nerva.tools;
     // Cek harga: prompt hanya memuat barang yang namanya cocok dengan pesan
     // customer, jadi model perlu cara mencari barang yang disebut playbook.
     // Tanpa itu ia mengisi harga dari ingatan.
@@ -2329,7 +2329,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       priceContext,
       priceTools.length ? priceLookup.GUIDE : '',
       hubTools.length ? HUB_TOOLS_GUIDE : '',
-      nervaToolList.length ? nervaTools.GUIDE : '',
+      nerva.guide,
       storeLocations.section(stores, { withNearestTool: nearestTool, now: new Date(), timeZone: companyConfig?.timezone }),
       deliveryTools.length && lalamoveReady ? (askVehicle ? deliveryQuote.GUIDE_MANAGEMENT : deliveryQuote.GUIDE) : '',
       summaryTools.length ? orderSummary.GUIDE : '',

@@ -12,6 +12,7 @@ const { buildApp } = require('../src/server');
  */
 
 const REPORT = 'laporan-toko-senayan-2026-11-11-0123456789abcdef.pdf';
+const NET_REPORT = 'laporan-region-jabodetabek-2026-11-11-fedcba9876543210.pdf';
 
 test('chatAllowed: nomor dalam format apa pun, chatId persis, dan angka pendek ditolak', () => {
   const allowed = ['+62 812-3456-7890', '120363000000@g.us', '12'];
@@ -60,6 +61,164 @@ test('alat memanggil API NERVA dengan token; error jadi pesan jujur, bukan excep
   assert.equal(calls[4].url, 'http://nerva:4300/api/v1/store/devices?problems=1');
 });
 
+// ---- jaringan retail: peran per chat ----------------------------------------
+
+const SCOPES = '6281100000001=national; 0812 0000 0002=region:jabodetabek;6281200000003=store:senayan;bad;628=store:;6289=boss:x';
+const NET_REGIONS = {
+  regions: [
+    { level: 'region', id: 'jabodetabek', stores: ['senayan', 'kelapa-gading'] },
+    { level: 'region', id: 'jabar-jateng', stores: ['bandung', 'semarang'] },
+    { level: 'region', id: 'jatim-bali', stores: ['surabaya', 'denpasar'] },
+  ],
+};
+const ALL_NETWORK = ['nerva_build_network_report', 'nerva_compare_stores', 'nerva_network_overview', 'nerva_network_scopes', 'nerva_sales_mapping',
+  'nerva_stock_status', 'nerva_suggest_promo', 'nerva_suggest_stock_transfer', 'nerva_top_products', 'nerva_traffic_by_hour'];
+
+function netFetch() {
+  const calls = [];
+  const fetchImpl = async (url, opts) => {
+    calls.push({ url: url.replace('http://nerva:4300', ''), method: opts.method, auth: opts.headers.authorization });
+    if (url.endsWith('/api/v1/network/scopes')) return { ok: true, status: 200, json: async () => NET_REGIONS };
+    if (url.includes('id=atlantis')) return { ok: false, status: 400, json: async () => ({ error: 'Unknown store "atlantis". Use one of: senayan' }) };
+    return { ok: true, status: 200, json: async () => ({ ok: true }) };
+  };
+  return { calls, fetchImpl, cfg: { apiUrl: 'http://nerva:4300', token: 'tok', companySlugs: ['beweix-digital'], allowedChats: [], chatScopes: nerva.parseChatScopes(SCOPES) } };
+}
+const byName = (list) => Object.fromEntries(list.map((t) => [t.name, t]));
+const urls = (calls) => calls.filter((c) => !c.url.endsWith('/scopes')).map((c) => c.url);
+
+test('parseChatScopes: store/region/national, entri salah format dibuang', () => {
+  assert.deepEqual(nerva.parseChatScopes(SCOPES), [
+    { chat: '6281100000001', level: 'national', id: null },
+    { chat: '0812 0000 0002', level: 'region', id: 'jabodetabek' },
+    { chat: '6281200000003', level: 'store', id: 'senayan' },
+  ]);
+  assert.deepEqual(nerva.parseChatScopes(''), []);
+  assert.deepEqual(nerva.readConfig({ NERVA_CHAT_SCOPES: '6281=Store:Senayan' }).chatScopes, [{ chat: '6281', level: 'store', id: 'senayan' }]);
+});
+
+test('networkScopeFor: peran dari nomor (format apa pun, @lid lewat chatIds); company lain atau tanpa peran: null', () => {
+  const { cfg } = netFetch();
+  const co = { companyConfig: { slug: 'beweix-digital' } };
+  assert.deepEqual(nerva.networkScopeFor(cfg, { ...co, chatId: '6281100000001@c.us' }), { level: 'national', id: null });
+  assert.deepEqual(nerva.networkScopeFor(cfg, { ...co, chatId: '6281200000002@c.us' }), { level: 'region', id: 'jabodetabek' }, 'awalan 0 = 62');
+  assert.deepEqual(nerva.networkScopeFor(cfg, { ...co, chatIds: ['1234@lid', '6281200000003'] }), { level: 'store', id: 'senayan' });
+  assert.equal(nerva.networkScopeFor(cfg, { ...co, chatId: '6289999999999@c.us' }), null);
+  assert.equal(nerva.networkScopeFor(cfg, { companyConfig: { slug: 'bzone' }, chatId: '6281100000001@c.us' }), null);
+  assert.equal(nerva.networkScopeFor({ ...cfg, token: '' }, { ...co, chatId: '6281100000001@c.us' }), null);
+  assert.equal(nerva.enabledFor(cfg, { ...co, chatId: '6281100000001@c.us' }), false, 'peran jaringan tidak membuka alat toko');
+});
+
+test('clampScope: toko hanya tokonya, region hanya region dan tokonya, nasional semua', () => {
+  const store = { level: 'store', id: 'senayan' };
+  assert.deepEqual(nerva.clampScope(store, {}), { level: 'store', id: 'senayan', clamped: false });
+  assert.deepEqual(nerva.clampScope(store, { level: 'store', id: 'SENAYAN' }), { level: 'store', id: 'senayan', clamped: false });
+  for (const asked of [{ level: 'store', id: 'bandung' }, { level: 'region', id: 'jabodetabek' }, { level: 'national' }, { level: 'warehouse' }]) {
+    assert.deepEqual(nerva.clampScope(store, asked), { level: 'store', id: 'senayan', clamped: true }, JSON.stringify(asked));
+  }
+  const region = { level: 'region', id: 'jabodetabek' };
+  const own = ['senayan', 'kelapa-gading'];
+  assert.deepEqual(nerva.clampScope(region, {}, own), { level: 'region', id: 'jabodetabek', clamped: false });
+  assert.deepEqual(nerva.clampScope(region, { level: 'store', id: 'kelapa-gading' }, own), { level: 'store', id: 'kelapa-gading', clamped: false });
+  for (const asked of [{ level: 'store', id: 'bandung' }, { level: 'region', id: 'jatim-bali' }, { level: 'national' }, { level: 'warehouse' }]) {
+    assert.deepEqual(nerva.clampScope(region, asked, own), { level: 'region', id: 'jabodetabek', clamped: true }, JSON.stringify(asked));
+  }
+  assert.deepEqual(nerva.clampScope(region, { level: 'store', id: 'senayan' }, []), { level: 'region', id: 'jabodetabek', clamped: true }, 'tanpa daftar toko: aman ke region');
+  const national = { level: 'national', id: null };
+  assert.deepEqual(nerva.clampScope(national, { level: 'store', id: 'denpasar' }), { level: 'store', id: 'denpasar', clamped: false });
+  assert.deepEqual(nerva.clampScope(national, { level: 'warehouse' }), { level: 'warehouse', id: '', clamped: false });
+});
+
+test('alat jaringan manajer toko: 8 alat, setiap panggilan dikunci ke tokonya', async () => {
+  const { calls, fetchImpl, cfg } = netFetch();
+  const list = nerva.networkToolSpecs(cfg, { level: 'store', id: 'senayan' }, fetchImpl);
+  assert.deepEqual(list.map((t) => t.name).sort(), ALL_NETWORK.filter((n) => !['nerva_network_scopes', 'nerva_compare_stores'].includes(n)));
+  const tools = byName(list);
+  assert.deepEqual(await tools.nerva_network_overview.run({}), { ok: true });
+  const wide = await tools.nerva_sales_mapping.run({ level: 'national', by: 'brand', period: '28d' });
+  assert.match(wide.scopeNote, /hanya boleh melihat toko senayan/);
+  await tools.nerva_stock_status.run({ level: 'warehouse', filter: 'out' });
+  await tools.nerva_top_products.run({ level: 'store', id: 'denpasar', limit: 99, period: 'year' });
+  await tools.nerva_build_network_report.run({ level: 'region', id: 'jatim-bali' });
+  assert.deepEqual(urls(calls), [
+    '/api/v1/network/overview?level=store&id=senayan',
+    '/api/v1/network/sales?level=store&id=senayan&by=brand&period=28d',
+    '/api/v1/network/stock?level=store&id=senayan&filter=out',
+    '/api/v1/network/products?level=store&id=senayan&limit=20',
+    '/api/v1/network/report?level=store&id=senayan',
+  ]);
+  assert.equal(calls.at(-1).method, 'POST');
+  assert.ok(calls.every((c) => c.auth === 'Bearer tok'));
+});
+
+test('alat jaringan manajer region: toko di regionnya boleh (id dari /scopes), di luar itu dikunci ke region', async () => {
+  const { calls, fetchImpl, cfg } = netFetch();
+  const tools = byName(nerva.networkToolSpecs(cfg, { level: 'region', id: 'jabodetabek' }, fetchImpl));
+  assert.deepEqual(Object.keys(tools).sort(), ALL_NETWORK);
+  assert.equal((await tools.nerva_network_overview.run({ level: 'store', id: 'kelapa-gading' })).scopeNote, undefined);
+  assert.match((await tools.nerva_compare_stores.run({ level: 'national' })).scopeNote, /region jabodetabek/);
+  await tools.nerva_suggest_stock_transfer.run({ level: 'store', id: 'bandung' });
+  await tools.nerva_stock_status.run({ level: 'warehouse' });
+  await tools.nerva_traffic_by_hour.run({ period: '7d' });
+  assert.deepEqual(urls(calls), [
+    '/api/v1/network/overview?level=store&id=kelapa-gading',
+    '/api/v1/network/compare?level=region&id=jabodetabek',
+    '/api/v1/network/suggestions/transfers?level=region&id=jabodetabek',
+    '/api/v1/network/stock?level=region&id=jabodetabek',
+    '/api/v1/network/traffic?level=region&id=jabodetabek&period=7d',
+  ]);
+  assert.equal(calls.filter((c) => c.url.endsWith('/scopes')).length, 1, 'daftar toko region diambil sekali');
+});
+
+test('alat jaringan manajer nasional: semua scope, gudang, dan pesan 400 NERVA diteruskan', async () => {
+  const { calls, fetchImpl, cfg } = netFetch();
+  const tools = byName(nerva.networkToolSpecs(cfg, { level: 'national', id: null }, fetchImpl));
+  assert.deepEqual(Object.keys(tools).sort(), ALL_NETWORK);
+  await tools.nerva_network_scopes.run();
+  await tools.nerva_network_overview.run({});
+  await tools.nerva_stock_status.run({ level: 'warehouse', id: 'x' });
+  await tools.nerva_suggest_promo.run({ level: 'region', id: 'jatim-bali' });
+  await tools.nerva_network_overview.run({ level: 'warehouse' });
+  const bad = await tools.nerva_network_overview.run({ level: 'store', id: 'atlantis' });
+  assert.match(bad.error, /NERVA menolak permintaan: Unknown store "atlantis"/);
+  assert.deepEqual(calls.map((c) => c.url), [
+    '/api/v1/network/scopes',
+    '/api/v1/network/overview',
+    '/api/v1/network/stock?level=warehouse',
+    '/api/v1/network/suggestions/promos?level=region&id=jatim-bali',
+    '/api/v1/network/overview',
+    '/api/v1/network/overview?level=store&id=atlantis',
+  ]);
+});
+
+test('forChat dan panduan: alat toko dan jaringan masing-masing dengan gerbangnya', () => {
+  const { cfg } = netFetch();
+  const co = { companyConfig: { slug: 'beweix-digital' } };
+  const owner = nerva.forChat({ ...cfg, allowedChats: ['6281100000001'] }, { ...co, chatId: '6281100000001@c.us' });
+  assert.ok(owner.tools.some((t) => t.name === 'nerva_store_overview') && owner.tools.some((t) => t.name === 'nerva_network_overview'));
+  assert.match(owner.guide, /## NERVA \(data operasional/);
+  assert.match(owner.guide, /## NERVA Retail/);
+  const storeMgr = nerva.forChat(cfg, { ...co, chatId: '6281200000003@c.us' });
+  assert.ok(!storeMgr.tools.some((t) => t.name === 'nerva_store_overview'));
+  assert.match(storeMgr.guide, /manajer toko senayan/);
+  assert.match(storeMgr.guide, /DATA DUMMY/);
+  assert.match(storeMgr.guide, /USULAN/);
+  assert.match(storeMgr.guide, /whatsappMessage apa adanya/);
+  assert.doesNotMatch(storeMgr.guide, /## NERVA \(data operasional/);
+  assert.deepEqual(nerva.forChat(cfg, { ...co, chatId: '6289999999999@c.us' }), { role: null, tools: [], guide: '' });
+});
+
+test('REPORT_NAME: laporan toko, region, dan nasional dengan 16 hex; lainnya ditolak', () => {
+  const hex = '0123456789abcdef';
+  for (const ok of [REPORT, `laporan-toko-kelapa-gading-2026-11-11-${hex}.pdf`, `laporan-region-jabodetabek-2026-11-11-${hex}.pdf`, `laporan-nasional-jaringan-2026-11-11-${hex}.pdf`]) {
+    assert.ok(nerva.REPORT_NAME.test(ok), ok);
+  }
+  for (const bad of [`laporan-gudang-bekasi-dc-2026-11-11-${hex}.pdf`, 'laporan-region-jabodetabek-2026-11-11.pdf', `laporan-region-../x-2026-11-11-${hex}.pdf`,
+    `laporan-region-Jabodetabek-2026-11-11-${hex}.pdf`, `laporan-nasional-jaringan-2026-11-11-${hex.toUpperCase()}.pdf`]) {
+    assert.ok(!nerva.REPORT_NAME.test(bad), bad);
+  }
+});
+
 // ---- jalur pesan masuk dan tautan laporan -----------------------------------
 
 async function setup(t, { slug = 'beweix-digital' } = {}) {
@@ -69,7 +228,11 @@ async function setup(t, { slug = 'beweix-digital' } = {}) {
       res.setHeader('content-type', 'application/json');
       return res.end(JSON.stringify({ fileName: REPORT, url: `https://app.agnee.test/nerva/reports/${REPORT}`, whatsappMessage: 'Laporan toko hari ini sudah siap.' }));
     }
-    if (req.url === `/reports/${REPORT}`) { res.setHeader('content-type', 'application/pdf'); return res.end('%PDF-1.4 test'); }
+    if (req.method === 'POST' && req.url === '/api/v1/network/report?level=region&id=jabodetabek') {
+      res.setHeader('content-type', 'application/json');
+      return res.end(JSON.stringify({ fileName: NET_REPORT, url: `https://app.agnee.test/nerva/reports/${NET_REPORT}`, whatsappMessage: 'Laporan region (data dummy).' }));
+    }
+    if (req.url === `/reports/${REPORT}` || req.url === `/reports/${NET_REPORT}`) { res.setHeader('content-type', 'application/pdf'); return res.end('%PDF-1.4 test'); }
     res.statusCode = 404;
     res.end('{}');
   });
@@ -81,6 +244,7 @@ async function setup(t, { slug = 'beweix-digital' } = {}) {
     NERVA_API_TOKEN: 'nerva-test-token',
     NERVA_COMPANY_SLUGS: 'beweix-digital',
     NERVA_ALLOWED_CHATS: '6281234567890',
+    NERVA_CHAT_SCOPES: '6281300000002=region:jabodetabek',
   });
   t.after(() => { for (const k of Object.keys(process.env)) if (k.startsWith('NERVA_') && !(k in saved)) delete process.env[k]; });
 
@@ -151,12 +315,27 @@ test('customer lain di nomor yang sama, atau company lain, tidak mendapat alat N
   assert.ok(!toolNames(other.prompts.at(-1)).some((n) => n.startsWith('nerva_')));
 });
 
+test('manajer region mendapat alat jaringan (bukan alat toko) dan laporannya dikunci ke regionnya', async (t) => {
+  const { server, prompts } = await setup(t);
+  await server.handleInboundMessage('co-1', inbound('6281300000002@c.us', 'Laporan region hari ini'), { connectionId: 'conn-1' });
+  const p = prompts.at(-1);
+  assert.ok(toolNames(p).includes('nerva_build_network_report'), toolNames(p).join(','));
+  assert.ok(!toolNames(p).includes('nerva_store_overview'));
+  assert.match(p.systemPrompt, /## NERVA Retail/);
+  assert.match(p.systemPrompt, /manajer region jabodetabek/);
+  const report = await p.tools.find((x) => x.name === 'nerva_build_network_report').run({ level: 'national' });
+  assert.equal(report.fileName, NET_REPORT);
+  assert.match(report.scopeNote, /region jabodetabek/);
+});
+
 test('tautan laporan: diteruskan dari NERVA tanpa login; nama yang tidak sah ditolak', async (t) => {
   const { server } = await setup(t);
-  const ok = await server.inject({ method: 'GET', url: `/nerva/reports/${REPORT}` });
-  assert.equal(ok.statusCode, 200);
-  assert.equal(ok.headers['content-type'], 'application/pdf');
-  assert.match(ok.body, /^%PDF-/);
+  for (const name of [REPORT, NET_REPORT]) {
+    const ok = await server.inject({ method: 'GET', url: `/nerva/reports/${name}` });
+    assert.equal(ok.statusCode, 200, name);
+    assert.equal(ok.headers['content-type'], 'application/pdf');
+    assert.match(ok.body, /^%PDF-/);
+  }
   for (const bad of ['laporan-toko-senayan-2026-11-11.pdf', '..%2F..%2Fetc%2Fpasswd', `laporan-toko-senayan-2026-11-11-${'f'.repeat(16)}.pdf`]) {
     const res = await server.inject({ method: 'GET', url: `/nerva/reports/${bad}` });
     assert.equal(res.statusCode, 404, bad);

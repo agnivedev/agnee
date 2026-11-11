@@ -1160,6 +1160,8 @@ async function buildApp(overrides = {}) {
    * per company per 10 menit supaya satu penolakan tidak membanjiri log.
    */
   const typingWarnedAt = new Map();
+  // Media NERVA yang dicatat alat nerva_* selama satu giliran auto-reply.
+  const nervaOutbox = nervaTools.createOutbox();
   function warnTypingFailure(companyId, error) {
     const last = typingWarnedAt.get(companyId) || 0;
     if (Date.now() - last < 10 * 60_000) return;
@@ -1218,8 +1220,39 @@ async function buildApp(overrides = {}) {
               .catch((error) => app.log.warn({ err: error }, 'Kartu serah-terima gagal dibuat'));
           }
         }
+        if (kind === 'ai') await sendNervaMedia(companyId, message, meta);
       },
     });
+  }
+
+  /**
+   * Media NERVA dari giliran ini, setelah teks balasan AI terkirim. Maksimal 2,
+   * caption apa adanya dari NERVA. Cloud API belum punya jalur media, jadi
+   * dilewati. Gagal ambil atau kirim hanya dicatat; tidak pernah melempar.
+   */
+  async function sendNervaMedia(companyId, message, meta) {
+    const items = nervaOutbox.take(`${companyId}:${message.from}`);
+    if (!items.length) return;
+    try {
+      const provider = meta?.provider === 'cloud_api' ? 'cloud_api' : await getWhatsappProvider(companyId).catch(() => 'whatsapp_web');
+      await nervaTools.deliverOutbox(nervaTools.readConfig(), items, {
+        provider,
+        log: app.log,
+        context: { companyId, chatId: message.from },
+        send: async (caption, options) => {
+          const sent = await sendOutbound(companyId, message.from, caption, options);
+          // Dicatat seperti balasan AI: pesan keluar yang tak tercatat dianggap diketik manusia.
+          if (database.enabled && database.connected) {
+            await database.recordOutboundReply({
+              chatId: message.from, messageId: sent?.messageId || sent?.id?._serialized || null, author: 'ai', body: caption, inReplyTo: message.body || null,
+            }, companyId).catch((error) => app.log.warn({ err: error }, 'Could not record NERVA media reply'));
+          }
+          return sent;
+        },
+      });
+    } catch (error) {
+      app.log.warn({ err: error, companyId, chatId: message.from }, 'Media NERVA tidak terkirim (teks balasan tetap terkirim)');
+    }
   }
 
   /**
@@ -2111,7 +2144,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
    * so what a supervisor tests is what a customer actually gets. Testing
    * against a different context than production is worse than not testing.
    */
-  async function buildReplyContext({ companyId, text, chatId = null, productId = null, ks = null, allowDepartments = false, allowOrders = false, agentMode = 'standard', sender = null, extraPlaybook = '', simulatedQuestions = null }) {
+  async function buildReplyContext({ companyId, text, chatId = null, productId = null, ks = null, allowDepartments = false, allowOrders = false, agentMode = 'standard', sender = null, extraPlaybook = '', simulatedQuestions = null, mediaOutbox = false }) {
     const mode = agentModes.normalizeMode(agentMode);
     const ops = mode === 'internal_ops';
     const kb = await getKnowledgeBase(companyId);
@@ -2204,7 +2237,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       : '';
 
     const hubTools = companyConfig?.hubToolsEnabled && !ops ? hubListingTools() : [];
-    // NERVA: data toko untuk owner uji yang terdaftar saja (company + nomor di env).
+    // NERVA: data toko dan jaringan retail untuk chat yang terdaftar saja (company + nomor di env).
     const nervaConfig = nervaTools.readConfig();
     const nervaChatIds = chatId ? [chatId] : [];
     // Chat @lid tidak membawa nomor HP; pakai peta @lid milik company ini.
@@ -2212,9 +2245,15 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       const lidPhone = await database.phoneForLid(companyId, chatId).catch(() => null);
       if (lidPhone) nervaChatIds.push(lidPhone);
     }
-    const nervaToolList = !ops && !ks && nervaTools.enabledFor(nervaConfig, { companyConfig, chatIds: nervaChatIds })
-      ? nervaTools.toolSpecs(nervaConfig)
-      : [];
+    // Alat toko (NERVA_ALLOWED_CHATS) dan alat jaringan per peran (NERVA_CHAT_SCOPES).
+    // Media NERVA (foto, klip, grafik, PDF) hanya dari auto-reply sungguhan:
+    // outbox giliran ini dikosongkan di sini dan dikirim di paceReply setelah
+    // teks balasan terkirim. Pratinjau dan follow-up tidak mengirim media.
+    const outboxKey = `${companyId}:${chatId}`;
+    if (mediaOutbox && chatId) nervaOutbox.reset(outboxKey);
+    const recordMedia = mediaOutbox && chatId ? (attachments) => nervaOutbox.add(outboxKey, attachments) : null;
+    const nerva = !ops && !ks ? nervaTools.forChat(nervaConfig, { companyConfig, chatIds: nervaChatIds }, fetch, recordMedia) : { tools: [], guide: '' };
+    const nervaToolList = nerva.tools;
     // Cek harga: prompt hanya memuat barang yang namanya cocok dengan pesan
     // customer, jadi model perlu cara mencari barang yang disebut playbook.
     // Tanpa itu ia mengisi harga dari ingatan.
@@ -2389,7 +2428,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       priceContext,
       priceTools.length ? priceLookup.GUIDE : '',
       hubTools.length ? HUB_TOOLS_GUIDE : '',
-      nervaToolList.length ? nervaTools.GUIDE : '',
+      nerva.guide,
       storeLocations.section(stores, { withNearestTool: nearestTool, now: new Date(), timeZone: companyConfig?.timezone }),
       deliveryTools.length && lalamoveReady ? (askVehicle ? deliveryQuote.GUIDE_MANAGEMENT : deliveryQuote.GUIDE) : '',
       summaryTools.length ? orderSummary.GUIDE : '',
@@ -2419,6 +2458,8 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       relevantFaqs,
       product,
       ks: ksInstalls.length > 0,
+      // Chat NERVA: owner bertanya susulan ("yang Bandung?", "per brand-nya?"), jadi butuh riwayat sepanjang KS.
+      nerva: nervaToolList.length > 0,
       playbookContext,
       paymentContext,
       companyConfig,
@@ -2989,7 +3030,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     }
 
     // Use this company's own knowledge client from DB — never another tenant's
-    const ctx = await buildReplyContext({ companyId, text: customerText, chatId: message.from, allowDepartments: true, allowOrders: true, agentMode, sender: opsSender });
+    const ctx = await buildReplyContext({ companyId, text: customerText, chatId: message.from, allowDepartments: true, allowOrders: true, agentMode, sender: opsSender, mediaOutbox: true });
 
     // Fetch recent conversation history so the AI knows what was already said.
     //
@@ -3017,7 +3058,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
         conversationHistory = recent
           .filter(m => !hiddenTypes.has(m.type) && (m.body || mediaMarker(m) || (m.type === 'location' && !m.fromMe))
             && (!currentId || inboundMessageId(m) !== currentId))
-          .slice(ctx.ks ? -14 : -10)
+          .slice(ctx.ks || ctx.nerva ? -14 : -10)
           .map(m => ({
             role: m.fromMe ? 'assistant' : 'user',
             content: (m.fromMe ? m.body : mapsLink.readCustomerTextCached(m))
@@ -3061,7 +3102,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
         : `Customer membalas "${message.body}" lagi, dan kamu SUDAH berterima kasih di giliran sebelumnya.\n\nJangan berterima kasih lagi, jangan mengulang kalimat yang sudah kamu kirim, jangan bertanya apa pun, jangan menanyakan maksudnya, jangan menawarkan produk, jangan menyebut harga, jangan mengirim link.\n\nTulis paling banyak DUA kalimat pendek dengan persona kamu yang menambahkan satu keterangan BARU dan berguna tentang apa yang sudah disepakati — misalnya apa yang terjadi berikutnya atau apa yang bisa disiapkan. Ambil keterangannya dari playbook, jangan mengarang. Keluarkan HANYA kalimatnya.`;
 
       const lanjutan = await llmService.generateReply(perintah,
-        { systemPrompt: ctx.systemPrompt, history: conversationHistory, historyLimit: ctx.ks ? 12 : undefined, companyId, purpose: 'auto_reply', modelChain: companyAi.modelChain },
+        { systemPrompt: ctx.systemPrompt, history: conversationHistory, historyLimit: ctx.ks || ctx.nerva ? 12 : undefined, companyId, purpose: 'auto_reply', modelChain: companyAi.modelChain },
       ).catch(() => null);
       const teksLanjutan = stripLinks(lanjutan?.text || '');
       app.log.info({ companyId, chatId: message.from, ronde },
@@ -3102,7 +3143,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
         relevantFaqs: ctx.relevantFaqs,
         leadState: ctx.leadState,
         history: conversationHistory,
-        historyLimit: ctx.ks ? 12 : undefined,
+        historyLimit: ctx.ks || ctx.nerva ? 12 : undefined,
         companyId,
         purpose: 'auto_reply',
         modelChain: companyAi.modelChain,

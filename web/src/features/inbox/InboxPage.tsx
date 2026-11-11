@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { NAV_ENTRIES } from '@/components/nav-entries';
+import { CompanySwitcher } from '@/components/CompanyAccess';
 import { quotaPercent, quotaTone } from '@/lib/plan';
 import { OnboardingDialog } from '@/features/onboarding/OnboardingDialog';
 import { ChatList } from './ChatList';
@@ -666,6 +667,12 @@ function UpgradeWall({ onSignOut }: { onSignOut: () => void }) {
         >
           {t('upgrade.activateBtn')}
         </a>
+        {/* Satu email bisa anggota beberapa company. Tanpa ini, company lain yang
+            masih aktif tak terjangkau dari layar blokir: satu-satunya jalan keluar
+            hanya Sign out, dan login berikutnya bisa jatuh ke company yang sama. */}
+        <div className="mt-6 rounded-xl bg-white text-left empty:hidden">
+          <CompanySwitcher variant="list" />
+        </div>
         <button type="button" onClick={onSignOut} className="mt-4 block w-full cursor-pointer border-0 bg-transparent text-sm text-white/60 underline">
           {t('nav.logout')}
         </button>

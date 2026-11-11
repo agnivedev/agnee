@@ -549,7 +549,10 @@ async function buildApp(overrides = {}) {
   async function getKnowledgeBase(companyId) {
     return new KnowledgeBase({ clientId: await knowledgeClientOf(companyId) });
   }
+  // Pemantau biaya dibuat jauh di bawah; galat kredit dari model dilaporkan lewat referensi ini.
+  let costAlertMonitorRef = null;
   const llmService = overrides.llmService || new LlmService({
+    onChainFailure: ({ message }) => { costAlertMonitorRef?.reportCreditFailure(message)?.catch?.(() => {}); },
     apiKey: config.openrouterApiKey,
     model: config.openrouterModel,
     maxTokens: config.llmMaxTokens,
@@ -1267,7 +1270,7 @@ async function buildApp(overrides = {}) {
       throw error;
     }
   }
-  async function notifyHandoff(companyId, message, aiText) {
+  async function notifyHandoff(companyId, message, aiText, { aiFailed = false } = {}) {
     if (!canCall('getHandoffNotifyNumbers') || message.from.endsWith('@g.us')) return;
     const numbers = await database.getHandoffNotifyNumbers(companyId);
     if (!numbers.length) return;
@@ -1281,6 +1284,7 @@ async function buildApp(overrides = {}) {
       name: message._data?.notifyName || message.notifyName || null,
       customerText: message.body,
       aiText,
+      aiFailed,
     });
     let delivered = 0;
     for (const raw of numbers) {
@@ -1643,6 +1647,11 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
         previous_answer: String(answeredHere[0].answer).slice(0, 500),
         note: 'Barang ini sudah dijawab departemen beberapa saat lalu. Pakai jawaban itu untuk customer, jangan bertanya lagi.',
       };
+    }
+    // Simulator: catat pertanyaan yang AKAN dikirim, tanpa menulis DB dan tanpa membangunkan staf.
+    if (meta.dryRun) {
+      meta.dryRun.push({ department: dept.name, question, kind: meta.kind || 'general' });
+      return { status: 'sent', department: dept.name };
     }
     const created = await database.createDepartmentQuestion({ departmentId: dept.id, chatId, customerText, question, kind: meta.kind || 'general', payload: meta.payload || null }, companyId);
     if (!created) return { error: 'Departemen tidak ditemukan.' };
@@ -2102,7 +2111,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
    * so what a supervisor tests is what a customer actually gets. Testing
    * against a different context than production is worse than not testing.
    */
-  async function buildReplyContext({ companyId, text, chatId = null, productId = null, ks = null, allowDepartments = false, allowOrders = false, agentMode = 'standard', sender = null, extraPlaybook = '' }) {
+  async function buildReplyContext({ companyId, text, chatId = null, productId = null, ks = null, allowDepartments = false, allowOrders = false, agentMode = 'standard', sender = null, extraPlaybook = '', simulatedQuestions = null }) {
     const mode = agentModes.normalizeMode(agentMode);
     const ops = mode === 'internal_ops';
     const kb = await getKnowledgeBase(companyId);
@@ -2258,6 +2267,11 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
         })
         : deliveryQuote.quote(lalamoveConn, args, { stores, promos, lalamoveReady }));
       if (result?.status === 'ok' && result.ongkir_dibayar_angka != null) chatMemory.remember(chatMemory.quotes, companyId, chatId, result);
+      // Simulator: pertanyaan kendaraan ke Management ikut ditampilkan, seperti di chat asli.
+      if (simulatedQuestions && result?.simulasi && result.pertanyaan_ke_management) {
+        simulatedQuestions.push({ department: 'Management', question: result.pertanyaan_ke_management, kind: 'lalamove_vehicle' });
+        departmentAsked.push('Management');
+      }
       return result;
     };
     const deliveryTools = deliveryQuote.isUsable(lalamoveConn, { realChat: Boolean(chatId), promos })
@@ -2325,7 +2339,8 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
         departmentGuide = ops ? departmentAsk.guideThirdPartiesOps(parties) : departmentAsk.guideThirdParties(parties);
       }
     }
-    if (allowDepartments && chatId && dbLive && canCall('listDepartments') && !ks) {
+    // Simulator (simulatedQuestions): alatnya sama, tetapi pertanyaan hanya dicatat, tidak dikirim.
+    if (((allowDepartments && chatId) || simulatedQuestions) && dbLive && canCall('listDepartments') && !ks) {
       // Departemen tanpa anggota tetap bisa ditanya bila punya grup WhatsApp.
       const departments = (await database.listDepartments(companyId).catch(() => []))
         .filter((d) => d.members.length > 0 || d.whatsappGroupId);
@@ -2333,7 +2348,10 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
         departmentTools.push(departmentAsk.toolSpec({
           departments,
           run: async (args = {}) => {
-            const out = await askDepartment({ companyId, chatId, customerText: text, departments, args, askerLabel: ops ? (sender?.name || 'anggota tim') : null });
+            const out = await askDepartment({
+              companyId, chatId, customerText: text, departments, args, askerLabel: ops ? (sender?.name || 'anggota tim') : null,
+              meta: simulatedQuestions ? { dryRun: simulatedQuestions } : {},
+            });
             if (out.status === 'sent' || out.status === 'already_asked') departmentAsked.push(out.department);
             return out;
           },
@@ -3098,7 +3116,14 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       if (!result?.text) return holding;
       result.text = holding;
     }
-    if (!result?.text) return null;
+    if (!result?.text) {
+      // Semua model gagal (mis. saldo penyedia habis): tanpa ini customer
+      // didiamkan dan tidak ada manusia yang tahu (ESBEJE 10–11 Nov).
+      app.log.warn({ companyId, chatId: message.from }, 'AI tidak menghasilkan balasan; staf diberi tahu untuk membalas manual');
+      notifyHandoff(companyId, message, '', { aiFailed: true })
+        .catch((error) => app.log.warn({ err: error }, 'Pemberitahuan AI gagal membalas tidak terkirim'));
+      return null;
+    }
 
     // Aturan di system prompt saja tidak cukup. Diukur pada funnel Anya dengan
     // prompt 52.000 karakter: model tetap menulis "risiko kakak nyaris nggak
@@ -7340,9 +7365,11 @@ Aturan:
     const customerRead = await mapsLink.readCustomerText({ type: 'chat', body: customerMessage }).catch(() => customerMessage);
 
     // Same context the live WhatsApp path uses, so results match production.
+    // Pertanyaan ke departemen yang AKAN dikirim di chat asli (hanya dicatat, tidak dikirim).
+    const simulatedQuestions = [];
     const ctx = await buildReplyContext({
       companyId, text: customerRead, chatId: request.body.chatId || null, productId: request.body.productId || null,
-      agentMode: request.body.agentMode || 'standard',
+      agentMode: request.body.agentMode || 'standard', simulatedQuestions,
     });
     const history = transcript.map((turn) => ({
       role: turn.role === 'customer' ? 'user' : 'assistant',
@@ -7453,6 +7480,7 @@ Aturan:
       model: aiModel,
       // Alasan "AI tidak yakin" bila balasan ini diubah penjaga (null bila tidak).
       uncertainty: uncertaintyEvent,
+      departmentQuestions: simulatedQuestions,
       escalation: escalationEvent,
       usage: aiUsage,
       product: ctx.product ? { id: ctx.product.id, name: ctx.product.name } : null,
@@ -14896,7 +14924,19 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     rate: config.usdIdrRate,
     thresholds: config.costAlertIdr,
     consoleUrl: `${config.appBaseUrl}/superhuman`,
+    // Saldo OpenRouter: habisnya saldo 10–11 Nov membuat semua AI diam tanpa ada yang tahu.
+    fetchBalance: config.openrouterApiKey && !overrides.llmService ? async () => {
+      const res = await fetch('https://openrouter.ai/api/v1/credits', {
+        headers: { Authorization: `Bearer ${config.openrouterApiKey}` },
+        signal: AbortSignal.timeout(15_000),
+      });
+      if (!res.ok) throw new Error(`OpenRouter credits HTTP ${res.status}`);
+      const json = await res.json();
+      return { totalCredits: json?.data?.total_credits, totalUsage: json?.data?.total_usage };
+    } : null,
+    lowBalanceUsd: Number(process.env.OPENROUTER_LOW_BALANCE_USD) > 0 ? Number(process.env.OPENROUTER_LOW_BALANCE_USD) : undefined,
   });
+  costAlertMonitorRef = costAlertMonitor;
   app.decorate('costAlertMonitor', costAlertMonitor);
 
   app.addHook('onClose', async () => {

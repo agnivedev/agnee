@@ -75,6 +75,12 @@ class LlmService {
      * customer — pemanggilnya yang menelan errornya.
      */
     this.onUsage = config.onUsage || null;
+    /**
+     * Dipanggil saat SEMUA model di rantai gagal (balasan null). Tanpa ini
+     * kegagalan hanya muncul di console.error: 10–11 Nov saldo OpenRouter habis
+     * dan customer ESBEJE didiamkan lebih dari sehari tanpa ada yang tahu.
+     */
+    this.onChainFailure = config.onChainFailure || null;
   }
 
   async _callModel(model, userMessage, context) {
@@ -354,6 +360,7 @@ class LlmService {
     }
 
     console.error('All models in chain failed. Last error:', lastError?.message);
+    try { this.onChainFailure?.({ message: String(lastError?.message || ''), context }); } catch { /* pemantau tidak boleh menjatuhkan balasan */ }
     return null;
   }
 

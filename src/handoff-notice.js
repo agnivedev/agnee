@@ -63,11 +63,22 @@ function phoneInTexts(texts) {
  * @param p.customerText  pesan terakhir customer
  * @param p.aiText        balasan AI yang menjanjikan meneruskan
  */
-function buildNotice({ chatId, name, phone, customerText, aiText }) {
+function buildNotice({ chatId, name, phone, customerText, aiText, aiFailed = false }) {
   const cut = (value, max) => {
     const text = String(value || '').replace(/\s+/g, ' ').trim();
     return text.length > max ? `${text.slice(0, max - 1)}…` : text;
   };
+  if (aiFailed) {
+    // AI tidak menghasilkan balasan sama sekali (mis. layanan model gangguan):
+    // customer belum dibalas siapa pun.
+    return [
+      '*Perlu dibalas manual*',
+      `Customer: ${describeCustomer({ chatId, name, phone })}`,
+      `Bertanya: "${cut(customerText, 400)}"`,
+      '',
+      'Asisten sedang gangguan dan BELUM membalas customer ini. Mohon dibalas langsung.',
+    ].join('\n');
+  }
   const lines = [
     '*Perlu ditindaklanjuti*',
     `Customer: ${describeCustomer({ chatId, name, phone })}`,

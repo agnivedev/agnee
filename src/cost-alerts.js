@@ -222,6 +222,45 @@ function createWhatsappChannel({ env = process.env, resolveCompanyId, sendText, 
   };
 }
 
+// ── Saldo penyedia model (OpenRouter) ─────────────────────────────────────────
+// 10–11 Nov 2026 saldo habis: semua model menolak ("requires more credits",
+// "Prompt tokens limit exceeded"), AI semua tenant diam > 24 jam, dan tidak
+// ada yang tahu karena pemantau di atas hanya menghitung biaya per tenant.
+
+const DEFAULT_LOW_BALANCE_USD = 10;
+const BALANCE_REMINDER_MS = 6 * 60 * 60 * 1000;
+
+/** Galat dari penyedia yang berarti saldo/kredit habis, bukan model rusak. */
+function isCreditError(message) {
+  return /requires more credits|add more credits|insufficient (?:credits|balance)|payment required|\b402\b/i.test(String(message || ''));
+}
+
+/** Sisa saldo dalam USD dari respons /api/v1/credits, atau null bila tak terbaca. */
+function remainingUsd(balance) {
+  const total = Number(balance?.totalCredits);
+  const used = Number(balance?.totalUsage);
+  if (balance == null || !Number.isFinite(total) || !Number.isFinite(used)) return null;
+  return total - used;
+}
+
+function buildBalanceMessage({ remaining, thresholdUsd, failure = null, rate = DEFAULT_USD_IDR_RATE, topUpUrl = 'https://openrouter.ai/settings/credits' }) {
+  const empty = (remaining != null && remaining <= 0) || Boolean(failure);
+  const amount = remaining == null ? 'tidak terbaca' : `US$${remaining.toFixed(2)} (~${formatRupiah(Math.max(remaining, 0) * rate)})`;
+  const head = empty ? 'Saldo OpenRouter HABIS, AI tidak bisa membalas customer' : 'Saldo OpenRouter menipis';
+  const body = [
+    `Sisa saldo: ${amount}. Ambang peringatan: US$${thresholdUsd}.`,
+    ...(failure ? [`Galat terakhir: ${String(failure).slice(0, 200)}`] : []),
+    '',
+    `Isi saldo: ${topUpUrl}`,
+    'Selama saldo habis, chat customer yang tidak terbalas diteruskan ke nomor serah-terima tiap company supaya dibalas manual.',
+  ];
+  return {
+    subject: `[Agnee] ${head}`,
+    text: [`${head}.`, ...body].join('\n'),
+    whatsapp: [`*Agnee: ${head.toLowerCase()}*`, ...body].join('\n'),
+  };
+}
+
 class CostAlertMonitor {
   /**
    * @param {object} options
@@ -231,7 +270,7 @@ class CostAlertMonitor {
    * @param options.thresholds { personal, company } dalam Rupiah
    * @param options.consoleUrl alamat konsol platform untuk tautan di email
    */
-  constructor({ database, channels = [], logger = console, rate, thresholds, consoleUrl, intervalMs = 60 * 60 * 1000 }) {
+  constructor({ database, channels = [], logger = console, rate, thresholds, consoleUrl, intervalMs = 60 * 60 * 1000, fetchBalance = null, lowBalanceUsd = DEFAULT_LOW_BALANCE_USD, now = () => Date.now() }) {
     this.database = database;
     this.channels = channels;
     this.logger = logger;
@@ -242,6 +281,52 @@ class CostAlertMonitor {
     this.running = false;
     this.timer = null;
     this.warnedUnconfigured = false;
+    this.fetchBalance = fetchBalance;
+    this.lowBalanceUsd = lowBalanceUsd;
+    this.clock = now;
+    this.balanceAlertedAt = null;
+    this.balanceChecking = null;
+  }
+
+  /**
+   * Baca saldo penyedia model; kabari bila di bawah ambang (atau ada galat
+   * kredit). Paling sering sekali per BALANCE_REMINDER_MS selama masih rendah.
+   * Tidak pernah melempar.
+   */
+  async checkBalance({ failure = null } = {}) {
+    if (!this.fetchBalance) return { skipped: 'no_fetcher' };
+    if (this.balanceChecking) return this.balanceChecking;
+    this.balanceChecking = (async () => {
+      try {
+        const remaining = remainingUsd(await this.fetchBalance().catch(() => null));
+        const low = (remaining != null && remaining < this.lowBalanceUsd) || Boolean(failure);
+        if (!low) {
+          this.balanceAlertedAt = null;
+          return { low: false, remaining };
+        }
+        if (this.balanceAlertedAt != null && this.clock() - this.balanceAlertedAt < BALANCE_REMINDER_MS) return { low: true, remaining, sent: false, reason: 'cooldown' };
+        this.logger.warn?.({ remaining, failure: failure ? String(failure).slice(0, 200) : null }, 'Saldo OpenRouter rendah/habis');
+        const active = this.channels.filter((channel) => channel.configured);
+        if (!active.length) return { low: true, remaining, sent: false, reason: 'not_configured' };
+        const message = buildBalanceMessage({ remaining, thresholdUsd: this.lowBalanceUsd, failure, rate: this.rate });
+        const outcomes = await Promise.allSettled(active.map((channel) => channel.send(message)));
+        const delivered = outcomes.filter((o) => o.status === 'fulfilled').length;
+        if (delivered) this.balanceAlertedAt = this.clock();
+        return { low: true, remaining, sent: delivered > 0 };
+      } catch (error) {
+        this.logger.warn?.({ err: error }, 'Pemeriksaan saldo OpenRouter gagal');
+        return { error: true };
+      } finally {
+        this.balanceChecking = null;
+      }
+    })();
+    return this.balanceChecking;
+  }
+
+  /** Panggilan model gagal karena kredit: periksa saldo sekarang, jangan tunggu putaran berikutnya. */
+  reportCreditFailure(message) {
+    if (!isCreditError(message)) return null;
+    return this.checkBalance({ failure: message });
   }
 
   start({ firstDelayMs = 60_000 } = {}) {
@@ -267,6 +352,8 @@ class CostAlertMonitor {
   async check(now = new Date()) {
     if (this.running) return { skipped: 'already_running' };
     this.running = true;
+    // Saldo penyedia diperiksa terpisah: gagalnya tidak menghentikan alert per tenant.
+    await this.checkBalance();
     try {
       const rows = await this.database.listCostAlertCandidates();
       const { alerts, rearm } = evaluate(rows, { rate: this.rate, thresholds: this.thresholds, now });
@@ -318,6 +405,6 @@ class CostAlertMonitor {
 }
 
 module.exports = {
-  CostAlertMonitor, positiveNumber, createMailer, createWhatsappChannel, evaluate, buildAlertMessage, thresholdFor, toRupiah, formatRupiah,
+  CostAlertMonitor, positiveNumber, isCreditError, remainingUsd, buildBalanceMessage, DEFAULT_LOW_BALANCE_USD, BALANCE_REMINDER_MS, createMailer, createWhatsappChannel, evaluate, buildAlertMessage, thresholdFor, toRupiah, formatRupiah,
   REMINDER_DAYS, DEFAULT_USD_IDR_RATE, DEFAULT_THRESHOLDS_IDR,
 };

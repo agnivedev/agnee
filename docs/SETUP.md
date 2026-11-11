@@ -642,6 +642,30 @@ recreate lagi. Setelah mengubah `.env`:
 - refresh chat dan lakukan reconciliation;
 - cek acknowledgement WhatsApp.
 
+## 18a. NERVA untuk owner toko
+
+Agent auto-reply bisa membaca data toko dari NERVA (repo `smartnet/nerva`, folder `mcp/`) lewat
+alat `nerva_store_overview`, `nerva_list_cases`, `nerva_pending_approvals`, `nerva_device_health`, dan
+`nerva_build_store_report`. Kode di `src/nerva-tools.js`, tes di `test/nerva-tools.test.js`.
+
+Alat hanya muncul bila `NERVA_API_URL`, `NERVA_API_TOKEN`, `NERVA_COMPANY_SLUGS`, dan
+`NERVA_ALLOWED_CHATS` terisi, slug company ada di daftar, dan chat ada di daftar nomor. Customer lain
+di nomor yang sama tidak mendapat alat ini. Tidak ada alat yang mengubah data NERVA.
+
+Container NERVA di Radmond menumpang di jaringan container `app` (cek dengan
+`docker inspect agnee-app-1`; per 11 Nov 2026 `agnee_net3`), tanpa port publik:
+
+```bash
+cd /opt/nerva && docker build -f mcp/Dockerfile -t nerva-mcp .
+docker run -d --name nerva --network agnee_net3 --restart unless-stopped \
+  -e NERVA_MCP_TOKEN=<token> -e NERVA_PUBLIC_URL=https://app.agnee.agnive.co/nerva \
+  -v nerva-reports:/data/reports nerva-mcp
+```
+
+Di `.env` Agnee: `NERVA_API_URL=http://nerva:4300` dan `NERVA_API_TOKEN=<token yang sama>`.
+Tautan PDF laporan `https://app.agnee.agnive.co/nerva/reports/<nama>` diteruskan Agnee ke container
+NERVA tanpa login. Nama file memuat 16 hex acak dan kedaluwarsa 24 jam di NERVA.
+
 ## 19. Security checklist
 
 - [ ] `.env` permission `600` dan tidak masuk Git.

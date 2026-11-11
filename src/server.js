@@ -71,6 +71,7 @@ const catalog = require('./catalog.js');
 const { createReplyPacer } = require('./reply-delay.js');
 const handoffNotice = require('./handoff-notice.js');
 const departmentAsk = require('./department-ask.js');
+const nervaTools = require('./nerva-tools.js');
 const uncertainty = require('./uncertainty-guard.js');
 const escalationLib = require('./escalation.js');
 const handoffCard = require('./handoff-card.js');
@@ -2186,6 +2187,17 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       : '';
 
     const hubTools = companyConfig?.hubToolsEnabled && !ops ? hubListingTools() : [];
+    // NERVA: data toko untuk owner uji yang terdaftar saja (company + nomor di env).
+    const nervaConfig = nervaTools.readConfig();
+    const nervaChatIds = chatId ? [chatId] : [];
+    // Chat @lid tidak membawa nomor HP; pakai peta @lid milik company ini.
+    if (!ops && !ks && nervaConfig.apiUrl && String(chatId || '').endsWith('@lid') && canCall('phoneForLid')) {
+      const lidPhone = await database.phoneForLid(companyId, chatId).catch(() => null);
+      if (lidPhone) nervaChatIds.push(lidPhone);
+    }
+    const nervaToolList = !ops && !ks && nervaTools.enabledFor(nervaConfig, { companyConfig, chatIds: nervaChatIds })
+      ? nervaTools.toolSpecs(nervaConfig)
+      : [];
     // Cek harga: prompt hanya memuat barang yang namanya cocok dengan pesan
     // customer, jadi model perlu cara mencari barang yang disebut playbook.
     // Tanpa itu ia mengisi harga dari ingatan.
@@ -2351,6 +2363,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       priceContext,
       priceTools.length ? priceLookup.GUIDE : '',
       hubTools.length ? HUB_TOOLS_GUIDE : '',
+      nervaToolList.length ? nervaTools.GUIDE : '',
       storeLocations.section(stores, { withNearestTool: nearestTool, now: new Date(), timeZone: companyConfig?.timezone }),
       deliveryTools.length && lalamoveReady ? (askVehicle ? deliveryQuote.GUIDE_MANAGEMENT : deliveryQuote.GUIDE) : '',
       summaryTools.length ? orderSummary.GUIDE : '',
@@ -2383,7 +2396,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       playbookContext,
       paymentContext,
       companyConfig,
-      tools: [...hubTools, ...priceTools, ...deliveryTools, ...summaryTools, ...orderTools, ...locationTools, ...addressTools, ...calcTools, ...departmentTools]
+      tools: [...hubTools, ...nervaToolList, ...priceTools, ...deliveryTools, ...summaryTools, ...orderTools, ...locationTools, ...addressTools, ...calcTools, ...departmentTools]
         .map((tool) => ({
           ...tool,
           // Hasil alat dicatat: angka di dalamnya sah disebut ke customer (penjaga harga).
@@ -4140,6 +4153,22 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
   const ebookLeadIpTimes = new Map();
   let ebookLeadAllTimes = [];
   const cleanText = (value, max) => String(value ?? '').replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s{2,}/g, ' ').trim().slice(0, max);
+
+  // Tautan PDF laporan toko dari NERVA: owner membukanya dari WhatsApp tanpa
+  // login. Nama file memuat 16 hex acak dan kedaluwarsa di NERVA; Agnee hanya
+  // meneruskan, tidak menyimpan.
+  app.get('/nerva/reports/:name', async (request, reply) => {
+    const cfg = nervaTools.readConfig();
+    const name = String(request.params.name || '');
+    if (!cfg.apiUrl || !nervaTools.REPORT_NAME.test(name)) return reply.code(404).send({ error: 'Not found' });
+    const res = await fetch(`${cfg.apiUrl}/reports/${name}`, { signal: AbortSignal.timeout(10_000) }).catch(() => null);
+    if (!res || !res.ok) return reply.code(404).send({ error: 'Laporan tidak ditemukan atau sudah kedaluwarsa.' });
+    return reply
+      .header('content-type', 'application/pdf')
+      .header('content-disposition', `inline; filename="${name}"`)
+      .header('cache-control', 'no-store')
+      .send(Buffer.from(await res.arrayBuffer()));
+  });
 
   app.post('/public/ebook-lead', {
     schema: {

@@ -108,15 +108,16 @@ function clampScope(role, args = {}, regionStores = []) {
   return { level: 'region', id: role.id, clamped: !asked };
 }
 
-async function callNerva(cfg, method, path, fetchImpl = fetch) {
+async function callNerva(cfg, method, path, fetchImpl = fetch, body = undefined) {
   try {
     const res = await fetchImpl(`${cfg.apiUrl}${path}`, {
       method,
-      headers: { authorization: `Bearer ${cfg.token}` },
+      headers: { authorization: `Bearer ${cfg.token}`, ...(body !== undefined ? { 'content-type': 'application/json' } : {}) },
+      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
-    if (res.status === 400) {
-      // Scope atau parameter tidak dikenal: pesan NERVA membantu model memilih id yang benar.
+    if ([400, 403, 404, 409].includes(res.status)) {
+      // Scope, id, atau izin ditolak NERVA: pesannya (berprefiks [forbidden|invalid|not_found|conflict]) membantu model menjawab jujur.
       const detail = await res.json().then((b) => b?.error).catch(() => null);
       if (detail) return { error: `NERVA menolak permintaan: ${String(detail).slice(0, 300)}` };
     }
@@ -460,24 +461,24 @@ function networkToolSpecs(cfg, role, fetchImpl = fetch, record = null) {
 // ---- alat NervAgent: briefing, alert, saran, tugas, analisis -----------------
 // Path REST NERVA dikumpulkan di sini supaya penyesuaian kontrak cukup satu tempat.
 const ENDPOINTS = {
-  briefing: ['POST', '/api/v1/network/briefing'],
+  briefing: ['GET', '/api/v1/network/briefing'],
   alertsFeed: ['GET', '/api/v1/network/alerts/feed'],
   staffingPlan: ['GET', '/api/v1/network/staffing'],
   suggestionsList: ['GET', '/api/v1/network/suggestions'],
-  suggestionDecide: ['POST', '/api/v1/network/suggestions/decide'],
-  taskCreate: ['POST', '/api/v1/network/tasks/create'],
-  tasksList: ['GET', '/api/v1/network/tasks'],
-  taskUpdate: ['POST', '/api/v1/network/tasks/update'],
+  suggestionDecide: ['POST', (id) => `/api/v1/network/suggestions/${encodeURIComponent(id)}/decision`],
+  taskCreate: ['POST', '/api/v1/network/tasks'],
+  tasksList: ['GET', '/api/v1/network/tasks/list'],
+  taskUpdate: ['PATCH', (id) => `/api/v1/network/tasks/${encodeURIComponent(id)}`],
   explainChange: ['GET', '/api/v1/network/explain'],
-  caseExplain: ['GET', '/api/v1/network/cases/explain'],
+  caseExplain: ['GET', (id) => `/api/v1/network/cases/${encodeURIComponent(id)}/explain`],
   stockForecast: ['GET', '/api/v1/network/forecast'],
-  networkCompare: ['GET', '/api/v1/network/compare'],
+  networkCompare: ['GET', '/api/v1/network/comparison'],
   weeklyPlan: ['GET', '/api/v1/network/weekly-plan'],
 };
-const SEVERITIES = ['low', 'medium', 'high', 'critical'];
+const SEVERITIES = ['advisory', 'warning', 'critical'];
 const BRIEFING_KINDS = ['morning', 'closing'];
 const DECISIONS = ['approve', 'reject'];
-const TASK_STATUS = ['open', 'in_progress', 'done'];
+const TASK_STATUS = ['Ready', 'In progress', 'Completed'];
 const WRITE_TOOLS = ['nerva_suggestion_decide', 'nerva_task_create', 'nerva_task_update'];
 const ITEM_ID = /^[A-Za-z0-9._-]{1,60}$/;
 const SINCE = /^\d{4}-\d{2}-\d{2}(T[\d:.]+(Z|[+-]\d{2}:?\d{2})?)?$/;
@@ -486,7 +487,7 @@ const cleanText = (v, max) => String(v ?? '').replace(/[\u0000-\u001f\u007f]/g, 
 /** Baris dari daftar hasil NERVA, apa pun nama kuncinya. */
 function rowsOf(result, keys) {
   if (Array.isArray(result)) return result;
-  for (const k of keys) if (Array.isArray(result?.[k])) return result[k];
+  for (const src of [result, result?.data]) for (const k of keys) if (Array.isArray(src?.[k])) return src[k];
   return [];
 }
 
@@ -513,7 +514,7 @@ function createConfirmations({ ttlMs = 10 * 60_000, now = Date.now } = {}) {
       const hit = pending.get(key);
       if (!hit || hit.fingerprint !== fingerprint) return false;
       pending.delete(key);
-      return true;
+      return hit.at;
     },
     clear(key) { pending.delete(key); },
     size: () => pending.size,
@@ -525,7 +526,6 @@ function createConfirmations({ ttlMs = 10 * 60_000, now = Date.now } = {}) {
  * audit(entry), chat }. Tanpa ctx.confirmations alat tulis tidak ikut.
  */
 function agentToolSpecs(cfg, role, fetchImpl = fetch, ctx = {}) {
-  const [bm, bp] = ENDPOINTS.briefing;
   let regionStores = null;
   const storesOfRole = async () => {
     if (role.level !== 'region') return [];
@@ -563,82 +563,110 @@ function agentToolSpecs(cfg, role, fetchImpl = fetch, ctx = {}) {
   };
   const idOf = (v) => (ITEM_ID.test(String(v || '').trim()) ? String(v).trim() : null);
 
+  const slug = (v) => { const x = String(v || '').trim().toLowerCase(); return SLUG.test(x) ? x : ''; };
+  /** Toko untuk alat berparameter store: peran toko = tokonya, region = tokonya yang sah, nasional = slug apa pun. */
+  const storeFor = async (v) => {
+    if (role.level === 'store') return { id: role.id, clamped: Boolean(slug(v)) && slug(v) !== role.id };
+    const wanted = slug(v);
+    if (role.level === 'region') {
+      const stores = await storesOfRole();
+      return wanted && stores.includes(wanted) ? { id: wanted, clamped: false } : { id: '', clamped: Boolean(wanted) };
+    }
+    return { id: wanted, clamped: false };
+  };
+  const forecastLevels = ROLE_LEVELS;
+  const metrics = ['revenue', 'transactions', 'conversion', 'traffic', 'basket'];
+  const compares = ['wow', 'yesterday', '7d', '28d'];
+
   const tools = [
     {
       name: 'nerva_briefing',
-      description: 'Briefing manajer dari NERVA: kind morning (sebelum toko buka) atau closing (penutupan hari). Mengembalikan teks WhatsApp siap kirim.',
+      description: 'Briefing manajer dari NERVA: kind morning (sebelum toko buka) atau closing (penutupan hari). Mengembalikan text siap kirim WhatsApp.',
       parameters: schema({ kind: { type: 'string', enum: BRIEFING_KINDS } }),
-      run: async (args = {}) => {
-        const { scope, q } = await scoped(args);
-        q.set('kind', oneOf(BRIEFING_KINDS, args.kind) || 'morning');
-        return note(scope, await callNerva(cfg, bm, `${bp}?${q}`, fetchImpl));
-      },
+      run: read(ENDPOINTS.briefing, (a) => ({ kind: oneOf(BRIEFING_KINDS, a.kind) || 'morning' })),
     },
     {
       name: 'nerva_alerts_feed',
-      description: 'Alert terbaru dari NERVA (kasus, stok, device) di scope peran ini, bisa disaring severity minimum.',
+      description: 'Alert terbaru dari NERVA di scope peran ini, bisa disaring severity minimum (advisory, warning, critical).',
       parameters: schema({ since: { type: 'string', maxLength: 40 }, min_severity: { type: 'string', enum: SEVERITIES } }),
       run: read(ENDPOINTS.alertsFeed, (a) => ({ since: SINCE.test(String(a.since || '')) ? a.since : undefined, min_severity: oneOf(SEVERITIES, a.min_severity) })),
     },
     {
       name: 'nerva_staffing_plan',
-      description: 'Rencana jadwal/penempatan staf toko dari NERVA untuk jam ramai dan sepi.',
-      parameters: schema({ period: { type: 'string', enum: PERIODS } }),
-      run: read(ENDPOINTS.staffingPlan, (a) => ({ period: oneOf(PERIODS, a.period) })),
+      description: 'Rencana staf satu toko untuk satu tanggal dari NERVA (jam ramai dan sepi). Sebut slug toko.',
+      parameters: { type: 'object', additionalProperties: false, properties: { store: { type: 'string', maxLength: 40 }, date: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' } } },
+      run: async (args = {}) => {
+        const st = await storeFor(args.store);
+        if (!st.id) return { error: role.level === 'region' ? `Sebutkan toko di region ${role.id}.` : 'Sebutkan slug tokonya.' };
+        const q = new URLSearchParams({ store: st.id });
+        if (/^\d{4}-\d{2}-\d{2}$/.test(String(args.date || ''))) q.set('date', args.date);
+        const result = await callNerva(cfg, ENDPOINTS.staffingPlan[0], `${ENDPOINTS.staffingPlan[1]}?${q}`, fetchImpl);
+        if (st.clamped && result && typeof result === 'object') result.scopeNote = `Chat ini hanya boleh melihat ${roleLabel(role)}. Permintaan dibatasi ke toko ${st.id}.`;
+        return result;
+      },
     },
     {
       name: 'nerva_suggestions_list',
-      description: 'Daftar saran NERVA (transfer stok, promo, dll) yang menunggu keputusan, lengkap dengan id saran.',
-      parameters: schema({ status: { type: 'string', enum: ['pending', 'approved', 'rejected', 'all'] } }),
-      run: read(ENDPOINTS.suggestionsList, (a) => ({ status: oneOf(['pending', 'approved', 'rejected', 'all'], a.status) })),
+      description: 'Daftar saran NERVA (transfer, promo, reorder, rencana) dengan id saran, approver, dan status. state open untuk yang menunggu keputusan.',
+      parameters: schema({ state: { type: 'string', enum: ['open', 'decided', 'all'] }, type: { type: 'string', enum: ['all', 'transfer', 'promo', 'reorder', 'plan'] } }),
+      run: read(ENDPOINTS.suggestionsList, (a) => ({ state: oneOf(['open', 'decided', 'all'], a.state), type: oneOf(['all', 'transfer', 'promo', 'reorder', 'plan'], a.type) })),
     },
     {
       name: 'nerva_tasks_list',
-      description: 'Daftar tugas toko di NERVA beserta id, status, dan penanggung jawab.',
-      parameters: schema({ status: { type: 'string', enum: [...TASK_STATUS, 'all'] } }),
-      run: read(ENDPOINTS.tasksList, (a) => ({ status: oneOf([...TASK_STATUS, 'all'], a.status) })),
+      description: 'Daftar tugas toko di NERVA beserta id, status, penanggung jawab, dan keterlambatan.',
+      parameters: schema({ state: { type: 'string', enum: ['open', 'done', 'all'] } }),
+      run: read(ENDPOINTS.tasksList, (a) => ({ state: oneOf(['open', 'done', 'all'], a.state) })),
     },
     {
       name: 'nerva_explain_change',
-      description: 'Penjelasan mengapa angka berubah (omzet, konversi, stok) dibanding periode sebelumnya, dari NERVA.',
-      parameters: schema({ metric: { type: 'string', enum: ['sales', 'traffic', 'conversion', 'stock'] }, period: { type: 'string', enum: PERIODS } }),
-      run: read(ENDPOINTS.explainChange, (a) => ({ metric: oneOf(['sales', 'traffic', 'conversion', 'stock'], a.metric), period: oneOf(PERIODS, a.period) })),
+      description: 'Penjelasan mengapa angka berubah (omzet, transaksi, konversi, pengunjung, basket) dibanding pembanding, dari NERVA.',
+      parameters: schema({ metric: { type: 'string', enum: metrics }, compare: { type: 'string', enum: compares } }),
+      run: read(ENDPOINTS.explainChange, (a) => ({ metric: oneOf(metrics, a.metric), compare: oneOf(compares, a.compare) })),
     },
     {
       name: 'nerva_case_explain',
-      description: 'Penjelasan satu kasus NERVA (apa yang terjadi, bukti, langkah yang disarankan), mis. AL-1043.',
-      parameters: schema({ case_id: { type: 'string', pattern: '^[A-Za-z0-9-]{1,12}$' } }, ['case_id']),
+      description: 'Penjelasan satu kasus NERVA (apa yang terjadi, bukti, langkah berikut), mis. AL-1043. Foto atau klip ilustrasi kasus dikirim sebagai lampiran WhatsApp setelah balasanmu.',
+      parameters: { type: 'object', additionalProperties: false, required: ['caseId'], properties: { caseId: { type: 'string', pattern: '^[A-Za-z0-9-]{1,12}$' } } },
       run: async (args = {}) => {
-        const caseId = String(args.case_id || '').trim();
+        const caseId = String(args.caseId || args.case_id || '').trim();
         if (!CASE_ID.test(caseId)) return { error: 'Id kasus tidak dikenal. Pakai id dari daftar kasus, mis. AL-1043.' };
-        return read(ENDPOINTS.caseExplain, () => ({ case_id: caseId }))(args);
+        return withAttachments(await callNerva(cfg, ENDPOINTS.caseExplain[0], ENDPOINTS.caseExplain[1](caseId), fetchImpl), ctx.record || null);
       },
     },
     {
       name: 'nerva_stock_forecast',
-      description: 'Prakiraan stok (kapan habis, perlu isi ulang) per toko atau region dari NERVA.',
-      parameters: schema({ horizon_days: { type: 'integer', minimum: 1, maximum: 28 } }),
-      run: read(ENDPOINTS.stockForecast, (a) => ({ horizon_days: Number.isInteger(a.horizon_days) ? Math.min(28, Math.max(1, a.horizon_days)) : undefined })),
-    },
-    {
-      name: 'nerva_weekly_plan',
-      description: 'Rencana mingguan dari NERVA: prioritas, stok, staf, dan promo untuk minggu depan.',
-      parameters: schema(),
-      run: read(ENDPOINTS.weeklyPlan),
+      description: 'Prakiraan stok dan usulan reorder (kapan habis, perlu isi ulang) per toko atau region dari NERVA.',
+      parameters: schema({ horizon: { type: 'integer', minimum: 1, maximum: 28 } }),
+      run: read(ENDPOINTS.stockForecast, (a) => ({ horizon: Number.isInteger(a.horizon) ? Math.min(28, Math.max(1, a.horizon)) : undefined })),
     },
   ];
   if (role.level !== 'store') {
-    tools.push({
-      name: 'nerva_network_compare',
-      description: 'Perbandingan toko atau region berdampingan dari NERVA (analisis peringkat dan selisih).',
-      parameters: schema({ period: { type: 'string', enum: PERIODS } }),
-      run: read(ENDPOINTS.networkCompare, (a) => ({ period: oneOf(PERIODS, a.period) })),
-    });
+    tools.push(
+      {
+        name: 'nerva_network_compare',
+        description: 'Perbandingan toko dalam region atau region secara nasional dari NERVA (peringkat dan selisih).',
+        parameters: schema(),
+        run: read(ENDPOINTS.networkCompare),
+      },
+      {
+        name: 'nerva_weekly_plan',
+        description: 'Rencana mingguan region atau nasional dari NERVA: prioritas, stok, staf, dan promo minggu depan.',
+        parameters: schema(),
+        run: read(ENDPOINTS.weeklyPlan),
+      },
+    );
   }
 
   if (ctx.confirmations) {
     const { confirmations, audit = () => {}, key = '', lastUserText = '' } = ctx;
     const logAudit = (entry) => { try { audit({ role: roleLabel(role), ...entry }); } catch { /* audit tidak boleh menggagalkan balasan */ } };
+    const crypto = require('node:crypto');
+    // action_id NERVA: unik per konfirmasi, tetap sama bila langkah 2 diulang (NERVA mengembalikan hasil pertama).
+    const actionId = (at, fp) => `wa-${crypto.createHash('sha1').update(`${key}|${at}|${fp}`).digest('hex').slice(0, 24)}`;
+    const writer = (at, fp, extra = {}) => ({
+      level: role.level, ...(role.level !== 'national' ? { id: role.id } : {}),
+      actor: cleanText(`WhatsApp ${ctx.chat || ''}`, 60), channel: 'whatsapp', action_id: actionId(at, fp), ...extra,
+    });
     /**
      * Langkah 1 (confirmed kosong): simpan niat, minta AI menanyakan konfirmasi.
      * Langkah 2 (confirmed=true): jalan hanya bila niat sama sudah diminta dan
@@ -655,10 +683,11 @@ function agentToolSpecs(cfg, role, fetchImpl = fetch, ctx = {}) {
       if (!isAffirmative(lastUserText) || isNegative(lastUserText)) {
         return { status: 'needs_confirmation', error: 'Pesan terakhir pengguna belum berupa persetujuan. Tanyakan konfirmasi dulu.' };
       }
-      if (!confirmations.consume(key, fingerprint(args))) {
+      const at = confirmations.consume(key, fingerprint(args));
+      if (!at) {
         return { status: 'needs_confirmation', error: 'Belum ada konfirmasi untuk tindakan ini (atau sudah kedaluwarsa). Tanyakan konfirmasi dulu.' };
       }
-      const result = await execute(args);
+      const result = await execute(args, writer(at, fingerprint(args)));
       logAudit({ action, target: cleanText(target, 80), outcome: result?.error ? 'gagal' : 'berhasil', detail: result?.error ? cleanText(result.error, 120) : undefined });
       return result;
     };
@@ -666,9 +695,9 @@ function agentToolSpecs(cfg, role, fetchImpl = fetch, ctx = {}) {
     tools.push(
       {
         name: 'nerva_suggestion_decide',
-        description: 'TULIS: setujui atau tolak satu saran NERVA (id dari nerva_suggestions_list). Hanya bila pengguna eksplisit memintanya di chat ini. Panggilan pertama meminta konfirmasi; panggilan kedua dengan confirmed=true menjalankan.',
+        description: 'TULIS: setujui atau tolak satu saran NERVA (id dari nerva_suggestions_list). Hanya bila pengguna eksplisit memintanya di chat ini. Panggilan pertama meminta konfirmasi; panggilan kedua dengan confirmed=true menjalankan. Manajer toko tidak berwenang memutuskan saran; arahkan ke nerva_task_create.',
         parameters: { type: 'object', additionalProperties: false, required: ['suggestion_id', 'decision'], properties: {
-          suggestion_id: { type: 'string', maxLength: 60 }, decision: { type: 'string', enum: DECISIONS }, note: { type: 'string', maxLength: 200 }, confirmed: { type: 'boolean' },
+          suggestion_id: { type: 'string', maxLength: 60 }, decision: { type: 'string', enum: DECISIONS }, reason: { type: 'string', maxLength: 200 }, confirmed: { type: 'boolean' },
         } },
         run: guarded('suggestion_decide',
           (a) => `decide:${idOf(a.suggestion_id)}:${a.decision}`,
@@ -677,66 +706,66 @@ function agentToolSpecs(cfg, role, fetchImpl = fetch, ctx = {}) {
             if (!idOf(a.suggestion_id)) return { error: 'Id saran tidak sah. Ambil dari nerva_suggestions_list.' };
             if (!DECISIONS.includes(a.decision)) return { error: 'decision harus approve atau reject.' };
             // Id harus muncul di daftar saran peran ini; token NERVA membuka semua scope.
-            const listed = await agentTools.nerva_suggestions_list.run({ status: 'pending' });
+            const listed = await agentTools.nerva_suggestions_list.run({ state: 'open' });
             if (listed?.error) return listed;
-            const ids = rowsOf(listed, ['suggestions', 'items']).map((r) => String(r?.id ?? r?.suggestion_id ?? ''));
+            const ids = rowsOf(listed, ['rows', 'suggestions', 'items']).map((r) => String(r?.id ?? ''));
             if (!ids.includes(String(a.suggestion_id).trim())) return { error: `Saran ${a.suggestion_id} tidak ada di scope ${roleLabel(role)} atau sudah diputuskan.` };
             return null;
           },
-          async (a) => {
-            const { scope } = await scoped({});
-            const q = new URLSearchParams({ id: String(a.suggestion_id).trim(), decision: a.decision });
-            if (a.note) q.set('note', cleanText(a.note, 200));
-            if (scope.level) q.set('scope_level', scope.level);
-            if (scope.id && scope.level !== 'national') q.set('scope_id', scope.id);
-            return callNerva(cfg, ENDPOINTS.suggestionDecide[0], `${ENDPOINTS.suggestionDecide[1]}?${q}`, fetchImpl);
-          }),
+          (a, w) => callNerva(cfg, ENDPOINTS.suggestionDecide[0], ENDPOINTS.suggestionDecide[1](String(a.suggestion_id).trim()), fetchImpl,
+            { ...w, decision: a.decision, ...(a.reason ? { reason: cleanText(a.reason, 200) } : {}) })),
       },
       {
         name: 'nerva_task_create',
-        description: 'TULIS: buat tugas baru di NERVA untuk toko peran ini. Hanya bila pengguna eksplisit memintanya. Panggilan pertama meminta konfirmasi.',
+        description: 'TULIS: buat tugas baru di NERVA. Hanya bila pengguna eksplisit memintanya. store wajib kecuali manajer toko. Panggilan pertama meminta konfirmasi.',
         parameters: { type: 'object', additionalProperties: false, required: ['title'], properties: {
-          title: { type: 'string', maxLength: 140 }, owner: { type: 'string', maxLength: 60 }, due: { type: 'string', maxLength: 40 },
-          case_id: { type: 'string', maxLength: 12 }, level: scopeProps.level, id: scopeProps.id, confirmed: { type: 'boolean' },
+          title: { type: 'string', maxLength: 140 }, store: { type: 'string', maxLength: 40 }, owner: { type: 'string', maxLength: 60 }, criteria: { type: 'string', maxLength: 200 },
+          due: { type: 'string', maxLength: 40 }, priority: { type: 'string', maxLength: 20 }, case_id: { type: 'string', maxLength: 12 }, confirmed: { type: 'boolean' },
         } },
         run: guarded('task_create',
-          (a) => `task:${cleanText(a.title, 140).toLowerCase()}`,
-          (a) => `Buat tugas "${cleanText(a.title, 140)}"`,
-          async (a) => (cleanText(a.title, 140).length < 3 ? { error: 'Judul tugas terlalu pendek.' } : (a.case_id && !CASE_ID.test(String(a.case_id)) ? { error: 'Id kasus tidak sah.' } : null)),
+          (a) => `task:${cleanText(a.title, 140).toLowerCase()}:${slug(a.store)}`,
+          (a) => `Buat tugas "${cleanText(a.title, 140)}"${slug(a.store) && role.level !== 'store' ? ` untuk toko ${slug(a.store)}` : ''}`,
           async (a) => {
-            const { scope } = await scoped(a);
-            if (!['store', 'region'].includes(scope.level) || !scope.id) return { error: 'Tugas harus untuk satu toko atau region. Sebutkan tokonya.' };
-            const q = new URLSearchParams({ title: cleanText(a.title, 140), level: scope.level, id: scope.id });
-            if (a.owner) q.set('owner', cleanText(a.owner, 60));
-            if (a.due && SINCE.test(String(a.due))) q.set('due', a.due);
-            if (a.case_id) q.set('case_id', String(a.case_id));
-            return callNerva(cfg, ENDPOINTS.taskCreate[0], `${ENDPOINTS.taskCreate[1]}?${q}`, fetchImpl);
+            if (cleanText(a.title, 140).length < 3) return { error: 'Judul tugas terlalu pendek.' };
+            if (a.case_id && !CASE_ID.test(String(a.case_id))) return { error: 'Id kasus tidak sah.' };
+            const st = await storeFor(a.store);
+            if (!st.id) return { error: role.level === 'region' ? `Sebutkan toko di region ${role.id} untuk tugas ini.` : 'Tugas harus untuk satu toko. Sebutkan slug tokonya.' };
+            return null;
+          },
+          async (a, w) => {
+            const st = await storeFor(a.store);
+            return callNerva(cfg, ENDPOINTS.taskCreate[0], ENDPOINTS.taskCreate[1], fetchImpl, {
+              ...w, store: st.id, title: cleanText(a.title, 140),
+              ...(a.owner ? { owner: cleanText(a.owner, 60) } : {}), ...(a.criteria ? { criteria: cleanText(a.criteria, 200) } : {}),
+              ...(a.due && SINCE.test(String(a.due)) ? { due: a.due } : {}), ...(a.priority ? { priority: cleanText(a.priority, 20) } : {}),
+              ...(a.case_id ? { case_id: String(a.case_id) } : {}),
+            });
           }),
       },
       {
         name: 'nerva_task_update',
-        description: 'TULIS: ubah status atau catatan satu tugas NERVA (id dari nerva_tasks_list). Hanya bila pengguna eksplisit memintanya. Panggilan pertama meminta konfirmasi.',
+        description: 'TULIS: ubah status (Ready, In progress, Completed), penanggung jawab, atau catatan satu tugas NERVA (id dari nerva_tasks_list). Completed butuh verification. Hanya bila pengguna eksplisit memintanya. Panggilan pertama meminta konfirmasi.',
         parameters: { type: 'object', additionalProperties: false, required: ['task_id'], properties: {
-          task_id: { type: 'string', maxLength: 60 }, status: { type: 'string', enum: TASK_STATUS }, note: { type: 'string', maxLength: 200 }, confirmed: { type: 'boolean' },
+          task_id: { type: 'string', maxLength: 60 }, status: { type: 'string', enum: TASK_STATUS }, owner: { type: 'string', maxLength: 60 }, note: { type: 'string', maxLength: 200 },
+          verification: { type: 'string', maxLength: 200 }, confirmed: { type: 'boolean' },
         } },
         run: guarded('task_update',
-          (a) => `taskupd:${idOf(a.task_id)}:${a.status || ''}:${cleanText(a.note, 200)}`,
+          (a) => `taskupd:${idOf(a.task_id)}:${a.status || ''}:${cleanText(a.note, 200)}:${cleanText(a.owner, 60)}`,
           (a) => `Ubah tugas ${idOf(a.task_id)}${a.status ? ` menjadi ${a.status}` : ''}`,
           async (a) => {
             if (!idOf(a.task_id)) return { error: 'Id tugas tidak sah. Ambil dari nerva_tasks_list.' };
-            if (!a.status && !a.note) return { error: 'Sebutkan status atau catatan yang diubah.' };
-            const listed = await agentTools.nerva_tasks_list.run({ status: 'all' });
+            if (!a.status && !a.note && !a.owner) return { error: 'Sebutkan status, penanggung jawab, atau catatan yang diubah.' };
+            if (a.status === 'Completed' && !cleanText(a.verification, 200)) return { error: 'Menyelesaikan tugas butuh verification (bukti singkat). Tanyakan ke pengguna.' };
+            const listed = await agentTools.nerva_tasks_list.run({ state: 'all' });
             if (listed?.error) return listed;
-            const ids = rowsOf(listed, ['tasks', 'items']).map((r) => String(r?.id ?? r?.task_id ?? ''));
+            const ids = rowsOf(listed, ['rows', 'tasks', 'items']).map((r) => String(r?.id ?? ''));
             if (!ids.includes(String(a.task_id).trim())) return { error: `Tugas ${a.task_id} tidak ada di scope ${roleLabel(role)}.` };
             return null;
           },
-          async (a) => {
-            const q = new URLSearchParams({ id: String(a.task_id).trim() });
-            if (TASK_STATUS.includes(a.status)) q.set('status', a.status);
-            if (a.note) q.set('note', cleanText(a.note, 200));
-            return callNerva(cfg, ENDPOINTS.taskUpdate[0], `${ENDPOINTS.taskUpdate[1]}?${q}`, fetchImpl);
-          }),
+          (a, w) => callNerva(cfg, ENDPOINTS.taskUpdate[0], ENDPOINTS.taskUpdate[1](String(a.task_id).trim()), fetchImpl, {
+            ...w, ...(TASK_STATUS.includes(a.status) ? { status: a.status } : {}), ...(a.owner ? { owner: cleanText(a.owner, 60) } : {}),
+            ...(a.note ? { note: cleanText(a.note, 200) } : {}), ...(a.verification ? { verification: cleanText(a.verification, 200) } : {}),
+          })),
       },
     );
   }
@@ -747,8 +776,8 @@ function agentToolSpecs(cfg, role, fetchImpl = fetch, ctx = {}) {
 const AGENT_GUIDE = `## NervAgent (briefing, alert, saran, tugas)
 - Briefing: bila pengguna minta briefing pagi atau penutupan, panggil nerva_briefing (kind morning atau closing) dan kirim teks siap-WA-nya apa adanya.
 - Alert dan kasus: nerva_alerts_feed untuk alert terbaru, nerva_case_explain untuk menjelaskan satu kasus (id seperti AL-1043).
-- Analisis: nerva_explain_change (kenapa angka berubah), nerva_stock_forecast (stok), nerva_staffing_plan (staf), nerva_weekly_plan (rencana mingguan), nerva_network_compare (banding toko/region).
-- Saran dan tugas: nerva_suggestions_list dan nerva_tasks_list untuk membaca; id saran/tugas hanya dari hasil alat, jangan menebak.
+- Analisis: nerva_explain_change (kenapa angka berubah), nerva_stock_forecast (stok), nerva_staffing_plan (staf), nerva_weekly_plan dan nerva_network_compare (region/nasional).
+- Saran dan tugas: nerva_suggestions_list dan nerva_tasks_list untuk membaca; id saran/tugas hanya dari hasil alat, jangan menebak. Hasil alat baru memuat text siap kirim dan data terstruktur; kutip angka hanya dari keduanya. Manajer toko tidak berwenang menyetujui saran (NERVA menolak): tawarkan membuat tugas. Menyelesaikan tugas butuh bukti singkat (verification); tanyakan ke pengguna bila belum ada.
 - Sebut angka hanya dari hasil alat. Bila alat tidak memuat datanya, jawab "Data itu belum ada di NERVA". Jangan menghitung ulang atau mengarang angka.
 - ALAT TULIS (nerva_suggestion_decide, nerva_task_create, nerva_task_update): panggil HANYA bila pengguna secara eksplisit memintanya di chat ini ("setuju saran S-12", "tolak", "buat task ..."). Jangan pernah memutuskan sendiri dari alert atau briefing.
   1. Panggil alatnya tanpa confirmed; hasilnya needs_confirmation berisi pertanyaan. Sampaikan konfirmasi singkat, mis. "Setujui transfer stok iPhone dari Bekasi ke Senayan? Balas ya."
@@ -800,7 +829,7 @@ function forChat(cfg, ctx, fetchImpl = fetch, record = null) {
   const store = enabledFor(cfg, ctx);
   const role = networkScopeFor(cfg, ctx);
   // Alat NervAgent hanya bila NERVA_AGENT_TOOLS menyala; alat tulis butuh pelacak konfirmasi.
-  const agent = role && cfg.agentTools ? agentToolSpecs(cfg, role, fetchImpl, ctx.agent || {}) : [];
+  const agent = role && cfg.agentTools ? agentToolSpecs(cfg, role, fetchImpl, { ...(ctx.agent || {}), record }) : [];
   return {
     role,
     tools: [...(store ? toolSpecs(cfg, fetchImpl, record) : []), ...(role ? networkToolSpecs(cfg, role, fetchImpl, record) : []), ...agent],

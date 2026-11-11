@@ -754,16 +754,21 @@ Agnee sama persis seperti sebelumnya. Kode: `src/nerva-tools.js` (alat dan konfi
 `src/nerva-proactive.js` (penjadwal dan poller), tabel `nerva_proactive_sent` dan `nerva_audit`
 (migrasi `104_nerva_proactive.sql`). Tes: `test/nerva-proactive.test.js`, `test/nerva-proactive-db.test.js`.
 
-> Kontrak REST NERVA untuk alat baru dikumpulkan di satu tabel `ENDPOINTS` di `src/nerva-tools.js`.
-> Sampai kontrak final dari repo NERVA dicocokkan, path dan nama field di tabel itu adalah dugaan.
+> Kontrak REST NERVA (dari sesi NERVA, 12 Nov) ada di tabel `ENDPOINTS` di `src/nerva-tools.js`:
+> `GET /api/v1/network/{briefing,alerts/feed,staffing,suggestions,tasks/list,explain,cases/:id/explain,forecast,comparison,weekly-plan}`,
+> `POST /suggestions/:id/decision`, `POST /tasks`, `PATCH /tasks/:id`. Respons: `{text, data, attachments?}`;
+> error berprefiks `[forbidden|invalid|not_found|conflict]` diteruskan ke AI apa adanya. Alat tulis mengirim
+> `level`, `id`, `actor` (nomor chat), `channel=whatsapp`, dan `action_id` unik per konfirmasi (idempoten di NERVA).
+> NERVA menolak manajer toko menyetujui saran (`forbidden`); AI menawarkan membuat tugas. NERVA belum di-deploy
+> dengan alat ini saat dokumen ini ditulis: cek dulu versi NERVA di produksi sebelum menyalakan `NERVA_AGENT_TOOLS`.
 
 | Variabel | Arti | Bawaan |
 | --- | --- | --- |
-| `NERVA_AGENT_TOOLS=1` | Chat di `NERVA_CHAT_SCOPES` mendapat alat `nerva_briefing`, `nerva_alerts_feed`, `nerva_staffing_plan`, `nerva_suggestions_list`, `nerva_tasks_list`, `nerva_explain_change`, `nerva_case_explain`, `nerva_stock_forecast`, `nerva_weekly_plan`, `nerva_network_compare` (tidak untuk manajer toko), dan alat tulis `nerva_suggestion_decide`, `nerva_task_create`, `nerva_task_update` | mati |
+| `NERVA_AGENT_TOOLS=1` | Chat di `NERVA_CHAT_SCOPES` mendapat alat `nerva_briefing`, `nerva_alerts_feed`, `nerva_staffing_plan`, `nerva_suggestions_list`, `nerva_tasks_list`, `nerva_explain_change`, `nerva_case_explain`, `nerva_stock_forecast`, `nerva_weekly_plan` dan `nerva_network_compare` (tidak untuk manajer toko), dan alat tulis `nerva_suggestion_decide`, `nerva_task_create`, `nerva_task_update` | mati |
 | `NERVA_BRIEFING_MORNING_AT=09:30` | Kirim briefing pagi (WIB) ke tiap chat di `NERVA_CHAT_SCOPES` sesuai perannya | kosong = mati |
 | `NERVA_BRIEFING_CLOSING_AT=22:15` | Briefing penutupan | kosong = mati |
 | `NERVA_ALERTS_ENABLED=1` | Poller `nerva_alerts_feed` per chat terdaftar | mati |
-| `NERVA_ALERTS_MIN_SEVERITY` | `low`, `medium`, `high`, `critical` | `high` |
+| `NERVA_ALERTS_MIN_SEVERITY` | `advisory`, `warning`, `critical` | `warning` |
 | `NERVA_ALERTS_POLL_SECONDS` | Jeda antar putaran (30-3600) | `120` |
 | `NERVA_ALERTS_MAX_PER_HOUR` | Maksimal alert per chat per jam (1-60) | `6` |
 | `NERVA_ALERTS_QUIET` | Jam senyap WIB `HH:MM-HH:MM`, boleh melewati tengah malam | `22:30-08:00` |
@@ -778,7 +783,7 @@ Perilaku:
 - **Alert**: hanya alert baru. Kunci dedupe `dedupe_key` per chat disimpan di `nerva_proactive_sent`.
   Di bawah ambang severity dibuang; yang parah dikirim dulu; maksimal 5 per putaran dan
   `NERVA_ALERTS_MAX_PER_HOUR` per chat per jam. Yang tertahan jam senyap atau batas laju tidak ditandai
-  terkirim, jadi keluar di putaran berikutnya (mundur maksimal 12 jam). Foto kasus dari alert ikut
+  terkirim, jadi keluar di putaran berikutnya (mundur maksimal 12 jam). Foto kasus (alert dengan `case_id`, diambil dari `cases/:id/explain`) ikut
   lewat media outbox (maksimal 2); sambungan Cloud API tetap hanya teks.
 - **Persetujuan**: manajer membalas "setuju S-12", "tolak", atau "buat task ...". AI memanggil alat
   tulis dua langkah. Langkah 1 hanya menyimpan niat dan menghasilkan pertanyaan konfirmasi. Langkah 2
@@ -816,7 +821,7 @@ NERVA_AGENT_TOOLS=1
 NERVA_BRIEFING_MORNING_AT=09:30
 NERVA_BRIEFING_CLOSING_AT=22:15
 NERVA_ALERTS_ENABLED=1
-NERVA_ALERTS_MIN_SEVERITY=high
+NERVA_ALERTS_MIN_SEVERITY=warning
 ```
 
 Pengiriman proaktif memakai `NERVA_CHAT_SCOPES` sebagai daftar penerima (nomor + `@c.us`). Mulailah

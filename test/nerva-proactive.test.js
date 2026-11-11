@@ -32,17 +32,17 @@ function fakeNerva({ suggestions = [{ id: 'S-12' }], tasks = [{ id: 'T-1' }] } =
   const calls = [];
   const fetchImpl = async (url, opts) => {
     const u = new URL(url);
-    calls.push({ method: opts.method, path: u.pathname, q: Object.fromEntries(u.searchParams) });
+    calls.push({ method: opts.method, path: u.pathname, q: Object.fromEntries(u.searchParams), body: opts.body ? JSON.parse(opts.body) : null });
     if (u.pathname === '/api/v1/network/scopes') return json({ regions: [{ id: 'jabodetabek', stores: ['senayan', 'kemang'] }] });
-    if (u.pathname === '/api/v1/network/suggestions') return json({ suggestions });
-    if (u.pathname === '/api/v1/network/tasks') return json({ tasks });
+    if (u.pathname === '/api/v1/network/suggestions') return json({ text: 'x', data: { rows: suggestions } });
+    if (u.pathname === '/api/v1/network/tasks/list') return json({ text: 'x', data: { rows: tasks } });
     return json({ ok: true, echo: u.pathname });
   };
   return { calls, fetchImpl };
 }
 
 const byName = (tools) => Object.fromEntries(tools.map((t) => [t.name, t]));
-const writes = (calls) => calls.filter((c) => c.method === 'POST');
+const writes = (calls) => calls.filter((c) => c.method === 'POST' || c.method === 'PATCH');
 
 test('alat NervAgent: parameter di luar daftar dibuang dan scope dikunci ke peran', async () => {
   const { calls, fetchImpl } = fakeNerva();
@@ -50,23 +50,29 @@ test('alat NervAgent: parameter di luar daftar dibuang dan scope dikunci ke pera
   const t = byName(nerva.agentToolSpecs(CFG, STORE, fetchImpl, ctx));
   await t.nerva_briefing.run({ kind: 'bogus', level: 'national', id: 'x' });
   assert.deepEqual(calls[0].q, { level: 'store', id: 'senayan', kind: 'morning' });
+  assert.equal(calls[0].method, 'GET');
   assert.equal(calls[0].path, '/api/v1/network/briefing');
   await t.nerva_alerts_feed.run({ since: 'bukan-tanggal', min_severity: 'galau' });
   assert.equal(calls[1].q.since, undefined);
   assert.equal(calls[1].q.min_severity, undefined);
-  await t.nerva_alerts_feed.run({ since: '2026-11-12T01:00:00Z', min_severity: 'high' });
+  await t.nerva_alerts_feed.run({ since: '2026-11-12T01:00:00Z', min_severity: 'warning' });
   assert.equal(calls[2].q.since, '2026-11-12T01:00:00Z');
-  assert.equal(calls[2].q.min_severity, 'high');
-  await t.nerva_stock_forecast.run({ horizon_days: 999 });
-  assert.equal(calls[3].q.horizon_days, '28');
-  assert.match((await t.nerva_case_explain.run({ case_id: '../x' })).error, /tidak dikenal/);
-  const res = await t.nerva_weekly_plan.run({ level: 'national' });
+  assert.equal(calls[2].q.min_severity, 'warning');
+  await t.nerva_stock_forecast.run({ horizon: 999 });
+  assert.equal(calls[3].q.horizon, '28');
+  assert.match((await t.nerva_case_explain.run({ caseId: '../x' })).error, /tidak dikenal/);
+  const res = await t.nerva_explain_change.run({ level: 'national', metric: 'revenue', compare: 'bogus' });
   assert.match(res.scopeNote, /toko senayan/);
+  assert.equal(calls.at(-1).q.compare, undefined);
+  const staff = await t.nerva_staffing_plan.run({ store: 'kemang' });
+  assert.match(staff.scopeNote, /toko senayan/);
+  assert.equal(calls.at(-1).q.store, 'senayan', 'toko lain dikunci ke toko peran');
 });
 
 test('peran toko tidak mendapat nerva_network_compare; region dan nasional mendapat', () => {
   const names = (role) => nerva.agentToolSpecs(CFG, role, fetch, makeCtx('').ctx).map((t) => t.name);
   assert.equal(names(STORE).includes('nerva_network_compare'), false);
+  assert.equal(names(STORE).includes('nerva_weekly_plan'), false);
   assert.equal(names(REGION).includes('nerva_network_compare'), true);
   assert.equal(names(NATIONAL).includes('nerva_network_compare'), true);
   for (const role of [STORE, REGION, NATIONAL]) {
@@ -107,8 +113,10 @@ test('setujui saran: langkah 1 hanya meminta konfirmasi, langkah 2 jalan setelah
   assert.equal(done.ok, true);
   const w = writes(calls);
   assert.equal(w.length, 1);
-  assert.equal(w[0].path, '/api/v1/network/suggestions/decide');
-  assert.deepEqual({ id: w[0].q.id, decision: w[0].q.decision, scope_id: w[0].q.scope_id }, { id: 'S-12', decision: 'approve', scope_id: 'senayan' });
+  assert.equal(w[0].method, 'POST');
+  assert.equal(w[0].path, '/api/v1/network/suggestions/S-12/decision');
+  assert.deepEqual({ level: w[0].body.level, id: w[0].body.id, decision: w[0].body.decision, channel: w[0].body.channel }, { level: 'store', id: 'senayan', decision: 'approve', channel: 'whatsapp' });
+  assert.match(w[0].body.action_id, /^[A-Za-z0-9._:-]{6,80}$/);
   assert.deepEqual(audits.map((a) => [a.action, a.target, a.outcome, a.role]), [['suggestion_decide', 'S-12', 'berhasil', 'toko senayan']]);
 
   // Konfirmasi sekali pakai: ulangi confirmed=true tanpa minta lagi ditolak.
@@ -156,36 +164,80 @@ test('penolakan lintas peran: saran atau tugas di luar scope ditolak dan dicatat
   const denied = await t.nerva_suggestion_decide.run({ suggestion_id: 'S-99', decision: 'approve', confirmed: true });
   assert.match(denied.error, /tidak ada di scope toko senayan/);
   const list = calls.find((c) => c.path === '/api/v1/network/suggestions');
-  assert.deepEqual({ level: list.q.level, id: list.q.id }, { level: 'store', id: 'senayan' }, 'daftar saran diminta dengan scope peran');
-  const task = await t.nerva_task_update.run({ task_id: 'T-404', status: 'done', confirmed: true });
+  assert.deepEqual({ level: list.q.level, id: list.q.id, state: list.q.state }, { level: 'store', id: 'senayan', state: 'open' }, 'daftar saran diminta dengan scope peran');
+  const task = await t.nerva_task_update.run({ task_id: 'T-404', status: 'In progress', confirmed: true });
   assert.match(task.error, /tidak ada di scope/);
   assert.equal(writes(calls).length, 0);
   assert.deepEqual(audits.map((a) => a.outcome), ['ditolak', 'ditolak']);
 });
 
-test('buat tugas: toko dikunci ke peran, nasional wajib menyebut toko', async () => {
+test('buat tugas: toko dikunci ke peran, region hanya tokonya, nasional wajib menyebut toko', async () => {
   const { calls, fetchImpl } = fakeNerva();
   const confirmations = nerva.createConfirmations();
   const run = async (role, lastUserText, args) => {
     const tool = byName(nerva.agentToolSpecs(CFG, role, fetchImpl, { key: `k-${role.level}`, lastUserText, confirmations })).nerva_task_create;
     return tool.run(args);
   };
-  await run(STORE, 'buat task cek kamera', { title: 'Cek kamera pintu', level: 'store', id: 'kemang' });
-  const done = await run(STORE, 'ya', { title: 'Cek kamera pintu', level: 'store', id: 'kemang', confirmed: true });
+  await run(STORE, 'buat task cek kamera', { title: 'Cek kamera pintu', store: 'kemang' });
+  const done = await run(STORE, 'ya', { title: 'Cek kamera pintu', store: 'kemang', confirmed: true });
   assert.equal(done.ok, true);
   const w = writes(calls)[0];
-  assert.deepEqual({ level: w.q.level, id: w.q.id, title: w.q.title }, { level: 'store', id: 'senayan', title: 'Cek kamera pintu' }, 'id toko lain dikunci ke senayan');
-  await run(NATIONAL, 'buat task', { title: 'Audit stok' });
-  const nat = await run(NATIONAL, 'ya', { title: 'Audit stok', confirmed: true });
-  assert.match(nat.error, /satu toko atau region/);
-  assert.equal(writes(calls).length, 1);
+  assert.equal(w.path, '/api/v1/network/tasks');
+  assert.deepEqual({ level: w.body.level, id: w.body.id, store: w.body.store, title: w.body.title, channel: w.body.channel }, { level: 'store', id: 'senayan', store: 'senayan', title: 'Cek kamera pintu', channel: 'whatsapp' }, 'toko lain dikunci ke senayan');
+  // Nasional: tanpa toko ditolak; dengan toko jalan tanpa id.
+  const noStore = await run(NATIONAL, 'buat task', { title: 'Audit stok' });
+  assert.match(noStore.error, /satu toko/);
+  await run(NATIONAL, 'buat task', { title: 'Audit stok', store: 'denpasar' });
+  await run(NATIONAL, 'ya', { title: 'Audit stok', store: 'denpasar', confirmed: true });
+  const nat = writes(calls).at(-1);
+  assert.deepEqual({ level: nat.body.level, id: nat.body.id, store: nat.body.store }, { level: 'national', id: undefined, store: 'denpasar' });
+  // Region: toko di luar regionnya ditolak.
+  const out = await run(REGION, 'buat task', { title: 'Cek stok', store: 'bandung' });
+  assert.match(out.error, /toko di region jabodetabek/);
+  await run(REGION, 'buat task', { title: 'Cek stok', store: 'kemang' });
+  await run(REGION, 'ya', { title: 'Cek stok', store: 'kemang', confirmed: true });
+  assert.equal(writes(calls).at(-1).body.store, 'kemang');
   assert.match((await run(STORE, 'ya', { title: 'x' })).error, /terlalu pendek/);
+});
+
+test('ubah tugas: Completed butuh verification, PATCH dengan action_id stabil per konfirmasi', async () => {
+  const { calls, fetchImpl } = fakeNerva();
+  const confirmations = nerva.createConfirmations();
+  const tool = (lastUserText) => byName(nerva.agentToolSpecs(CFG, STORE, fetchImpl, { key: 'k', lastUserText, confirmations })).nerva_task_update;
+  assert.match((await tool('selesai').run({ task_id: 'T-1', status: 'Completed' })).error, /verification/);
+  await tool('tandai selesai').run({ task_id: 'T-1', status: 'Completed', verification: 'foto rak' });
+  const done = await tool('ya').run({ task_id: 'T-1', status: 'Completed', verification: 'foto rak', confirmed: true });
+  assert.equal(done.ok, true);
+  const w = writes(calls)[0];
+  assert.equal(w.method, 'PATCH');
+  assert.equal(w.path, '/api/v1/network/tasks/T-1');
+  assert.deepEqual({ status: w.body.status, verification: w.body.verification }, { status: 'Completed', verification: 'foto rak' });
+});
+
+test('action_id berbeda untuk konfirmasi berbeda, dan NERVA conflict/forbidden diteruskan jujur', async () => {
+  const ids = [];
+  const fetchImpl = async (url, opts) => {
+    const u = new URL(url);
+    if (u.pathname === '/api/v1/network/suggestions') return json({ data: { rows: [{ id: 'S-12' }] } });
+    ids.push(JSON.parse(opts.body).action_id);
+    return json({ error: '[forbidden] Store manager tidak berwenang menyetujui saran ini.', code: 'forbidden' }, 403);
+  };
+  const confirmations = nerva.createConfirmations();
+  const tool = (t) => byName(nerva.agentToolSpecs(CFG, STORE, fetchImpl, { key: 'k', lastUserText: t, confirmations })).nerva_suggestion_decide;
+  const results = [];
+  for (let i = 0; i < 2; i += 1) {
+    await tool('setuju').run({ suggestion_id: 'S-12', decision: 'approve' });
+    results.push(await tool('ya').run({ suggestion_id: 'S-12', decision: 'approve', confirmed: true }));
+    await new Promise((r) => setTimeout(r, 2));
+  }
+  assert.match(results[0].error, /\[forbidden\]/);
+  assert.notEqual(ids[0], ids[1]);
 });
 
 test('kegagalan NERVA pada alat tulis dikembalikan sebagai error jujur, tidak melempar', async () => {
   const fetchImpl = async (url) => {
     const u = new URL(url);
-    if (u.pathname === '/api/v1/network/suggestions') return json({ suggestions: [{ id: 'S-12' }] });
+    if (u.pathname === '/api/v1/network/suggestions') return json({ data: { rows: [{ id: 'S-12' }] } });
     throw new Error('ECONNREFUSED');
   };
   const { ctx, audits } = makeCtx('ya');
@@ -211,15 +263,15 @@ test('audit tidak memuat token atau rahasia', async () => {
 test('readProactiveConfig: bawaan mati, nilai salah format dibuang', () => {
   const off = proactive.readProactiveConfig({});
   assert.equal(proactive.proactiveEnabled(off), false);
-  assert.equal(off.minSeverity, 'high');
+  assert.equal(off.minSeverity, 'warning');
   assert.deepEqual(off.quiet, { from: 22 * 60 + 30, to: 8 * 60 });
   const on = proactive.readProactiveConfig({
     NERVA_BRIEFING_MORNING_AT: '09:30', NERVA_BRIEFING_CLOSING_AT: '25:99', NERVA_ALERTS_ENABLED: '1',
-    NERVA_ALERTS_MIN_SEVERITY: 'MEDIUM', NERVA_ALERTS_MAX_PER_HOUR: '3', NERVA_ALERTS_POLL_SECONDS: '5', NERVA_ALERTS_QUIET: 'rusak',
+    NERVA_ALERTS_MIN_SEVERITY: 'CRITICAL', NERVA_ALERTS_MAX_PER_HOUR: '3', NERVA_ALERTS_POLL_SECONDS: '5', NERVA_ALERTS_QUIET: 'rusak',
   });
   assert.equal(on.morningAt, 570);
   assert.equal(on.closingAt, null, 'jam tidak sah berarti mati');
-  assert.equal(on.minSeverity, 'medium');
+  assert.equal(on.minSeverity, 'critical');
   assert.equal(on.maxPerHour, 3);
   assert.equal(on.pollSeconds, 30, 'minimum 30 detik');
   assert.equal(on.quiet, null);
@@ -260,7 +312,7 @@ function harness({ pcEnv = {}, scopes = '628111111111=store:senayan;628222222222
 
 test('briefing pagi: terkirim sekali per hari ke tiap chat sesuai perannya, bukan sebelum jamnya', async () => {
   const calls = [];
-  const fetchImpl = async (url) => { const u = new URL(url); calls.push(Object.fromEntries(u.searchParams)); return json({ whatsappMessage: `Briefing ${u.searchParams.get('kind')} ${u.searchParams.get('id') || 'nasional'}` }); };
+  const fetchImpl = async (url) => { const u = new URL(url); calls.push(Object.fromEntries(u.searchParams)); return json({ text: `Briefing ${u.searchParams.get('kind')} ${u.searchParams.get('id') || 'nasional'}`, data: {} }); };
   const h = harness({ pcEnv: { NERVA_BRIEFING_MORNING_AT: '09:30' }, fetchImpl, start: wibMs(9, 29) });
   assert.deepEqual(await h.p.runBriefings(), [], 'sebelum 09:30 belum kirim');
   h.clock.t = wibMs(9, 31);
@@ -284,7 +336,7 @@ test('briefing: lewat jendela 45 menit tidak dikirim terlambat; penutupan terpis
 
 test('briefing: NERVA gagal tidak melempar, dicoba lagi di putaran berikut dalam jendela', async () => {
   let up = false;
-  const fetchImpl = async () => (up ? json({ whatsappMessage: 'ok' }) : json({}, 503));
+  const fetchImpl = async () => (up ? json({ text: 'ok' }) : json({}, 503));
   const h = harness({ pcEnv: { NERVA_BRIEFING_MORNING_AT: '09:30' }, fetchImpl, scopes: '628111111111=store:senayan' });
   assert.deepEqual(await h.p.runBriefings(), []);
   assert.equal(h.sentText.length, 0);
@@ -294,7 +346,7 @@ test('briefing: NERVA gagal tidak melempar, dicoba lagi di putaran berikut dalam
 });
 
 test('briefing: WhatsApp gagal melepas klaim, lalu terkirim saat WA kembali', async () => {
-  const fetchImpl = async () => json({ whatsappMessage: 'ok' });
+  const fetchImpl = async () => json({ text: 'ok' });
   const h = harness({ pcEnv: { NERVA_BRIEFING_MORNING_AT: '09:30' }, fetchImpl, scopes: '628111111111=store:senayan', sendFails: true });
   assert.deepEqual(await h.p.tick(), { briefings: [], alerts: [] });
   assert.equal(h.store.sent.size, 0);
@@ -308,8 +360,8 @@ test('tanpa env, tick tidak mengirim apa pun dan tidak memanggil NERVA', async (
   assert.equal(h.sentText.length, 0);
 });
 
-const feed = (alerts) => async () => json({ alerts });
-const A = (key, severity = 'high', extra = {}) => ({ dedupe_key: key, severity, whatsappMessage: `Alert ${key}`, ...extra });
+const feed = (alerts) => async () => json({ data: { alerts } });
+const A = (key, severity = 'warning', extra = {}) => ({ dedupe_key: key, severity, text: `Alert ${key}`, ...extra });
 
 test('alert: hanya yang baru (dedupe_key), tahan restart lewat store yang sama', async () => {
   const fetchImpl = feed([A('k1'), A('k2')]);
@@ -327,8 +379,8 @@ test('alert: hanya yang baru (dedupe_key), tahan restart lewat store yang sama',
 });
 
 test('alert: dedupe per chat, ambang severity, dan urutan paling parah dulu', async () => {
-  const fetchImpl = feed([A('lo', 'low'), A('md', 'medium'), A('hi', 'high'), A('cr', 'critical')]);
-  const h = harness({ pcEnv: { NERVA_ALERTS_ENABLED: '1', NERVA_ALERTS_MIN_SEVERITY: 'high' }, fetchImpl });
+  const fetchImpl = feed([A('lo', 'advisory'), A('md', 'advisory'), A('hi', 'warning'), A('cr', 'critical')]);
+  const h = harness({ pcEnv: { NERVA_ALERTS_ENABLED: '1', NERVA_ALERTS_MIN_SEVERITY: 'warning' }, fetchImpl });
   const sent = await h.p.pollAlerts();
   assert.deepEqual(sent.filter((s) => s.chat === '628111111111').map((s) => s.key), ['cr', 'hi']);
   assert.equal(sent.length, 4, 'kedua chat menerima alert yang sama, masing-masing sekali');
@@ -354,18 +406,23 @@ test('alert: jam senyap menahan kiriman dan tidak menandai terkirim', async () =
   assert.equal((await h.p.pollAlerts()).length, 1, 'terkirim setelah jam senyap');
 });
 
-test('alert: foto kasus ikut lewat media outbox, maksimal 2; teks tetap terkirim bila media gagal', async () => {
+test('alert: foto kasus (case_id) ikut lewat media outbox, maksimal 2; media gagal tidak menahan teks', async () => {
   const att = (id) => ({ id, kind: 'image', mimetype: 'image/jpeg', sizeKb: 50, caption: `c ${id}` });
-  const fetchImpl = feed([A('a', 'high', { attachments: [att('case-AL-1043.jpg'), att('case-AL-1043.mp4'), att('x.jpg')] })]);
+  const fetchImpl = async (url) => {
+    const u = new URL(url);
+    if (u.pathname === '/api/v1/network/cases/AL-1043/explain') return json({ text: 'x', attachments: [att('case-AL-1043.jpg'), att('case-AL-1043.mp4'), att('x.jpg')] });
+    return json({ data: { alerts: [A('a', 'critical', { case_id: 'AL-1043' }), A('b', 'critical')] } });
+  };
   const h = harness({ pcEnv: { NERVA_ALERTS_ENABLED: '1' }, fetchImpl, scopes: '628111111111=store:senayan' });
   await h.p.pollAlerts();
-  assert.equal(h.sentText.length, 1);
+  assert.equal(h.sentText.length, 2);
+  assert.equal(h.sentMedia.length, 1, 'hanya alert dengan case_id membawa media');
   assert.equal(h.sentMedia[0].items.length, 2);
 });
 
 test('alert: NERVA gagal dicatat, tidak melempar, chat lain tetap dilayani', async () => {
   let n = 0;
-  const fetchImpl = async () => { n += 1; return n === 1 ? json({}, 500) : json({ alerts: [A('z')] }); };
+  const fetchImpl = async () => { n += 1; return n === 1 ? json({}, 500) : json({ data: { alerts: [A('z')] } }); };
   const h = harness({ pcEnv: { NERVA_ALERTS_ENABLED: '1' }, fetchImpl });
   const sent = await h.p.pollAlerts();
   assert.deepEqual(sent.map((s) => s.chat), ['628222222222']);
@@ -381,7 +438,7 @@ test('alert: pengiriman gagal melepas klaim sehingga dicoba lagi', async () => {
 
 test('tick: alert mengikuti pollSeconds, dan tick yang tumpang tindih dilewati', async () => {
   let polls = 0;
-  const fetchImpl = async () => { polls += 1; return json({ alerts: [] }); };
+  const fetchImpl = async () => { polls += 1; return json({ data: { alerts: [] } }); };
   const h = harness({ pcEnv: { NERVA_ALERTS_ENABLED: '1', NERVA_ALERTS_POLL_SECONDS: '120' }, fetchImpl, scopes: '628111111111=store:senayan' });
   await h.p.tick();
   h.clock.t += 30_000; await h.p.tick();

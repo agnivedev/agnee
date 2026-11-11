@@ -36,18 +36,18 @@ const int = (v, def, min, max) => {
 /**
  * Env → konfigurasi. Waktu salah format berarti jenis itu mati, bukan ditebak.
  *   NERVA_BRIEFING_MORNING_AT=09:30   NERVA_BRIEFING_CLOSING_AT=22:15   (WIB, kosong = mati)
- *   NERVA_ALERTS_ENABLED=1            NERVA_ALERTS_MIN_SEVERITY=high
+ *   NERVA_ALERTS_ENABLED=1            NERVA_ALERTS_MIN_SEVERITY=warning
  *   NERVA_ALERTS_POLL_SECONDS=120     NERVA_ALERTS_MAX_PER_HOUR=6
  *   NERVA_ALERTS_QUIET=22:30-08:00    NERVA_PROACTIVE_COMPANY=<slug>
  */
 function readProactiveConfig(env = process.env) {
   const quiet = /^(\d{1,2}:\d{2})-(\d{1,2}:\d{2})$/.exec(String(env.NERVA_ALERTS_QUIET ?? '22:30-08:00').trim());
-  const sev = String(env.NERVA_ALERTS_MIN_SEVERITY || 'high').trim().toLowerCase();
+  const sev = String(env.NERVA_ALERTS_MIN_SEVERITY || 'warning').trim().toLowerCase();
   return {
     morningAt: toMinutes(env.NERVA_BRIEFING_MORNING_AT),
     closingAt: toMinutes(env.NERVA_BRIEFING_CLOSING_AT),
     alertsEnabled: truthy(env.NERVA_ALERTS_ENABLED),
-    minSeverity: nervaTools.SEVERITIES.includes(sev) ? sev : 'high',
+    minSeverity: nervaTools.SEVERITIES.includes(sev) ? sev : 'warning',
     pollSeconds: int(env.NERVA_ALERTS_POLL_SECONDS, 120, 30, 3600),
     maxPerHour: int(env.NERVA_ALERTS_MAX_PER_HOUR, 6, 1, 60),
     quiet: quiet && toMinutes(quiet[1]) != null && toMinutes(quiet[2]) != null ? { from: toMinutes(quiet[1]), to: toMinutes(quiet[2]) } : null,
@@ -92,7 +92,7 @@ function createMemoryStore({ now = Date.now } = {}) {
 
 /** Teks alert/briefing dari field yang tersedia; NERVA yang menentukan isinya. */
 function messageText(item) {
-  const text = item?.whatsappMessage || item?.message || item?.text || item?.summary || '';
+  const text = item?.text || item?.whatsappMessage || item?.summary || '';
   return String(text).trim().slice(0, 3500);
 }
 
@@ -161,6 +161,13 @@ function createProactive(deps) {
     return sent;
   }
 
+  /** Foto/klip ilustrasi kasus (nerva_case_explain); kosong bila tidak ada atau gagal. */
+  async function caseAttachments(caseId) {
+    if (!caseId || !/^[A-Za-z0-9-]{1,12}$/.test(String(caseId))) return [];
+    const result = await nervaTools.callNerva({ ...nervaCfg, log }, 'GET', nervaTools.ENDPOINTS.caseExplain[1](caseId), fetchImpl);
+    return Array.isArray(result?.attachments) ? result.attachments : [];
+  }
+
   /** Alert baru per chat: dedupe_key, ambang severity, jam senyap, batas per jam. */
   async function pollAlerts() {
     const sent = [];
@@ -191,7 +198,7 @@ function createProactive(deps) {
         const key = String(alert.dedupe_key || alert.dedupeKey || alert.id).slice(0, 160);
         if (!(await store.claim(cid, target.chat, 'alert', key))) continue;
         try {
-          await deliver(cid, target, body, alert.attachments);
+          await deliver(cid, target, body, alert.attachments || await caseAttachments(alert.case_id || alert.caseId));
           budget -= 1;
           sent.push({ chat: target.chat, key });
         } catch (error) {

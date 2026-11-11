@@ -2260,6 +2260,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     // dicatat ke jejak audit tanpa token atau isi pesan.
     const nervaAgent = chatId ? {
       key: outboxKey,
+      chat: `+${String(chatId).split('@')[0].replace(/\D/g, '')}`,
       lastUserText: text || '',
       confirmations: nervaConfirmations,
       audit: (entry) => {

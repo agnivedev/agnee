@@ -1156,6 +1156,8 @@ async function buildApp(overrides = {}) {
    * per company per 10 menit supaya satu penolakan tidak membanjiri log.
    */
   const typingWarnedAt = new Map();
+  // Media NERVA yang dicatat alat nerva_* selama satu giliran auto-reply.
+  const nervaOutbox = nervaTools.createOutbox();
   function warnTypingFailure(companyId, error) {
     const last = typingWarnedAt.get(companyId) || 0;
     if (Date.now() - last < 10 * 60_000) return;
@@ -1214,8 +1216,39 @@ async function buildApp(overrides = {}) {
               .catch((error) => app.log.warn({ err: error }, 'Kartu serah-terima gagal dibuat'));
           }
         }
+        if (kind === 'ai') await sendNervaMedia(companyId, message, meta);
       },
     });
+  }
+
+  /**
+   * Media NERVA dari giliran ini, setelah teks balasan AI terkirim. Maksimal 2,
+   * caption apa adanya dari NERVA. Cloud API belum punya jalur media, jadi
+   * dilewati. Gagal ambil atau kirim hanya dicatat; tidak pernah melempar.
+   */
+  async function sendNervaMedia(companyId, message, meta) {
+    const items = nervaOutbox.take(`${companyId}:${message.from}`);
+    if (!items.length) return;
+    try {
+      const provider = meta?.provider === 'cloud_api' ? 'cloud_api' : await getWhatsappProvider(companyId).catch(() => 'whatsapp_web');
+      await nervaTools.deliverOutbox(nervaTools.readConfig(), items, {
+        provider,
+        log: app.log,
+        context: { companyId, chatId: message.from },
+        send: async (caption, options) => {
+          const sent = await sendOutbound(companyId, message.from, caption, options);
+          // Dicatat seperti balasan AI: pesan keluar yang tak tercatat dianggap diketik manusia.
+          if (database.enabled && database.connected) {
+            await database.recordOutboundReply({
+              chatId: message.from, messageId: sent?.messageId || sent?.id?._serialized || null, author: 'ai', body: caption, inReplyTo: message.body || null,
+            }, companyId).catch((error) => app.log.warn({ err: error }, 'Could not record NERVA media reply'));
+          }
+          return sent;
+        },
+      });
+    } catch (error) {
+      app.log.warn({ err: error, companyId, chatId: message.from }, 'Media NERVA tidak terkirim (teks balasan tetap terkirim)');
+    }
   }
 
   /**
@@ -2060,7 +2093,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
    * so what a supervisor tests is what a customer actually gets. Testing
    * against a different context than production is worse than not testing.
    */
-  async function buildReplyContext({ companyId, text, chatId = null, productId = null, ks = null, allowDepartments = false, allowOrders = false, agentMode = 'standard', sender = null, extraPlaybook = '' }) {
+  async function buildReplyContext({ companyId, text, chatId = null, productId = null, ks = null, allowDepartments = false, allowOrders = false, agentMode = 'standard', sender = null, extraPlaybook = '', mediaOutbox = false }) {
     const mode = agentModes.normalizeMode(agentMode);
     const ops = mode === 'internal_ops';
     const kb = await getKnowledgeBase(companyId);
@@ -2162,7 +2195,13 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       if (lidPhone) nervaChatIds.push(lidPhone);
     }
     // Alat toko (NERVA_ALLOWED_CHATS) dan alat jaringan per peran (NERVA_CHAT_SCOPES).
-    const nerva = !ops && !ks ? nervaTools.forChat(nervaConfig, { companyConfig, chatIds: nervaChatIds }) : { tools: [], guide: '' };
+    // Media NERVA (foto, klip, grafik, PDF) hanya dari auto-reply sungguhan:
+    // outbox giliran ini dikosongkan di sini dan dikirim di paceReply setelah
+    // teks balasan terkirim. Pratinjau dan follow-up tidak mengirim media.
+    const outboxKey = `${companyId}:${chatId}`;
+    if (mediaOutbox && chatId) nervaOutbox.reset(outboxKey);
+    const recordMedia = mediaOutbox && chatId ? (attachments) => nervaOutbox.add(outboxKey, attachments) : null;
+    const nerva = !ops && !ks ? nervaTools.forChat(nervaConfig, { companyConfig, chatIds: nervaChatIds }, fetch, recordMedia) : { tools: [], guide: '' };
     const nervaToolList = nerva.tools;
     // Cek harga: prompt hanya memuat barang yang namanya cocok dengan pesan
     // customer, jadi model perlu cara mencari barang yang disebut playbook.
@@ -2930,7 +2969,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     }
 
     // Use this company's own knowledge client from DB — never another tenant's
-    const ctx = await buildReplyContext({ companyId, text: customerText, chatId: message.from, allowDepartments: true, allowOrders: true, agentMode, sender: opsSender });
+    const ctx = await buildReplyContext({ companyId, text: customerText, chatId: message.from, allowDepartments: true, allowOrders: true, agentMode, sender: opsSender, mediaOutbox: true });
 
     // Fetch recent conversation history so the AI knows what was already said.
     //

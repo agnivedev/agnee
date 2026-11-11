@@ -47,7 +47,7 @@ test('alat memanggil API NERVA dengan token; error jadi pesan jujur, bukan excep
   };
   const cfg = { apiUrl: 'http://nerva:4300', token: 'tok', companySlugs: [], allowedChats: [] };
   const tools = Object.fromEntries(nerva.toolSpecs(cfg, fetchImpl).map((t) => [t.name, t]));
-  assert.deepEqual(Object.keys(tools).sort(), ['nerva_build_store_report', 'nerva_device_health', 'nerva_list_cases', 'nerva_pending_approvals', 'nerva_store_overview']);
+  assert.deepEqual(Object.keys(tools).sort(), ['nerva_build_store_report', 'nerva_case_media', 'nerva_device_health', 'nerva_list_cases', 'nerva_pending_approvals', 'nerva_store_overview']);
   assert.deepEqual(await tools.nerva_store_overview.run(), { ok: true });
   await tools.nerva_list_cases.run({ department: 'Security', state: 'all' });
   await tools.nerva_list_cases.run({ department: '../x', state: 'bogus' });
@@ -71,7 +71,7 @@ const NET_REGIONS = {
     { level: 'region', id: 'jatim-bali', stores: ['surabaya', 'denpasar'] },
   ],
 };
-const ALL_NETWORK = ['nerva_build_network_report', 'nerva_compare_stores', 'nerva_network_overview', 'nerva_network_scopes', 'nerva_sales_mapping',
+const ALL_NETWORK = ['nerva_build_network_report', 'nerva_compare_stores', 'nerva_network_chart', 'nerva_network_overview', 'nerva_network_scopes', 'nerva_sales_mapping',
   'nerva_stock_status', 'nerva_suggest_promo', 'nerva_suggest_stock_transfer', 'nerva_top_products', 'nerva_traffic_by_hour'];
 
 function netFetch() {
@@ -219,9 +219,134 @@ test('REPORT_NAME: laporan toko, region, dan nasional dengan 16 hex; lainnya dit
   }
 });
 
+// ---- media NERVA: outbox per giliran dan pengiriman ---------------------------
+
+const JPG = { id: 'case-AL-1043.jpg', kind: 'image', mimetype: 'image/jpeg', sizeKb: 80, caption: 'Foto ilustrasi AL-1043 (data dummy, bukan rekaman CCTV)' };
+const MP4 = { id: 'case-AL-1043.mp4', kind: 'video', mimetype: 'video/mp4', sizeKb: 900, caption: 'Klip ilustrasi AL-1043 (data dummy, bukan rekaman CCTV)' };
+const PDF = { id: 'laporan-region-jabodetabek-2026-11-11-fedcba9876543210.pdf', kind: 'document', mimetype: 'application/pdf', sizeKb: 40, caption: 'Laporan Region Jabodetabek (PDF, data dummy)' };
+
+test('outbox: maksimal 2 media per giliran, hanya jenis dan ukuran yang diizinkan, take mengosongkan', () => {
+  let t = 0;
+  const box = nerva.createOutbox({ now: () => t, ttlMs: 1000 });
+  const bad = [
+    { ...JPG, id: '../etc/passwd' },
+    { ...JPG, id: 'x.html', mimetype: 'text/html' },
+    { ...JPG, id: 'big.mp4', mimetype: 'video/mp4', sizeKb: 6 * 1024 + 1 },
+    null,
+  ];
+  assert.deepEqual(box.add('co:chat', bad), []);
+  assert.deepEqual(box.add('co:chat', [JPG, JPG, MP4]), [JPG.id, MP4.id], 'duplikat dibuang');
+  assert.deepEqual(box.add('co:chat', [PDF]), [], 'batas 2 media');
+  assert.deepEqual(box.add('co:other', [PDF]), [PDF.id], 'per chat');
+  assert.deepEqual(box.take('co:chat').map((x) => x.id), [JPG.id, MP4.id]);
+  assert.deepEqual(box.take('co:chat'), [], 'take mengosongkan');
+  assert.deepEqual(box.take('co:chat').length, 0);
+  box.add('co:chat', [JPG]);
+  box.reset('co:chat');
+  assert.deepEqual(box.take('co:chat'), [], 'reset di awal giliran');
+  box.add('co:chat', [JPG]);
+  t = 2000;
+  assert.deepEqual(box.take('co:chat'), [], 'kedaluwarsa');
+  assert.equal(nerva.mediaAllowed('audio/ogg'), true);
+  assert.equal(nerva.mediaAllowed('application/zip'), false);
+});
+
+test('alat media: model hanya melihat id dan caption; tanpa outbox model diberi tahu tidak ada lampiran', async () => {
+  const calls = [];
+  const fetchImpl = async (url) => {
+    calls.push(url.replace('http://nerva:4300', ''));
+    if (url.includes('/cases/')) return { ok: true, status: 200, json: async () => ({ summary: '2 media', attachments: [JPG, MP4] }) };
+    return { ok: true, status: 200, json: async () => ({ attachments: [{ ...PDF, id: 'grafik-traffic-senayan.png', kind: 'image', mimetype: 'image/png' }] }) };
+  };
+  const cfg = { apiUrl: 'http://nerva:4300', token: 'tok', companySlugs: [], allowedChats: [] };
+  const box = nerva.createOutbox();
+  const record = (a) => box.add('co:chat', a);
+  const store = byName(nerva.toolSpecs(cfg, fetchImpl, record));
+  assert.match((await store.nerva_case_media.run({ caseId: '../x' })).error, /Id kasus/);
+  const res = await store.nerva_case_media.run({ caseId: 'AL-1043' });
+  assert.deepEqual(res.attachments, [
+    { id: JPG.id, kind: 'image', caption: JPG.caption, sent: true },
+    { id: MP4.id, kind: 'video', caption: MP4.caption, sent: true },
+  ]);
+  assert.ok(!JSON.stringify(res).includes('mimetype'), 'tanpa mimetype, ukuran, atau byte');
+  assert.match(res.attachmentNote, /2 media NERVA akan dikirim/);
+  const chart = byName(nerva.networkToolSpecs(cfg, { level: 'store', id: 'senayan' }, fetchImpl, record));
+  const full = await chart.nerva_network_chart.run({ level: 'national', chart: 'sales', by: 'brand', period: '28d' });
+  assert.equal(full.attachments[0].sent, false, 'outbox sudah berisi 2');
+  assert.match(full.scopeNote, /toko senayan/);
+  await chart.nerva_network_chart.run({ level: 'warehouse', chart: 'pie' });
+  assert.deepEqual(calls, [
+    '/api/v1/store/cases/AL-1043/media',
+    '/api/v1/network/chart?level=store&id=senayan&chart=sales&period=28d&by=brand',
+    '/api/v1/network/chart?level=store&id=senayan&chart=traffic',
+  ]);
+  const preview = byName(nerva.toolSpecs(cfg, fetchImpl));
+  const p = await preview.nerva_case_media.run({ caseId: 'AL-1043' });
+  assert.ok(p.attachments.every((a) => a.sent === false));
+  assert.match(p.attachmentNote, /Jangan bilang ada lampiran/);
+  const national = byName(nerva.networkToolSpecs(cfg, { level: 'national', id: null }, fetchImpl));
+  await national.nerva_network_chart.run({ level: 'warehouse' });
+  assert.equal(calls.at(-1), '/api/v1/network/chart?chart=traffic', 'level warehouse tidak diteruskan');
+});
+
+function mediaFetch({ big = false } = {}) {
+  const calls = [];
+  const fetchImpl = async (url, opts) => {
+    calls.push({ url: url.replace('http://nerva:4300', ''), auth: opts.headers.authorization });
+    if (url.includes('down')) throw new Error('ECONNREFUSED');
+    if (url.includes('gone')) return { ok: false, status: 404, headers: new Map() };
+    const bytes = big ? Buffer.alloc(nerva.MAX_MEDIA_BYTES + 1) : Buffer.from('JPEGDATA');
+    return { ok: true, status: 200, headers: new Map(), arrayBuffer: async () => bytes };
+  };
+  return { calls, fetchImpl };
+}
+const MCFG = { apiUrl: 'http://nerva:4300', token: 'tok' };
+const quietLog = () => { const warns = []; return { warns, warn: (o, m) => warns.push({ ...o, m }) }; };
+
+test('deliverOutbox: ambil byte dari NERVA lalu kirim dengan caption apa adanya; maksimal 2', async () => {
+  const { calls, fetchImpl } = mediaFetch();
+  const sent = [];
+  const log = quietLog();
+  const out = await nerva.deliverOutbox(MCFG, [JPG, MP4, PDF], {
+    provider: 'whatsapp_web', fetchImpl, log,
+    send: async (caption, opts) => { sent.push({ caption, ...opts.attachment }); return { messageId: `m${sent.length}` }; },
+  });
+  assert.deepEqual(sent.map((x) => [x.caption, x.mimetype, x.filename]), [[JPG.caption, 'image/jpeg', JPG.id], [MP4.caption, 'video/mp4', MP4.id]]);
+  assert.equal(Buffer.from(sent[0].data, 'base64').toString(), 'JPEGDATA');
+  assert.deepEqual(calls.map((c) => c.url), [`/api/v1/media/${JPG.id}`, `/api/v1/media/${MP4.id}`]);
+  assert.ok(calls.every((c) => c.auth === 'Bearer tok'));
+  assert.deepEqual(out.skipped.map((x) => x.id), [PDF.id]);
+  assert.match(log.warns[0].reason, /lebih dari 2/);
+});
+
+test('deliverOutbox: gagal ambil, terlalu besar, jenis terlarang, atau gagal kirim dilewati tanpa melempar', async () => {
+  const sent = [];
+  const send = async (caption) => { if (caption === 'boom') throw new Error('WA putus'); sent.push(caption); return {}; };
+  const { fetchImpl } = mediaFetch();
+  const out = await nerva.deliverOutbox(MCFG, [{ ...JPG, id: 'down.jpg' }, { ...JPG, id: 'gone.jpg' }], { provider: 'whatsapp_web', fetchImpl, send, log: quietLog() });
+  assert.deepEqual(out.skipped.map((x) => x.reason), ['ambil gagal: ECONNREFUSED', 'ambil gagal: NERVA HTTP 404']);
+  const types = await nerva.deliverOutbox(MCFG, [{ ...JPG, mimetype: 'text/html' }, { ...JPG, caption: 'boom' }], { provider: 'whatsapp_web', fetchImpl, send, log: quietLog() });
+  assert.deepEqual(types.skipped.map((x) => x.reason), ['jenis atau ukuran tidak diizinkan', 'kirim gagal: WA putus']);
+  const large = await nerva.deliverOutbox(MCFG, [JPG], { provider: 'whatsapp_web', fetchImpl: mediaFetch({ big: true }).fetchImpl, send, log: quietLog() });
+  assert.deepEqual(large.skipped.map((x) => x.reason), ['ambil gagal: lebih dari 6 MB']);
+  assert.deepEqual(sent, []);
+});
+
+test('deliverOutbox: sambungan Cloud API dilewati tanpa mengambil byte', async () => {
+  const { calls, fetchImpl } = mediaFetch();
+  const log = quietLog();
+  let sends = 0;
+  const out = await nerva.deliverOutbox(MCFG, [JPG, MP4], { provider: 'cloud_api', fetchImpl, send: async () => { sends += 1; }, log, context: { companyId: 'co-1' } });
+  assert.equal(sends, 0);
+  assert.equal(calls.length, 0);
+  assert.deepEqual(out.skipped.map((x) => x.reason), ['Cloud API belum punya jalur media', 'Cloud API belum punya jalur media']);
+  assert.equal(log.warns[0].companyId, 'co-1');
+});
+
 // ---- jalur pesan masuk dan tautan laporan -----------------------------------
 
-async function setup(t, { slug = 'beweix-digital' } = {}) {
+async function setup(t, { slug = 'beweix-digital', llmTool = null } = {}) {
+  const mediaHits = [];
   const fake = http.createServer((req, res) => {
     if (req.headers.authorization !== 'Bearer nerva-test-token' && !req.url.startsWith('/reports/')) { res.statusCode = 401; return res.end('{}'); }
     if (req.method === 'POST' && req.url === '/api/v1/store/report') {
@@ -232,6 +357,11 @@ async function setup(t, { slug = 'beweix-digital' } = {}) {
       res.setHeader('content-type', 'application/json');
       return res.end(JSON.stringify({ fileName: NET_REPORT, url: `https://app.agnee.test/nerva/reports/${NET_REPORT}`, whatsappMessage: 'Laporan region (data dummy).' }));
     }
+    if (req.url === '/api/v1/store/cases/AL-1043/media') {
+      res.setHeader('content-type', 'application/json');
+      return res.end(JSON.stringify({ summary: 'media', attachments: [JPG, MP4] }));
+    }
+    if (req.url.startsWith('/api/v1/media/')) { mediaHits.push(req.url); res.setHeader('content-type', 'image/jpeg'); return res.end('JPEGDATA'); }
     if (req.url === `/reports/${REPORT}` || req.url === `/reports/${NET_REPORT}`) { res.setHeader('content-type', 'application/pdf'); return res.end('%PDF-1.4 test'); }
     res.statusCode = 404;
     res.end('{}');
@@ -270,16 +400,21 @@ async function setup(t, { slug = 'beweix-digital' } = {}) {
   };
   const llmService = {
     enabled: true,
-    async generateReply(text, opts) { prompts.push({ text, ...opts }); return { text: 'Laporan toko hari ini sudah siap.', model: 'x' }; },
+    async generateReply(text, opts) {
+      prompts.push({ text, ...opts });
+      // Seperti loop tool model sungguhan: alat dipanggil sebelum teks jadi.
+      if (llmTool) await opts.tools?.find((x) => x.name === llmTool.name)?.run(llmTool.args);
+      return { text: 'Laporan toko hari ini sudah siap.', model: 'x' };
+    },
     async generateJson() { return null; },
   };
   const server = await buildApp({ logger: false, startupEnabled: false, demoMode: true, database, llmService, llmEnabled: true, openrouterApiKey: 'k', sessionSecret: 'nerva-session' });
   t.after(() => server.close());
-  return { server, prompts };
+  return { server, prompts, mediaHits };
 }
 
-function inbound(from, body = 'Buatkan laporan toko hari ini') {
-  return { from, body, type: 'chat', timestamp: 1, id: { _serialized: `m-${from}-${body}` }, async reply() {} };
+function inbound(from, body = 'Buatkan laporan toko hari ini', replies = []) {
+  return { from, body, type: 'chat', timestamp: 1, id: { _serialized: `m-${from}-${body}` }, async reply(text) { replies.push(text); return {}; } };
 }
 const toolNames = (p) => (p.tools || []).map((x) => x.name);
 
@@ -326,6 +461,17 @@ test('manajer region mendapat alat jaringan (bukan alat toko) dan laporannya dik
   const report = await p.tools.find((x) => x.name === 'nerva_build_network_report').run({ level: 'national' });
   assert.equal(report.fileName, NET_REPORT);
   assert.match(report.scopeNote, /region jabodetabek/);
+});
+
+test('media kasus: teks balasan terkirim lebih dulu, byte diambil dari NERVA, gagal kirim WA tidak menggagalkan balasan', async (t) => {
+  const { server, prompts, mediaHits } = await setup(t, { llmTool: { name: 'nerva_case_media', args: { caseId: 'AL-1043' } } });
+  const replies = [];
+  await server.handleInboundMessage('co-1', inbound('6281234567890@c.us', 'Ada foto kasus AL-1043?', replies), { connectionId: 'conn-1' });
+  assert.ok(toolNames(prompts.at(-1)).includes('nerva_case_media'));
+  assert.match(prompts.at(-1).systemPrompt, /## Media NERVA/);
+  assert.deepEqual(replies, ['Laporan toko hari ini sudah siap.']);
+  // Mode demo tidak punya nomor WhatsApp yang siap: byte diambil, kirim gagal, dicatat saja.
+  assert.deepEqual(mediaHits, [`/api/v1/media/${JPG.id}`, `/api/v1/media/${MP4.id}`]);
 });
 
 test('tautan laporan: diteruskan dari NERVA tanpa login; nama yang tidak sah ditolak', async (t) => {

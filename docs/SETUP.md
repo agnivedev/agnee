@@ -723,6 +723,27 @@ Untuk laporan, AI mengirim `whatsappMessage` dari `nerva_build_network_report` a
 Catatan: usulan transfer untuk satu toko bisa menyebut stok toko sumber di region yang sama,
 karena itu bagian dari usulan.
 
+### Lampiran media (foto kasus, klip, grafik, PDF laporan)
+
+Alat `nerva_case_media`, `nerva_network_chart`, `nerva_build_store_report`, dan
+`nerva_build_network_report` bisa mengembalikan `attachments` (id, jenis, caption). Alur di
+`src/nerva-tools.js` (`createOutbox`, `deliverOutbox`) dan `sendNervaMedia` di `src/server.js`:
+
+1. Selama satu giliran auto-reply, alat mencatat attachment ke outbox per `<companyId>:<chatId>`.
+   Model hanya melihat id, caption, dan `sent` (true bila masuk antrean); byte tidak lewat model.
+2. Setelah teks balasan AI terkirim (`kind === 'ai'`), byte diambil dari NERVA
+   (`GET /api/v1/media/<id>`, bearer `NERVA_API_TOKEN`, timeout 15 dtk) lalu dikirim sebagai
+   lampiran WhatsApp dengan caption dari NERVA, lewat `sendOutbound`. Pesan media dicatat sebagai
+   balasan AI.
+3. Batas: maksimal 2 lampiran per balasan, hanya gambar, video, audio, atau PDF, maksimal 6 MB
+   (sama dengan `POST /v1/messages/send`). Outbox yang tak diambil dalam 10 menit dibuang.
+4. Sambungan Cloud API belum punya jalur media: lampiran dilewati dan hanya teks yang terkirim.
+5. Gagal ambil, terlalu besar, atau gagal kirim hanya dicatat (`Media NERVA dilewati`); teks
+   balasan sudah terkirim lebih dulu dan tidak pernah gagal karenanya.
+
+Pratinjau Coach, follow-up, dan jalur selain auto-reply tidak punya outbox, jadi tidak mengirim
+media dan model diberi tahu tidak ada lampiran. Belum diuji ke WhatsApp asli.
+
 ## 19. Security checklist
 
 - [ ] `.env` permission `600` dan tidak masuk Git.

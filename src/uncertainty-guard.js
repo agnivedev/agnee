@@ -298,19 +298,28 @@ function pickDepartment(topic, departmentNames = []) {
  *   notify_staff   selain itu: staf diberi kartu serah-terima, AI tetap membalas
  */
 /**
- * Pesan yang tidak memuat apa pun untuk ditanyakan ke tim: penutup/pembatalan
- * ("Ok skip ya", "makasih", "nanti ya"). Tanpa ini penjaga mengirim "Customer
- * menanyakan pesanan: 'Ok skip ya'" ke grup Management (audit 9 Nov).
+ * Pesan pendek yang tidak memuat apa pun untuk ditanyakan ke tim. Audit 9 Nov:
+ * penjaga mengirim "Customer menanyakan pesanan: 'Ok skip ya'" ke grup Management.
+ *  - penutup/pembatalan ("Ok skip ya", "makasih", "ga jadi deh"): balas wajar,
+ *    tanpa janji "segera kami get back" dan tanpa membangunkan staf;
+ *  - persetujuan saja ("iya", "oke"): tetap beri tahu staf (customer mungkin
+ *    setuju order), tapi tidak ditanyakan ke departemen.
+ * Topik transfer tidak ikut: "ok"/"ini" di samping bukti transfer tetap diperiksa.
  */
-const ACK_ONLY = /^(?:ok(?:e|ay)?|siap|sip|baik|ya|iya|oke+|makasih|terima\s*kasih|thanks?|nuhun|skip|batal|gak\s*jadi|ga\s*jadi|gajadi|nanti|dulu|deh|aja|kak|ka|ya\s*kak|sudah|udah|dah|ok\s*skip|noted?|mantap)(?:[\s,.!]+(?:ok(?:e|ay)?|siap|sip|baik|ya|iya|makasih|terima\s*kasih|thanks?|skip|batal|gak\s*jadi|ga\s*jadi|gajadi|nanti|dulu|deh|aja|kak|ka|sudah|udah|dah|noted?|mantap))*[\s.!]*$/i;
-const DEICTIC_ONLY = /^(?:yg|yang)?\s*(?:ini|itu|yg ini|yang ini|yg itu|yang itu)\s*(?:ya|kak|ka|\?)*[\s?.!]*$/i;
+const ACK_WORD = '(?:ok(?:e+|ay)?|siap|sip|baik|ya|iya|yaudah|ya\\s*udah|kak|ka|deh|aja|dulu|noted?|mantap|makasih|terima\\s*kasih|trims|thanks?|thx|nuhun|skip|batal|gak\\s*jadi|ga\\s*jadi|gajadi|nggak\\s*jadi|nanti(?:\\s*aja)?|lain\\s*kali)';
+const ACK_ONLY = new RegExp(`^${ACK_WORD}(?:[\\s,.!]+${ACK_WORD})*[\\s.!🙏👍]*$`, 'iu');
+const CLOSING_WORD = /\b(?:makasih|terima\s*kasih|trims|thanks?|thx|nuhun|skip|batal|gak\s*jadi|ga\s*jadi|gajadi|nggak\s*jadi|nanti|lain\s*kali)\b/i;
+const DEICTIC_ONLY = /^(?:yg|yang)?\s*(?:ini|itu)\s*(?:ya|kak|ka)?[\s?.!]*$/i;
 const isAckOnly = (text) => ACK_ONLY.test(String(text || '').trim());
-/** "Yg ini" tanpa teks lain: barang yang dimaksud tidak ada di pesan, tanya balik ke customer, bukan ke tim. */
+const isClosingOnly = (text) => isAckOnly(text) && CLOSING_WORD.test(String(text || ''));
+/** "Yg ini" tanpa teks lain: barangnya tidak ada di pesan, tanya balik ke customer, bukan ke tim. */
 const isDeicticOnly = (text) => DEICTIC_ONLY.test(String(text || '').trim());
 
 function chooseAction({ topic, missingInfo = false, departmentNames = [], canAsk = false, mode = 'on', proofCheck = false, proofGiven = false, proofMissing = false, customerText = '' }) {
-  if (isAckOnly(customerText)) return { action: 'notify_staff' };
-  if (missingInfo || isDeicticOnly(customerText)) return { action: 'ask_customer' };
+  const paymentTalk = topic === 'transfer' || proofGiven || proofMissing;
+  if (!paymentTalk && isClosingOnly(customerText)) return { action: 'acknowledge' };
+  if (!paymentTalk && isAckOnly(customerText)) return { action: mode === 'handoff' ? 'handoff' : 'notify_staff' };
+  if (missingInfo || (!paymentTalk && isDeicticOnly(customerText))) return { action: 'ask_customer' };
   // Berkas yang disebut tak pernah masuk: tak ada yang bisa diperiksa Finance, minta kirim ulang.
   if (proofMissing) return { action: 'ask_customer' };
   const department = canAsk ? pickDepartment(topic, departmentNames) : null;
@@ -368,6 +377,11 @@ const FOLLOW = {
   },
 };
 
+const ACK_REPLY = {
+  id: 'Baik kak, siap 🙏 Kalau nanti ada yang dibutuhkan lagi, kabari saja ya.',
+  en: "Sure, no problem. Just message us here whenever you need anything.",
+};
+
 const looksEnglish = (text) => /\b(?:the|how much|price|stock|shipping|do you|can i|please|hello)\b/i.test(text)
   && !/\b(?:mau|ingin|boleh|bisa|tolong|berapa|harga|kak|ada|tidak)\b/i.test(text);
 
@@ -383,6 +397,8 @@ function compose({ finalText = '', customerText = '', assessment, plan }) {
   const lang = looksEnglish(customerText) ? 'en' : 'id';
   const flagged = new Set(assessment.reasons.map((r) => r.sentence).filter(Boolean));
   const kept = splitSentences(finalText).filter((sentence) => !flagged.has(sentence) && !DELAY_SENTENCE.test(sentence));
+  // Customer menutup/membatalkan: buang klaim yang meleset, jangan berjanji menyusul.
+  if (plan.action === 'acknowledge') return kept.join('\n') || ACK_REPLY[lang];
   const topic = assessment.topic || 'harga';
   const follow = plan.action === 'ask_customer' && assessment.reasons.some((r) => r.code === 'proof_not_attached')
     ? FOLLOW[lang].resend_proof
@@ -407,5 +423,5 @@ function departmentQuestion({ topic, customerText = '', assessment }) {
 
 module.exports = {
   MODES, TOPIC_LABELS, REASON_LABELS, PROOF_MARKER,
-  isAckOnly, isDeicticOnly, detectTopics, claimsTransfer, toolFailures, assess, pickDepartment, chooseAction, compose, departmentQuestion,
+  isAckOnly, isClosingOnly, isDeicticOnly, detectTopics, claimsTransfer, toolFailures, assess, pickDepartment, chooseAction, compose, departmentQuestion,
 };

@@ -38,6 +38,18 @@ function worthMatching(text) {
   return t.length >= 2 && /[\p{L}\p{N}]/u.test(t);
 }
 
+/**
+ * Teks yang berasal dari bot sendiri: pemberitahuan pertanyaan/pengingat
+ * (memuat #kode 6 heksa atau judul bakunya) dan balasan pencocokan.
+ */
+function looksLikeBotNotice(text) {
+  const t = String(text || '');
+  if (!t) return false;
+  return /#[0-9a-f]{6}\b/i.test(t)
+    || /^\*?(?:Pertanyaan dari asisten|Pengingat(?: terakhir)?\b)/i.test(t.trim())
+    || /^Saya baca pesan tadi sebagai jawaban/i.test(t.trim());
+}
+
 function buildPrompt({ candidates, context, text }) {
   const list = candidates.map((q, i) => {
     const asked = cut(q.question, 280);
@@ -82,4 +94,4 @@ async function matchLooseAnswer({ ask, candidates, context = [], text, meta = {}
   return idx === null ? null : pool[idx];
 }
 
-module.exports = { matchLooseAnswer, buildPrompt, parseVerdict, worthMatching, LOOSE_WINDOW_HOURS, MAX_CANDIDATES, CONTEXT_MESSAGES };
+module.exports = { matchLooseAnswer, looksLikeBotNotice, buildPrompt, parseVerdict, worthMatching, LOOSE_WINDOW_HOURS, MAX_CANDIDATES, CONTEXT_MESSAGES };

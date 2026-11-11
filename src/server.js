@@ -1808,6 +1808,9 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     const code = departmentAsk.codeInText(text);
     if (!stanzaId && !code) return captureLooseGroupAnswer(companyId, message, text);
     const hit = await database.findGroupDepartmentQuestion(companyId, message.from, { stanzaId, code });
+    // Reply ke pesan sesama staf ("Ada garansi kah?" → "ga ada"): bukan reply ke
+    // pertanyaan AI, jadi coba pencocokan longgar dengan pesan yang dikutip sebagai konteks.
+    if (!hit && !code) return captureLooseGroupAnswer(companyId, message, text);
     if (!hit) return false;
     const answer = text.replace(/#[0-9a-f]{6}\b/i, '').trim();
     if (!answer) return false;
@@ -1827,11 +1830,16 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
   async function captureLooseGroupAnswer(companyId, message, text) {
     if (!canCall('listOpenGroupQuestions') || (message.type && message.type !== 'chat')) return false;
     if (departmentAsk.classifyGroupReply(text) !== 'answer' || !groupAnswerMatch.worthMatching(text)) return false;
+    // Kutipan pesan bot (pertanyaan lama yang sudah dijawab, atau balasan "Saya baca pesan tadi…"):
+    // jangan dicocokkan ke pertanyaan lain. Pesan bot yang diteruskan staf juga bukan jawaban.
+    const quoted = String(message._data?.quotedMsg?.body || message._data?.quotedMsg?.caption || '').trim();
+    if (groupAnswerMatch.looksLikeBotNotice(quoted) || groupAnswerMatch.looksLikeBotNotice(text)) return false;
     const candidates = await database.listOpenGroupQuestions(companyId, message.from, { hours: groupAnswerMatch.LOOSE_WINDOW_HOURS });
     if (!candidates.length) return false;
     const recent = await database.recentInboundTexts(companyId, message.from, groupAnswerMatch.CONTEXT_MESSAGES + 1).catch(() => []);
     // recentInboundTexts: terbaru dulu dan sudah memuat pesan ini; buang pesan ini, balik ke lama→baru.
     const context = recent.filter((t, i) => !(i === 0 && String(t).trim() === text)).reverse();
+    if (quoted) context.push(`(dikutip oleh pesan baru) ${quoted}`);
     const companyAi = await getCompanyAi(companyId).catch(() => ({}));
     const hit = await groupAnswerMatch.matchLooseAnswer({
       candidates, context, text, meta: { companyId },

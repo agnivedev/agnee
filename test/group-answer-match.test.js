@@ -47,13 +47,35 @@ test('matchLooseAnswer: memilih kandidat, ragu atau gagal = null, obrolan tak di
 test('penjaga: penutup dan "yg ini" tidak jadi pertanyaan ke Management', () => {
   const base = { topic: 'order', departmentNames: ['Management'], canAsk: true };
   for (const t of ['Ok skip ya', 'oke makasih', 'Nanti ya kak', 'ga jadi deh']) {
-    assert.equal(guard.chooseAction({ ...base, customerText: t }).action, 'notify_staff', t);
+    assert.equal(guard.chooseAction({ ...base, customerText: t }).action, 'acknowledge', t);
   }
   for (const t of ['Yg ini', 'yang ini kak', 'ini?']) {
     assert.equal(guard.chooseAction({ ...base, topic: 'harga', customerText: t }).action, 'ask_customer', t);
   }
+  assert.equal(guard.chooseAction({ ...base, customerText: 'iya kak' }).action, 'notify_staff', 'persetujuan tetap sampai ke staf');
+  assert.equal(guard.chooseAction({ ...base, customerText: 'sudah' }).action, 'ask_department', '"sudah" bisa berarti sudah bayar');
+  // Bukti transfer dengan caption "ini" / "ok" tetap diperiksa Finance, bukan diminta kirim ulang.
+  const pay = { topic: 'transfer', departmentNames: ['Finance'], canAsk: true, proofCheck: true, proofGiven: true };
+  assert.equal(guard.chooseAction({ ...pay, customerText: 'ini' }).action, 'ask_department');
+  assert.equal(guard.chooseAction({ ...pay, customerText: 'ok kak' }).action, 'ask_department');
   assert.equal(guard.chooseAction({ ...base, topic: 'harga', customerText: 'Harga paralon 4 inch brp' }).action, 'ask_department');
   assert.equal(guard.chooseAction({ ...base, topic: 'stok', customerText: 'Ok ada stok kloset Volk?' }).action, 'ask_department');
+});
+
+test('penjaga: "Ok skip ya" dibalas wajar, tanpa janji menyusul', () => {
+  const assessment = { topic: 'order', reasons: [{ code: 'order_claim', sentence: 'Pesanan kakak sudah diproses ya.' }] };
+  const text = guard.compose({ finalText: 'Pesanan kakak sudah diproses ya.', customerText: 'Ok skip ya', assessment, plan: { action: 'acknowledge' } });
+  assert.doesNotMatch(text, /sudah diproses|get back|teruskan/i);
+  assert.match(text, /kabari saja/);
+});
+
+test('looksLikeBotNotice: pemberitahuan, pengingat, dan balasan pencocokan dikenali', () => {
+  assert.ok(match.looksLikeBotNotice('*Pertanyaan dari asisten untuk tim Finance*\nCustomer: X'));
+  assert.ok(match.looksLikeBotNotice('*Pengingat 2/4 — tim Management*'));
+  assert.ok(match.looksLikeBotNotice('Saya baca pesan tadi sebagai jawaban untuk "x" (#abc123).'));
+  assert.ok(match.looksLikeBotNotice('Jawab dengan reply, atau tulis #d87625'));
+  assert.ok(!match.looksLikeBotNotice('Ada garansi kah?'));
+  assert.ok(!match.looksLikeBotNotice(''));
 });
 
 async function harness(t, llmText) {
@@ -86,7 +108,11 @@ async function harness(t, llmText) {
   };
   const server = await buildApp({ logger: false, startupEnabled: false, demoMode: true, database, llmService, llmEnabled: true, openrouterApiKey: 'k', sessionSecret: 'gam-session' });
   t.after(() => server.close());
-  const msg = (body) => ({ from: '120363@g.us', author: '628111@c.us', body, type: 'chat', timestamp: 1, id: { _serialized: `m-${body}` }, async reply(text) { state.sent.push(text); } });
+  const msg = (body, quoted = null) => ({
+    from: '120363@g.us', author: '628111@c.us', body, type: 'chat', timestamp: 1, id: { _serialized: `m-${body}` },
+    _data: quoted ? { quotedStanzaID: 'STAFF1', quotedMsg: { body: quoted } } : {},
+    async reply(text) { state.sent.push(text); },
+  });
   return { server, state, msg };
 }
 
@@ -104,4 +130,19 @@ test('grup: model ragu atau obrolan biasa = tidak ada jawaban tercatat', async (
   assert.equal(state.answered.length, 0);
   await server.handleInboundMessage('co-1', msg('Udh dijawab nanya lagi'));
   assert.equal(state.asked, 1, 'keluhan tidak masuk jalur pencocokan');
+});
+
+test('grup: reply ke pesan sesama staf tetap dicocokkan, kutipannya ikut jadi konteks', async (t) => {
+  const { server, state, msg } = await harness(t, '{"nomor": 1, "yakin": "tinggi"}');
+  await server.handleInboundMessage('co-1', msg('ga ada', 'Ada garansi kah?'));
+  assert.equal(state.asked, 1);
+  assert.equal(state.answered[0]?.id, GARANSI.id);
+});
+
+test('grup: reply ke pesan bot atau meneruskan pesan bot tidak memanggil model', async (t) => {
+  const { server, state, msg } = await harness(t, '{"nomor": 1, "yakin": "tinggi"}');
+  await server.handleInboundMessage('co-1', msg('ready', '*Pengingat terakhir — tim Management*\nCustomer · #aaaaaa'));
+  await server.handleInboundMessage('co-1', msg('*Pertanyaan dari asisten untuk tim Finance*\nCustomer: Esbeje Cisauk'));
+  assert.equal(state.asked, 0);
+  assert.equal(state.answered.length, 0);
 });

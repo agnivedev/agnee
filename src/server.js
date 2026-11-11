@@ -2359,6 +2359,8 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       relevantFaqs,
       product,
       ks: ksInstalls.length > 0,
+      // Chat NERVA: owner bertanya susulan ("yang Bandung?", "per brand-nya?"), jadi butuh riwayat sepanjang KS.
+      nerva: nervaToolList.length > 0,
       playbookContext,
       paymentContext,
       companyConfig,
@@ -2956,7 +2958,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
         conversationHistory = recent
           .filter(m => !hiddenTypes.has(m.type) && (m.body || mediaMarker(m) || (m.type === 'location' && !m.fromMe))
             && (!currentId || inboundMessageId(m) !== currentId))
-          .slice(ctx.ks ? -14 : -10)
+          .slice(ctx.ks || ctx.nerva ? -14 : -10)
           .map(m => ({
             role: m.fromMe ? 'assistant' : 'user',
             content: (m.fromMe ? m.body : mapsLink.readCustomerTextCached(m))
@@ -3000,7 +3002,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
         : `Customer membalas "${message.body}" lagi, dan kamu SUDAH berterima kasih di giliran sebelumnya.\n\nJangan berterima kasih lagi, jangan mengulang kalimat yang sudah kamu kirim, jangan bertanya apa pun, jangan menanyakan maksudnya, jangan menawarkan produk, jangan menyebut harga, jangan mengirim link.\n\nTulis paling banyak DUA kalimat pendek dengan persona kamu yang menambahkan satu keterangan BARU dan berguna tentang apa yang sudah disepakati — misalnya apa yang terjadi berikutnya atau apa yang bisa disiapkan. Ambil keterangannya dari playbook, jangan mengarang. Keluarkan HANYA kalimatnya.`;
 
       const lanjutan = await llmService.generateReply(perintah,
-        { systemPrompt: ctx.systemPrompt, history: conversationHistory, historyLimit: ctx.ks ? 12 : undefined, companyId, purpose: 'auto_reply', modelChain: companyAi.modelChain },
+        { systemPrompt: ctx.systemPrompt, history: conversationHistory, historyLimit: ctx.ks || ctx.nerva ? 12 : undefined, companyId, purpose: 'auto_reply', modelChain: companyAi.modelChain },
       ).catch(() => null);
       const teksLanjutan = stripLinks(lanjutan?.text || '');
       app.log.info({ companyId, chatId: message.from, ronde },
@@ -3041,7 +3043,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
         relevantFaqs: ctx.relevantFaqs,
         leadState: ctx.leadState,
         history: conversationHistory,
-        historyLimit: ctx.ks ? 12 : undefined,
+        historyLimit: ctx.ks || ctx.nerva ? 12 : undefined,
         companyId,
         purpose: 'auto_reply',
         modelChain: companyAi.modelChain,

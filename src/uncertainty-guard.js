@@ -297,8 +297,20 @@ function pickDepartment(topic, departmentNames = []) {
  *   handoff        mode 'handoff': chat diserahkan ke manusia
  *   notify_staff   selain itu: staf diberi kartu serah-terima, AI tetap membalas
  */
-function chooseAction({ topic, missingInfo = false, departmentNames = [], canAsk = false, mode = 'on', proofCheck = false, proofGiven = false, proofMissing = false }) {
-  if (missingInfo) return { action: 'ask_customer' };
+/**
+ * Pesan yang tidak memuat apa pun untuk ditanyakan ke tim: penutup/pembatalan
+ * ("Ok skip ya", "makasih", "nanti ya"). Tanpa ini penjaga mengirim "Customer
+ * menanyakan pesanan: 'Ok skip ya'" ke grup Management (audit 9 Nov).
+ */
+const ACK_ONLY = /^(?:ok(?:e|ay)?|siap|sip|baik|ya|iya|oke+|makasih|terima\s*kasih|thanks?|nuhun|skip|batal|gak\s*jadi|ga\s*jadi|gajadi|nanti|dulu|deh|aja|kak|ka|ya\s*kak|sudah|udah|dah|ok\s*skip|noted?|mantap)(?:[\s,.!]+(?:ok(?:e|ay)?|siap|sip|baik|ya|iya|makasih|terima\s*kasih|thanks?|skip|batal|gak\s*jadi|ga\s*jadi|gajadi|nanti|dulu|deh|aja|kak|ka|sudah|udah|dah|noted?|mantap))*[\s.!]*$/i;
+const DEICTIC_ONLY = /^(?:yg|yang)?\s*(?:ini|itu|yg ini|yang ini|yg itu|yang itu)\s*(?:ya|kak|ka|\?)*[\s?.!]*$/i;
+const isAckOnly = (text) => ACK_ONLY.test(String(text || '').trim());
+/** "Yg ini" tanpa teks lain: barang yang dimaksud tidak ada di pesan, tanya balik ke customer, bukan ke tim. */
+const isDeicticOnly = (text) => DEICTIC_ONLY.test(String(text || '').trim());
+
+function chooseAction({ topic, missingInfo = false, departmentNames = [], canAsk = false, mode = 'on', proofCheck = false, proofGiven = false, proofMissing = false, customerText = '' }) {
+  if (isAckOnly(customerText)) return { action: 'notify_staff' };
+  if (missingInfo || isDeicticOnly(customerText)) return { action: 'ask_customer' };
   // Berkas yang disebut tak pernah masuk: tak ada yang bisa diperiksa Finance, minta kirim ulang.
   if (proofMissing) return { action: 'ask_customer' };
   const department = canAsk ? pickDepartment(topic, departmentNames) : null;
@@ -395,5 +407,5 @@ function departmentQuestion({ topic, customerText = '', assessment }) {
 
 module.exports = {
   MODES, TOPIC_LABELS, REASON_LABELS, PROOF_MARKER,
-  detectTopics, claimsTransfer, toolFailures, assess, pickDepartment, chooseAction, compose, departmentQuestion,
+  isAckOnly, isDeicticOnly, detectTopics, claimsTransfer, toolFailures, assess, pickDepartment, chooseAction, compose, departmentQuestion,
 };

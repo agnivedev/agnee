@@ -1769,6 +1769,27 @@ class Database {
     return result.rows[0] || null;
   }
 
+  /**
+   * Pertanyaan yang masih menunggu jawaban di grup departemen ini (terbaru dulu),
+   * untuk mencocokkan jawaban tanpa reply/kode. Hanya pertanyaan umum dari
+   * departemen pemilik grup, dalam jendela `hours` jam terakhir.
+   */
+  async listOpenGroupQuestions(companyId, groupId, { hours = 24, limit = 6 } = {}) {
+    if (!this.enabled || !groupId) return [];
+    const result = await this.pool.query(`
+      SELECT q.id, q.chat_id AS "chatId", d.name AS department, q.department_id AS "departmentId",
+             q.question, q.customer_text AS "customerText", q.created_at AS "createdAt"
+      FROM department_questions q
+      JOIN departments d ON d.id = q.department_id
+      WHERE q.company_id = $1 AND d.whatsapp_group_id = $2
+        AND q.status IN ('open', 'unresolved') AND q.kind = 'general' AND q.third_party_id IS NULL
+        AND q.created_at > now() - make_interval(hours => $3::int)
+      ORDER BY q.created_at DESC
+      LIMIT $4
+    `, [companyId, groupId, Math.max(1, Number(hours) || 24), Math.min(Math.max(Number(limit) || 6, 1), 20)]);
+    return result.rows;
+  }
+
   /** Anggota aktif company dengan nomor WhatsApp ini (untuk mencatat siapa yang menjawab dari grup). */
   async findMemberByWhatsapp(companyId, digits) {
     if (!this.enabled || !digits) return null;

@@ -51,6 +51,7 @@ const lalamove = require('./lalamove.js');
 const lalamoveVehicles = require('./lalamove-vehicles.js');
 const priceLookup = require('./price-lookup.js');
 const priceMatchLlm = require('./price-match-llm.js');
+const groupAnswerMatch = require('./group-answer-match.js');
 const openingHours = require('./opening-hours.js');
 const deliveryQuote = require('./delivery-quote.js');
 const orderSummary = require('./order-summary.js');
@@ -1804,7 +1805,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     if (!text) return false;
     const stanzaId = message._data?.quotedStanzaID || null;
     const code = departmentAsk.codeInText(text);
-    if (!stanzaId && !code) return false;
+    if (!stanzaId && !code) return captureLooseGroupAnswer(companyId, message, text);
     const hit = await database.findGroupDepartmentQuestion(companyId, message.from, { stanzaId, code });
     if (!hit) return false;
     const answer = text.replace(/#[0-9a-f]{6}\b/i, '').trim();
@@ -1817,11 +1818,44 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
   }
 
   /**
+   * Pesan grup tanpa reply dan tanpa #kode: staf sering menjawab santai. LLM
+   * mencocokkannya ke pertanyaan terbuka (yakin tinggi saja). Ragu atau obrolan
+   * biasa = dibiarkan, tanpa balasan di grup. Hanya pesan berbentuk jawaban
+   * yang dicoba, jadi keluhan/pembatalan/pertanyaan tidak memicu apa pun.
+   */
+  async function captureLooseGroupAnswer(companyId, message, text) {
+    if (!canCall('listOpenGroupQuestions') || (message.type && message.type !== 'chat')) return false;
+    if (departmentAsk.classifyGroupReply(text) !== 'answer' || !groupAnswerMatch.worthMatching(text)) return false;
+    const candidates = await database.listOpenGroupQuestions(companyId, message.from, { hours: groupAnswerMatch.LOOSE_WINDOW_HOURS });
+    if (!candidates.length) return false;
+    const recent = await database.recentInboundTexts(companyId, message.from, groupAnswerMatch.CONTEXT_MESSAGES + 1).catch(() => []);
+    // recentInboundTexts: terbaru dulu dan sudah memuat pesan ini; buang pesan ini, balik ke lama→baru.
+    const context = recent.filter((t, i) => !(i === 0 && String(t).trim() === text)).reverse();
+    const companyAi = await getCompanyAi(companyId).catch(() => ({}));
+    const hit = await groupAnswerMatch.matchLooseAnswer({
+      candidates, context, text, meta: { companyId },
+      ask: async (prompt, systemPrompt) => (await llmService.generateReply(prompt, {
+        systemPrompt, companyId, purpose: 'group_match', modelChain: companyAi.modelChain,
+      }))?.text || '',
+    });
+    if (!hit) return false;
+    const author = String(message.author || message._data?.author?._serialized || '');
+    const member = author.endsWith('@c.us')
+      ? await database.findMemberByWhatsapp(companyId, author.replace(/\D/g, '')).catch(() => null)
+      : null;
+    const gist = String(hit.customerText || hit.question || '').replace(/\s+/g, ' ').trim().slice(0, 60);
+    return processStaffAnswer({
+      companyId, hit, answer: text, ackTo: message.from, userId: member?.userId || null, channel: 'group', groupId: message.from,
+      ackPrefix: `Saya baca pesan tadi sebagai jawaban untuk "${gist}" (#${departmentAsk.questionCode(hit.id)}). `,
+    });
+  }
+
+  /**
    * Jawaban staf (dari grup atau DM) atas satu pertanyaan: ditutup, ditolak
    * sebagai bukan-jawaban, atau dicatat lalu diteruskan ke customer. Selalu
    * membalas pengirim lewat `ackTo` dan mengembalikan true (pesan sudah ditangani).
    */
-  async function processStaffAnswer({ companyId, hit, answer, ackTo, userId, channel, groupId = null }) {
+  async function processStaffAnswer({ companyId, hit, answer, ackTo, userId, channel, groupId = null, ackPrefix = '' }) {
     const replyKind = departmentAsk.classifyGroupReply(answer);
     if (replyKind === 'close') {
       const closed = await database.closeDepartmentQuestion(hit.id, companyId);
@@ -1857,7 +1891,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     const ack = relay.ackText || (relay.relayed
       ? 'Terima kasih, jawabannya sudah diteruskan ke customer.'
       : await handleUnrelayedAnswer({ companyId, row, department: hit.department, answer, reason: relay.reason }));
-    await sendOutbound(companyId, ackTo, ack).catch(() => {});
+    await sendOutbound(companyId, ackTo, `${ackPrefix}${ack}`).catch(() => {});
     if (relay.reason !== 'mention') await closeSiblingQuestions(companyId, row, { all: relay.reason === 'stop_ai' });
     if (!NOT_FOR_CUSTOMER.has(relay.reason)) trackLearning(learnFromDepartmentAnswer({ companyId, questionId: row.id, channel, groupId }));
     return true;
@@ -2715,6 +2749,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
         proofCheck: Boolean(ctx.companyConfig?.paymentProofCheck),
         proofGiven: uncertainty.PROOF_MARKER.test(customerText),
         proofMissing: assessment.reasons.some((r) => r.code === 'proof_not_attached'),
+        customerText,
       });
       if (!dryRun) plan = await executeUncertaintyPlan({ plan, assessment, ctx, askTool, companyId, chatId, customerText, finalText });
       text = uncertainty.compose({ finalText, customerText, assessment, plan });

@@ -4535,21 +4535,21 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       const next = lead.accountStatus === 'have'
         ? 'You already have an account, so it needs to be moved under our IB. Reply with your MT4/MT5 account number and we will walk you through it.'
         : 'Once you finish signing up, reply here with your MT4/MT5 account number so we can link it to your rebate.';
-      return `Hi ${first}, thanks for registering with Bull Babe Capital | Rebate. ${pick}${next} Never send your password.`;
+      return `Hi ${first}, thanks for registering with Bull Babe Capital. ${pick}${next} Never send your password.`;
     }
     const pick = hasBroker ? `Kamu pilih ${lead.broker}. ` : '';
     const next = lead.accountStatus === 'have'
       ? 'Karena kamu sudah punya account, account itu perlu dipindah ke IB kami. Balas chat ini dengan nomor account MT4/MT5 kamu, nanti kami bantu langkahnya.'
       : 'Setelah selesai daftar, balas chat ini dengan nomor account MT4/MT5 kamu supaya kami bisa hubungkan ke rebate.';
-    return `Halo ${first}, terima kasih sudah daftar di Bull Babe Capital | Rebate. ${pick}${next} Jangan pernah kirim password.`;
+    return `Halo ${first}, terima kasih sudah daftar di Bull Babe Capital. ${pick}${next} Jangan pernah kirim password.`;
   }
 
   function legacyConfirmText(lead) {
     const first = String(lead.name || '').split(/\s+/)[0] || '';
     const broker = lead.broker || (lead.language === 'en' ? 'your broker' : 'broker kamu');
     return lead.language === 'en'
-      ? `Hi ${first}, good news: your ${broker} account is now linked under Bull Babe Capital | Rebate. Your trading is counted for rebate from here. We will update you in this chat with details and the schedule.`
-      : `Halo ${first}, kabar baik: account ${broker} kamu sudah terhubung ke Bull Babe Capital | Rebate. Trading kamu tercatat untuk rebate mulai sekarang. Rincian dan jadwalnya kami kabari lewat chat ini.`;
+      ? `Hi ${first}, good news: your ${broker} account is now linked under Bull Babe Capital. Your trading is counted for rebate from here. We will update you in this chat with details and the schedule.`
+      : `Halo ${first}, kabar baik: account ${broker} kamu sudah terhubung ke Bull Babe Capital. Trading kamu tercatat untuk rebate mulai sekarang. Rincian dan jadwalnya kami kabari lewat chat ini.`;
   }
 
   const GENERIC_WELCOME = {

@@ -68,6 +68,34 @@ function maskCompanyName(name) {
   return words.map((w) => `${[...w].slice(0, w.length > 3 ? 2 : 1).join('')}***`).join(' ');
 }
 
+// ── Watchdog tuli ───────────────────────────────────────────────────────────
+// Status 'ready' tidak menjamin pendengar pesan masih terpasang: halaman WA Web
+// bisa memuat ulang modulnya (SPA re-injection) atau helper hilang, lalu pesan
+// masuk tidak terdeteksi dan sendMessage mengembalikan model kosong. Probe ini
+// hanya membaca keadaan halaman, tidak mengirim apa pun.
+const DEAF_PROBE_INTERVAL_MS = 60_000;
+const DEAF_FAILS_TO_RESTART = 2;
+const DEAF_MAX_RESTARTS_PER_HOUR = 3;
+
+/** Dijalankan di dalam halaman WA Web. */
+function deafProbeInPage() {
+  const S = window.Store;
+  const ev = S && S.Msg && S.Msg._events && S.Msg._events.add;
+  return {
+    helper: Boolean(window.WWebJS),
+    store: Boolean(S && S.Msg),
+    binding: typeof window.onAddMessageEvent === 'function',
+    addListeners: Array.isArray(ev) ? ev.length : (ev ? 1 : null),
+  };
+}
+
+/** true bila hasil probe menunjukkan client tuli. `null` = tidak terjawab. */
+function isDeafProbe(result) {
+  if (!result || typeof result !== 'object') return true;
+  if (!result.helper || !result.store || !result.binding) return true;
+  return result.addListeners === 0; // null = versi WA Web tak dikenal, anggap sehat
+}
+
 class WhatsappManager {
   // Satu aliran per tab peramban (satu `EventSource` dipakai bersama di dalam
   // tab, lihat web/src/lib/live-events.ts), jadi 25 sudah longgar untuk tim
@@ -833,6 +861,66 @@ class WhatsappManager {
     };
 
     schedule();
+    this._startDeafWatchdog(connectionId, { clientId, sessionPath }, callbacks);
+  }
+
+  /**
+   * Penjaga tuli per koneksi: saat fase 'ready', probe halaman tiap menit.
+   * Dua probe gagal beruntun -> hanya client ini yang dibuat ulang; koneksi
+   * lain tidak tersentuh. Maks 3 restart per jam, lalu menyerah ke 'error'.
+   */
+  _startDeafWatchdog(connectionId, { clientId, sessionPath }, callbacks) {
+    const entry = this._getEntry(connectionId);
+    const { log } = callbacks;
+    clearInterval(entry.deafTimer);
+    let fails = 0;
+    let busy = false;
+    const restarts = [];
+
+    const timeout = (p, ms) => {
+      let t;
+      return Promise.race([p, new Promise((r) => { t = setTimeout(() => r(null), ms); })])
+        .finally(() => clearTimeout(t));
+    };
+
+    entry.deafTimer = setInterval(async () => {
+      if (busy) return;
+      const wa = entry.client;
+      if (!wa || entry.state.phase !== 'ready' || !wa.pupPage) { fails = 0; return; }
+      busy = true;
+      try {
+        const result = await timeout(wa.pupPage.evaluate(deafProbeInPage).catch(() => null), 15_000);
+        if (entry.client !== wa) return;
+        if (!isDeafProbe(result)) { fails = 0; return; }
+        fails += 1;
+        log?.warn({ connectionId, fails, probe: result }, 'WhatsApp client looks deaf');
+        if (fails < DEAF_FAILS_TO_RESTART) return;
+        fails = 0;
+        const now = Date.now();
+        while (restarts.length && now - restarts[0] > 3_600_000) restarts.shift();
+        if (restarts.length >= DEAF_MAX_RESTARTS_PER_HOUR) {
+          entry.state.phase = 'error';
+          entry.state.lastError = 'WhatsApp tidak merespons berulang kali. Coba hubungkan ulang.';
+          this.broadcast(entry.companyId, 'whatsapp_phase', { phase: 'error', error: entry.state.lastError, connectionId });
+          callbacks.onStatusUpdate?.(entry.companyId, 'error', null, connectionId)?.catch?.(() => {});
+          return;
+        }
+        restarts.push(now);
+        log?.error({ connectionId }, 'Restarting deaf WhatsApp client');
+        // Hanya koneksi ini: stopClient lalu startFor memasang watchdog baru.
+        await this.stopClient(connectionId);
+        clearInterval(entry.deafTimer);
+        entry.state.phase = 'starting';
+        entry.state.lastError = null;
+        this.broadcast(entry.companyId, 'whatsapp_phase', { phase: 'starting', connectionId });
+        await this.startFor(connectionId, { companyId: entry.companyId, clientId, sessionPath }, callbacks);
+      } catch (error) {
+        log?.warn({ err: error, connectionId }, 'Deaf watchdog check failed');
+      } finally {
+        busy = false;
+      }
+    }, DEAF_PROBE_INTERVAL_MS);
+    entry.deafTimer.unref?.();
   }
 
   /**
@@ -844,6 +932,8 @@ class WhatsappManager {
     this._clearQrMirror(connectionId);
     clearTimeout(entry.restoredSessionTimer);
     entry.restoredSessionTimer = null;
+    clearInterval(entry.deafTimer);
+    entry.deafTimer = null;
     const stale = entry.client;
     entry.client = null;
     if (stale) await stale.destroy().catch(() => {});
@@ -881,4 +971,4 @@ class WhatsappManager {
   }
 }
 
-module.exports = { WhatsappManager, maskCompanyName, resolveBrowserExecutable, normalizePairingPhone };
+module.exports = { WhatsappManager, isDeafProbe, deafProbeInPage, maskCompanyName, resolveBrowserExecutable, normalizePairingPhone };

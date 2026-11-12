@@ -28,7 +28,10 @@ async function startWithFakeClient(overrides = {}) {
       getState: overrides.getState || (async () => 'CONNECTED'),
       info: { wid: { _serialized: '628111345938@c.us' } },
       pupPage: {
-        evaluate: overrides.evaluate || (async () => true),
+        // Probe pendengar dijawab sehat; evaluate lain (cek helper) true.
+        evaluate: overrides.evaluate || (async (fn) => (fn?.name === 'deafProbeInPage'
+          ? { helper: true, binding: true, addListeners: 1, changeListeners: 1 }
+          : true)),
         on() {},
         once() {},
       },

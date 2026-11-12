@@ -77,23 +77,93 @@ const DEAF_PROBE_INTERVAL_MS = 60_000;
 const DEAF_FAILS_TO_RESTART = 2;
 const DEAF_MAX_RESTARTS_PER_HOUR = 3;
 
-/** Dijalankan di dalam halaman WA Web. */
+// Kasus nyatanya (Beweix, 12 Nov): sesudah tiga restart berturut-turut
+// whatsapp-web.js berhenti di tengah attachEventListeners — sembilan binding
+// pertama terpasang, sisanya dan seluruh `Msg.on(...)` tidak pernah. Event
+// 'ready' bawaannya tidak pernah datang, tapi watchdog sesi di startFor
+// menyatakan 'ready' karena socket CONNECTED dan helper ada. Hasilnya nomor
+// "Connected" yang tidak mendengar satu pesan pun seharian.
+
+/**
+ * Dijalankan di dalam halaman WA Web. whatsapp-web.js 1.34 tidak lagi memakai
+ * `window.Store`; koleksinya diambil lewat `window.require`. Pendengar event
+ * WA disimpan di properti termampatkan (sekarang `$1`) berbentuk
+ * `{ add: [{ callback, context }], ... }`, jadi tabelnya dicari menurut
+ * bentuknya, bukan namanya. Tidak ketemu = versi tak dikenal (`null`).
+ */
 function deafProbeInPage() {
-  const S = window.Store;
-  const ev = S && S.Msg && S.Msg._events && S.Msg._events.add;
-  return {
+  const out = {
     helper: Boolean(window.WWebJS),
-    store: Boolean(S && S.Msg),
     binding: typeof window.onAddMessageEvent === 'function',
-    addListeners: Array.isArray(ev) ? ev.length : (ev ? 1 : null),
+    addListeners: null,
+    changeListeners: null,
   };
+  try {
+    const { Msg } = window.require('WAWebCollections');
+    const tables = Object.values(Msg).filter((v) => v && typeof v === 'object' && !Array.isArray(v)
+      && Array.isArray(v.add) && v.add.every((l) => l && typeof l.callback === 'function'));
+    if (tables.length === 1) {
+      const count = (ev, fn) => (tables[0][ev] || []).filter((l) => String(l.callback).includes(fn)).length;
+      out.addListeners = count('add', 'onAddMessageEvent');
+      out.changeListeners = count('change', 'onChangeMessageEvent');
+    }
+  } catch { /* versi WA Web tak dikenal */ }
+  return out;
 }
 
-/** true bila hasil probe menunjukkan client tuli. `null` = tidak terjawab. */
+/**
+ * true bila client tidak akan menerima pesan dengan benar. `null` = halaman
+ * tidak menjawab. Lebih dari satu pendengar juga rusak: tiap pesan diproses
+ * dua kali dan AI membalas dobel.
+ */
 function isDeafProbe(result) {
   if (!result || typeof result !== 'object') return true;
-  if (!result.helper || !result.store || !result.binding) return true;
-  return result.addListeners === 0; // null = versi WA Web tak dikenal, anggap sehat
+  if (!result.helper || !result.binding) return true;
+  if (result.addListeners == null) return false; // versi WA Web tak dikenal, anggap sehat
+  return result.addListeners !== 1;
+}
+
+/**
+ * Pendengar yang belum dipasang sama sekali bisa dipasang ulang di halaman
+ * yang sama, tanpa restart. Yang terpasang sebagian atau dobel tidak: memasang
+ * lagi hanya menambah duplikat, jadi itu jatah restart.
+ */
+function canReattach(result) {
+  return Boolean(result && result.helper && result.addListeners === 0 && result.changeListeners === 0);
+}
+
+const REATTACH_TIMEOUT_MS = 60_000;
+const PROBE_TIMEOUT_MS = 15_000;
+
+function withTimeout(promise, ms, fallback = null) {
+  let timer;
+  return Promise.race([
+    promise,
+    new Promise((resolve) => { timer = setTimeout(() => resolve(fallback), ms); }),
+  ]).finally(() => clearTimeout(timer));
+}
+
+async function probeClient(wa) {
+  if (!wa?.pupPage) return null;
+  return withTimeout(wa.pupPage.evaluate(deafProbeInPage).catch(() => null), PROBE_TIMEOUT_MS);
+}
+
+/**
+ * Pasang ulang pendengar whatsapp-web.js bila belum ada sama sekali, lalu
+ * probe lagi. Mengembalikan hasil probe terakhir; tidak pernah melempar.
+ */
+async function repairListeners(wa, { log, connectionId } = {}) {
+  const before = await probeClient(wa);
+  if (!isDeafProbe(before) || !canReattach(before) || typeof wa.attachEventListeners !== 'function') return before;
+  log?.warn({ connectionId, probe: before }, 'Pendengar pesan WhatsApp tidak terpasang; dipasang ulang');
+  const ok = await withTimeout(
+    wa.attachEventListeners().then(() => true, (err) => { log?.warn({ err, connectionId }, 'Memasang ulang pendengar gagal'); return false; }),
+    REATTACH_TIMEOUT_MS,
+    false,
+  );
+  const after = await probeClient(wa);
+  if (ok && !isDeafProbe(after)) log?.info({ connectionId, probe: after }, 'Pendengar pesan WhatsApp terpasang lagi');
+  return after;
 }
 
 class WhatsappManager {
@@ -745,11 +815,16 @@ class WhatsappManager {
     // Halaman yang baru tersambung memang belum memuat helper-nya; dulu
     // keempat nomor di-restart di setiap deploy karena dicek terlalu cepat.
     const HELPER_GRACE_MS = 60_000;
+    // whatsapp-web.js biasanya selesai memasang pendengar dalam beberapa detik
+    // setelah helper dimuat; 30 detik tanpa pendengar berarti ia macet.
+    const LISTENER_GRACE_MS = 30_000;
+    let listenersMissingSince = 0;
     let restarts = 0;
     let crashHandlersAttached = false;
 
     const restartOnce = async (reason) => {
       restarts += 1;
+      listenersMissingSince = 0;
       // Client baru mendapat jatah 5 menit sendiri, dan pengawas crash-nya sendiri.
       startedAt = Date.now();
       crashHandlersAttached = false;
@@ -841,6 +916,29 @@ class WhatsappManager {
           const stalled = Date.now() - (state.lastProgressAt || startedAt) > SYNC_STALL_MS;
           if (state.phase === 'syncing' && !stalled) return schedule();
 
+          // Helper ada belum berarti pendengar pesan terpasang: whatsapp-web.js
+          // bisa berhenti di tengah attachEventListeners dan tidak pernah
+          // menembakkan 'ready'. Menyatakan 'ready' di sini tanpa memeriksa
+          // menghasilkan nomor "Connected" yang tuli.
+          //
+          // Helper muncul SEBELUM whatsapp-web.js selesai memasang pendengar,
+          // jadi pada start normal probe pertama memang 0. Memasang ulang saat
+          // itu = dua attachEventListeners bersamaan = pendengar dobel. Baru
+          // turun tangan setelah LISTENER_GRACE_MS tanpa kemajuan.
+          const wa = entry.client;
+          let probe = await probeClient(wa);
+          if (entry.client !== wa) return schedule();
+          if (isDeafProbe(probe)) {
+            listenersMissingSince ||= Date.now();
+            if (Date.now() - listenersMissingSince < LISTENER_GRACE_MS) return schedule();
+            probe = await repairListeners(wa, { log, connectionId });
+            if (entry.client !== wa) return schedule();
+          }
+          if (isDeafProbe(probe)) {
+            if (restarts < MAX_RESTARTS) return restartOnce('tersambung tapi pendengar pesan tidak terpasang');
+            log?.error({ connectionId, probe }, 'WhatsApp listeners still missing after restart; marking ready, watchdog keeps checking');
+          }
+
           return this._markReady(
             connectionId,
             entry.client.info?.wid?._serialized,
@@ -877,25 +975,24 @@ class WhatsappManager {
     let busy = false;
     const restarts = [];
 
-    const timeout = (p, ms) => {
-      let t;
-      return Promise.race([p, new Promise((r) => { t = setTimeout(() => r(null), ms); })])
-        .finally(() => clearTimeout(t));
-    };
-
     entry.deafTimer = setInterval(async () => {
       if (busy) return;
       const wa = entry.client;
       if (!wa || entry.state.phase !== 'ready' || !wa.pupPage) { fails = 0; return; }
       busy = true;
       try {
-        const result = await timeout(wa.pupPage.evaluate(deafProbeInPage).catch(() => null), 15_000);
+        const result = await probeClient(wa);
         if (entry.client !== wa) return;
         if (!isDeafProbe(result)) { fails = 0; return; }
         fails += 1;
         log?.warn({ connectionId, fails, probe: result }, 'WhatsApp client looks deaf');
         if (fails < DEAF_FAILS_TO_RESTART) return;
         fails = 0;
+        // Pendengar yang hilang total dipasang ulang di halaman yang sama:
+        // tanpa Chromium baru, tanpa risiko sesi rusak, dan nomor lain tak terganggu.
+        const repaired = await repairListeners(wa, { log, connectionId });
+        if (entry.client !== wa) return;
+        if (!isDeafProbe(repaired)) return;
         const now = Date.now();
         while (restarts.length && now - restarts[0] > 3_600_000) restarts.shift();
         if (restarts.length >= DEAF_MAX_RESTARTS_PER_HOUR) {
@@ -971,4 +1068,4 @@ class WhatsappManager {
   }
 }
 
-module.exports = { WhatsappManager, isDeafProbe, deafProbeInPage, maskCompanyName, resolveBrowserExecutable, normalizePairingPhone };
+module.exports = { WhatsappManager, isDeafProbe, canReattach, repairListeners, deafProbeInPage, maskCompanyName, resolveBrowserExecutable, normalizePairingPhone };

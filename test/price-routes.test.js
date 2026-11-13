@@ -98,3 +98,29 @@ test('simulate: harga yang disebut customer sendiri dan kelipatan harga asli tid
   assert.equal(res.statusCode, 200);
   assert.match(res.json().reply, /Rp 1\.164\.000/);
 });
+
+test('simulate (ESBEJE 29 Okt): harga barang lain untuk MU 301 ditulis ulang dengan harga MU 301 dari daftar', async (t) => {
+  // Model memanggil cek_harga untuk keduanya, lalu menukar harga: MU 301 diberi harga MU 100.
+  // Angka 116.400 ada di hasil alat, jadi pemeriksaan "angka ada di sumber" saja meloloskannya.
+  const tertukar = 'Untuk dinding retak cocok MU 100 Base Plester Rp 104.000 per sak, atau MU 301 Plasterplus Rp 116.400 per sak. Butuh berapa sak, kak?';
+  const benar = 'Untuk dinding retak cocok MU 100 Base Plester Rp 116.400 per sak, atau MU 301 Plasterplus Rp 104.000 per sak. Butuh berapa sak, kak?';
+  const fixPrompts = [];
+  const { simulate } = await setup(t, async (message, options) => {
+    if (/melanggar aturan/.test(message)) {
+      fixPrompts.push(message);
+      return benar;
+    }
+    const tool = (options.tools || []).find((x) => x.name === 'cek_harga');
+    if (tool) {
+      await tool.run({ barang: 'MU 100 Base Plester' });
+      await tool.run({ barang: 'MU 301 Plasterplus' });
+    }
+    return tertukar;
+  });
+  const res = await simulate(CUSTOMER);
+  assert.equal(res.statusCode, 200);
+  assert.ok(fixPrompts.some((p) => /padahal harga barang itu di daftar Rp 104\.000/.test(p)), `instruksi perbaikan: ${fixPrompts.join('\n---\n')}`);
+  const reply = String(res.json().reply || '');
+  assert.match(reply, /MU 301 Plasterplus Rp 104\.000/);
+  assert.match(reply, /MU 100 Base Plester Rp 116\.400/);
+});

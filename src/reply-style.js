@@ -186,8 +186,15 @@ async function enforceReplyContract(llmService, { text, systemPrompt, userMessag
   // Harga tanpa sumber (lihat price-guard.js): hanya diperiksa bila pemanggil
   // memberi teks sumbernya (prompt + hasil alat + kata customer).
   const inventedIn = (value) => (priceSource ? findInventedPrices(value, priceSource, { quantityText }) : []);
-  const priceWarnings = (value) => [...new Set(inventedIn(value).map((v) => v.amount))].slice(0, 3)
-    .map((amount) => `menyebut harga ${priceGuardRupiah(amount)} yang tidak ada di daftar harga, katalog, atau pengetahuan (dikarang): jangan menyebut angka itu; sebut nama barangnya saja dan katakan harganya kamu pastikan dulu`);
+  const priceWarnings = (value) => {
+    const hits = inventedIn(value);
+    const byAmount = new Map();
+    for (const hit of hits) if (!byAmount.has(hit.amount)) byAmount.set(hit.amount, hit);
+    return [...byAmount.values()].slice(0, 3).map((hit) => (hit.seharusnya?.length
+      // Angka milik barang lain: harga yang benar ada di daftar, jadi sebut yang benar.
+      ? `menyebut ${priceGuardRupiah(hit.amount)} untuk "${hit.barang}", padahal harga barang itu di daftar ${hit.seharusnya.map(priceGuardRupiah).join(' / ')}: ganti dengan harga dari daftar (pilih varian yang sesuai), jangan memakai harga barang lain`
+      : `menyebut harga ${priceGuardRupiah(hit.amount)} yang tidak ada di daftar harga, katalog, atau pengetahuan (dikarang): jangan menyebut angka itu; sebut nama barangnya saja dan katakan harganya kamu pastikan dulu`));
+  };
 
   // Nomor rekening/telepon tanpa sumber (lihat account-guard.js), sumber yang sama dengan harga.
   const accountsIn = (value) => (priceSource ? findInventedAccounts(value, priceSource) : []);

@@ -164,6 +164,186 @@ function findShippingInvented(reply, sourceText, quantityText) {
   return out;
 }
 
+/*
+ * Harga terikat barang.
+ *
+ * ESBEJE, 29 Okt: Agnes menulis "MU 301 Plasterplus Rp 62.000". Angka 62.000
+ * memang ada di prompt (harga barang LAIN), jadi pemeriksaan "angka ada di
+ * sumber" meloloskannya, padahal harga MU 301 di DealPOS Rp 104.000. Hanny:
+ * tidak boleh ada harga selain dari DealPOS/playbook/katalog — artinya harga
+ * barang itu, bukan sembarang angka yang kebetulan ada.
+ *
+ * Caranya: setiap angka di sumber dan di balasan diikat ke potongan teks
+ * tepat sebelumnya (nama barangnya: "MU 301 PLASTERPLUS 40KG: Rp 104.000").
+ * Bila potongan di balasan jelas menunjuk barang di sumber (minimal dua kata
+ * khas sama, mis. "mu" + "301"), angkanya harus salah satu harga barang yang
+ * paling cocok itu, atau kelipatannya dengan jumlah yang disebut. Bila
+ * potongannya tak jelas menunjuk barang mana pun ("Harganya Rp ..."), atau
+ * kalimatnya tentang total/ongkir/DP, pengikatan tidak dipakai; pemeriksaan
+ * "angka ada di sumber" di atas tetap berlaku.
+ */
+
+// Kata yang tidak membedakan satu barang dari yang lain.
+const BIND_STOP = new Set([
+  'rp', 'per', 'harga', 'harganya', 'seharga', 'hargane', 'cuma', 'hanya', 'mulai', 'sekitar', 'kisaran',
+  'untuk', 'buat', 'dan', 'atau', 'yang', 'ini', 'itu', 'ada', 'kak', 'kakak', 'ya', 'yah', 'juga', 'dengan',
+  'di', 'ke', 'dari', 'jadi', 'nya', 'kami', 'kita', 'saya', 'sudah', 'masih', 'bisa', 'mau', 'pakai', 'pake',
+  'sak', 'zak', 'dus', 'box', 'pail', 'gln', 'galon', 'pcs', 'pc', 'lembar', 'lbr', 'btg', 'batang', 'unit',
+  'buah', 'set', 'roll', 'meter', 'kaleng', 'botol', 'pack', 'keping', 'biji', 'satuan', 'isi',
+  'diskon', 'promo', 'setelah', 'normal', 'catatan', 'nama', 'kode', 'merek', 'ribbon',
+  'tidak', 'dicantumkan', 'the', 'of',
+]);
+// Kalimat tentang angka gabungan, bukan harga satu barang.
+const AGGREGATE_WORD = /total|jumlah|grand|semua(?:nya)?|subtotal|keseluruhan|ongkir|ongkos|kirim|pengiriman|kurir|\bdp\b|uang muka|bayar|transfer|budget|anggaran|hemat|potongan|selisih|tagihan|invoice|proforma|cicil/i;
+// Satuan ukuran: angkanya yang membedakan (40 vs 50), bukan satuannya.
+const SIZE_UNIT = new Set(['kg', 'gr', 'g', 'gram', 'ml', 'mm', 'cm', 'in', 'inch', 'lt', 'liter', 'l', 'm', 'x', 'w', 'watt']);
+// Kalimat yang membahas harga, bukan menyebut harga barang ("harga Rp 35.800
+// yang diberikan tidak cocok dengan daftar"): biasanya pertanyaan ke tim.
+const META_WORD = /(?:tidak|belum|ga|gak|nggak|bukan)\s+(?:ketemu|ada di daftar|cocok|terdaftar|sesuai)|di luar daftar|sudah diberikan/i;
+const QUANTITY_UNIT = '(?:sak|zak|dus|box|pail|gln|galon|pcs|pc|lembar|lbr|btg|batang|unit|buah|set|roll|kaleng|botol|pack|keping|biji|m2|m²)';
+
+function bindTokens(text) {
+  const cleaned = String(text || '')
+    .toLowerCase()
+    // "10 sak", "3 dus": jumlah pesanan, bukan nama barang.
+    .replace(new RegExp(`(?<![\\w.,])\\d+(?:[.,]\\d+)?\\s*${QUANTITY_UNIT}\\b`, 'g'), ' ')
+    // "40KG", "40 kg", "TB110", "4x8": angka dan huruf dipisah supaya
+    // penulisan yang berbeda tetap sama ("40" + satuan yang diabaikan).
+    .replace(/(\d)([a-z])/g, '$1 $2')
+    .replace(/([a-z])(\d)/g, '$1 $2');
+  const out = new Set();
+  for (const raw of cleaned.split(/[^a-z0-9]+/)) {
+    if (!raw || BIND_STOP.has(raw) || SIZE_UNIT.has(raw)) continue;
+    if (raw.length < 2 && !/\d/.test(raw)) continue;
+    out.add(raw);
+  }
+  return out;
+}
+
+/**
+ * Potong teks menjadi pasangan (kata di depan angka, angka). Potongan dimulai
+ * setelah angka sebelumnya di baris/kalimat yang sama.
+ *
+ * Sumber (`reply: false`): baris daftar "- NAMA: Rp X → diskon jadi Rp Y"
+ * mengikat semua angkanya ke NAMA, dan potongan yang miskin kata khas
+ * ("→ diskon 10% jadi") meminjam kata potongan sebelumnya.
+ *
+ * Balasan (`reply: true`): lebih hati-hati supaya tak salah tuduh. Hanya
+ * angka pertama di baris daftar yang diikat ke judul barisnya ("- Lem
+ * Dextone 40gr: Rp 8.000, atau 400gr Rp 61.000": 61.000 bukan milik 40gr),
+ * tanpa meminjam kata, dan hanya delapan kata khas terakhir sebelum angka
+ * (nama barang menempel ke harganya).
+ */
+function bindSegments(text, { reply = false } = {}) {
+  const out = [];
+  for (const line of String(text || '').split('\n')) {
+    const listHead = line.match(/^\s*[-•*]\s*([^:]{2,160}):\s/);
+    let previous = null;
+    let from = 0;
+    const hits = extractAmounts(line).sort((a, b) => a.index - b.index);
+    for (const [i, hit] of hits.entries()) {
+      const before = line.slice(from, hit.index);
+      from = hit.end ?? hit.index + 1;
+      const useHead = listHead && (!reply || i === 0);
+      let tokens = bindTokens(useHead ? listHead[1] : before);
+      if (reply) tokens = new Set([...tokens].slice(-8));
+      else if (previous && tokens.size < 2 && !listHead) tokens = new Set([...previous, ...tokens]);
+      out.push({ tokens, amount: hit.amount, text: useHead ? listHead[1] : before, aggregate: AGGREGATE_WORD.test(before) });
+      previous = tokens;
+    }
+  }
+  return out;
+}
+
+/** Pasangan (nama, angka) dari hasil alat berbentuk JSON: tiap objek bernama. */
+function jsonRecords(value, out = []) {
+  if (Array.isArray(value)) {
+    for (const v of value) jsonRecords(v, out);
+    return out;
+  }
+  if (!value || typeof value !== 'object') return out;
+  const name = ['nama', 'name', 'barang', 'item', 'produk'].map((k) => value[k]).find((v) => typeof v === 'string' && v.trim());
+  if (name) {
+    const label = [name, value.kode, value.code, value.merek, value.brand].filter((v) => typeof v === 'string').join(' ');
+    // Kode/ID barang ("1000003303") bukan harga.
+    const flat = Object.entries(value)
+      .filter(([k, v]) => (typeof v === 'string' || typeof v === 'number') && !/^(?:kode|code|id|sku|barcode|external_id|pos_product_id)$/i.test(k))
+      .map(([, v]) => String(v)).join(' ');
+    for (const amount of extractNumbers(flat)) out.push({ tokens: bindTokens(label), amount });
+  }
+  for (const v of Object.values(value)) if (v && typeof v === 'object') jsonRecords(v, out);
+  return out;
+}
+
+function priceRecords(sourceText) {
+  const records = [];
+  const text = String(sourceText || '');
+  const cut = text.indexOf(SHIPPING_MARK);
+  for (const line of (cut === -1 ? text : text.slice(0, cut)).split('\n')) {
+    const trimmed = line.trim();
+    if (/^[[{]/.test(trimmed)) {
+      try {
+        jsonRecords(JSON.parse(trimmed), records);
+        continue;
+      } catch { /* bukan JSON utuh: baca sebagai teks */ }
+    }
+    for (const seg of bindSegments(line)) if (!seg.aggregate && seg.tokens.size) records.push(seg);
+  }
+  return records;
+}
+
+/**
+ * Angka di balasan yang menempel ke barang yang dikenal tapi bukan harga
+ * barang itu.
+ * @returns {{ sentence: string, amount: number, barang: string, seharusnya: number[] }[]}
+ */
+function findMismatchedPrices(reply, sourceText, { quantityText = '' } = {}) {
+  const records = priceRecords(sourceText);
+  if (!records.length) return [];
+  const replyAmounts = extractAmounts(reply).map((a) => a.amount);
+  const quantities = standaloneIntegers(`${quantityText}\n${reply}`);
+  const out = [];
+  // "Cocok pakai MU 301 Plasterplus. Harganya Rp 62.000 per sak.": kalimat
+  // harga tanpa nama merujuk barang di kalimat sebelumnya (yang tanpa angka).
+  let named = null;
+  for (const sentence of splitSentences(reply)) {
+    const segs = bindSegments(sentence, { reply: true });
+    if (!segs.length) {
+      named = bindTokens(sentence);
+      continue;
+    }
+    for (const [i, seg] of segs.entries()) {
+      if (i === 0 && seg.tokens.size < 2 && named?.size && /\b(?:harga(?:nya)?|seharga|cuma|hanya|mulai)\b/i.test(seg.text)) {
+        seg.tokens = new Set([...named, ...seg.tokens]);
+      }
+      if (seg.aggregate || seg.tokens.size < 2 || META_WORD.test(sentence)) continue;
+      if (isSumOfOthers(seg.amount, replyAmounts)) continue;
+      let best = 0;
+      let matches = [];
+      for (const rec of records) {
+        let score = 0;
+        for (const t of seg.tokens) if (rec.tokens.has(t)) score += 1;
+        if (score > best) { best = score; matches = [rec]; } else if (score === best && score > 0) matches.push(rec);
+      }
+      // Dua kata khas sama ("mu" + "301"), dan barangnya tak ambigu dengan
+      // kata lain di kalimat: hanya kata yang benar-benar menunjuk barang.
+      if (best < 2) continue;
+      const allowed = new Set(matches.map((m) => m.amount));
+      const fits = [...allowed].some((price) => {
+        if (price === seg.amount) return true;
+        if (price < MIN_AMOUNT || seg.amount % price !== 0) return false;
+        const k = seg.amount / price;
+        return k >= 2 && k <= MAX_MULTIPLIER && quantities.has(k);
+      });
+      if (fits) continue;
+      const label = seg.text.replace(/\s+/g, ' ').trim().replace(/^[,;:.\-–—\s]+|[,;:\-–—\s]+$/g, '');
+      out.push({ sentence, amount: seg.amount, barang: label.slice(-80) || [...seg.tokens].join(' '), seharusnya: [...allowed].sort((a, b) => a - b).slice(0, 4) });
+    }
+    named = null;
+  }
+  return out;
+}
+
 function findInventedPrices(reply, sourceText, { quantityText = '' } = {}) {
   const amounts = extractAmounts(reply);
   if (!amounts.length) return [];
@@ -171,11 +351,20 @@ function findInventedPrices(reply, sourceText, { quantityText = '' } = {}) {
   // Jumlah barang yang sah = yang disebut customer atau di balasan itu sendiri ("10 sak ...").
   const explained = explainer(sourceText, { quantityText: `${quantityText}\n${reply}`, replyAmounts: amounts.map((a) => a.amount) });
   const invented = new Set([...amounts.filter((a) => !explained(a.amount)).map((a) => a.amount), ...shipping.map((h) => h.amount)]);
-  if (!invented.size) return [];
   const out = [];
-  for (const sentence of splitSentences(reply)) {
-    const hit = extractAmounts(sentence).find((a) => invented.has(a.amount));
-    if (hit) out.push({ sentence, amount: hit.amount });
+  const seen = new Set();
+  if (invented.size) {
+    for (const sentence of splitSentences(reply)) {
+      const hit = extractAmounts(sentence).find((a) => invented.has(a.amount));
+      if (hit) { out.push({ sentence, amount: hit.amount }); seen.add(sentence); }
+    }
+  }
+  // Angka yang ada di sumber, tapi milik barang lain. Satu kalimat bisa
+  // memuat dua harga tertukar: laporkan keduanya supaya model tahu semuanya.
+  for (const hit of findMismatchedPrices(reply, sourceText, { quantityText })) {
+    if (invented.has(hit.amount) || seen.has(`${hit.sentence}\u0000${hit.amount}`)) continue;
+    out.push(hit);
+    seen.add(`${hit.sentence}\u0000${hit.amount}`);
   }
   return out;
 }
@@ -189,4 +378,4 @@ function stripInventedPrices(reply, sourceText, options) {
   return splitSentences(reply).filter((s) => !bad.has(s)).join('\n').trim();
 }
 
-module.exports = { SHIPPING_MARK, extractAmounts, extractNumbers, explainer, findInventedPrices, stripInventedPrices, rupiah };
+module.exports = { SHIPPING_MARK, extractAmounts, extractNumbers, explainer, findInventedPrices, findMismatchedPrices, stripInventedPrices, rupiah };

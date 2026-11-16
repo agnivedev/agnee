@@ -312,3 +312,30 @@ test('kondisi internal yang bocor ke customer ("belum diisi", "tidak ada di sist
   assert.equal(fixed.stripped, false);
   assert.ok(!/belum diisi/.test(fixed.text));
 });
+
+test('suara laporan staf yang bocor ke customer (ESBEJE 12 Nov) dibuang, daftar yang berguna tetap terkirim', async () => {
+  const asli = `Untuk Granit 15x60 dan 15x90 di katalog, isi per dus hanya tercantum di beberapa nama produk:
+
+- ELEGANZA NANTUCKET PINE 15X60: 1,00 m² per dus, Rp 343.300 per dus
+- VALENTINO NEW NORWAY PINE WOOD 15X60 KW1: 1,44 m² per dus, Rp 324.000 per dus
+
+Varian lain di 15x60 (Valentino Virginia, Roman Alder) dan keramik Milan 25x40 tidak mencantumkan isi per dus di POS.
+
+Harga yang sudah saya sebut ke customer (Rp 35.800 per dus keramik dan Rp 25.600 per lembar granit) tidak ada di daftar POS, jadi tidak bisa saya pastikan. Keramik Milan 25x40 juga tidak ketemu di POS. Saya sudah menanyakan ke Management soal harga dan isi per dus yang berlaku. Sebelum jawabannya masuk, jangan kirim angka itu ke customer sebagai harga final.`;
+  const kalimatBocor = findClaimViolations(asli).map((v) => v.sentence);
+  assert.ok(kalimatBocor.length >= 4, `kena ${kalimatBocor.length}`);
+  assert.ok(findClaimViolations(asli).every((v) => v.isInternalLeak));
+
+  const bandel = { enabled: true, async generateReply() { return { text: asli }; } };
+  const hasil = await enforceReplyContract(bandel, { text: asli, systemPrompt: '', userMessage: 'Harga tersebut untuk 1 dus berapa mtr?' });
+  assert.equal(hasil.stripped, true);
+  for (const kata of [/customer/i, /\bPOS\b/, /Management/, /jangan kirim/i]) assert.ok(!kata.test(hasil.text), `masih ada ${kata}`);
+  assert.match(hasil.text, /ELEGANZA NANTUCKET PINE 15X60: 1,00 m² per dus/);
+
+  for (const bersih of [
+    'Kalau kakak mau, saya bantu hitung kebutuhan dusnya ya.',
+    'Barangnya ada di toko kami kak, harganya Rp 798.000 per set.',
+    'Saya pastikan ke tim dulu ya kak, nanti saya kabari.',
+    'Pengiriman untuk pelanggan di Cisauk gratis ongkir kak.',
+  ]) assert.deepEqual(findClaimViolations(bersih), [], `harus bersih: ${bersih}`);
+});

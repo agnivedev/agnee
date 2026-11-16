@@ -92,6 +92,14 @@ const INTERNAL_LEAK_PATTERNS = [
   [/\b(?:belum|tidak)\s+(?:diisi|diinput|di-input|dikonfigurasi)\b/i, 'menyebut isian yang belum diisi (kondisi internal); tulis saja bahwa kamu memastikan dulu, tanpa menyebut isian, sistem, atau data'],
   [/\b(?:belum|tidak)\s+(?:ada|tercatat|tersedia|terdaftar)\s+(?:di|pada|dalam)\s+(?:sistem|database|data\s?base|pengaturan)\b/i, 'menyebut sistem atau data internal; tulis saja bahwa kamu memastikan dulu'],
   [/\bPengaturan\s*>/, 'menyebut menu pengaturan internal'],
+  // Suara laporan ke staf, bukan percakapan dengan customer. ESBEJE 12 Nov:
+  // balasan ke customer berisi "Harga yang sudah saya sebut ke customer … tidak
+  // ada di daftar POS … jangan kirim angka itu ke customer sebagai harga final".
+  // Customer disapa "kak"; ia tidak pernah disebut "customer" dan tak tahu POS.
+  [/\b(?:ke|kepada)\s+(?:para\s+)?(?:customer|pelanggan)\b/i, 'berbicara tentang "customer" seolah kepada staf (laporan internal); tulis langsung kepada kakak, jangan menyebut customer'],
+  [/\bjangan\s+(?:kirim|kirimkan|sebut|sampaikan|kasih|berikan)\b[^.!?\n]{0,60}\b(?:customer|pelanggan)\b/i, 'instruksi untuk staf ("jangan kirim … ke customer") tertulis di balasan customer'],
+  [/\b(?:daftar|data|sistem|katalog)\s+POS\b|\b(?:di|dari|pada)\s+POS\b/i, 'menyebut POS/sistem kasir internal; tulis saja barangnya tidak ada di daftar kami atau kamu pastikan dulu'],
+  [/\b(?:saya|aku|kami)\s+(?:sudah\s+)?(?:menanyakan|bertanya|tanya|menghubungi)\s+(?:ke|kepada)\s+(?:tim\s+)?(?:Management|Manajemen|departemen|divisi)\b/i, 'menyebut proses internal (bertanya ke Management/departemen); cukup "saya pastikan ke tim"'],
 ];
 
 /**

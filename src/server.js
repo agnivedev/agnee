@@ -552,8 +552,10 @@ async function buildApp(overrides = {}) {
   // database, pack ditentukan baris company-nya. Dulu, saat pembacaan itu gagal,
   // keduanya jatuh ke KNOWLEDGE_CLIENT (bawaan 'bzone'): satu error DB cukup
   // untuk menyajikan FAQ dan harga milik customer lain. Jatuhnya sekarang ke
-  // pack netral Agnee, yang tidak berisi data siapa pun.
-  const NEUTRAL_KNOWLEDGE_CLIENT = 'agnee';
+  // pack 'netral' (kosong). Pengetahuan spesifik brand, termasuk Agnee sendiri, hanya
+  // boleh ada di pack milik brand itu: pack 'agnee' dulu jadi bawaan dan tarif Agnee
+  // ikut dijawab ke customer toko bangunan (uji 16 Nov 2026).
+  const NEUTRAL_KNOWLEDGE_CLIENT = 'netral';
   async function knowledgeClientOf(companyId) {
     if (!(database.enabled && database.connected)) return config.knowledgeClient;
     const co = companyId ? await database.getCompanyConfig(companyId).catch(() => null) : null;

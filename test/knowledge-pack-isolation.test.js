@@ -69,7 +69,7 @@ test('prompt memakai pack milik company itu sendiri, bukan pack lain', async (t)
   assert.doesNotMatch(prompt, /bZone Alpha/);
 });
 
-test('pembacaan company gagal: pack jatuh ke Agnee netral, bukan KNOWLEDGE_CLIENT', async (t) => {
+test('pembacaan company gagal: pack jatuh ke pack netral (kosong), bukan KNOWLEDGE_CLIENT', async (t) => {
   // Dulu .catch(() => null) lalu config.knowledgeClient (bawaan 'bzone'): satu
   // error DB cukup untuk menyajikan FAQ dan harga customer lain.
   let calls = 0;

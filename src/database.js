@@ -1525,7 +1525,7 @@ class Database {
 
       const companyResult = await client.query(`
         INSERT INTO companies (slug, name, plan, plan_status, knowledge_client, ai_message_limit, max_users, max_playbooks, max_whatsapp, trial_ends_at, promo_signup)
-        VALUES ($1, $2, $3, 'trial', 'agnee', $4, $5, $6, $7, NOW() + INTERVAL '7 days', $8)
+        VALUES ($1, $2, $3, 'trial', 'netral', $4, $5, $6, $7, NOW() + INTERVAL '7 days', $8)
         RETURNING id, slug, name, trial_ends_at AS "trialEndsAt"
       `, [slug, companyName, plan, limits.aiMessageLimit, limits.maxUsers, limits.maxPlaybooks, limits.maxWhatsapp, promo]);
       const company = companyResult.rows[0];

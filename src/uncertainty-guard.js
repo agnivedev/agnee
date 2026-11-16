@@ -103,6 +103,10 @@ const RISK_WORDS = /\b(?:harga|rp|stok|stock|ready|tersedia|ongkir|ongkos|kirim|
 const CLAIM_RULES = [
   ['stock_claim', 'stok',
     /\b(?:stok(?:nya)?\s+(?:masih\s+)?(?:ready|ada|tersedia|aman|banyak|cukup|kosong|habis)|(?:ready|tersedia)\s+(?:stok|kak|ya|nih)|barang(?:nya)?\s+(?:masih\s+)?(?:ready|ada|tersedia|kosong|habis)|masih\s+(?:ada|tersedia)|(?:sedang|lagi)\s+(?:kosong|habis)|in\s+stock|out\s+of\s+stock)\b/i, true],
+  // "Kami ready triplek", "Semen Jakarta ready": di toko bangunan "ready" berarti ada stok.
+  // Harga dan nama barang di katalog bukan data stok (ESBEJE, 6 dan 8 Nov), dan AI
+  // menyebutnya tanpa ditanya, jadi tidak butuh pertanyaan customer.
+  ['stock_claim', 'stok', /\bready\b(?!\s+(?:stok|kak|ya|nih)\b)/i, false],
   ['payment_claim', 'transfer',
     /\b(?:(?:pembayaran|transfer(?:an)?|dana|uang)(?:nya)?(?:\s+(?:kakak|kak|anda))?\s+(?:sudah\s+|telah\s+)?(?:kami\s+|saya\s+)?(?:terima|diterima|masuk|terkonfirmasi|lunas|berhasil|valid)|sudah\s+(?:kami\s+|saya\s+)?(?:terima|lunas)|(?:sudah|telah)\s+(?:masuk|lunas|terbayar)|status\s+lunas|payment\s+(?:received|confirmed))\b/i, false],
   ['delivery_promise', 'waktu_kirim',
@@ -180,6 +184,9 @@ function assess({
   const customerTopics = detectTopics(customerText);
   const reply = String(finalText || '');
   const raw = String(rawText || reply);
+  // Hasil alat harga menulis "Bukan informasi stok": kata itu bukan data stok dan tidak boleh
+  // mematikan penjaga klaim stok (ESBEJE, audit 16 Nov).
+  const stockToolText = String(toolText || '').replace(/(?:bukan|tidak\s+(?:ada|memuat|mencantumkan))\s+(?:informasi\s+|data\s+)?(?:stok|stock|ketersediaan)\b/gi, ' ');
 
   // 1. Angka yang dikarang (dinilai pada keluaran mentah: kontrak sudah membuangnya dari final).
   if (priceSource) {
@@ -195,7 +202,9 @@ function assess({
       const m = pattern.exec(sentence);
       if (!m) continue;
       if (needsCustomerTopic && !customerTopics.includes(topic)) continue;
-      if (code === 'stock_claim' && (/stok\s*[:=]?\s*\d|\bstock\b[^.\n]{0,20}\d/i.test(factSource) || /stok|stock|tersedia/i.test(toolText))) continue;
+      if (code === 'stock_claim' && (/stok\s*[:=]?\s*\d|\bstock\b[^.\n]{0,20}\d/i.test(factSource) || /stok|stock|tersedia/i.test(stockToolText))) continue;
+      // Syarat bukan klaim: "kalau ready saya proses", "setelah ready kami kirim".
+      if (code === 'stock_claim' && /\b(?:kalau|jika|bila|apabila|setelah|sesudah|begitu|sampai|menunggu|menanti|pastikan|cek|cek\s+dulu)\b/i.test(sentence.slice(0, m.index))) continue;
       if (code === 'payment_claim' && /lunas|paid|sudah\s+dibayar|terbayar/i.test(toolText)) continue;
       // "setelah transfer masuk saya proses" menyebut syarat, bukan menyatakan dana sudah masuk.
       if (code === 'payment_claim' && /\b(?:setelah|sesudah|kalau|jika|bila|apabila|begitu|sampai|menunggu|menanti)\b/i.test(sentence.slice(0, m.index))) continue;

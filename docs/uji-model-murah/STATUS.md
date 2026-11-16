@@ -1,6 +1,8 @@
-# Uji model murah — status 16 Nov 2026: DITUNDA (saldo OpenRouter)
+# Uji model murah — status
 
-**Belum ada model yang dijalankan.** Pengukuran berhenti sebelum panggilan model pertama karena saldo OpenRouter di bawah ambang aman.
+**Diperbarui 16 Nov: uji kecil (≤US$1) SUDAH dijalankan; hasil di `HASIL.md`.** Isi di bawah adalah riwayat sebelum saldo diisi.
+
+Awalnya: pengukuran ditunda karena saldo OpenRouter di bawah ambang aman.
 
 ## Saldo (dibaca dari `GET /api/v1/credits` dengan kunci produksi, dua kali, 16 Nov)
 - `total_credits` 280,00; `total_usage` 279,76 → **sisa ≈ US$0,23–0,24** (ambang aman tugas ini: US$5).

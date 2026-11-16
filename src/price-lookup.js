@@ -171,9 +171,10 @@ function lookup(items, args = {}, { tagText, onResults } = {}) {
   return formatResults(list.map((text) => ({ text, found: searchOne(items, text, { tagText }) })), onResults);
 }
 
-// Paling banyak sekian barang per panggilan yang dipastikan LLM: tiap barang
-// dua panggilan model (lalu disimpan sementara per istilah).
-const MAX_LLM_RESOLVES = 6;
+// Semua barang dalam satu panggilan dipastikan LLM: tiap barang dua panggilan
+// model (lalu disimpan sementara per istilah). Batas lama 6 membuat barang ke-7
+// daftar 8 barang ESBEJE ("siltip", 5 Nov) hanya dicari dengan kata dan "tidak ketemu".
+const MAX_LLM_RESOLVES = MAX_ITEMS;
 
 /**
  * Seperti `lookup`, tetapi barangnya dipastikan oleh `resolve` (pencocok LLM,

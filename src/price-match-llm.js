@@ -37,6 +37,7 @@ Aturan:
 - Kalau beberapa varian sama-sama cocok dan customer belum menentukan (mis. kelas AW dan D, warna, kemasan), pilih semuanya (maksimal ${MAX_PICKS}).
 - Kalau nama, kode, atau seri yang ditulis customer ada di nama barang (mis. "MU 480" -> "MU 480 RENOFIX 25KG"), barang itu cocok: pilih.
 - Lebih baik memilih barang yang mungkin dimaksud (customer akan mengonfirmasi) daripada kosong. Kosong hanya bila jelas tidak ada barang sejenis di daftar.
+- Kalau customer menyebut MEREK, kode model, seri, atau motif tertentu (mis. "Sincere REC-DF91502", "Dieng Grey", "Infinity Glossy Revolver Gold") dan tidak ada barang dengan merek/kode/motif itu di daftar, pilih kosong: jangan menggantinya dengan merek, motif, atau kode lain walau jenis dan ukurannya sama. Merek hanya boleh diabaikan bila customer memakainya sebagai nama umum (mis. "aqua" untuk air mineral).
 - Kalau tidak ada yang benar-benar sesuai, pilih kosong. Barang yang hanya mirip namanya tetapi berbeda jenis TIDAK boleh dipilih (besi hollow "TALI PUTIH" bukan tali tambang, batu gurinda duduk bukan kloset duduk, masker anti air bukan gypsum anti air). Aksesori (tutup, valve, sambungan) bukan barang utamanya kecuali itu yang diminta.
 Jawab HANYA JSON: {"pilih": [nomor, ...]}.`;
 
@@ -81,6 +82,55 @@ function candidatesFor(items, { categories = [], keywords = [] }, max = MAX_CAND
   if (hitting.length) return hitting.slice(0, max).map((s) => s.item);
   // Kategori kecil tanpa kata kunci yang cocok: biarkan model memilih dari semuanya.
   return usable.length && pool.length <= max ? pool : [];
+}
+
+const GLOBAL_CANDIDATES = 15;
+const dfCache = new WeakMap();
+
+/** Berapa barang memuat tiap kata (untuk bobot kata langka), dihitung sekali per daftar barang. */
+function docFreq(items) {
+  let hit = dfCache.get(items);
+  if (hit) return hit;
+  const df = new Map();
+  for (const item of items) {
+    for (const t of matchTerms([item.name, item.brand].filter(Boolean).join(' '))) df.set(t, (df.get(t) || 0) + 1);
+  }
+  hit = { df, total: items.length };
+  dfCache.set(items, hit);
+  return hit;
+}
+
+/**
+ * Kandidat dari SELURUH katalog, tidak peduli kategori tebakan model. Kategori
+ * tebakan bisa meleset (lem pipa ada di C/PAINT ACCESSORIES, bukan B/PLUMBING;
+ * plafon PVC di F/ROOFING, bukan F/BUILDING BOARD) dan barangnya tidak pernah
+ * ditawarkan ke langkah memilih. Kata langka bernilai tinggi ("dextone" > "pvc"
+ * > "pipa"), ukuran saja tidak cukup; barang dengan paling sedikit dua kata
+ * pembeda cocok (atau satu kata yang sangat langka) yang masuk.
+ */
+function globalCandidates(items, keywords = [], max = GLOBAL_CANDIDATES) {
+  const terms = [...new Set(keywords.flatMap((k) => [...matchTerms(k)]))];
+  const named = terms.filter((t) => !/^\d/.test(t));
+  if (!named.length) return [];
+  const { df, total } = docFreq(items);
+  const idf = (t) => Math.log(1 + total / (1 + (df.get(t) || 0)));
+  const scored = [];
+  for (const item of items) {
+    const own = matchTerms([item.name, item.brand].filter(Boolean).join(' '));
+    let score = 0;
+    let nameHits = 0;
+    let rare = false;
+    for (const t of terms) {
+      if (!own.has(t)) continue;
+      if (/^\d/.test(t)) { score += 1; continue; }
+      const w = idf(t);
+      score += w;
+      nameHits += 1;
+      if ((df.get(t) || 0) <= 40) rare = true;
+    }
+    if (nameHits >= 2 || (nameHits === 1 && rare)) scored.push({ item, score });
+  }
+  return scored.sort((a, b) => b.score - a.score).slice(0, max).map((s) => s.item);
 }
 
 function cacheKey(scope, query) {
@@ -139,12 +189,14 @@ function createMatcher({ ask, now = () => Date.now() }) {
     const seedHere = (knownCat ? seed.filter((i) => wanted.has(String(i.category || '').trim().toLowerCase())) : seed).slice(0, 15);
     const candidates = [];
     const seenIds = new Set();
-    for (const item of [...seedHere, ...fromCategory]) {
+    // Kategori salah tebak tidak boleh menyembunyikan barangnya: kandidat dari seluruh katalog ikut.
+    const wide = globalCandidates(items, [...keywords, barang, text]);
+    for (const item of [...seedHere, ...fromCategory, ...wide]) {
       const id = item.id ?? item.code ?? item.name;
       if (seenIds.has(id)) continue;
       seenIds.add(id);
       candidates.push(item);
-      if (candidates.length >= MAX_CANDIDATES + 15) break;
+      if (candidates.length >= MAX_CANDIDATES + 15 + GLOBAL_CANDIDATES) break;
     }
     if (!candidates.length) return { matches: [], barang, undecided: true };
     const list = candidates.map((item, idx) => `${idx + 1}. ${item.name}${item.unit ? ` | ${item.unit}` : ''}${item.category ? ` | ${item.category}` : ''}`).join('\n');
@@ -166,4 +218,4 @@ function createMatcher({ ask, now = () => Date.now() }) {
   return { resolve, cache };
 }
 
-module.exports = { createMatcher, candidatesFor, categoriesOf, parseJson, UNDERSTAND_SYSTEM, PICK_SYSTEM };
+module.exports = { createMatcher, candidatesFor, globalCandidates, categoriesOf, parseJson, UNDERSTAND_SYSTEM, PICK_SYSTEM };

@@ -141,17 +141,26 @@ const isSpec = (t) => /^\d/.test(t) && /[a-z]/.test(t) && SPEC_RE.test(t);
 // colorant, varian pelengkap); proforma pun menolaknya.
 const MIN_PRICE = MIN_UNIT_PRICE;
 
+// Ejaan lain untuk kata yang sama di chat dan nama POS ("kloset" = "closet",
+// kategori "GRANITE" untuk "granit"). Dua sisi, kueri dan barang, dinormalkan sama.
+const ALIAS = new Map([
+  ['kloset', 'closet'], ['wc', 'closet'], ['granite', 'granit'],
+  ['gysum', 'gypsum'], ['gipsum', 'gypsum'], ['gypsium', 'gypsum'],
+  ['triplex', 'triplek'], ['tripleks', 'triplek'], ['teplek', 'triplek'],
+]);
+
 function tokens(text) {
   return String(text || '').toLowerCase()
     .replace(/(\d),(\d)/g, '$1.$2')
-    .replace(/(\d)\s*[x×]\s*(?=\d)/g, '$1x')
+    .replace(/(\d)\s*[x×*]\s*(?=\d)/g, '$1x')
     .replace(UNIT_RE, (_, digit, unit) => `${digit}${UNIT_OF.get(unit)}`)
     .replace(/[^a-z0-9.,/ ]+/g, ' ')
     // Garis miring hanya bagian dari pecahan ("1/2"); "B/PLUMBING" jadi dua kata.
     .replace(/(?<!\d)\/|\/(?!\d)/g, ' ')
     .split(/\s+/)
     .map((t) => t.replace(/^[.,/]+|[.,/]+$/g, ''))
-    .filter((t) => (t.length >= 2 || /\d/.test(t)) && !STOP.has(t));
+    .filter((t) => (t.length >= 2 || /\d/.test(t)) && !STOP.has(t))
+    .map((t) => ALIAS.get(t) || t);
 }
 
 /**

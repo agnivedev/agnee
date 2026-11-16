@@ -4290,6 +4290,41 @@ class Database {
     return recipients.map((r) => r.userId);
   }
 
+  /**
+   * Chat pribadi customer yang pesan terakhirnya belum dibalas siapa pun (AI
+   * maupun manusia) lebih dari `minAgeMinutes`, dikelompokkan per company.
+   * Chat yang dipegang manusia (handling_mode = 'human') dilewati: itu urusan
+   * SLA agen, bukan diamnya AI. Lihat src/silent-chat-watch.js.
+   */
+  async listUnansweredCustomerChats({ minAgeMinutes = 180, maxAgeHours = 48 } = {}) {
+    if (!this.enabled) return [];
+    const result = await this.pool.query(`
+      WITH last_in AS (
+        SELECT company_id, chat_id, MAX(created_at) AS at
+        FROM inbound_messages
+        WHERE created_at > NOW() - make_interval(hours => $2::int)
+          AND chat_id NOT LIKE '%@g.us' AND chat_id NOT LIKE '%@broadcast' AND chat_id NOT LIKE 'status@%'
+          AND message_type NOT IN ('e2e_notification', 'protocol', 'notification_template', 'gp2', 'call_log', 'revoked')
+        GROUP BY company_id, chat_id
+      )
+      SELECT c.id AS "companyId", c.name, c.timezone,
+             COUNT(*)::int AS chats, MIN(l.at) AS "oldestAt"
+      FROM last_in l
+      JOIN companies c ON c.id = l.company_id AND c.status = 'active'
+      WHERE l.at < NOW() - make_interval(mins => $1::int)
+        AND NOT EXISTS (
+          SELECT 1 FROM outbound_replies o
+          WHERE o.company_id = l.company_id AND o.chat_id = l.chat_id AND o.created_at >= l.at - INTERVAL '1 minute'
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM conversation_routing r
+          WHERE r.company_id = l.company_id AND r.chat_id = l.chat_id AND r.handling_mode = 'human'
+        )
+      GROUP BY c.id, c.name, c.timezone
+    `, [Math.max(1, Math.floor(minAgeMinutes)), Math.max(1, Math.floor(maxAgeHours))]);
+    return result.rows;
+  }
+
   // ── AI belajar dari chat (migrasi 090) ────────────────────────────────────
 
   async getKnowledgeLearning(companyId) {

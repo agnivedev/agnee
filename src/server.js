@@ -41,6 +41,7 @@ const {
   CostAlertMonitor, createMailer, createWhatsappChannel, positiveNumber, thresholdFor, toRupiah,
   DEFAULT_USD_IDR_RATE, DEFAULT_THRESHOLDS_IDR,
 } = require('./cost-alerts.js');
+const { createSilentChatWatch } = require('./silent-chat-watch.js');
 const onedrive = require('./onedrive-sync.js');
 const gsheets = require('./gsheets-sync.js');
 const { HUB_REPLY_WORKING_DAYS, addWorkingDays, workingDaysSince } = require('./hub-followup.js');
@@ -689,6 +690,11 @@ async function buildApp(overrides = {}) {
     const text = level === 'empty'
       ? 'Credit AI habis, jadi AI berhenti membalas customer. Balas customer secara manual, atau top-up credit untuk mengaktifkan AI kembali.'
       : `Credit AI tinggal ${level.slice(1)}% (sisa ${creditNumberFormat.format(Math.round(total))} credit). Top-up sebelum habis supaya AI tidak berhenti membalas customer.`;
+    await notifyStaffText(companyId, text, '*Credit Agnee*');
+  }
+
+  /** Notifikasi dalam aplikasi + WhatsApp ke penerima kabar company (supervisor/owner/admin/Management). */
+  async function notifyStaffText(companyId, text, header) {
     const userIds = await database.notifyCredit(companyId, text).catch(() => []);
     notifyUsers(companyId, userIds);
     // WhatsApp: nomor serah-terima company + nomor WhatsApp para penerima
@@ -703,7 +709,7 @@ async function buildApp(overrides = {}) {
         const chatId = normalizeChatId(raw, config.defaultCountryCode);
         if (sent.has(chatId)) continue;
         sent.add(chatId);
-        await sendOutbound(companyId, chatId, `*Credit Agnee*\n${text}`);
+        await sendOutbound(companyId, chatId, `${header}\n${text}`);
       } catch (error) {
         app.log.warn({ err: error, recipient: `…${String(raw).slice(-4)}` }, 'Kabar credit ke satu penerima gagal');
       }
@@ -11543,6 +11549,17 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
   const dealposPriceCache = new Map();
   const DEALPOS_PRICE_CACHE_MS = 10 * 60_000;
 
+  /**
+   * DealPOS hanya mengizinkan login di jam tertentu (ESBEJE: 06.30–21.30).
+   * Pekerjaan latar di luar jam itu dilewati diam-diam: AI membaca katalog dan
+   * harga terakhir dari tabel sendiri, jadi tidak ada yang rusak sampai jam
+   * login terbuka lagi.
+   */
+  async function dealposLoginOpen(companyId) {
+    const cfg = await database.getCompanyConfig(companyId).catch(() => null);
+    return dealposSync.loginWindowOpen(new Date(), cfg?.timezone || 'Asia/Jakarta');
+  }
+
   async function runDealposProductsJob(companyId) {
     if (dealposProductsRunning.has(companyId)) return;
     dealposProductsRunning.add(companyId);
@@ -11568,6 +11585,10 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
       dealposPriceCache.delete(companyId);
       app.log.info({ companyId, count }, 'Harga DealPOS ditarik');
     } catch (error) {
+      if (dealposSync.isLoginWindowError(error)) {
+        app.log.info({ companyId }, 'DealPOS di luar jam login; penarikan harga dilewati, harga terakhir tetap dipakai');
+        return;
+      }
       app.log.warn({ err: error, companyId }, 'Penarikan harga DealPOS gagal');
       await database.recordDealposProductsError(companyId, error.message).catch(() => {});
     } finally {
@@ -11646,6 +11667,10 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
       }
       return { status: 'ok', count };
     } catch (error) {
+      if (dealposSync.isLoginWindowError(error)) {
+        app.log.info({ companyId }, 'DealPOS di luar jam login; penarikan katalog dilewati, katalog terakhir tetap dipakai');
+        return { status: 'error', error: error.message };
+      }
       app.log.warn({ err: error, companyId }, 'Penarikan katalog DealPOS gagal');
       await database.recordCatalogPosError(companyId, error.message).catch(() => {});
       return { status: 'error', error: error.message };
@@ -11759,7 +11784,10 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
   function startDealposPriceRefresher() {
     const jalankan = async () => {
       const due = await database.listDealposProductsDue(DEALPOS_PRICE_REFRESH_HOURS).catch(() => []);
-      for (const companyId of due) await runDealposProductsJob(companyId);
+      for (const companyId of due) {
+        if (!(await dealposLoginOpen(companyId))) continue;
+        await runDealposProductsJob(companyId);
+      }
     };
     void jalankan();
     const timer = setInterval(() => { jalankan().catch(() => {}); }, 30 * 60_000);
@@ -11780,6 +11808,10 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
       const result = await syncDealposFor(companyId, conn, null, { patient: true });
       app.log.info({ companyId, ...result }, 'Pelanggan DealPOS disinkronkan otomatis');
     } catch (error) {
+      if (dealposSync.isLoginWindowError(error)) {
+        app.log.info({ companyId }, 'DealPOS di luar jam login; sinkron pelanggan dilewati');
+        return;
+      }
       app.log.warn({ err: error, companyId }, 'Sinkron otomatis pelanggan DealPOS gagal');
       await database.recordDealposSync(companyId, { error: error.message }).catch(() => {});
     } finally {
@@ -11790,7 +11822,10 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
   function startDealposCustomerRefresher() {
     const jalankan = async () => {
       const due = await database.listDealposSyncDue(DEALPOS_CUSTOMER_REFRESH_HOURS).catch(() => []);
-      for (const companyId of due) await runDealposCustomerSync(companyId);
+      for (const companyId of due) {
+        if (!(await dealposLoginOpen(companyId))) continue;
+        await runDealposCustomerSync(companyId);
+      }
     };
     // Tunda sedikit: saat startup, tarikan alamat yang tertinggal lebih dulu.
     setTimeout(() => { jalankan().catch(() => {}); }, 2 * 60_000).unref?.();
@@ -15129,6 +15164,22 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     timer.unref?.();
   }
 
+  // Customer menulis tapi tak seorang pun membalas: penyebabnya bisa paket
+  // berhenti, credit habis, nomor tuli, atau model gagal. Lihat silent-chat-watch.js.
+  function startSilentChatWatch() {
+    const watch = createSilentChatWatch({
+      listUnanswered: (opts) => database.listUnansweredCustomerChats(opts),
+      getCompanyAi: (companyId) => getCompanyAi(companyId),
+      notify: (companyId, text) => notifyStaffText(companyId, text, '*Agnee: chat belum dibalas*'),
+      log: app.log,
+    });
+    const jalankan = () => watch.tick().catch((error) => app.log.warn({ err: error }, 'Pemantau chat tak terbalas gagal'));
+    // Tunda satu putaran: setelah deploy nomor WhatsApp perlu waktu tersambung dan membalas yang tertunda.
+    setTimeout(jalankan, 10 * 60_000).unref?.();
+    const timer = setInterval(jalankan, 15 * 60_000);
+    timer.unref?.();
+  }
+
   function startAutoAssignSweeper() {
     const jalankan = async () => {
       const kembali = await database.returnIdleAutoAssignedToAi(AUTO_ASSIGN_IDLE_MINUTES)
@@ -15293,6 +15344,7 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
     if (canCall('listEnabledMayarConnections') && canCall('syncPosCatalog')) startMayarCatalogRefresher();
     if (database.enabled && database.connected) startBroadcastSender();
     if (database.enabled && database.connected) startWedgeWatch();
+    if (database.enabled && database.connected && canCall('listUnansweredCustomerChats')) startSilentChatWatch();
     if (database.enabled && database.connected) startNervaProactive();
 
     // No default company to boot: resume exactly those companies whose last

@@ -139,9 +139,45 @@ function failure(data, response) {
     error.retryAfter = wait;
     return error;
   }
-  const error = new Error(`DealPOS menolak permintaan: ${data?.Message || data?.message || data?.title || `HTTP ${response.status}`}`);
+  const message = data?.Message || data?.message || data?.title || `HTTP ${response.status}`;
+  // Akun DealPOS hanya boleh login di rentang jam tertentu (ESBEJE: 06.30–21.30).
+  // Di luar jam itu penolakannya bukan kerusakan: pekerjaan latar melewatinya.
+  if (isLoginWindowMessage(message)) {
+    const error = new Error(`DealPOS hanya mengizinkan login pukul ${LOGIN_WINDOW.from.replace(':', '.')}–${LOGIN_WINDOW.until.replace(':', '.')}. Coba lagi di dalam jam itu.`);
+    error.status = response.status;
+    error.loginWindow = true;
+    return error;
+  }
+  const error = new Error(`DealPOS menolak permintaan: ${message}`);
   error.status = response.status;
   return error;
+}
+
+// Jendela login DealPOS (zona waktu company). Sesuai pesan DealPOS: "You only
+// allowed to login on ... between 06:30 until 21:30".
+const LOGIN_WINDOW = { from: '06:30', until: '21:30' };
+
+function isLoginWindowMessage(message) {
+  return /only allowed to login/i.test(String(message || ''));
+}
+
+function isLoginWindowError(error) {
+  return Boolean(error?.loginWindow) || isLoginWindowMessage(error?.message);
+}
+
+const toMinutes = (hhmm) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5));
+
+/** Apakah `date` berada di dalam jendela login DealPOS pada zona waktu itu. */
+function loginWindowOpen(date = new Date(), timeZone = 'Asia/Jakarta') {
+  let parts;
+  for (const zone of [timeZone, 'Asia/Jakarta']) {
+    try {
+      parts = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone: zone }).formatToParts(date);
+      break;
+    } catch { /* zona tak dikenal */ }
+  }
+  const at = Number(parts.find((p) => p.type === 'hour').value) * 60 + Number(parts.find((p) => p.type === 'minute').value);
+  return at >= toMinutes(LOGIN_WINDOW.from) && at < toMinutes(LOGIN_WINDOW.until);
 }
 
 /** Token berlaku 2 hari; satu sinkronisasi cukup dengan satu token. */
@@ -254,4 +290,4 @@ async function fetchCustomerDetail(host, token, id, fetchImpl = fetch) {
 }
 
 module.exports = {
-  createRateLimiter, dealposGet, dealposSend, fetchCustomerDetail, otherPhone, cleanText, sleep, PAGE_GAP_MS, normalizeHost, normalizePhone, fetchToken, verifyCredentials, fetchCustomers };
+  isLoginWindowError, loginWindowOpen, LOGIN_WINDOW, createRateLimiter, dealposGet, dealposSend, fetchCustomerDetail, otherPhone, cleanText, sleep, PAGE_GAP_MS, normalizeHost, normalizePhone, fetchToken, verifyCredentials, fetchCustomers };

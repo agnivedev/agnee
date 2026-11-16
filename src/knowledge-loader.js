@@ -28,8 +28,20 @@ class KnowledgeBase {
         this.clientProfile = JSON.parse(fs.readFileSync(profileFile, 'utf8'));
       }
 
+      // Pack turunan (base.json): memakai FAQ pack lain tanpa berkas tertentu, supaya tidak ada
+      // salinan yang bisa menyimpang. Dipakai agnee-umum: FAQ Agnee tanpa tarif/promo.
+      let faqDir = path.join(knowledgeDir, 'faq');
+      let excluded = new Set();
+      const baseFile = path.join(knowledgeDir, 'base.json');
+      if (fs.existsSync(baseFile)) {
+        const base = JSON.parse(fs.readFileSync(baseFile, 'utf8'));
+        if (/^[a-z0-9-]+$/.test(String(base.base || '')) && base.base !== this.clientId) {
+          faqDir = path.join(__dirname, '..', 'knowledge', 'clients', base.base, 'faq');
+          excluded = new Set(Array.isArray(base.excludeFaqFiles) ? base.excludeFaqFiles : []);
+        }
+      }
+
       // Load FAQ files
-      const faqDir = path.join(knowledgeDir, 'faq');
       if (fs.existsSync(faqDir)) {
         // Diurutkan eksplisit: urutan sisip ke faqDatabase menentukan pemenang
         // saat dua FAQ punya skor sama di findRelevantFaq(), dan readdirSync
@@ -38,7 +50,7 @@ class KnowledgeBase {
         // mengubah peringkat — hanya memastikan hasilnya tidak bergantung pada
         // filesystem.
         for (const file of fs.readdirSync(faqDir).sort()) {
-          if (file.endsWith('.md')) {
+          if (file.endsWith('.md') && !excluded.has(file)) {
             const content = fs.readFileSync(path.join(faqDir, file), 'utf8');
             this.parseFaqFile(content, file);
           }

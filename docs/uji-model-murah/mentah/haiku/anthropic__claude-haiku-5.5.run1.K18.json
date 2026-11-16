@@ -1,0 +1,26 @@
+{
+ "model": "anthropic/claude-haiku-5.5",
+ "run": 1,
+ "kasus": "K18",
+ "turns": [
+  {
+   "giliran": 1,
+   "customer": "Tagihan SPinjam kamu akan jatuh tempo, yuk bayarkan sebesar Rp [ANGKA]!",
+   "http": 200,
+   "reply": "Halo kak, saya Agnes dari ESBEJE, toko bahan bangunan. Pesan soal tagihan SPinjam ini sepertinya bukan untuk kami, jadi kakak bisa cek langsung ke pihak SPinjam ya. Kalau sedang butuh bahan bangunan, sebut saja barangnya, nanti saya bantu cek harganya.",
+   "error": null,
+   "ms": 4874,
+   "model": "AI model",
+   "usage": {
+    "prompt_tokens": 36119,
+    "completion_tokens": 839,
+    "total_tokens": 36958,
+    "cost": 0.0040314
+   },
+   "uncertainty": null,
+   "departmentQuestions": [],
+   "escalation": null,
+   "product": null
+  }
+ ]
+}

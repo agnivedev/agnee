@@ -1,0 +1,87 @@
+{
+ "model": "openai/gpt-5.4-mini",
+ "run": 1,
+ "kasus": "K12",
+ "turns": [
+  {
+   "giliran": 1,
+   "customer": "Buka harga brp?",
+   "http": 200,
+   "reply": "Halo kak, saya Agnes dari ESBEJE. Untuk *Semen Jakarta* ada 2 pilihan: *SEMEN JAKARTA Type PCC 40KG* Rp 45.000 per zak dan *SEMEN JAKARTA Type PCC 50KG* Rp 57.500 per zak. Buat cor atau pasang bata kak?",
+   "error": null,
+   "ms": 6442,
+   "model": "AI model",
+   "usage": {
+    "prompt_tokens": 38557,
+    "completion_tokens": 128,
+    "total_tokens": 38685,
+    "cost": 0.00849855
+   },
+   "uncertainty": null,
+   "departmentQuestions": [],
+   "escalation": null,
+   "product": null
+  },
+  {
+   "giliran": 2,
+   "customer": ".",
+   "http": 200,
+   "reply": "Kak, kalau yang ditanya harga semen, saya bisa lanjutkan ke ukuran yang paling pas buat kebutuhan kakak. Buat *cor* atau *pasang bata* kak?",
+   "error": null,
+   "ms": 1087,
+   "model": "AI model",
+   "usage": {
+    "prompt_tokens": 18812,
+    "completion_tokens": 41,
+    "total_tokens": 18853,
+    "cost": 0.0017655
+   },
+   "uncertainty": null,
+   "departmentQuestions": [],
+   "escalation": null,
+   "product": null
+  },
+  {
+   "giliran": 3,
+   "customer": "Toren",
+   "http": 200,
+   "reply": "- *TOREN EXCEL AL-550 550LTR BIRU* Rp 1.550.000 per unit\n- *PENGUIN TB70 650L BIRU TUA* Rp 1.806.000 per pcs\n- *PENGUIN TB70 650L HIJAU* Rp 1.806.000 per pcs\n- *PENGUIN TB70 650L ORANGE* Rp 1.896.000 per pcs\n- *PENGUIN TQ55 500L HITAM* Rp 2.167.000 per pcs\nBuat berapa liter kak?\n\nBaik kak, saya pastikan dulu ya supaya informasinya akurat. Mohon ditunggu sebentar, begitu sudah jelas langsung saya kabari kakak 🙏",
+   "error": null,
+   "ms": 5884,
+   "model": "AI model",
+   "usage": {
+    "prompt_tokens": 38875,
+    "completion_tokens": 224,
+    "total_tokens": 39099,
+    "cost": 0.00916905
+   },
+   "uncertainty": {
+    "topic": "stok",
+    "topics": [
+     "stok"
+    ],
+    "reasons": [
+     {
+      "code": "stock_claim",
+      "label": "Menjanjikan stok tanpa data stok",
+      "topic": "stok",
+      "sentence": "Ada toren yang ready di katalog kak:"
+     }
+    ],
+    "action": "ask_department",
+    "department": "Management",
+    "byModel": true,
+    "dryRun": true
+   },
+   "departmentQuestions": [
+    {
+     "department": "Management",
+     "question": "Toren apa saja yang bisa disediakan dan harga pastinya berapa? Customer menanyakan toren secara umum.",
+     "kind": "general"
+    }
+   ],
+   "escalation": null,
+   "product": null
+  }
+ ]
+}

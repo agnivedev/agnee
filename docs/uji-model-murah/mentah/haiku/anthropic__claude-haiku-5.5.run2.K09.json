@@ -1,0 +1,51 @@
+{
+ "model": "anthropic/claude-haiku-5.5",
+ "run": 2,
+ "kasus": "K09",
+ "turns": [
+  {
+   "giliran": 1,
+   "customer": "Sore min",
+   "http": 200,
+   "reply": "Sore kak, saya Agnes dari ESBEJE. Lagi cari bahan untuk apa kak, semen, plester, cat, atau yang lain?",
+   "error": null,
+   "ms": 6011,
+   "model": "AI model",
+   "usage": {
+    "prompt_tokens": 73160,
+    "completion_tokens": 938,
+    "total_tokens": 74098,
+    "cost": 0.007785
+   },
+   "uncertainty": null,
+   "departmentQuestions": [],
+   "escalation": null,
+   "product": null
+  },
+  {
+   "giliran": 2,
+   "customer": "Mau tanya klw mau beli tutup kloset duduk ada gak yah d toko",
+   "http": 200,
+   "reply": "Ada kak. Ada dua pilihan di katalog kami:\n1. TUTUP CLOSET STANDART (SBJ): Rp 92.000 per pcs\n2. DOP PENUTUP KLOSET DUDUK (SBJ): Rp 27.500 per set\n\nSaya cek ketersediaannya dulu ya kak. Mau yang mana, dan butuh berapa buah?",
+   "error": null,
+   "ms": 12018,
+   "model": "AI model",
+   "usage": {
+    "prompt_tokens": 112272,
+    "completion_tokens": 978,
+    "total_tokens": 113250,
+    "cost": 0.0117162
+   },
+   "uncertainty": null,
+   "departmentQuestions": [
+    {
+     "department": "Management",
+     "question": "Mohon cek stok tutup closet duduk: TUTUP CLOSET STANDART (SBJ, kode 11157801377) Rp 92.000 per pcs, dan DOP PENUTUP KLOSET DUDUK (SBJ, kode 1000001550) Rp 27.500 per set. Customer belum menyebut jumlah.",
+     "kind": "general"
+    }
+   ],
+   "escalation": null,
+   "product": null
+  }
+ ]
+}

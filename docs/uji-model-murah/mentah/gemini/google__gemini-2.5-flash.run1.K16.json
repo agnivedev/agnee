@@ -1,0 +1,45 @@
+{
+ "model": "google/gemini-2.5-flash",
+ "run": 1,
+ "kasus": "K16",
+ "turns": [
+  {
+   "giliran": 1,
+   "customer": "Apa benar ini dengan nomor Esbeje ? untuk lokasi di suradita atau cisauk ya ?",
+   "http": 200,
+   "reply": "Halo kak, saya Agnes dari ESBEJE. Betul, ini nomor WhatsApp resmi kami. Untuk lokasi toko kami ada di Cisauk. Kakak mau ke toko atau butuh dikirim?",
+   "error": null,
+   "ms": 1107,
+   "model": "Medium-end AI model D",
+   "usage": {
+    "prompt_tokens": 19306,
+    "completion_tokens": 39,
+    "total_tokens": 19345,
+    "cost": 0.00291201
+   },
+   "uncertainty": null,
+   "departmentQuestions": [],
+   "escalation": null,
+   "product": null
+  },
+  {
+   "giliran": 2,
+   "customer": "Tutup jam berapa",
+   "http": 200,
+   "reply": "Untuk Cisauk Store, kami buka setiap hari dari jam 08.00 sampai 19.00. Sekarang toko masih buka sampai pukul 19.00 nanti.",
+   "error": null,
+   "ms": 1059,
+   "model": "Medium-end AI model D",
+   "usage": {
+    "prompt_tokens": 19775,
+    "completion_tokens": 39,
+    "total_tokens": 19814,
+    "cost": 0.00305244
+   },
+   "uncertainty": null,
+   "departmentQuestions": [],
+   "escalation": null,
+   "product": null
+  }
+ ]
+}

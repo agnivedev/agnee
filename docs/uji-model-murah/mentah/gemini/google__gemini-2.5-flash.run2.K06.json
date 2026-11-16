@@ -1,0 +1,45 @@
+{
+ "model": "google/gemini-2.5-flash",
+ "run": 2,
+ "kasus": "K06",
+ "turns": [
+  {
+   "giliran": 1,
+   "customer": "Selamat pagi pak",
+   "http": 200,
+   "reply": "Halo kak, selamat pagi. Saya Agnes dari ESBEJE. Ada yang bisa saya bantu?",
+   "error": null,
+   "ms": 996,
+   "model": "Medium-end AI model D",
+   "usage": {
+    "prompt_tokens": 18778,
+    "completion_tokens": 20,
+    "total_tokens": 18798,
+    "cost": 0.00081422
+   },
+   "uncertainty": null,
+   "departmentQuestions": [],
+   "escalation": null,
+   "product": null
+  },
+  {
+   "giliran": 2,
+   "customer": "Saya mau tanya esbeje punya paving blok gak ya?",
+   "http": 200,
+   "reply": "Punya kak. Kami punya beberapa jenis paving block. Ada yang model bata, cacing, hexagon, atau kotak ubin.\n\nKakak lagi cari paving block untuk kebutuhan berapa meter persegi?",
+   "error": null,
+   "ms": 1148,
+   "model": "Medium-end AI model D",
+   "usage": {
+    "prompt_tokens": 19180,
+    "completion_tokens": 39,
+    "total_tokens": 19219,
+    "cost": 0.0058515
+   },
+   "uncertainty": null,
+   "departmentQuestions": [],
+   "escalation": null,
+   "product": null
+  }
+ ]
+}

@@ -1,0 +1,62 @@
+{
+ "model": "openai/gpt-5.4-mini",
+ "run": 2,
+ "kasus": "K16",
+ "turns": [
+  {
+   "giliran": 1,
+   "customer": "Apa benar ini dengan nomor Esbeje ? untuk lokasi di suradita atau cisauk ya ?",
+   "http": 200,
+   "reply": "Iya kak, ini ESBEJE.\nUntuk lokasi yang terbaca, Cisauk Store ada di ESBEJE dan bisa dikunjungi; kalau _Suradita_ belum terbaca jelas, tolong kirim share location WhatsApp atau patokan terdekat ya.\nUntuk ongkirnya saya belum bisa memastikan angkanya, Kak.\nBoleh dikirim lokasi atau alamat lengkap tujuan pengirimannya (nama jalan, kecamatan, kota)?",
+   "error": null,
+   "ms": 2233,
+   "model": "AI model",
+   "usage": {
+    "prompt_tokens": 38532,
+    "completion_tokens": 85,
+    "total_tokens": 38617,
+    "cost": 0.0035342999999999998
+   },
+   "uncertainty": {
+    "topic": "ongkir",
+    "topics": [
+     "ongkir"
+    ],
+    "reasons": [
+     {
+      "code": "tool_no_result",
+      "label": "Alat pencarian tidak menemukan hasil",
+      "topic": "ongkir",
+      "sentence": "tidak_ketemu"
+     }
+    ],
+    "action": "ask_customer",
+    "department": null,
+    "byModel": false,
+    "dryRun": true
+   },
+   "departmentQuestions": [],
+   "escalation": null,
+   "product": null
+  },
+  {
+   "giliran": 2,
+   "customer": "Tutup jam berapa",
+   "http": 200,
+   "reply": "Cisauk Store buka setiap hari sampai *19.00* kak. Kalau mau datang, ini peta tokonya: https://maps.app.goo.gl/yKx4PnyZpudTWssu7",
+   "error": null,
+   "ms": 1240,
+   "model": "AI model",
+   "usage": {
+    "prompt_tokens": 19613,
+    "completion_tokens": 49,
+    "total_tokens": 19662,
+    "cost": 0.00257505
+   },
+   "uncertainty": null,
+   "departmentQuestions": [],
+   "escalation": null,
+   "product": null
+  }
+ ]
+}

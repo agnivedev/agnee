@@ -1,0 +1,51 @@
+{
+ "model": "anthropic/claude-haiku-5.5",
+ "run": 1,
+ "kasus": "K09",
+ "turns": [
+  {
+   "giliran": 1,
+   "customer": "Sore min",
+   "http": 200,
+   "reply": "Sore kak, saya Agnes dari ESBEJE. Barang yang paling sering dicari:\n- Semen Jakarta Type PCC 40KG, Rp 45.000 per zak\n- MU 100 Base Plester Premium 40KG, Rp 116.400 per zak\n- MU 200 Skimwall 40KG, Rp 134.000 per zak\n\nHarga bisa berubah sewaktu-waktu. Lagi mengerjakan apa kak, bangun dari awal, renovasi dinding, atau ganti keramik?",
+   "error": null,
+   "ms": 10760,
+   "model": "AI model",
+   "usage": {
+    "prompt_tokens": 72874,
+    "completion_tokens": 986,
+    "total_tokens": 73860,
+    "cost": 0.0077804
+   },
+   "uncertainty": null,
+   "departmentQuestions": [],
+   "escalation": null,
+   "product": null
+  },
+  {
+   "giliran": 2,
+   "customer": "Mau tanya klw mau beli tutup kloset duduk ada gak yah d toko",
+   "http": 200,
+   "reply": "Ada kak, tutup kloset duduk di katalog kami ada beberapa pilihan:\n- DOP Penutup Kloset Duduk (SBJ), Rp 27.500 per set\n- Tutup Closet Standart (SBJ), Rp 92.000 per pcs\n- Victoria EL Soft-Close (Roca), Rp 731.600 per set\n\nSaya cek ketersediaannya dulu ya kak. Tutup kloset yang dicari yang mana, dan untuk berapa unit?",
+   "error": null,
+   "ms": 15653,
+   "model": "AI model",
+   "usage": {
+    "prompt_tokens": 151981,
+    "completion_tokens": 1347,
+    "total_tokens": 153328,
+    "cost": 0.0158716
+   },
+   "uncertainty": null,
+   "departmentQuestions": [
+    {
+     "department": "Management",
+     "question": "Customer menanyakan stok tutup kloset duduk. Apakah stok DOP PENUTUP KLOSET DUDUK (SBJ, Rp 27.500 per set) tersedia?",
+     "kind": "general"
+    }
+   ],
+   "escalation": null,
+   "product": null
+  }
+ ]
+}

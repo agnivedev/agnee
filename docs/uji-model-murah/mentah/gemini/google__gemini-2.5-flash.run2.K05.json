@@ -1,0 +1,45 @@
+{
+ "model": "google/gemini-2.5-flash",
+ "run": 2,
+ "kasus": "K05",
+ "turns": [
+  {
+   "giliran": 1,
+   "customer": "MU480 harga berapa",
+   "http": 200,
+   "reply": "Kak, MU 480 RENOFIX 25KG harganya Rp 313.000 per zak. Butuh berapa zak kak?",
+   "error": null,
+   "ms": 2000,
+   "model": "Medium-end AI model D",
+   "usage": {
+    "prompt_tokens": 38531,
+    "completion_tokens": 53,
+    "total_tokens": 38584,
+    "cost": 0.00140993
+   },
+   "uncertainty": null,
+   "departmentQuestions": [],
+   "escalation": null,
+   "product": null
+  },
+  {
+   "giliran": 2,
+   "customer": "Mahal sekali ya",
+   "http": 200,
+   "reply": "Harga MU 480 RENOFIX 25KG adalah Rp 313.000 per zak. Kakak butuh berapa zak?",
+   "error": null,
+   "ms": 1008,
+   "model": "Medium-end AI model D",
+   "usage": {
+    "prompt_tokens": 18821,
+    "completion_tokens": 33,
+    "total_tokens": 18854,
+    "cost": 0.00275448
+   },
+   "uncertainty": null,
+   "departmentQuestions": [],
+   "escalation": null,
+   "product": null
+  }
+ ]
+}

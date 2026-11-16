@@ -1,0 +1,18 @@
+[
+ [
+  "setPresence",
+  1
+ ],
+ [
+  "pool.query: UPDATE companies SET plan_status = 'suspended'\n      WHERE i",
+  108
+ ],
+ [
+  "recordAiUsage",
+  51
+ ],
+ [
+  "recordSimulationRun",
+  32
+ ]
+]

@@ -1,0 +1,45 @@
+{
+ "model": "anthropic/claude-haiku-5.5",
+ "run": 1,
+ "kasus": "K06",
+ "turns": [
+  {
+   "giliran": 1,
+   "customer": "Selamat pagi pak",
+   "http": 200,
+   "reply": "Selamat pagi pak, saya Agnes dari ESBEJE. Bapak sedang mengerjakan apa, bangun dari awal, renovasi dinding, atau ganti keramik?",
+   "error": null,
+   "ms": 2905,
+   "model": "AI model",
+   "usage": {
+    "prompt_tokens": 36040,
+    "completion_tokens": 345,
+    "total_tokens": 36385,
+    "cost": 0.0037765
+   },
+   "uncertainty": null,
+   "departmentQuestions": [],
+   "escalation": null,
+   "product": null
+  },
+  {
+   "giliran": 2,
+   "customer": "Saya mau tanya esbeje punya paving blok gak ya?",
+   "http": 200,
+   "reply": "Ada pak, di katalog ESBEJE ada beberapa jenis paving. Contohnya Paving Trihex 6cm Rp 77.600 per mtr, Paving Bata Abu 6cm Rp 110.000 per mtr, dan Paving Ubin Merah 6cm 21x21 Rp 105.200 per mtr. Kira-kira luas area yang mau dipaving berapa meter persegi, pak?",
+   "error": null,
+   "ms": 4580,
+   "model": "AI model",
+   "usage": {
+    "prompt_tokens": 36512,
+    "completion_tokens": 437,
+    "total_tokens": 36949,
+    "cost": 0.0038697
+   },
+   "uncertainty": null,
+   "departmentQuestions": [],
+   "escalation": null,
+   "product": null
+  }
+ ]
+}

@@ -1,0 +1,1142 @@
+[
+ {
+  "model": "anthropic/claude-haiku-5.5",
+  "kasus": "K05",
+  "run": 1,
+  "requested": "anthropic/claude-haiku-5.5",
+  "served": "anthropic/claude-haiku-5.5",
+  "cost": 0.0037823,
+  "usage": {
+   "p": 36748,
+   "c": 215,
+   "r": 156
+  },
+  "finish": "tool_calls",
+  "error": null
+ },
+ {
+  "model": "anthropic/claude-haiku-5.5",
+  "kasus": "K05",
+  "run": 1,
+  "requested": "anthropic/claude-haiku-5.5",
+  "served": "anthropic/claude-haiku-5.5",
+  "cost": 0.0004807,
+  "usage": {
+   "p": 1307,
+   "c": 700,
+   "r": 562
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "anthropic/claude-haiku-5.5",
+  "kasus": "K05",
+  "run": 1,
+  "requested": "anthropic/claude-haiku-5.5",
+  "served": "anthropic/claude-haiku-5.5",
+  "cost": 0.0003407,
+  "usage": {
+   "p": 3087,
+   "c": 64,
+   "r": 52
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "anthropic/claude-haiku-5.5",
+  "kasus": "K05",
+  "run": 1,
+  "requested": "anthropic/claude-haiku-5.5",
+  "served": "anthropic/claude-haiku-5.5",
+  "cost": 0.003836,
+  "usage": {
+   "p": 36940,
+   "c": 284,
+   "r": 202
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "anthropic/claude-haiku-5.5",
+  "kasus": "K05",
+  "run": 1,
+  "requested": "anthropic/claude-haiku-5.5",
+  "served": "anthropic/claude-haiku-5.5",
+  "cost": 0.0037493,
+  "usage": {
+   "p": 36133,
+   "c": 272,
+   "r": 209
+  },
+  "finish": "tool_calls",
+  "error": null
+ },
+ {
+  "model": "anthropic/claude-haiku-5.5",
+  "kasus": "K05",
+  "run": 1,
+  "requested": "anthropic/claude-haiku-5.5",
+  "served": "anthropic/claude-haiku-5.5",
+  "cost": 0.0003951,
+  "usage": {
+   "p": 1311,
+   "c": 528,
+   "r": 378
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "anthropic/claude-haiku-5.5",
+  "kasus": "K05",
+  "run": 1,
+  "requested": "anthropic/claude-haiku-5.5",
+  "served": "anthropic/claude-haiku-5.5",
+  "cost": 0.000296,
+  "usage": {
+   "p": 2710,
+   "c": 50,
+   "r": 38
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "anthropic/claude-haiku-5.5",
+  "kasus": "K05",
+  "run": 1,
+  "requested": "anthropic/claude-haiku-5.5",
+  "served": "anthropic/claude-haiku-5.5",
+  "cost": 0.0037854,
+  "usage": {
+   "p": 36329,
+   "c": 305,
+   "r": 199
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "anthropic/claude-haiku-5.5",
+  "kasus": "K06",
+  "run": 1,
+  "requested": "anthropic/claude-haiku-5.5",
+  "served": "anthropic/claude-haiku-5.5",
+  "cost": 0.0037765,
+  "usage": {
+   "p": 36040,
+   "c": 345,
+   "r": 277
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "anthropic/claude-haiku-5.5",
+  "kasus": "K06",
+  "run": 1,
+  "requested": "anthropic/claude-haiku-5.5",
+  "served": "anthropic/claude-haiku-5.5",
+  "cost": 0.0038697,
+  "usage": {
+   "p": 36512,
+   "c": 437,
+   "r": 289
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "anthropic/claude-haiku-5.5",
+  "kasus": "K09",
+  "run": 1,
+  "requested": "anthropic/claude-haiku-5.5",
+  "served": "anthropic/claude-haiku-5.5",
+  "cost": 0.0038455,
+  "usage": {
+   "p": 36035,
+   "c": 484,
+   "r": 394
+  },
+  "finish": "tool_calls",
+  "error": null
+ },
+ {
+  "model": "anthropic/claude-haiku-5.5",
+  "kasus": "K09",
+  "run": 1,
+  "requested": "anthropic/claude-haiku-5.5",
+  "served": "anthropic/claude-haiku-5.5",
+  "cost": 0.000303,
+  "usage": {
+   "p": 1310,
+   "c": 344,
+   "r": 195
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "anthropic/claude-haiku-5.5",
+  "kasus": "K09",
+  "run": 1,
+  "requested": "anthropic/claude-haiku-5.5",
+  "served": "anthropic/claude-haiku-5.5",
+  "cost": 0.0003283,
+  "usage": {
+   "p": 1308,
+   "c": 395,
+   "r": 252
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "anthropic/claude-haiku-5.5",
+  "kasus": "K09",
+  "run": 1,
+  "requested": "anthropic/claude-haiku-5.5",
+  "served": "anthropic/claude-haiku-5.5",
+  "cost": 0.0003838,
+  "usage": {
+   "p": 1308,
+   "c": 506,
+   "r": 342
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "anthropic/claude-haiku-5.5",
+  "kasus": "K09",
+  "run": 1,
+  "requested": "anthropic/claude-haiku-5.5",
+  "served": "anthropic/claude-haiku-5.5",
+  "cost": 0.0003522,
+  "usage": {
+   "p": 3157,
+   "c": 73,
+   "r": 61
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "anthropic/claude-haiku-5.5",
+  "kasus": "K09",
+  "run": 1,
+  "requested": "anthropic/claude-haiku-5.5",
+  "served": "anthropic/claude-haiku-5.5",
+  "cost": 0.0003623,
+  "usage": {
+   "p": 2723,
+   "c": 180,
+   "r": 163
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "anthropic/claude-haiku-5.5",
+  "kasus": "K09",
+  "run": 1,
+  "requested": "anthropic/claude-haiku-5.5",
+  "served": "anthropic/claude-haiku-5.5",
+  "cost": 0.000385,
+  "usage": {
+   "p": 3520,
+   "c": 66,
+   "r": 54
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "anthropic/claude-haiku-5.5",
+  "kasus": "K09",
+  "run": 1,
+  "requested": "anthropic/claude-haiku-5.5",
+  "served": "anthropic/claude-haiku-5.5",
+  "cost": 0.0039349,
+  "usage": {
+   "p": 36839,
+   "c": 502,
+   "r": 316
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "anthropic/claude-haiku-5.5",
+  "kasus": "K09",
+  "run": 1,
+  "requested": "anthropic/claude-haiku-5.5",
+  "served": "anthropic/claude-haiku-5.5",
+  "cost": 0.003951,
+  "usage": {
+   "p": 37215,
+   "c": 459,
+   "r": 400
+  },
+  "finish": "tool_calls",
+  "error": null
+ },
+ {
+  "model": "anthropic/claude-haiku-5.5",
+  "kasus": "K09",
+  "run": 1,
+  "requested": "anthropic/claude-haiku-5.5",
+  "served": "anthropic/claude-haiku-5.5",
+  "cost": 0.0002932,
+  "usage": {
+   "p": 1307,
+   "c": 325,
+   "r": 160
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "anthropic/claude-haiku-5.5",
+  "kasus": "K09",
+  "run": 1,
+  "requested": "anthropic/claude-haiku-5.5",
+  "served": "anthropic/claude-haiku-5.5",
+  "cost": 0.0005534,
+  "usage": {
+   "p": 2824,
+   "c": 542,
+   "r": 518
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "anthropic/claude-haiku-5.5",
+  "kasus": "K09",
+  "run": 1,
+  "requested": "anthropic/claude-haiku-5.5",
+  "served": "anthropic/claude-haiku-5.5",
+  "cost": 0.0040558,
+  "usage": {
+   "p": 37898,
+   "c": 532,
+   "r": 224
+  },
+  "finish": "tool_calls",
+  "error": null
+ },
+ {
+  "model": "anthropic/claude-haiku-5.5",
+  "kasus": "K09",
+  "run": 1,
+  "requested": "anthropic/claude-haiku-5.5",
+  "served": "anthropic/claude-haiku-5.5",
+  "cost": 0.0039261,
+  "usage": {
+   "p": 38356,
+   "c": 181,
+   "r": 44
+  },
+  "finish": "tool_calls",
+  "error": null
+ },
+ {
+  "model": "anthropic/claude-haiku-5.5",
+  "kasus": "K09",
+  "run": 1,
+  "requested": "anthropic/claude-haiku-5.5",
+  "served": "anthropic/claude-haiku-5.5",
+  "cost": 0.0039387,
+  "usage": {
+   "p": 38512,
+   "c": 175,
+   "r": 0
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "anthropic/claude-haiku-5.5",
+  "kasus": "K12",
+  "run": 1,
+  "requested": "anthropic/claude-haiku-5.5",
+  "served": "anthropic/claude-haiku-5.5",
+  "cost": 0.0039781,
+  "usage": {
+   "p": 36671,
+   "c": 622,
+   "r": 517
+  },
+  "finish": "tool_calls",
+  "error": null
+ },
+ {
+  "model": "anthropic/claude-haiku-5.5",
+  "kasus": "K12",
+  "run": 1,
+  "requested": "anthropic/claude-haiku-5.5",
+  "served": "anthropic/claude-haiku-5.5",
+  "cost": 0.0002525,
+  "usage": {
+   "p": 1310,
+   "c": 243,
+   "r": 116
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "anthropic/claude-haiku-5.5",
+  "kasus": "K12",
+  "run": 1,
+  "requested": "anthropic/claude-haiku-5.5",
+  "served": "anthropic/claude-haiku-5.5",
+  "cost": 0.0003768,
+  "usage": {
+   "p": 3078,
+   "c": 138,
+   "r": 123
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "anthropic/claude-haiku-5.5",
+  "kasus": "K12",
+  "run": 1,
+  "requested": "anthropic/claude-haiku-5.5",
+  "served": "anthropic/claude-haiku-5.5",
+  "cost": 0.00401,
+  "usage": {
+   "p": 37880,
+   "c": 444,
+   "r": 242
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "anthropic/claude-haiku-5.5",
+  "kasus": "K12",
+  "run": 1,
+  "requested": "anthropic/claude-haiku-5.5",
+  "served": "anthropic/claude-haiku-5.5",
+  "cost": 0.0038529,
+  "usage": {
+   "p": 36244,
+   "c": 457,
+   "r": 398
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "anthropic/claude-haiku-5.5",
+  "kasus": "K12",
+  "run": 1,
+  "requested": "anthropic/claude-haiku-5.5",
+  "served": "anthropic/claude-haiku-5.5",
+  "cost": 0.0037987,
+  "usage": {
+   "p": 36632,
+   "c": 271,
+   "r": 200
+  },
+  "finish": "tool_calls",
+  "error": null
+ },
+ {
+  "model": "anthropic/claude-haiku-5.5",
+  "kasus": "K12",
+  "run": 1,
+  "requested": "anthropic/claude-haiku-5.5",
+  "served": "anthropic/claude-haiku-5.5",
+  "cost": 0.0003555,
+  "usage": {
+   "p": 1305,
+   "c": 450,
+   "r": 314
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "anthropic/claude-haiku-5.5",
+  "kasus": "K12",
+  "run": 1,
+  "requested": "anthropic/claude-haiku-5.5",
+  "served": "anthropic/claude-haiku-5.5",
+  "cost": 0.0004471,
+  "usage": {
+   "p": 1306,
+   "c": 633,
+   "r": 521
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "anthropic/claude-haiku-5.5",
+  "kasus": "K12",
+  "run": 1,
+  "requested": "anthropic/claude-haiku-5.5",
+  "served": "anthropic/claude-haiku-5.5",
+  "cost": 0.0004183,
+  "usage": {
+   "p": 3028,
+   "c": 231,
+   "r": 219
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "anthropic/claude-haiku-5.5",
+  "kasus": "K12",
+  "run": 1,
+  "requested": "anthropic/claude-haiku-5.5",
+  "served": "anthropic/claude-haiku-5.5",
+  "cost": 0.0007399,
+  "usage": {
+   "p": 3299,
+   "c": 820,
+   "r": 782
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "anthropic/claude-haiku-5.5",
+  "kasus": "K12",
+  "run": 1,
+  "requested": "anthropic/claude-haiku-5.5",
+  "served": "anthropic/claude-haiku-5.5",
+  "cost": 0.0039793,
+  "usage": {
+   "p": 38053,
+   "c": 348,
+   "r": 122
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "anthropic/claude-haiku-5.5",
+  "kasus": "K16",
+  "run": 1,
+  "requested": "anthropic/claude-haiku-5.5",
+  "served": "anthropic/claude-haiku-5.5",
+  "cost": 0.0040571,
+  "usage": {
+   "p": 36926,
+   "c": 729,
+   "r": 543
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "anthropic/claude-haiku-5.5",
+  "kasus": "K16",
+  "run": 1,
+  "requested": "google/gemini-2.5-flash",
+  "served": "google/gemini-2.5-flash",
+  "cost": 0.0057135,
+  "usage": {
+   "p": 18095,
+   "c": 114,
+   "r": 0
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "anthropic/claude-haiku-5.5",
+  "kasus": "K16",
+  "run": 1,
+  "requested": "anthropic/claude-haiku-5.5",
+  "served": "anthropic/claude-haiku-5.5",
+  "cost": 0.0038931,
+  "usage": {
+   "p": 37411,
+   "c": 304,
+   "r": 225
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "anthropic/claude-haiku-5.5",
+  "kasus": "K18",
+  "run": 1,
+  "requested": "anthropic/claude-haiku-5.5",
+  "served": "anthropic/claude-haiku-5.5",
+  "cost": 0.0040314,
+  "usage": {
+   "p": 36119,
+   "c": 839,
+   "r": 706
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "anthropic/claude-haiku-5.5",
+  "kasus": "K21",
+  "run": 1,
+  "requested": "anthropic/claude-haiku-5.5",
+  "served": "anthropic/claude-haiku-5.5",
+  "cost": 0.0038857,
+  "usage": {
+   "p": 37117,
+   "c": 348,
+   "r": 268
+  },
+  "finish": "tool_calls",
+  "error": null
+ },
+ {
+  "model": "anthropic/claude-haiku-5.5",
+  "kasus": "K21",
+  "run": 1,
+  "requested": "anthropic/claude-haiku-5.5",
+  "served": "anthropic/claude-haiku-5.5",
+  "cost": 0.0003435,
+  "usage": {
+   "p": 1310,
+   "c": 425,
+   "r": 275
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "anthropic/claude-haiku-5.5",
+  "kasus": "K21",
+  "run": 1,
+  "requested": "anthropic/claude-haiku-5.5",
+  "served": "anthropic/claude-haiku-5.5",
+  "cost": 0.0002928,
+  "usage": {
+   "p": 2393,
+   "c": 107,
+   "r": 95
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "anthropic/claude-haiku-5.5",
+  "kasus": "K21",
+  "run": 1,
+  "requested": "anthropic/claude-haiku-5.5",
+  "served": "anthropic/claude-haiku-5.5",
+  "cost": 0.0039247,
+  "usage": {
+   "p": 37797,
+   "c": 290,
+   "r": 178
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "anthropic/claude-haiku-5.5",
+  "kasus": "K21",
+  "run": 1,
+  "requested": "anthropic/claude-haiku-5.5",
+  "served": "anthropic/claude-haiku-5.5",
+  "cost": 0.0041684,
+  "usage": {
+   "p": 37129,
+   "c": 911,
+   "r": 726
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "anthropic/claude-haiku-5.5",
+  "kasus": "K29",
+  "run": 1,
+  "requested": "anthropic/claude-haiku-5.5",
+  "served": "anthropic/claude-haiku-5.5",
+  "cost": 0.0038486,
+  "usage": {
+   "p": 36036,
+   "c": 490,
+   "r": 402
+  },
+  "finish": "tool_calls",
+  "error": null
+ },
+ {
+  "model": "anthropic/claude-haiku-5.5",
+  "kasus": "K29",
+  "run": 1,
+  "requested": "anthropic/claude-haiku-5.5",
+  "served": "anthropic/claude-haiku-5.5",
+  "cost": 0.0002611,
+  "usage": {
+   "p": 1306,
+   "c": 261,
+   "r": 156
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "anthropic/claude-haiku-5.5",
+  "kasus": "K29",
+  "run": 1,
+  "requested": "anthropic/claude-haiku-5.5",
+  "served": "anthropic/claude-haiku-5.5",
+  "cost": 0.0005705,
+  "usage": {
+   "p": 3125,
+   "c": 516,
+   "r": 483
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "anthropic/claude-haiku-5.5",
+  "kasus": "K29",
+  "run": 1,
+  "requested": "anthropic/claude-haiku-5.5",
+  "served": "anthropic/claude-haiku-5.5",
+  "cost": 0.0039773,
+  "usage": {
+   "p": 37673,
+   "c": 420,
+   "r": 260
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "anthropic/claude-haiku-5.5",
+  "kasus": "K29",
+  "run": 1,
+  "requested": "anthropic/claude-haiku-5.5",
+  "served": "anthropic/claude-haiku-5.5",
+  "cost": 0.003935,
+  "usage": {
+   "p": 37315,
+   "c": 407,
+   "r": 349
+  },
+  "finish": "tool_calls",
+  "error": null
+ },
+ {
+  "model": "anthropic/claude-haiku-5.5",
+  "kasus": "K29",
+  "run": 1,
+  "requested": "anthropic/claude-haiku-5.5",
+  "served": "anthropic/claude-haiku-5.5",
+  "cost": 0.0005381,
+  "usage": {
+   "p": 1306,
+   "c": 815,
+   "r": 637
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "anthropic/claude-haiku-5.5",
+  "kasus": "K29",
+  "run": 1,
+  "requested": "anthropic/claude-haiku-5.5",
+  "served": "anthropic/claude-haiku-5.5",
+  "cost": 0.0005619,
+  "usage": {
+   "p": 2889,
+   "c": 546,
+   "r": 513
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "anthropic/claude-haiku-5.5",
+  "kasus": "K29",
+  "run": 1,
+  "requested": "anthropic/claude-haiku-5.5",
+  "served": "anthropic/claude-haiku-5.5",
+  "cost": 0.0040956,
+  "usage": {
+   "p": 38466,
+   "c": 498,
+   "r": 342
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "anthropic/claude-haiku-5.5",
+  "kasus": "K29",
+  "run": 1,
+  "requested": "google/gemini-2.5-flash",
+  "served": "google/gemini-2.5-flash",
+  "cost": 0.0059058,
+  "usage": {
+   "p": 18886,
+   "c": 96,
+   "r": 0
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "anthropic/claude-haiku-5.5",
+  "kasus": "K05",
+  "run": 2,
+  "requested": "anthropic/claude-haiku-5.5",
+  "served": "anthropic/claude-haiku-5.5",
+  "cost": 0.0039708,
+  "usage": {
+   "p": 36748,
+   "c": 592,
+   "r": 458
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "anthropic/claude-haiku-5.5",
+  "kasus": "K05",
+  "run": 2,
+  "requested": "anthropic/claude-haiku-5.5",
+  "served": "anthropic/claude-haiku-5.5",
+  "cost": 0.0038335,
+  "usage": {
+   "p": 36185,
+   "c": 430,
+   "r": 325
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "anthropic/claude-haiku-5.5",
+  "kasus": "K06",
+  "run": 2,
+  "requested": "anthropic/claude-haiku-5.5",
+  "served": "anthropic/claude-haiku-5.5",
+  "cost": 0.003864,
+  "usage": {
+   "p": 36040,
+   "c": 520,
+   "r": 425
+  },
+  "finish": "tool_calls",
+  "error": null
+ },
+ {
+  "model": "anthropic/claude-haiku-5.5",
+  "kasus": "K06",
+  "run": 2,
+  "requested": "anthropic/claude-haiku-5.5",
+  "served": "anthropic/claude-haiku-5.5",
+  "cost": 0.0003698,
+  "usage": {
+   "p": 1313,
+   "c": 477,
+   "r": 353
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "anthropic/claude-haiku-5.5",
+  "kasus": "K06",
+  "run": 2,
+  "requested": "anthropic/claude-haiku-5.5",
+  "served": "anthropic/claude-haiku-5.5",
+  "cost": 0.0003136,
+  "usage": {
+   "p": 3076,
+   "c": 12,
+   "r": 0
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "anthropic/claude-haiku-5.5",
+  "kasus": "K06",
+  "run": 2,
+  "requested": "anthropic/claude-haiku-5.5",
+  "served": "anthropic/claude-haiku-5.5",
+  "cost": 0.0039037,
+  "usage": {
+   "p": 36702,
+   "c": 467,
+   "r": 330
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "anthropic/claude-haiku-5.5",
+  "kasus": "K06",
+  "run": 2,
+  "requested": "anthropic/claude-haiku-5.5",
+  "served": "anthropic/claude-haiku-5.5",
+  "cost": 0.0039356,
+  "usage": {
+   "p": 36581,
+   "c": 555,
+   "r": 317
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "anthropic/claude-haiku-5.5",
+  "kasus": "K09",
+  "run": 2,
+  "requested": "anthropic/claude-haiku-5.5",
+  "served": "anthropic/claude-haiku-5.5",
+  "cost": 0.003891,
+  "usage": {
+   "p": 36035,
+   "c": 575,
+   "r": 471
+  },
+  "finish": "tool_calls",
+  "error": null
+ },
+ {
+  "model": "anthropic/claude-haiku-5.5",
+  "kasus": "K09",
+  "run": 2,
+  "requested": "anthropic/claude-haiku-5.5",
+  "served": "anthropic/claude-haiku-5.5",
+  "cost": 0.003894,
+  "usage": {
+   "p": 37125,
+   "c": 363,
+   "r": 307
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "anthropic/claude-haiku-5.5",
+  "kasus": "K09",
+  "run": 2,
+  "requested": "anthropic/claude-haiku-5.5",
+  "served": "anthropic/claude-haiku-5.5",
+  "cost": 0.003911,
+  "usage": {
+   "p": 37085,
+   "c": 405,
+   "r": 347
+  },
+  "finish": "tool_calls",
+  "error": null
+ },
+ {
+  "model": "anthropic/claude-haiku-5.5",
+  "kasus": "K09",
+  "run": 2,
+  "requested": "anthropic/claude-haiku-5.5",
+  "served": "anthropic/claude-haiku-5.5",
+  "cost": 0.0003256,
+  "usage": {
+   "p": 1306,
+   "c": 390,
+   "r": 250
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "anthropic/claude-haiku-5.5",
+  "kasus": "K09",
+  "run": 2,
+  "requested": "anthropic/claude-haiku-5.5",
+  "served": "anthropic/claude-haiku-5.5",
+  "cost": 0.0004604,
+  "usage": {
+   "p": 2894,
+   "c": 342,
+   "r": 327
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "anthropic/claude-haiku-5.5",
+  "kasus": "K09",
+  "run": 2,
+  "requested": "anthropic/claude-haiku-5.5",
+  "served": "anthropic/claude-haiku-5.5",
+  "cost": 0.003967,
+  "usage": {
+   "p": 37490,
+   "c": 436,
+   "r": 248
+  },
+  "finish": "tool_calls",
+  "error": null
+ },
+ {
+  "model": "anthropic/claude-haiku-5.5",
+  "kasus": "K09",
+  "run": 2,
+  "requested": "anthropic/claude-haiku-5.5",
+  "served": "anthropic/claude-haiku-5.5",
+  "cost": 0.0038382,
+  "usage": {
+   "p": 37697,
+   "c": 137,
+   "r": 0
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "anthropic/claude-haiku-5.5",
+  "kasus": "K12",
+  "run": 2,
+  "requested": "anthropic/claude-haiku-5.5",
+  "served": "anthropic/claude-haiku-5.5",
+  "cost": 0.0041161,
+  "usage": {
+   "p": 36671,
+   "c": 898,
+   "r": 796
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "anthropic/claude-haiku-5.5",
+  "kasus": "K12",
+  "run": 2,
+  "requested": "anthropic/claude-haiku-5.5",
+  "served": "anthropic/claude-haiku-5.5",
+  "cost": 0.0038389,
+  "usage": {
+   "p": 36144,
+   "c": 449,
+   "r": 363
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "anthropic/claude-haiku-5.5",
+  "kasus": "K12",
+  "run": 2,
+  "requested": "anthropic/claude-haiku-5.5",
+  "served": "anthropic/claude-haiku-5.5",
+  "cost": 0.0038559,
+  "usage": {
+   "p": 36559,
+   "c": 400,
+   "r": 329
+  },
+  "finish": "tool_calls",
+  "error": null
+ },
+ {
+  "model": "anthropic/claude-haiku-5.5",
+  "kasus": "K12",
+  "run": 2,
+  "requested": "anthropic/claude-haiku-5.5",
+  "served": "anthropic/claude-haiku-5.5",
+  "cost": 0.004073,
+  "usage": {
+   "p": 37980,
+   "c": 550,
+   "r": 194
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "anthropic/claude-haiku-5.5",
+  "kasus": "K16",
+  "run": 2,
+  "requested": "anthropic/claude-haiku-5.5",
+  "served": "anthropic/claude-haiku-5.5",
+  "cost": 0.0042836,
+  "usage": {
+   "p": 36926,
+   "c": 1182,
+   "r": 1002
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "anthropic/claude-haiku-5.5",
+  "kasus": "K16",
+  "run": 2,
+  "requested": "anthropic/claude-haiku-5.5",
+  "served": "anthropic/claude-haiku-5.5",
+  "cost": 0.0038825,
+  "usage": {
+   "p": 37405,
+   "c": 284,
+   "r": 210
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "anthropic/claude-haiku-5.5",
+  "kasus": "K18",
+  "run": 2,
+  "requested": "anthropic/claude-haiku-5.5",
+  "served": "anthropic/claude-haiku-5.5",
+  "cost": 0.0040294,
+  "usage": {
+   "p": 36119,
+   "c": 835,
+   "r": 704
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "anthropic/claude-haiku-5.5",
+  "kasus": "K21",
+  "run": 2,
+  "requested": "anthropic/claude-haiku-5.5",
+  "served": "anthropic/claude-haiku-5.5",
+  "cost": 0.0039322,
+  "usage": {
+   "p": 37117,
+   "c": 441,
+   "r": 361
+  },
+  "finish": "tool_calls",
+  "error": null
+ },
+ {
+  "model": "anthropic/claude-haiku-5.5",
+  "kasus": "K21",
+  "run": 2,
+  "requested": "anthropic/claude-haiku-5.5",
+  "served": "anthropic/claude-haiku-5.5",
+  "cost": 0.0038912,
+  "usage": {
+   "p": 37797,
+   "c": 223,
+   "r": 85
+  },
+  "finish": "stop",
+  "error": null
+ }
+]

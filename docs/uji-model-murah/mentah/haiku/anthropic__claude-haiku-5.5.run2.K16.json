@@ -1,0 +1,45 @@
+{
+ "model": "anthropic/claude-haiku-5.5",
+ "run": 2,
+ "kasus": "K16",
+ "turns": [
+  {
+   "giliran": 1,
+   "customer": "Apa benar ini dengan nomor Esbeje ? untuk lokasi di suradita atau cisauk ya ?",
+   "http": 200,
+   "reply": "Halo kak, saya Agnes dari ESBEJE (dulu SBJ, Super Bangun Jaya). Lokasi toko yang tercatat ada di Cisauk, buka setiap hari 08.00–19.00, dengan peta di https://maps.app.goo.gl/yKx4PnyZpudTWssu7. Untuk Suradita, saya belum punya data alamat toko di sana. Kakak mau ambil sendiri ke Cisauk atau minta dikirim, dan barangnya apa kak?",
+   "error": null,
+   "ms": 6662,
+   "model": "AI model",
+   "usage": {
+    "prompt_tokens": 36926,
+    "completion_tokens": 1182,
+    "total_tokens": 38108,
+    "cost": 0.0042836
+   },
+   "uncertainty": null,
+   "departmentQuestions": [],
+   "escalation": null,
+   "product": null
+  },
+  {
+   "giliran": 2,
+   "customer": "Tutup jam berapa",
+   "http": 200,
+   "reply": "Toko Cisauk tutup pukul 19.00 setiap hari, dan buka dari pukul 08.00. Kalau mau ke sana, jangan lupa datang sebelum jam tutup ya kak.",
+   "error": null,
+   "ms": 3152,
+   "model": "AI model",
+   "usage": {
+    "prompt_tokens": 37405,
+    "completion_tokens": 284,
+    "total_tokens": 37689,
+    "cost": 0.0038825
+   },
+   "uncertainty": null,
+   "departmentQuestions": [],
+   "escalation": null,
+   "product": null
+  }
+ ]
+}

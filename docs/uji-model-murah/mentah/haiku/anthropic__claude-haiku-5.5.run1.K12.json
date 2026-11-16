@@ -1,0 +1,64 @@
+{
+ "model": "anthropic/claude-haiku-5.5",
+ "run": 1,
+ "kasus": "K12",
+ "turns": [
+  {
+   "giliran": 1,
+   "customer": "Buka harga brp?",
+   "http": 200,
+   "reply": "Kak, ini harga beberapa barang yang paling dicari:\n- Semen Jakarta Type PCC 40KG: Rp 45.000 per zak\n- MU 100 Base Plester Premium 40KG: Rp 116.400 per zak\n- MU 200 Skimwall 40KG: Rp 134.000 per zak\n- Rucika JIS 1/2 IN AW (abu): Rp 53.000 per btg, atau Rucika STD 1/2 AW: Rp 27.500 per btg\n\nKakak lagi butuh barang yang mana, dan berapa banyak?",
+   "error": null,
+   "ms": 10636,
+   "model": "AI model",
+   "usage": {
+    "prompt_tokens": 74551,
+    "completion_tokens": 1066,
+    "total_tokens": 75617,
+    "cost": 0.0079881
+   },
+   "uncertainty": null,
+   "departmentQuestions": [],
+   "escalation": null,
+   "product": null
+  },
+  {
+   "giliran": 2,
+   "customer": ".",
+   "http": 200,
+   "reply": "Baik kak. Kalau mau lanjut, kirim saja nama barang dan jumlahnya, nanti saya cek harga terbarunya dari daftar toko.",
+   "error": null,
+   "ms": 2927,
+   "model": "AI model",
+   "usage": {
+    "prompt_tokens": 36244,
+    "completion_tokens": 457,
+    "total_tokens": 36701,
+    "cost": 0.0038529
+   },
+   "uncertainty": null,
+   "departmentQuestions": [],
+   "escalation": null,
+   "product": null
+  },
+  {
+   "giliran": 3,
+   "customer": "Toren",
+   "http": 200,
+   "reply": "Kak, untuk toren ada beberapa pilihan:\n- Penguin TQ55 500L Hitam: Rp 2.167.000 per pcs\n- Mpoin Tall 550L Black: Rp 1.588.000 per pcs\n- Mpoin Tall 600L Black: Rp 1.778.000 per pcs\n- Mpoin Drain 600L Black: Rp 2.678.000 per pcs\n- Mpoin Drain 800L Black: Rp 3.209.000 per pcs\n\nHarga bisa berubah sewaktu-waktu. Kakak butuh kapasitas berapa liter, untuk berapa penghuni rumah?",
+   "error": null,
+   "ms": 13554,
+   "model": "AI model",
+   "usage": {
+    "prompt_tokens": 74685,
+    "completion_tokens": 619,
+    "total_tokens": 75304,
+    "cost": 0.007778
+   },
+   "uncertainty": null,
+   "departmentQuestions": [],
+   "escalation": null,
+   "product": null
+  }
+ ]
+}

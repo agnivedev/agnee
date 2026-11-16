@@ -1,0 +1,45 @@
+{
+ "model": "google/gemini-2.5-flash",
+ "run": 2,
+ "kasus": "K29",
+ "turns": [
+  {
+   "giliran": 1,
+   "customer": "pagi pak",
+   "http": 200,
+   "reply": "Halo kak, saya Agnes dari ESBEJE. Sedang cari bahan bangunan apa nih?",
+   "error": null,
+   "ms": 1803,
+   "model": "Medium-end AI model D",
+   "usage": {
+    "prompt_tokens": 18778,
+    "completion_tokens": 25,
+    "total_tokens": 18803,
+    "cost": 0.00082672
+   },
+   "uncertainty": null,
+   "departmentQuestions": [],
+   "escalation": null,
+   "product": null
+  },
+  {
+   "giliran": 2,
+   "customer": "triplek melamin putih ada? yg plng tipis",
+   "http": 200,
+   "reply": "Ada kak. Kami ada *MELAMINE PUTIH KILAP* Rp 148.000 per lbr. Itu biasanya dipakai buat pelapis atau sekat ruangan kak?",
+   "error": null,
+   "ms": 3049,
+   "model": "Medium-end AI model D",
+   "usage": {
+    "prompt_tokens": 39663,
+    "completion_tokens": 66,
+    "total_tokens": 39729,
+    "cost": 0.00394527
+   },
+   "uncertainty": null,
+   "departmentQuestions": [],
+   "escalation": null,
+   "product": null
+  }
+ ]
+}

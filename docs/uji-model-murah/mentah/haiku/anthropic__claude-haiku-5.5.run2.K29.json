@@ -1,0 +1,45 @@
+{
+ "model": "anthropic/claude-haiku-5.5",
+ "run": 2,
+ "kasus": "K29",
+ "turns": [
+  {
+   "giliran": 1,
+   "customer": "pagi pak",
+   "http": 200,
+   "reply": "Pagi, saya Agnes dari ESBEJE. Lagi bangun dari awal, renovasi dinding, atau ganti keramik kak? Nanti saya bantu carikan barang dan harganya.",
+   "error": null,
+   "ms": 2811,
+   "model": "AI model",
+   "usage": {
+    "prompt_tokens": 36036,
+    "completion_tokens": 378,
+    "total_tokens": 36414,
+    "cost": 0.0037926
+   },
+   "uncertainty": null,
+   "departmentQuestions": [],
+   "escalation": null,
+   "product": null
+  },
+  {
+   "giliran": 2,
+   "customer": "triplek melamin putih ada? yg plng tipis",
+   "http": 200,
+   "reply": "Yang paling tipis di katalog adalah *TRIPLEK MELAMINE DOFF 6MM 4X8 1 MUKA* Rp 216.400 per lbr. Ada juga *TRIPLEK MELAMINE DOFF 9MM 1 MUKA* Rp 248.000 per lbr. Untuk *MELAMINE PUTIH KILAP* (Rp 148.000 per lbr) dan *MELAMINE PUTIH DOFF KUNCI* (Rp 178.600 per lbr), tebalnya belum tercantum di katalog kami.\n\nBuat lemari atau sekat kak? Biar saya bantu pilihkan tebal yang pas.",
+   "error": null,
+   "ms": 14076,
+   "model": "AI model",
+   "usage": {
+    "prompt_tokens": 76279,
+    "completion_tokens": 879,
+    "total_tokens": 77158,
+    "cost": 0.008067399999999999
+   },
+   "uncertainty": null,
+   "departmentQuestions": [],
+   "escalation": null,
+   "product": null
+  }
+ ]
+}

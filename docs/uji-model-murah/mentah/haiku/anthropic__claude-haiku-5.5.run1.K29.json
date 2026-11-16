@@ -1,0 +1,45 @@
+{
+ "model": "anthropic/claude-haiku-5.5",
+ "run": 1,
+ "kasus": "K29",
+ "turns": [
+  {
+   "giliran": 1,
+   "customer": "pagi pak",
+   "http": 200,
+   "reply": "Pagi kak, saya Agnes dari ESBEJE. Barang yang sering dicari di sini antara lain Semen Jakarta 40 KG Rp 45.000 per zak, MU 100 Base Plester Premium 40KG Rp 116.400 per zak, dan pipa Rucika mulai Rp 27.500 per btg untuk 1/2 inci. Lagi bangun dari awal, renovasi dinding, atau ganti keramik kak?",
+   "error": null,
+   "ms": 12318,
+   "model": "AI model",
+   "usage": {
+    "prompt_tokens": 73709,
+    "completion_tokens": 910,
+    "total_tokens": 74619,
+    "cost": 0.0078259
+   },
+   "uncertainty": null,
+   "departmentQuestions": [],
+   "escalation": null,
+   "product": null
+  },
+  {
+   "giliran": 2,
+   "customer": "triplek melamin putih ada? yg plng tipis",
+   "http": 200,
+   "reply": "Yang paling tipis di daftar adalah Triplek Melamine Doff 6MM 4x8 1 muka, Rp 216.400 per lbr. Ada juga Melamine Putih Kilap Rp 148.000 per lbr dan Melamine Putih Doff Kunci Rp 178.600 per lbr, tapi tebalnya belum tercantum di katalog. Buat lemari atau sekat kak?",
+   "error": null,
+   "ms": 16828,
+   "model": "AI model",
+   "usage": {
+    "prompt_tokens": 75781,
+    "completion_tokens": 905,
+    "total_tokens": 76686,
+    "cost": 0.008030599999999999
+   },
+   "uncertainty": null,
+   "departmentQuestions": [],
+   "escalation": null,
+   "product": null
+  }
+ ]
+}

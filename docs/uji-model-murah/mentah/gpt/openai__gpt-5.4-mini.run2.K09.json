@@ -1,0 +1,51 @@
+{
+ "model": "openai/gpt-5.4-mini",
+ "run": 2,
+ "kasus": "K09",
+ "turns": [
+  {
+   "giliran": 1,
+   "customer": "Sore min",
+   "http": 200,
+   "reply": "Sore kak, saya Agnes dari ESBEJE. Lagi cari bahan bangunan apa nih kak?",
+   "error": null,
+   "ms": 1116,
+   "model": "AI model",
+   "usage": {
+    "prompt_tokens": 18728,
+    "completion_tokens": 24,
+    "total_tokens": 18752,
+    "cost": 0.001626
+   },
+   "uncertainty": null,
+   "departmentQuestions": [],
+   "escalation": null,
+   "product": null
+  },
+  {
+   "giliran": 2,
+   "customer": "Mau tanya klw mau beli tutup kloset duduk ada gak yah d toko",
+   "http": 200,
+   "reply": "Ada kak, untuk tutup kloset duduk ada *TUTUP CLOSET STANDART* Rp 92.000 per pcs, *DOP PENUTUP KLOSET DUDUK* Rp 27.500 per set, dan *ENGSEL TUTUP KLOSET* Rp 65.000 per set. Kalau yang sekalian kloset duduknya juga ada beberapa pilihan: *ALICE CLOSET DUDUK WHITE* Rp 798.000 per set, *CLOSET DUDUK SIRAM VOLK C509 WHITE* Rp 449.000 per pcs, *RENOVO CL GENEVA 858 GREEN CLOSET DUDUK* Rp 908.000 per pcs, dan *TOTO CW415J/SW415JP CLOSET DUDUK WHITE* Rp 1.420.000 per set. \n\nSaya cek ketersediaannya dulu ya kak. Yang dicari tutupnya saja atau sekalian kloset duduknya?",
+   "error": null,
+   "ms": 6225,
+   "model": "AI model",
+   "usage": {
+    "prompt_tokens": 40419,
+    "completion_tokens": 487,
+    "total_tokens": 40906,
+    "cost": 0.006412950000000001
+   },
+   "uncertainty": null,
+   "departmentQuestions": [
+    {
+     "department": "Management",
+     "question": "Tutup kloset duduk: TUTUP CLOSET STANDART, DOP PENUTUP KLOSET DUDUK, ENGSEL TUTUP KLOSET, ALICE CLOSET DUDUK WHITE, CLOSET DUDUK SIRAM VOLK C509 WHITE, COTTO C13445 WH BOOM 3/4 CLOSET DUDUK, RENOVO CL GENEVA 858 GREEN CLOSET DUDUK, TOTO CW415J/SW415JP CLOSET DUDUK WHITE — apakah bisa disediakan?",
+     "kind": "general"
+    }
+   ],
+   "escalation": null,
+   "product": null
+  }
+ ]
+}

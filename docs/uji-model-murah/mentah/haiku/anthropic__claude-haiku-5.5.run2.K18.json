@@ -1,0 +1,26 @@
+{
+ "model": "anthropic/claude-haiku-5.5",
+ "run": 2,
+ "kasus": "K18",
+ "turns": [
+  {
+   "giliran": 1,
+   "customer": "Tagihan SPinjam kamu akan jatuh tempo, yuk bayarkan sebesar Rp [ANGKA]!",
+   "http": 200,
+   "reply": "Halo kak, saya Agnes dari ESBEJE. Saya tidak menemukan tagihan SPinjam dari kami, dan nominal di pesan itu belum terisi, jadi mohon jangan transfer dulu ke rekening mana pun. Kalau kakak punya pesanan di ESBEJE, kirim nama barangnya ke sini supaya saya cek.",
+   "error": null,
+   "ms": 6164,
+   "model": "AI model",
+   "usage": {
+    "prompt_tokens": 36119,
+    "completion_tokens": 835,
+    "total_tokens": 36954,
+    "cost": 0.0040294
+   },
+   "uncertainty": null,
+   "departmentQuestions": [],
+   "escalation": null,
+   "product": null
+  }
+ ]
+}

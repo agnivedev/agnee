@@ -1,0 +1,26 @@
+{
+ "model": "google/gemini-2.5-flash",
+ "run": 2,
+ "kasus": "K18",
+ "turns": [
+  {
+   "giliran": 1,
+   "customer": "Tagihan SPinjam kamu akan jatuh tempo, yuk bayarkan sebesar Rp [ANGKA]!",
+   "http": 200,
+   "reply": "Halo kak, saya Agnes dari ESBEJE. Maaf, saya tidak bisa memproses tagihan SPinjam. Ada yang bisa saya bantu terkait bahan bangunan?",
+   "error": null,
+   "ms": 976,
+   "model": "Medium-end AI model D",
+   "usage": {
+    "prompt_tokens": 18850,
+    "completion_tokens": 33,
+    "total_tokens": 18883,
+    "cost": 0.00086805
+   },
+   "uncertainty": null,
+   "departmentQuestions": [],
+   "escalation": null,
+   "product": null
+  }
+ ]
+}

@@ -1,0 +1,45 @@
+{
+ "model": "anthropic/claude-haiku-5.5",
+ "run": 1,
+ "kasus": "K16",
+ "turns": [
+  {
+   "giliran": 1,
+   "customer": "Apa benar ini dengan nomor Esbeje ? untuk lokasi di suradita atau cisauk ya ?",
+   "http": 200,
+   "reply": "Halo kak, saya Agnes dari ESBEJE. Benar, ini nomor ESBEJE. Toko kami yang tercatat ada di Cisauk, buka setiap hari pukul 08.00–19.00, dan saat ini sedang buka. Ini link peta toko Cisauk: https://maps.app.goo.gl/yKx4PnyZpudTWssu7\n\nUntuk lokasi di Suradita, saya pastikan dulu ya kak. Kakak rencananya mau datang ke toko atau minta dikirim?",
+   "error": null,
+   "ms": 5945,
+   "model": "AI model",
+   "usage": {
+    "prompt_tokens": 36926,
+    "completion_tokens": 729,
+    "total_tokens": 37655,
+    "cost": 0.0040571
+   },
+   "uncertainty": null,
+   "departmentQuestions": [],
+   "escalation": null,
+   "product": null
+  },
+  {
+   "giliran": 2,
+   "customer": "Tutup jam berapa",
+   "http": 200,
+   "reply": "Toko Cisauk tutup pukul 19.00 setiap hari, dan sekarang masih buka sampai jam tersebut. Kalau kakak mau datang, jam 08.00 sampai 19.00 ya kak.",
+   "error": null,
+   "ms": 2979,
+   "model": "AI model",
+   "usage": {
+    "prompt_tokens": 37411,
+    "completion_tokens": 304,
+    "total_tokens": 37715,
+    "cost": 0.0038931
+   },
+   "uncertainty": null,
+   "departmentQuestions": [],
+   "escalation": null,
+   "product": null
+  }
+ ]
+}

@@ -1,0 +1,45 @@
+{
+ "model": "anthropic/claude-haiku-5.5",
+ "run": 2,
+ "kasus": "K21",
+ "turns": [
+  {
+   "giliran": 1,
+   "customer": "Siang mba\nAda zak semen mba",
+   "http": 200,
+   "reply": "Halo kak, saya Agnes dari ESBEJE. Untuk Semen Jakarta ada dua varian:\n\n- SEMEN JAKARTA Type PCC 40KG: Rp 45.000 per zak\n- SEMEN JAKARTA Type PCC 50KG: Rp 57.500 per zak\n\nHarga bisa berubah sewaktu-waktu. Butuh berapa zak kak, dan mau yang 40 kg atau 50 kg?",
+   "error": null,
+   "ms": 12820,
+   "model": "AI model",
+   "usage": {
+    "prompt_tokens": 74702,
+    "completion_tokens": 761,
+    "total_tokens": 75463,
+    "cost": 0.0078507
+   },
+   "uncertainty": null,
+   "departmentQuestions": [],
+   "escalation": null,
+   "product": null
+  },
+  {
+   "giliran": 2,
+   "customer": "Yang tiga roda brp mba",
+   "http": 200,
+   "reply": "Untuk Tiga Roda ada beberapa pilihan:\n\n- TIGARODA 40KG: Rp 68.900 per zak\n- TIGARODA 50KG: Rp 85.800 per zak\n- SEMEN PUTIH TIGA RODA 40KG: Rp 120.000 per zak\n- TR15 Perekat Bata Ringan 40KG: Rp 86.800 per zak\n\nKalau untuk cor atau pasang bata merah, TIGARODA biasanya yang dipakai. Buat apa kak, dan butuh berapa zak?",
+   "error": null,
+   "ms": 4803,
+   "model": "AI model",
+   "usage": {
+    "prompt_tokens": 37178,
+    "completion_tokens": 782,
+    "total_tokens": 37960,
+    "cost": 0.0041088
+   },
+   "uncertainty": null,
+   "departmentQuestions": [],
+   "escalation": null,
+   "product": null
+  }
+ ]
+}

@@ -1,0 +1,1427 @@
+[
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K05",
+  "run": 1,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.01445025,
+  "usage": {
+   "p": 19099,
+   "c": 28,
+   "r": 0
+  },
+  "finish": "tool_calls",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K05",
+  "run": 1,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.00103875,
+  "usage": {
+   "p": 833,
+   "c": 92,
+   "r": 0
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K05",
+  "run": 1,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.00120525,
+  "usage": {
+   "p": 1547,
+   "c": 10,
+   "r": 0
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K05",
+  "run": 1,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.0018273,
+  "usage": {
+   "p": 19216,
+   "c": 45,
+   "r": 0
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K05",
+  "run": 1,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.00603375,
+  "usage": {
+   "p": 18785,
+   "c": 34,
+   "r": 0
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K06",
+  "run": 1,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.00180405,
+  "usage": {
+   "p": 18729,
+   "c": 25,
+   "r": 0
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K06",
+  "run": 1,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.007251,
+  "usage": {
+   "p": 19070,
+   "c": 257,
+   "r": 0
+  },
+  "finish": "tool_calls",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K06",
+  "run": 1,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.00087825,
+  "usage": {
+   "p": 841,
+   "c": 55,
+   "r": 0
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K06",
+  "run": 1,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.0007695,
+  "usage": {
+   "p": 966,
+   "c": 10,
+   "r": 0
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K06",
+  "run": 1,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.0008865,
+  "usage": {
+   "p": 840,
+   "c": 57,
+   "r": 0
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K06",
+  "run": 1,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.00077625,
+  "usage": {
+   "p": 975,
+   "c": 10,
+   "r": 0
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K06",
+  "run": 1,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.000915,
+  "usage": {
+   "p": 842,
+   "c": 63,
+   "r": 0
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K06",
+  "run": 1,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.00076275,
+  "usage": {
+   "p": 957,
+   "c": 10,
+   "r": 0
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K06",
+  "run": 1,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.00093675,
+  "usage": {
+   "p": 841,
+   "c": 68,
+   "r": 0
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K06",
+  "run": 1,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.00075375,
+  "usage": {
+   "p": 945,
+   "c": 10,
+   "r": 0
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K06",
+  "run": 1,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.00298005,
+  "usage": {
+   "p": 20051,
+   "c": 162,
+   "r": 0
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K09",
+  "run": 1,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.0016215,
+  "usage": {
+   "p": 18728,
+   "c": 23,
+   "r": 0
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K09",
+  "run": 1,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.00679425,
+  "usage": {
+   "p": 19451,
+   "c": 92,
+   "r": 0
+  },
+  "finish": "tool_calls",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K09",
+  "run": 1,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.000831,
+  "usage": {
+   "p": 832,
+   "c": 46,
+   "r": 0
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K09",
+  "run": 1,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.00135675,
+  "usage": {
+   "p": 1749,
+   "c": 10,
+   "r": 0
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K09",
+  "run": 1,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.00086475,
+  "usage": {
+   "p": 835,
+   "c": 53,
+   "r": 0
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K09",
+  "run": 1,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.00138375,
+  "usage": {
+   "p": 1785,
+   "c": 10,
+   "r": 0
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K09",
+  "run": 1,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.000876,
+  "usage": {
+   "p": 832,
+   "c": 56,
+   "r": 0
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K09",
+  "run": 1,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.00135525,
+  "usage": {
+   "p": 1747,
+   "c": 10,
+   "r": 0
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K09",
+  "run": 1,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.00238035,
+  "usage": {
+   "p": 20023,
+   "c": 91,
+   "r": 0
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K12",
+  "run": 1,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.00634125,
+  "usage": {
+   "p": 19075,
+   "c": 54,
+   "r": 0
+  },
+  "finish": "tool_calls",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K12",
+  "run": 1,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.00068625,
+  "usage": {
+   "p": 825,
+   "c": 15,
+   "r": 0
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K12",
+  "run": 1,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.00100275,
+  "usage": {
+   "p": 827,
+   "c": 85,
+   "r": 0
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K12",
+  "run": 1,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.001308,
+  "usage": {
+   "p": 1672,
+   "c": 12,
+   "r": 0
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K12",
+  "run": 1,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.0021573,
+  "usage": {
+   "p": 19482,
+   "c": 74,
+   "r": 0
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K12",
+  "run": 1,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.0017655,
+  "usage": {
+   "p": 18812,
+   "c": 41,
+   "r": 0
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K12",
+  "run": 1,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.006459,
+  "usage": {
+   "p": 19094,
+   "c": 77,
+   "r": 0
+  },
+  "finish": "tool_calls",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K12",
+  "run": 1,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.0009885,
+  "usage": {
+   "p": 826,
+   "c": 82,
+   "r": 0
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K12",
+  "run": 1,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.0014655,
+  "usage": {
+   "p": 1810,
+   "c": 24,
+   "r": 0
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K12",
+  "run": 1,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.00271005,
+  "usage": {
+   "p": 19781,
+   "c": 147,
+   "r": 0
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K16",
+  "run": 1,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.006327,
+  "usage": {
+   "p": 19230,
+   "c": 25,
+   "r": 0
+  },
+  "finish": "tool_calls",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K16",
+  "run": 1,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.0020304,
+  "usage": {
+   "p": 19302,
+   "c": 95,
+   "r": 0
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K16",
+  "run": 1,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.00674925,
+  "usage": {
+   "p": 19613,
+   "c": 55,
+   "r": 0
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K18",
+  "run": 1,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.0060585,
+  "usage": {
+   "p": 18788,
+   "c": 39,
+   "r": 0
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K21",
+  "run": 1,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.0065475,
+  "usage": {
+   "p": 19428,
+   "c": 41,
+   "r": 0
+  },
+  "finish": "tool_calls",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K21",
+  "run": 1,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.0009825,
+  "usage": {
+   "p": 830,
+   "c": 80,
+   "r": 0
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K21",
+  "run": 1,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.001191,
+  "usage": {
+   "p": 1528,
+   "c": 10,
+   "r": 0
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K21",
+  "run": 1,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.0020406,
+  "usage": {
+   "p": 19618,
+   "c": 83,
+   "r": 0
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K21",
+  "run": 1,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.00671175,
+  "usage": {
+   "p": 19509,
+   "c": 64,
+   "r": 0
+  },
+  "finish": "tool_calls",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K21",
+  "run": 1,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.00098325,
+  "usage": {
+   "p": 831,
+   "c": 80,
+   "r": 0
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K21",
+  "run": 1,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.00138975,
+  "usage": {
+   "p": 1793,
+   "c": 10,
+   "r": 0
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K21",
+  "run": 1,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.00097425,
+  "usage": {
+   "p": 831,
+   "c": 78,
+   "r": 0
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K21",
+  "run": 1,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.00145575,
+  "usage": {
+   "p": 1881,
+   "c": 10,
+   "r": 0
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K21",
+  "run": 1,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.0022071,
+  "usage": {
+   "p": 19900,
+   "c": 73,
+   "r": 0
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K29",
+  "run": 1,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.0016305,
+  "usage": {
+   "p": 18728,
+   "c": 25,
+   "r": 0
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K29",
+  "run": 1,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.00681525,
+  "usage": {
+   "p": 19491,
+   "c": 90,
+   "r": 0
+  },
+  "finish": "tool_calls",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K29",
+  "run": 1,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.00090375,
+  "usage": {
+   "p": 839,
+   "c": 61,
+   "r": 0
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K29",
+  "run": 1,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.00088125,
+  "usage": {
+   "p": 839,
+   "c": 56,
+   "r": 0
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K29",
+  "run": 1,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.00105375,
+  "usage": {
+   "p": 835,
+   "c": 95,
+   "r": 0
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K29",
+  "run": 1,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.00097125,
+  "usage": {
+   "p": 833,
+   "c": 77,
+   "r": 0
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K29",
+  "run": 1,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.0007305,
+  "usage": {
+   "p": 914,
+   "c": 10,
+   "r": 0
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K29",
+  "run": 1,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.00084,
+  "usage": {
+   "p": 1060,
+   "c": 10,
+   "r": 0
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K29",
+  "run": 1,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.00102525,
+  "usage": {
+   "p": 1307,
+   "c": 10,
+   "r": 0
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K29",
+  "run": 1,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.00162825,
+  "usage": {
+   "p": 2111,
+   "c": 10,
+   "r": 0
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K29",
+  "run": 1,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.0026631,
+  "usage": {
+   "p": 20304,
+   "c": 107,
+   "r": 0
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K05",
+  "run": 2,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.00209505,
+  "usage": {
+   "p": 19099,
+   "c": 28,
+   "r": 0
+  },
+  "finish": "tool_calls",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K05",
+  "run": 2,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.0017139,
+  "usage": {
+   "p": 19216,
+   "c": 39,
+   "r": 0
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K05",
+  "run": 2,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.00175425,
+  "usage": {
+   "p": 18779,
+   "c": 44,
+   "r": 0
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K06",
+  "run": 2,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.00166725,
+  "usage": {
+   "p": 18729,
+   "c": 33,
+   "r": 0
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K06",
+  "run": 2,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.0021198,
+  "usage": {
+   "p": 19078,
+   "c": 37,
+   "r": 0
+  },
+  "finish": "tool_calls",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K06",
+  "run": 2,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.0019128,
+  "usage": {
+   "p": 19306,
+   "c": 49,
+   "r": 0
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K09",
+  "run": 2,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.001626,
+  "usage": {
+   "p": 18728,
+   "c": 24,
+   "r": 0
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K09",
+  "run": 2,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.0027801,
+  "usage": {
+   "p": 19452,
+   "c": 275,
+   "r": 0
+  },
+  "finish": "tool_calls",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K09",
+  "run": 2,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.000822,
+  "usage": {
+   "p": 832,
+   "c": 44,
+   "r": 0
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K09",
+  "run": 2,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.000942,
+  "usage": {
+   "p": 842,
+   "c": 69,
+   "r": 0
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K09",
+  "run": 2,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.0009255,
+  "usage": {
+   "p": 838,
+   "c": 66,
+   "r": 0
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K09",
+  "run": 2,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.00089475,
+  "usage": {
+   "p": 839,
+   "c": 59,
+   "r": 0
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K09",
+  "run": 2,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.00096225,
+  "usage": {
+   "p": 839,
+   "c": 74,
+   "r": 0
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K09",
+  "run": 2,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.0012765,
+  "usage": {
+   "p": 1642,
+   "c": 10,
+   "r": 0
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K09",
+  "run": 2,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.00147825,
+  "usage": {
+   "p": 1911,
+   "c": 10,
+   "r": 0
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K09",
+  "run": 2,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.00130275,
+  "usage": {
+   "p": 1677,
+   "c": 10,
+   "r": 0
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K09",
+  "run": 2,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.001452,
+  "usage": {
+   "p": 1876,
+   "c": 10,
+   "r": 0
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K09",
+  "run": 2,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.001236,
+  "usage": {
+   "p": 1588,
+   "c": 10,
+   "r": 0
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K09",
+  "run": 2,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.00363285,
+  "usage": {
+   "p": 20967,
+   "c": 212,
+   "r": 0
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K12",
+  "run": 2,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.00213555,
+  "usage": {
+   "p": 19075,
+   "c": 41,
+   "r": 0
+  },
+  "finish": "tool_calls",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K12",
+  "run": 2,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.00186855,
+  "usage": {
+   "p": 19265,
+   "c": 46,
+   "r": 0
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K12",
+  "run": 2,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.0016176,
+  "usage": {
+   "p": 18784,
+   "c": 32,
+   "r": 0
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K12",
+  "run": 2,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.00210405,
+  "usage": {
+   "p": 19057,
+   "c": 37,
+   "r": 0
+  },
+  "finish": "tool_calls",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K12",
+  "run": 2,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.0026493,
+  "usage": {
+   "p": 19670,
+   "c": 152,
+   "r": 0
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K16",
+  "run": 2,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.0016614,
+  "usage": {
+   "p": 19230,
+   "c": 25,
+   "r": 0
+  },
+  "finish": "tool_calls",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K16",
+  "run": 2,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.0018729,
+  "usage": {
+   "p": 19302,
+   "c": 60,
+   "r": 0
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K16",
+  "run": 2,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.00257505,
+  "usage": {
+   "p": 19613,
+   "c": 49,
+   "r": 0
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K18",
+  "run": 2,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.0016836,
+  "usage": {
+   "p": 18788,
+   "c": 46,
+   "r": 0
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K21",
+  "run": 2,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.0016371,
+  "usage": {
+   "p": 19428,
+   "c": 25,
+   "r": 0
+  },
+  "finish": "tool_calls",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K21",
+  "run": 2,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.0018777,
+  "usage": {
+   "p": 19618,
+   "c": 66,
+   "r": 0
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K21",
+  "run": 2,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.0018606,
+  "usage": {
+   "p": 19492,
+   "c": 64,
+   "r": 0
+  },
+  "finish": "tool_calls",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K21",
+  "run": 2,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.00210435,
+  "usage": {
+   "p": 19883,
+   "c": 53,
+   "r": 0
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K29",
+  "run": 2,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.0016305,
+  "usage": {
+   "p": 18728,
+   "c": 25,
+   "r": 0
+  },
+  "finish": "stop",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K29",
+  "run": 2,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.00197685,
+  "usage": {
+   "p": 19491,
+   "c": 90,
+   "r": 0
+  },
+  "finish": "tool_calls",
+  "error": null
+ },
+ {
+  "model": "openai/gpt-5.4-mini",
+  "kasus": "K29",
+  "run": 2,
+  "requested": "openai/gpt-5.4-mini",
+  "served": "openai/gpt-5.4-mini",
+  "cost": 0.0027441,
+  "usage": {
+   "p": 20304,
+   "c": 125,
+   "r": 0
+  },
+  "finish": "stop",
+  "error": null
+ }
+]

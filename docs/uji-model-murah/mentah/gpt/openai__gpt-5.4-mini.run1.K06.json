@@ -1,0 +1,45 @@
+{
+ "model": "openai/gpt-5.4-mini",
+ "run": 1,
+ "kasus": "K06",
+ "turns": [
+  {
+   "giliran": 1,
+   "customer": "Selamat pagi pak",
+   "http": 200,
+   "reply": "Selamat pagi kak, saya Agnes dari ESBEJE. Lagi cari bahan bangunan apa hari ini?",
+   "error": null,
+   "ms": 1206,
+   "model": "AI model",
+   "usage": {
+    "prompt_tokens": 18729,
+    "completion_tokens": 25,
+    "total_tokens": 18754,
+    "cost": 0.00180405
+   },
+   "uncertainty": null,
+   "departmentQuestions": [],
+   "escalation": null,
+   "product": null
+  },
+  {
+   "giliran": 2,
+   "customer": "Saya mau tanya esbeje punya paving blok gak ya?",
+   "http": 200,
+   "reply": "Ada kak, paving blok tersedia. Yang ketemu di katalog ada *PAVING BATA ABU 6CM (1M= 44PCS)* Rp 110.000 per mtr, *PAVING BATA ABU 8CM (1M=44PCS)* Rp 121.500 per mtr, *PAVING CACING /UNORMAL 6CM [1M=39PCS]* Rp 117.400 per mtr, *PAVING HEXAGON 6CM [ 1 M = 25pcs ]* Rp 107.200 per mtr, dan *PAVING TRIHEX 6CM [1M=39PCS]* Rp 77.600 per mtr. Buat jalan atau carport kak?",
+   "error": null,
+   "ms": 12030,
+   "model": "AI model",
+   "usage": {
+    "prompt_tokens": 39121,
+    "completion_tokens": 419,
+    "total_tokens": 39540,
+    "cost": 0.01023105
+   },
+   "uncertainty": null,
+   "departmentQuestions": [],
+   "escalation": null,
+   "product": null
+  }
+ ]
+}

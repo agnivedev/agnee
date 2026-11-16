@@ -1,0 +1,45 @@
+{
+ "model": "google/gemini-2.5-flash",
+ "run": 1,
+ "kasus": "K05",
+ "turns": [
+  {
+   "giliran": 1,
+   "customer": "MU480 harga berapa",
+   "http": 200,
+   "reply": "MU 480 RENOFIX 25KG harganya Rp 313.000 per zak, kak. Itu semen instan unggulan kami untuk perata lantai atau screed. Butuh berapa zak?",
+   "error": null,
+   "ms": 6449,
+   "model": "Medium-end AI model D",
+   "usage": {
+    "prompt_tokens": 38531,
+    "completion_tokens": 67,
+    "total_tokens": 38598,
+    "cost": 0.00658681
+   },
+   "uncertainty": null,
+   "departmentQuestions": [],
+   "escalation": null,
+   "product": null
+  },
+  {
+   "giliran": 2,
+   "customer": "Mahal sekali ya",
+   "http": 200,
+   "reply": "Baik kak. MU 480 Renofix memang diformulasikan khusus untuk merekatkan keramik di atas keramik lama tanpa bongkar.\n\nUntuk kebutuhan berapa zak, kak? Mungkin ada opsi lain yang bisa kami diskusikan.",
+   "error": null,
+   "ms": 1179,
+   "model": "Medium-end AI model D",
+   "usage": {
+    "prompt_tokens": 18835,
+    "completion_tokens": 50,
+    "total_tokens": 18885,
+    "cost": 0.0057755
+   },
+   "uncertainty": null,
+   "departmentQuestions": [],
+   "escalation": null,
+   "product": null
+  }
+ ]
+}

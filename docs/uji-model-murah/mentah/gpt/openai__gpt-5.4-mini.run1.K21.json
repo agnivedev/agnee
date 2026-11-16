@@ -1,0 +1,45 @@
+{
+ "model": "openai/gpt-5.4-mini",
+ "run": 1,
+ "kasus": "K21",
+ "turns": [
+  {
+   "giliran": 1,
+   "customer": "Siang mba\nAda zak semen mba",
+   "http": 200,
+   "reply": "Siang kak, saya Agnes dari ESBEJE. Ada *SEMEN JAKARTA Type PCC 40KG* harga *Rp 45.000 per zak*.\n\nSekalian untuk plester, ada *APLUS A-110 SEMEN ACIAN 40KG* *Rp 76.000 per zak* kak. Butuh berapa zak semen yang mau diambil?",
+   "error": null,
+   "ms": 5177,
+   "model": "AI model",
+   "usage": {
+    "prompt_tokens": 39046,
+    "completion_tokens": 124,
+    "total_tokens": 39170,
+    "cost": 0.008588100000000001
+   },
+   "uncertainty": null,
+   "departmentQuestions": [],
+   "escalation": null,
+   "product": null
+  },
+  {
+   "giliran": 2,
+   "customer": "Yang tiga roda brp mba",
+   "http": 200,
+   "reply": "Ada kak, *TIGARODA 40KG* *Rp 68.900 per zak* dan *TIGARODA 50KG* *Rp 85.800 per zak*.\n\nKalau buat kerja pondasi atau cor, biasanya ambil yang 50KG kak. Mau yang 40KG atau 50KG?",
+   "error": null,
+   "ms": 6720,
+   "model": "AI model",
+   "usage": {
+    "prompt_tokens": 39409,
+    "completion_tokens": 137,
+    "total_tokens": 39546,
+    "cost": 0.008918849999999999
+   },
+   "uncertainty": null,
+   "departmentQuestions": [],
+   "escalation": null,
+   "product": null
+  }
+ ]
+}

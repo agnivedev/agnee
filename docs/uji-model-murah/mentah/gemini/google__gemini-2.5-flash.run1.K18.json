@@ -1,0 +1,43 @@
+{
+ "model": "google/gemini-2.5-flash",
+ "run": 1,
+ "kasus": "K18",
+ "turns": [
+  {
+   "giliran": 1,
+   "customer": "Tagihan SPinjam kamu akan jatuh tempo, yuk bayarkan sebesar Rp [ANGKA]!",
+   "http": 200,
+   "reply": "Halo kak, saya Agnes dari ESBEJE.\nMaaf, ini bukan tagihan dari toko kami.\nAda yang bisa saya bantu terkait bahan bangunan atau renovasi rumah?\nUntuk ongkirnya saya belum bisa memastikan angkanya, Kak.\nSegera kami get back ke kakak ya, ini sedang kami pastikan dulu ke tim terkait.",
+   "error": null,
+   "ms": 1058,
+   "model": "Medium-end AI model D",
+   "usage": {
+    "prompt_tokens": 18850,
+    "completion_tokens": 43,
+    "total_tokens": 18893,
+    "cost": 0.00278683
+   },
+   "uncertainty": {
+    "topic": "ongkir",
+    "topics": [
+     "ongkir"
+    ],
+    "reasons": [
+     {
+      "code": "hedge",
+      "label": "Balasan memakai bahasa menebak tentang uang/stok/kirim",
+      "topic": "ongkir",
+      "sentence": "Mungkin ada kesalahan pengiriman pesan."
+     }
+    ],
+    "action": "ask_department",
+    "department": "Management",
+    "byModel": false,
+    "dryRun": true
+   },
+   "departmentQuestions": [],
+   "escalation": null,
+   "product": null
+  }
+ ]
+}

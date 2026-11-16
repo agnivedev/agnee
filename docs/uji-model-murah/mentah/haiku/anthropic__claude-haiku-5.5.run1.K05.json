@@ -1,0 +1,45 @@
+{
+ "model": "anthropic/claude-haiku-5.5",
+ "run": 1,
+ "kasus": "K05",
+ "turns": [
+  {
+   "giliran": 1,
+   "customer": "MU480 harga berapa",
+   "http": 200,
+   "reply": "Halo kak, saya Agnes dari ESBEJE. MU 480 Renofix 25KG harganya Rp 313.000 per zak. Harga bisa berubah sewaktu-waktu. Butuh berapa zak kak?",
+   "error": null,
+   "ms": 10947,
+   "model": "AI model",
+   "usage": {
+    "prompt_tokens": 73688,
+    "completion_tokens": 499,
+    "total_tokens": 74187,
+    "cost": 0.0076183
+   },
+   "uncertainty": null,
+   "departmentQuestions": [],
+   "escalation": null,
+   "product": null
+  },
+  {
+   "giliran": 2,
+   "customer": "Mahal sekali ya",
+   "http": 200,
+   "reply": "Harga MU 480 Renofix 25KG memang Rp 313.000 per zak, dan itu harga dari daftar kami saat ini. Kalau kebutuhannya banyak, saya bisa siapkan penawaran untuk jumlah itu. Mau dipakai untuk berapa zak kak?",
+   "error": null,
+   "ms": 9178,
+   "model": "AI model",
+   "usage": {
+    "prompt_tokens": 72462,
+    "completion_tokens": 577,
+    "total_tokens": 73039,
+    "cost": 0.0075347
+   },
+   "uncertainty": null,
+   "departmentQuestions": [],
+   "escalation": null,
+   "product": null
+  }
+ ]
+}

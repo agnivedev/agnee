@@ -1,0 +1,45 @@
+{
+ "model": "openai/gpt-5.4-mini",
+ "run": 1,
+ "kasus": "K09",
+ "turns": [
+  {
+   "giliran": 1,
+   "customer": "Sore min",
+   "http": 200,
+   "reply": "Sore kak, saya Agnes dari ESBEJE. Lagi cari bahan bangunan apa kak?",
+   "error": null,
+   "ms": 1012,
+   "model": "AI model",
+   "usage": {
+    "prompt_tokens": 18728,
+    "completion_tokens": 23,
+    "total_tokens": 18751,
+    "cost": 0.0016215
+   },
+   "uncertainty": null,
+   "departmentQuestions": [],
+   "escalation": null,
+   "product": null
+  },
+  {
+   "giliran": 2,
+   "customer": "Mau tanya klw mau beli tutup kloset duduk ada gak yah d toko",
+   "http": 200,
+   "reply": "Ada kak, untuk tutup kloset duduk ada *TUTUP CLOSET STANDART* Rp 92.000 per pcs, *DOP PENUTUP KLOSET DUDUK* Rp 27.500 per set, dan *ENGSEL TUTUP KLOSET* Rp 65.000 per set. Kak mau yang tutupnya saja, atau sekalian dop dan engselnya?",
+   "error": null,
+   "ms": 8527,
+   "model": "AI model",
+   "usage": {
+    "prompt_tokens": 39474,
+    "completion_tokens": 183,
+    "total_tokens": 39657,
+    "cost": 0.0091746
+   },
+   "uncertainty": null,
+   "departmentQuestions": [],
+   "escalation": null,
+   "product": null
+  }
+ ]
+}

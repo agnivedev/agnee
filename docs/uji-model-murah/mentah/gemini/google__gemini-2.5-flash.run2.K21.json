@@ -1,0 +1,69 @@
+{
+ "model": "google/gemini-2.5-flash",
+ "run": 2,
+ "kasus": "K21",
+ "turns": [
+  {
+   "giliran": 1,
+   "customer": "Siang mba\nAda zak semen mba",
+   "http": 200,
+   "reply": "Halo kak, saya Agnes dari ESBEJE.\nAda.\nSemennya mau dipakai untuk cor atau pasang bata kak?\nUntuk ketersediaan stoknya saya belum bisa memastikan, Kak.\nSegera kami get back ke kakak ya, ini sedang kami pastikan dulu ke tim terkait.",
+   "error": null,
+   "ms": 2089,
+   "model": "Medium-end AI model D",
+   "usage": {
+    "prompt_tokens": 19700,
+    "completion_tokens": 47,
+    "total_tokens": 19747,
+    "cost": 0.00088265
+   },
+   "uncertainty": {
+    "topic": "stok",
+    "topics": [
+     "stok",
+     "harga"
+    ],
+    "reasons": [
+     {
+      "code": "invented_price",
+      "label": "Menyebut harga yang tak ada sumbernya",
+      "topic": "harga",
+      "sentence": "Kami ready Semen Jakarta 40KG seharga Rp 57.500 per zak."
+     },
+     {
+      "code": "stock_claim",
+      "label": "Menjanjikan stok tanpa data stok",
+      "topic": "stok",
+      "sentence": "Kami ready *Semen Jakarta 40KG* seharga Rp 55.000 per zak."
+     }
+    ],
+    "action": "ask_department",
+    "department": "Management",
+    "byModel": false,
+    "dryRun": true
+   },
+   "departmentQuestions": [],
+   "escalation": null,
+   "product": null
+  },
+  {
+   "giliran": 2,
+   "customer": "Yang tiga roda brp mba",
+   "http": 200,
+   "reply": "Semen Tiga Roda tersedia dalam beberapa pilihan kak:\n\n* SEMEN PUTIH TIGA RODA 40KG seharga Rp 120.000 per zak\n* TIGARODA 40KG seharga Rp 68.900 per zak\n* TIGARODA 50KG seharga Rp 85.800 per zak\n\nKakak butuh berapa zak?",
+   "error": null,
+   "ms": 4516,
+   "model": "Medium-end AI model D",
+   "usage": {
+    "prompt_tokens": 39795,
+    "completion_tokens": 110,
+    "total_tokens": 39905,
+    "cost": 0.00409406
+   },
+   "uncertainty": null,
+   "departmentQuestions": [],
+   "escalation": null,
+   "product": null
+  }
+ ]
+}

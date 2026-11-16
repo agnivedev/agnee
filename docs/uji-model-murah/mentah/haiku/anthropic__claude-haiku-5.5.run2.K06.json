@@ -1,0 +1,45 @@
+{
+ "model": "anthropic/claude-haiku-5.5",
+ "run": 2,
+ "kasus": "K06",
+ "turns": [
+  {
+   "giliran": 1,
+   "customer": "Selamat pagi pak",
+   "http": 200,
+   "reply": "Selamat pagi kak, saya Agnes dari ESBEJE. Kalau sedang cari bahan bangunan, Semen Jakarta 40KG ada di harga Rp 45.000 per zak, dan MU 301 Plasterplus 40KG Rp 104.000 per zak. Lagi mengerjakan apa kak, pondasi, plester dinding, atau pasang keramik?",
+   "error": null,
+   "ms": 11482,
+   "model": "AI model",
+   "usage": {
+    "prompt_tokens": 72742,
+    "completion_tokens": 987,
+    "total_tokens": 73729,
+    "cost": 0.0077677
+   },
+   "uncertainty": null,
+   "departmentQuestions": [],
+   "escalation": null,
+   "product": null
+  },
+  {
+   "giliran": 2,
+   "customer": "Saya mau tanya esbeje punya paving blok gak ya?",
+   "http": 200,
+   "reply": "Ada kak, beberapa jenis paving blok tersedia. Contohnya:\n- PAVING BATA ABU 6CM (1M = 44 pcs): Rp 110.000 per mtr\n- PAVING HEXAGON 6CM (1M = 25 pcs): Rp 107.200 per mtr\n- PAVING TRIHEX 6CM (1M = 39 pcs): Rp 77.600 per mtr\n- PAVING UBIN MERAH 6CM 21X21 (1M = 22 pcs), merek SBJ: Rp 105.200 per mtr\n\nMau untuk area berapa meter persegi kak? Nanti saya hitungkan kebutuhannya.",
+   "error": null,
+   "ms": 3469,
+   "model": "AI model",
+   "usage": {
+    "prompt_tokens": 36581,
+    "completion_tokens": 555,
+    "total_tokens": 37136,
+    "cost": 0.0039356
+   },
+   "uncertainty": null,
+   "departmentQuestions": [],
+   "escalation": null,
+   "product": null
+  }
+ ]
+}

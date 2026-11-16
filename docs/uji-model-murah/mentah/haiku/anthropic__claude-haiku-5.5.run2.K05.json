@@ -1,0 +1,45 @@
+{
+ "model": "anthropic/claude-haiku-5.5",
+ "run": 2,
+ "kasus": "K05",
+ "turns": [
+  {
+   "giliran": 1,
+   "customer": "MU480 harga berapa",
+   "http": 200,
+   "reply": "Halo kak, saya Agnes dari ESBEJE. MU 480 Renofix 25KG harganya Rp 313.000 per zak. Renofix ini dipakai untuk pasang keramik di atas keramik lama. Harga bisa berubah sewaktu-waktu, jadi kami konfirmasi lagi saat pesanan diproses. Butuh berapa zak kak?",
+   "error": null,
+   "ms": 3572,
+   "model": "AI model",
+   "usage": {
+    "prompt_tokens": 36748,
+    "completion_tokens": 592,
+    "total_tokens": 37340,
+    "cost": 0.0039708
+   },
+   "uncertainty": null,
+   "departmentQuestions": [],
+   "escalation": null,
+   "product": null
+  },
+  {
+   "giliran": 2,
+   "customer": "Mahal sekali ya",
+   "http": 200,
+   "reply": "Dipahami kak. Renofix ini memang khusus untuk pasang keramik di atas keramik lama, jadi tidak bisa diganti sembarang perekat. Kalau kakak kasih tahu butuh berapa zak, saya hitungkan totalnya dan kita lihat sama-sama.",
+   "error": null,
+   "ms": 3060,
+   "model": "AI model",
+   "usage": {
+    "prompt_tokens": 36185,
+    "completion_tokens": 430,
+    "total_tokens": 36615,
+    "cost": 0.0038335
+   },
+   "uncertainty": null,
+   "departmentQuestions": [],
+   "escalation": null,
+   "product": null
+  }
+ ]
+}

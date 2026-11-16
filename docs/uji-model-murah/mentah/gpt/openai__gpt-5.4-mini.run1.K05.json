@@ -1,0 +1,45 @@
+{
+ "model": "openai/gpt-5.4-mini",
+ "run": 1,
+ "kasus": "K05",
+ "turns": [
+  {
+   "giliran": 1,
+   "customer": "MU480 harga berapa",
+   "http": 200,
+   "reply": "MU 480 RENOFIX 25KG harganya *Rp 313.000 per zak*. Ini biasanya dipakai untuk keramik di atas keramik lama; butuh berapa zak kak?",
+   "error": null,
+   "ms": 6620,
+   "model": "AI model",
+   "usage": {
+    "prompt_tokens": 38315,
+    "completion_tokens": 73,
+    "total_tokens": 38388,
+    "cost": 0.01627755
+   },
+   "uncertainty": null,
+   "departmentQuestions": [],
+   "escalation": null,
+   "product": null
+  },
+  {
+   "giliran": 2,
+   "customer": "Mahal sekali ya",
+   "http": 200,
+   "reply": "Kalau untuk jumlah yang agak banyak, biasanya penawaran bisa saya bantu cekkan lagi. Butuh berapa zak MU 480-nya kak?",
+   "error": null,
+   "ms": 1555,
+   "model": "AI model",
+   "usage": {
+    "prompt_tokens": 18785,
+    "completion_tokens": 34,
+    "total_tokens": 18819,
+    "cost": 0.00603375
+   },
+   "uncertainty": null,
+   "departmentQuestions": [],
+   "escalation": null,
+   "product": null
+  }
+ ]
+}

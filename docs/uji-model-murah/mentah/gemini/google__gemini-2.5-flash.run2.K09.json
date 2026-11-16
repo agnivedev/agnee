@@ -1,0 +1,45 @@
+{
+ "model": "google/gemini-2.5-flash",
+ "run": 2,
+ "kasus": "K09",
+ "turns": [
+  {
+   "giliran": 1,
+   "customer": "Sore min",
+   "http": 200,
+   "reply": "Halo kak, saya Agnes dari ESBEJE. Ada yang bisa saya bantu?",
+   "error": null,
+   "ms": 819,
+   "model": "Medium-end AI model D",
+   "usage": {
+    "prompt_tokens": 18778,
+    "completion_tokens": 16,
+    "total_tokens": 18794,
+    "cost": 0.00080422
+   },
+   "uncertainty": null,
+   "departmentQuestions": [],
+   "escalation": null,
+   "product": null
+  },
+  {
+   "giliran": 2,
+   "customer": "Mau tanya klw mau beli tutup kloset duduk ada gak yah d toko",
+   "http": 200,
+   "reply": "Tersedia *DOP PENUTUP KLOSET DUDUK* merek SBJ seharga Rp 27.500 per set, dan *TUTUP CLOSET STANDART* merek SBJ seharga Rp 92.000 per pcs. Kakak butuh yang mana?",
+   "error": null,
+   "ms": 4223,
+   "model": "Medium-end AI model D",
+   "usage": {
+    "prompt_tokens": 39668,
+    "completion_tokens": 86,
+    "total_tokens": 39754,
+    "cost": 0.00399677
+   },
+   "uncertainty": null,
+   "departmentQuestions": [],
+   "escalation": null,
+   "product": null
+  }
+ ]
+}

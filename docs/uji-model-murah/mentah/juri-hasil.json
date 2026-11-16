@@ -1,0 +1,1576 @@
+{
+ "juri": "anthropic/claude-sonnet-5.5",
+ "peta": {
+  "K05": {
+   "R1": {
+    "model": "openai/gpt-5.4-mini",
+    "run": 1
+   },
+   "R2": {
+    "model": "anthropic/claude-haiku-5.5",
+    "run": 2
+   },
+   "R3": {
+    "model": "anthropic/claude-haiku-5.5",
+    "run": 1
+   },
+   "R4": {
+    "model": "google/gemini-2.5-flash",
+    "run": 2
+   },
+   "R5": {
+    "model": "openai/gpt-5.4-mini",
+    "run": 2
+   },
+   "R6": {
+    "model": "google/gemini-2.5-flash",
+    "run": 1
+   }
+  },
+  "K06": {
+   "R1": {
+    "model": "openai/gpt-5.4-mini",
+    "run": 1
+   },
+   "R2": {
+    "model": "anthropic/claude-haiku-5.5",
+    "run": 2
+   },
+   "R3": {
+    "model": "anthropic/claude-haiku-5.5",
+    "run": 1
+   },
+   "R4": {
+    "model": "google/gemini-2.5-flash",
+    "run": 2
+   },
+   "R5": {
+    "model": "openai/gpt-5.4-mini",
+    "run": 2
+   },
+   "R6": {
+    "model": "google/gemini-2.5-flash",
+    "run": 1
+   }
+  },
+  "K09": {
+   "R1": {
+    "model": "openai/gpt-5.4-mini",
+    "run": 1
+   },
+   "R2": {
+    "model": "anthropic/claude-haiku-5.5",
+    "run": 2
+   },
+   "R3": {
+    "model": "anthropic/claude-haiku-5.5",
+    "run": 1
+   },
+   "R4": {
+    "model": "google/gemini-2.5-flash",
+    "run": 2
+   },
+   "R5": {
+    "model": "openai/gpt-5.4-mini",
+    "run": 2
+   },
+   "R6": {
+    "model": "google/gemini-2.5-flash",
+    "run": 1
+   }
+  },
+  "K12": {
+   "R1": {
+    "model": "openai/gpt-5.4-mini",
+    "run": 1
+   },
+   "R2": {
+    "model": "anthropic/claude-haiku-5.5",
+    "run": 2
+   },
+   "R3": {
+    "model": "anthropic/claude-haiku-5.5",
+    "run": 1
+   },
+   "R4": {
+    "model": "google/gemini-2.5-flash",
+    "run": 2
+   },
+   "R5": {
+    "model": "openai/gpt-5.4-mini",
+    "run": 2
+   },
+   "R6": {
+    "model": "google/gemini-2.5-flash",
+    "run": 1
+   }
+  },
+  "K16": {
+   "R1": {
+    "model": "openai/gpt-5.4-mini",
+    "run": 1
+   },
+   "R2": {
+    "model": "anthropic/claude-haiku-5.5",
+    "run": 2
+   },
+   "R3": {
+    "model": "anthropic/claude-haiku-5.5",
+    "run": 1
+   },
+   "R4": {
+    "model": "google/gemini-2.5-flash",
+    "run": 2
+   },
+   "R5": {
+    "model": "openai/gpt-5.4-mini",
+    "run": 2
+   },
+   "R6": {
+    "model": "google/gemini-2.5-flash",
+    "run": 1
+   }
+  },
+  "K18": {
+   "R1": {
+    "model": "openai/gpt-5.4-mini",
+    "run": 1
+   },
+   "R2": {
+    "model": "anthropic/claude-haiku-5.5",
+    "run": 2
+   },
+   "R3": {
+    "model": "anthropic/claude-haiku-5.5",
+    "run": 1
+   },
+   "R4": {
+    "model": "google/gemini-2.5-flash",
+    "run": 2
+   },
+   "R5": {
+    "model": "openai/gpt-5.4-mini",
+    "run": 2
+   },
+   "R6": {
+    "model": "google/gemini-2.5-flash",
+    "run": 1
+   }
+  },
+  "K21": {
+   "R1": {
+    "model": "openai/gpt-5.4-mini",
+    "run": 1
+   },
+   "R2": {
+    "model": "anthropic/claude-haiku-5.5",
+    "run": 2
+   },
+   "R3": {
+    "model": "anthropic/claude-haiku-5.5",
+    "run": 1
+   },
+   "R4": {
+    "model": "google/gemini-2.5-flash",
+    "run": 2
+   },
+   "R5": {
+    "model": "openai/gpt-5.4-mini",
+    "run": 2
+   },
+   "R6": {
+    "model": "google/gemini-2.5-flash",
+    "run": 1
+   }
+  },
+  "K29": {
+   "R1": {
+    "model": "openai/gpt-5.4-mini",
+    "run": 1
+   },
+   "R2": {
+    "model": "anthropic/claude-haiku-5.5",
+    "run": 2
+   },
+   "R3": {
+    "model": "anthropic/claude-haiku-5.5",
+    "run": 1
+   },
+   "R4": {
+    "model": "google/gemini-2.5-flash",
+    "run": 2
+   },
+   "R5": {
+    "model": "openai/gpt-5.4-mini",
+    "run": 2
+   },
+   "R6": {
+    "model": "google/gemini-2.5-flash",
+    "run": 1
+   }
+  }
+ },
+ "nilai": {
+  "K05": {
+   "R1": [
+    {
+     "g": 1,
+     "k1": 2,
+     "k2": 2,
+     "k3": 2,
+     "k4": 2,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 2,
+     "gk": false,
+     "cat": "Harga sesuai katalog, satu pertanyaan jumlah, singkat."
+    },
+    {
+     "g": 2,
+     "k1": 2,
+     "k2": 2,
+     "k3": 1,
+     "k4": 1,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 2,
+     "gk": false,
+     "cat": "Tidak menyebut angka diskon, tetapi 'penawaran bisa dicekkan lagi' mengisyaratkan potongan tanpa dasar."
+    }
+   ],
+   "R2": [
+    {
+     "g": 1,
+     "k1": 2,
+     "k2": 2,
+     "k3": 2,
+     "k4": 2,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 1,
+     "gk": false,
+     "cat": "Harga benar dan ada catatan harga bisa berubah, tetapi agak panjang."
+    },
+    {
+     "g": 2,
+     "k1": 2,
+     "k2": 2,
+     "k3": 2,
+     "k4": 2,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 1,
+     "gk": false,
+     "cat": "Empatik, menjelaskan fungsi produk, tidak mengarang diskon, dan menawarkan hitungan total; sedikit bertele-tele."
+    }
+   ],
+   "R3": [
+    {
+     "g": 1,
+     "k1": 2,
+     "k2": 2,
+     "k3": 2,
+     "k4": 2,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 2,
+     "gk": false,
+     "cat": "Harga benar, singkat, satu pertanyaan."
+    },
+    {
+     "g": 2,
+     "k1": 2,
+     "k2": 2,
+     "k3": 1,
+     "k4": 2,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 2,
+     "gk": false,
+     "cat": "Menegaskan harga sesuai daftar dan tidak mengarang diskon; 'siapkan penawaran' sedikit mengambang."
+    }
+   ],
+   "R4": [
+    {
+     "g": 1,
+     "k1": 2,
+     "k2": 2,
+     "k3": 2,
+     "k4": 2,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 2,
+     "gk": false,
+     "cat": "Harga benar, singkat."
+    },
+    {
+     "g": 2,
+     "k1": 2,
+     "k2": 2,
+     "k3": 2,
+     "k4": 1,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 1,
+     "gk": false,
+     "cat": "Hanya mengulang harga dan pertanyaan tanpa menanggapi keluhan; terasa kaku dan repetitif."
+    }
+   ],
+   "R5": [
+    {
+     "g": 1,
+     "k1": 2,
+     "k2": 2,
+     "k3": 2,
+     "k4": 2,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 2,
+     "gk": false,
+     "cat": "Harga benar, satu pertanyaan penggunaan; 'keramik lama ke baru' agak janggal."
+    },
+    {
+     "g": 2,
+     "k1": 2,
+     "k2": 2,
+     "k3": 2,
+     "k4": 2,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 2,
+     "gk": false,
+     "cat": "Mengalihkan ke hitungan kebutuhan dengan satu pertanyaan luas, tanpa diskon karangan."
+    }
+   ],
+   "R6": [
+    {
+     "g": 1,
+     "k1": 2,
+     "k2": 2,
+     "k3": 2,
+     "k4": 1,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 2,
+     "gk": false,
+     "cat": "Harga benar, tetapi fungsi produk salah (perata lantai/screed) dan bertentangan dengan keterangan berikutnya."
+    },
+    {
+     "g": 2,
+     "k1": 2,
+     "k2": 2,
+     "k3": 1,
+     "k4": 1,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 1,
+     "gk": false,
+     "cat": "Tidak menanggapi keluhan harga dengan jelas, 'opsi lain' mengambang tanpa dasar, dan bertentangan dengan jawaban sebelumnya."
+    }
+   ]
+  },
+  "K06": {
+   "R1": [
+    {
+     "g": 1,
+     "k1": null,
+     "k2": 2,
+     "k3": 2,
+     "k4": 2,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 2,
+     "gk": false,
+     "cat": "Sapaan singkat dan satu pertanyaan, wajar."
+    },
+    {
+     "g": 2,
+     "k1": 2,
+     "k2": 2,
+     "k3": 2,
+     "k4": 2,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 1,
+     "gk": false,
+     "cat": "Jenis dan harga dari katalog, satu pertanyaan tentang penggunaan; daftar agak panjang."
+    }
+   ],
+   "R2": [
+    {
+     "g": 1,
+     "k1": 2,
+     "k2": 2,
+     "k3": 2,
+     "k4": 1,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 1,
+     "gk": false,
+     "cat": "Sapaan langsung menyodorkan harga semen dan plester yang tidak diminta, lalu bertanya tiga pilihan sekaligus."
+    },
+    {
+     "g": 2,
+     "k1": 2,
+     "k2": 2,
+     "k3": 2,
+     "k4": 2,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 2,
+     "gk": false,
+     "cat": "Daftar paving dari katalog, satu klarifikasi berupa luas area, dan menawarkan hitungan."
+    }
+   ],
+   "R3": [
+    {
+     "g": 1,
+     "k1": null,
+     "k2": 2,
+     "k3": 2,
+     "k4": 2,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 1,
+     "gk": false,
+     "cat": "Sapaan lalu satu pertanyaan, tetapi memuat tiga pilihan."
+    },
+    {
+     "g": 2,
+     "k1": 2,
+     "k2": 2,
+     "k3": 2,
+     "k4": 2,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 2,
+     "gk": false,
+     "cat": "Tiga contoh paving berharga katalog dan satu pertanyaan luas area."
+    }
+   ],
+   "R4": [
+    {
+     "g": 1,
+     "k1": null,
+     "k2": 2,
+     "k3": 2,
+     "k4": 2,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 2,
+     "gk": false,
+     "cat": "Sapaan singkat dan tawaran bantuan."
+    },
+    {
+     "g": 2,
+     "k1": null,
+     "k2": 2,
+     "k3": 2,
+     "k4": 2,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 2,
+     "gk": false,
+     "cat": "Menjawab ada, menyebut model, dan bertanya satu hal tentang luas; tanpa harga dan tanpa mengarang."
+    }
+   ],
+   "R5": [
+    {
+     "g": 1,
+     "k1": null,
+     "k2": 2,
+     "k3": 2,
+     "k4": 2,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 1,
+     "gk": false,
+     "cat": "Sapaan dengan daftar kategori yang agak melebar."
+    },
+    {
+     "g": 2,
+     "k1": 2,
+     "k2": 2,
+     "k3": 2,
+     "k4": 1,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 2,
+     "gk": false,
+     "cat": "Hanya satu jenis paving yang disebut dan singkat; jenis lain tidak ditawarkan."
+    }
+   ],
+   "R6": [
+    {
+     "g": 1,
+     "k1": null,
+     "k2": 2,
+     "k3": 2,
+     "k4": 2,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 2,
+     "gk": false,
+     "cat": "Sapaan singkat dan satu pertanyaan."
+    },
+    {
+     "g": 2,
+     "k1": 1,
+     "k2": 1,
+     "k3": 1,
+     "k4": 1,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 0,
+     "gk": false,
+     "cat": "Menyebut harga mulai Rp 87.800 yang tidak jelas asalnya lalu mengatakan belum bisa memastikan harga; ada janji 'get back' dan 'tim terkait' yang kontradiktif dan tidak konsisten."
+    }
+   ]
+  },
+  "K09": {
+   "R1": [
+    {
+     "g": 1,
+     "k1": null,
+     "k2": 2,
+     "k3": 2,
+     "k4": 2,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 2,
+     "gk": false,
+     "cat": "Sapaan singkat dan sopan, menanyakan kebutuhan."
+    },
+    {
+     "g": 2,
+     "k1": 2,
+     "k2": 2,
+     "k3": 2,
+     "k4": 2,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 2,
+     "gk": false,
+     "cat": "Menjawab langsung dengan barang katalog dan harga wajar, satu pertanyaan pilihan."
+    }
+   ],
+   "R2": [
+    {
+     "g": 1,
+     "k1": null,
+     "k2": 2,
+     "k3": 2,
+     "k4": 2,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 2,
+     "gk": false,
+     "cat": "Sapaan wajar, menawarkan contoh kategori."
+    },
+    {
+     "g": 2,
+     "k1": 2,
+     "k2": 1,
+     "k3": 2,
+     "k4": 2,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 1,
+     "gk": false,
+     "cat": "Harga sesuai katalog dan cek stok wajar, tetapi ada catatan sistem soal pertanyaan ke departemen yang mengarah ke internal; dua pertanyaan dalam satu kalimat."
+    }
+   ],
+   "R3": [
+    {
+     "g": 1,
+     "k1": 2,
+     "k2": 2,
+     "k3": 2,
+     "k4": 2,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 1,
+     "gk": false,
+     "cat": "Sapaan langsung menampilkan harga produk populer, agak panjang, lalu satu pertanyaan."
+    },
+    {
+     "g": 2,
+     "k1": 2,
+     "k2": 1,
+     "k3": 2,
+     "k4": 2,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 1,
+     "gk": false,
+     "cat": "Pilihan lengkap dengan harga katalog, cek stok wajar, tetapi ada catatan sistem soal departemen dan dua pertanyaan sekaligus."
+    }
+   ],
+   "R4": [
+    {
+     "g": 1,
+     "k1": null,
+     "k2": 2,
+     "k3": 2,
+     "k4": 2,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 2,
+     "gk": false,
+     "cat": "Sapaan singkat dan sopan."
+    },
+    {
+     "g": 2,
+     "k1": 2,
+     "k2": 2,
+     "k3": 2,
+     "k4": 2,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 2,
+     "gk": false,
+     "cat": "Jawaban langsung, singkat, harga katalog, satu pertanyaan."
+    }
+   ],
+   "R5": [
+    {
+     "g": 1,
+     "k1": null,
+     "k2": 2,
+     "k3": 2,
+     "k4": 2,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 2,
+     "gk": false,
+     "cat": "Sapaan singkat dan sopan."
+    },
+    {
+     "g": 2,
+     "k1": 2,
+     "k2": 1,
+     "k3": 2,
+     "k4": 1,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 0,
+     "gk": false,
+     "cat": "Terlalu panjang dengan banyak kloset duduk yang tidak ditanya, ada catatan sistem departemen; harga dari katalog."
+    }
+   ],
+   "R6": [
+    {
+     "g": 1,
+     "k1": null,
+     "k2": 2,
+     "k3": 2,
+     "k4": 2,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 2,
+     "gk": false,
+     "cat": "Sapaan sopan dan singkat."
+    },
+    {
+     "g": 2,
+     "k1": 2,
+     "k2": 2,
+     "k3": 2,
+     "k4": 2,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 2,
+     "gk": false,
+     "cat": "Menjawab langsung dengan opsi aksesori dan harga katalog, satu pertanyaan jumlah."
+    }
+   ]
+  },
+  "K12": {
+   "R1": [
+    {
+     "g": 1,
+     "k1": 2,
+     "k2": 2,
+     "k3": 2,
+     "k4": 1,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 2,
+     "gk": false,
+     "cat": "Harga semen dari data toko, tetapi langsung berasumsi semen padahal pelanggan belum menyebut barang."
+    },
+    {
+     "g": 2,
+     "k1": 2,
+     "k2": 2,
+     "k3": 2,
+     "k4": 1,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 0,
+     "gk": false,
+     "cat": "Mengulang pertanyaan cor atau pasang bata yang sama, dan tidak menanggapi pesan titik."
+    },
+    {
+     "g": 3,
+     "k1": 2,
+     "k2": 2,
+     "k3": 1,
+     "k4": 1,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 1,
+     "gk": false,
+     "cat": "Daftar toren dan klarifikasi liter sudah benar, tetapi ditambah paragraf 'mohon ditunggu' yang kontradiktif dan bertele-tele, meski ada pertanyaan nyata ke departemen."
+    }
+   ],
+   "R2": [
+    {
+     "g": 1,
+     "k1": 2,
+     "k2": 2,
+     "k3": 2,
+     "k4": 2,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 2,
+     "gk": false,
+     "cat": "Menanyakan barang yang dicari dengan satu pertanyaan, disertai contoh merek."
+    },
+    {
+     "g": 2,
+     "k1": 2,
+     "k2": 2,
+     "k3": 2,
+     "k4": 1,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 1,
+     "gk": false,
+     "cat": "Memberi contoh harga cat yang tidak diminta, tetapi masih mengarahkan pelanggan menyebut barang."
+    },
+    {
+     "g": 3,
+     "k1": 2,
+     "k2": 2,
+     "k3": 2,
+     "k4": 2,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 1,
+     "gk": false,
+     "cat": "Daftar toren berharga dan satu klarifikasi, hanya daftarnya agak panjang."
+    }
+   ],
+   "R3": [
+    {
+     "g": 1,
+     "k1": 2,
+     "k2": 2,
+     "k3": 2,
+     "k4": 1,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 1,
+     "gk": false,
+     "cat": "Menampilkan banyak harga barang acak yang tidak diminta, lalu bertanya satu hal."
+    },
+    {
+     "g": 2,
+     "k1": 2,
+     "k2": 2,
+     "k3": 2,
+     "k4": 1,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 2,
+     "gk": false,
+     "cat": "Jawaban singkat dan sopan, mengarahkan pelanggan menyebut barang dan jumlah."
+    },
+    {
+     "g": 3,
+     "k1": 2,
+     "k2": 2,
+     "k3": 2,
+     "k4": 2,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 1,
+     "gk": false,
+     "cat": "Daftar toren berharga dan peringatan harga bisa berubah, tetapi bertanya dua hal (liter dan penghuni)."
+    }
+   ],
+   "R4": [
+    {
+     "g": 1,
+     "k1": 0,
+     "k2": 2,
+     "k3": 2,
+     "k4": 0,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 1,
+     "gk": true,
+     "cat": "Menyebut harga paket langganan Agnee/chatbot sebagai harga toko, bukan harga barang ESBEJE."
+    },
+    {
+     "g": 2,
+     "k1": 2,
+     "k2": 2,
+     "k3": 2,
+     "k4": 2,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 2,
+     "gk": false,
+     "cat": "Menanyakan produk yang dicari dengan singkat dan tepat."
+    },
+    {
+     "g": 3,
+     "k1": 2,
+     "k2": 2,
+     "k3": 2,
+     "k4": 1,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 1,
+     "gk": false,
+     "cat": "Hanya menyebut merek tanpa daftar harga dari alat, dan menanyakan dua hal (liter dan lokasi pasang)."
+    }
+   ],
+   "R5": [
+    {
+     "g": 1,
+     "k1": 2,
+     "k2": 2,
+     "k3": 2,
+     "k4": 1,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 2,
+     "gk": false,
+     "cat": "Harga semen dari data toko, tetapi langsung berasumsi semen padahal barang belum disebut."
+    },
+    {
+     "g": 2,
+     "k1": 2,
+     "k2": 2,
+     "k3": 2,
+     "k4": 2,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 2,
+     "gk": false,
+     "cat": "Meminta nama barang atau jumlah dengan sopan dan singkat."
+    },
+    {
+     "g": 3,
+     "k1": 2,
+     "k2": 2,
+     "k3": 2,
+     "k4": 2,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 2,
+     "gk": false,
+     "cat": "Daftar toren berharga dari data toko dan satu klarifikasi kapasitas, sesuai catatan uji."
+    }
+   ],
+   "R6": [
+    {
+     "g": 1,
+     "k1": 0,
+     "k2": 2,
+     "k3": 2,
+     "k4": 0,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 1,
+     "gk": true,
+     "cat": "Menyebut harga paket Agnee sebagai harga toko, bukan harga barang ESBEJE."
+    },
+    {
+     "g": 2,
+     "k1": 2,
+     "k2": 2,
+     "k3": 2,
+     "k4": 1,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 2,
+     "gk": false,
+     "cat": "Balasan generik 'ada hal lain', tidak mengarahkan ke barang yang dicari."
+    },
+    {
+     "g": 3,
+     "k1": 2,
+     "k2": 2,
+     "k3": 2,
+     "k4": 1,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 1,
+     "gk": false,
+     "cat": "Hanya menyebut merek tanpa harga dari alat, dan menanyakan dua hal (liter dan jumlah orang)."
+    }
+   ]
+  },
+  "K16": {
+   "R1": [
+    {
+     "g": 1,
+     "k1": null,
+     "k2": 2,
+     "k3": 2,
+     "k4": 2,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 2,
+     "gk": false,
+     "cat": "Menjawab Cisauk dengan peta, jujur soal Suradita yang tidak ada data, dan hanya satu permintaan klarifikasi."
+    },
+    {
+     "g": 2,
+     "k1": null,
+     "k2": 2,
+     "k3": 2,
+     "k4": 2,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 2,
+     "gk": false,
+     "cat": "Jam buka 08.00–19.00 dijawab langsung dan singkat, dengan peta."
+    }
+   ],
+   "R2": [
+    {
+     "g": 1,
+     "k1": null,
+     "k2": 2,
+     "k3": 2,
+     "k4": 2,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 1,
+     "gk": false,
+     "cat": "Info Cisauk benar dan jujur soal Suradita, tetapi ada dua pertanyaan sekaligus (ambil/kirim dan barang apa) dan balasannya agak panjang."
+    },
+    {
+     "g": 2,
+     "k1": null,
+     "k2": 2,
+     "k3": 2,
+     "k4": 2,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 2,
+     "gk": false,
+     "cat": "Jam tutup 19.00 dijawab langsung dan sopan."
+    }
+   ],
+   "R3": [
+    {
+     "g": 1,
+     "k1": null,
+     "k2": 2,
+     "k3": 1,
+     "k4": 1,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 1,
+     "gk": false,
+     "cat": "\"Saya pastikan dulu\" untuk Suradita tanpa tindak lanjut nyata, dan status \"sedang buka\" belum tentu berdasar; lalu bertanya hal lain."
+    },
+    {
+     "g": 2,
+     "k1": null,
+     "k2": 2,
+     "k3": 2,
+     "k4": 2,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 2,
+     "gk": false,
+     "cat": "Jam tutup benar, tambahan \"sekarang masih buka\" sedikit berisiko tetapi wajar."
+    }
+   ],
+   "R4": [
+    {
+     "g": 1,
+     "k1": null,
+     "k2": 2,
+     "k3": 2,
+     "k4": 1,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 2,
+     "gk": false,
+     "cat": "Tidak menyinggung Suradita, tanpa peta, dan langsung bertanya material; singkat tetapi kurang menjawab."
+    },
+    {
+     "g": 2,
+     "k1": null,
+     "k2": 2,
+     "k3": 2,
+     "k4": 2,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 2,
+     "gk": false,
+     "cat": "Jam buka dan tutup dijawab jelas dan singkat."
+    }
+   ],
+   "R5": [
+    {
+     "g": 1,
+     "k1": null,
+     "k2": 2,
+     "k3": 2,
+     "k4": 1,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 0,
+     "gk": false,
+     "cat": "Membahas ongkir yang tidak ditanyakan dan meminta dua hal sekaligus (share location lalu alamat lengkap); redaksinya membingungkan."
+    },
+    {
+     "g": 2,
+     "k1": null,
+     "k2": 2,
+     "k3": 2,
+     "k4": 2,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 2,
+     "gk": false,
+     "cat": "Jawaban jam dan peta toko tepat, tetapi tidak menyebut jam buka 08.00."
+    }
+   ],
+   "R6": [
+    {
+     "g": 1,
+     "k1": null,
+     "k2": 2,
+     "k3": 2,
+     "k4": 1,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 2,
+     "gk": false,
+     "cat": "Menyebut Cisauk dan satu pertanyaan, tetapi tidak menyinggung Suradita dan tanpa peta."
+    },
+    {
+     "g": 2,
+     "k1": null,
+     "k2": 2,
+     "k3": 2,
+     "k4": 2,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 2,
+     "gk": false,
+     "cat": "Jam benar dan singkat; frasa \"masih buka\" sedikit berisiko tetapi wajar."
+    }
+   ]
+  },
+  "K18": {
+   "R1": [
+    {
+     "g": 1,
+     "k1": 2,
+     "k2": 2,
+     "k3": 2,
+     "k4": 1,
+     "k5": null,
+     "k6": 1,
+     "k7": null,
+     "k8": 1,
+     "gk": false,
+     "cat": "Membalas notifikasi otomatis, tetapi hanya menolak dan menawarkan menulis ulang pesan; tidak melayani sebagai pembeli, namun tetap tidak seharusnya dibalas."
+    }
+   ],
+   "R2": [
+    {
+     "g": 1,
+     "k1": 2,
+     "k2": 2,
+     "k3": 2,
+     "k4": 0,
+     "k5": null,
+     "k6": 0,
+     "k7": null,
+     "k8": 1,
+     "gk": true,
+     "cat": "Menjawab pesan otomatis seperti pembeli, memperkenalkan diri, memberi saran soal transfer, dan mengajak kirim nama barang."
+    }
+   ],
+   "R3": [
+    {
+     "g": 1,
+     "k1": 2,
+     "k2": 2,
+     "k3": 2,
+     "k4": 0,
+     "k5": null,
+     "k6": 0,
+     "k7": null,
+     "k8": 1,
+     "gk": true,
+     "cat": "Menyapa dan menawarkan cek harga bahan bangunan, jadi melayani pesan otomatis seperti pembeli."
+    }
+   ],
+   "R4": [
+    {
+     "g": 1,
+     "k1": 2,
+     "k2": 2,
+     "k3": 2,
+     "k4": 0,
+     "k5": null,
+     "k6": 0,
+     "k7": null,
+     "k8": 2,
+     "gk": true,
+     "cat": "Singkat, tetapi tetap membalas dan menawarkan bantuan bahan bangunan kepada pengirim non-customer."
+    }
+   ],
+   "R5": [
+    {
+     "g": 1,
+     "k1": 2,
+     "k2": 2,
+     "k3": 2,
+     "k4": 1,
+     "k5": null,
+     "k6": 1,
+     "k7": null,
+     "k8": 1,
+     "gk": false,
+     "cat": "Membalas dengan penolakan dan tawaran menulis ulang pengingat; tidak melayani sebagai pembeli, tetapi tetap tidak seharusnya dibalas."
+    }
+   ],
+   "R6": [
+    {
+     "g": 1,
+     "k1": 2,
+     "k2": 2,
+     "k3": 0,
+     "k4": 0,
+     "k5": null,
+     "k6": 0,
+     "k7": null,
+     "k8": 0,
+     "gk": true,
+     "cat": "Menyapa dan menawarkan bantuan seperti pada pembeli, lalu menambahkan soal ongkir dan janji 'get back' yang tidak nyambung dan kosong."
+    }
+   ]
+  },
+  "K21": {
+   "R1": [
+    {
+     "g": 1,
+     "k1": 2,
+     "k2": 2,
+     "k3": 2,
+     "k4": 2,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 1,
+     "gk": false,
+     "cat": "Harga sesuai data toko dan menjawab langsung, tetapi menyisipkan tawaran semen acian yang tidak diminta."
+    },
+    {
+     "g": 2,
+     "k1": 2,
+     "k2": 2,
+     "k3": 2,
+     "k4": 2,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 2,
+     "gk": false,
+     "cat": "Harga Tigaroda dari data, satu klarifikasi ukuran sak, singkat."
+    }
+   ],
+   "R2": [
+    {
+     "g": 1,
+     "k1": 2,
+     "k2": 2,
+     "k3": 2,
+     "k4": 2,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 1,
+     "gk": false,
+     "cat": "Harga benar dan jawaban langsung, tetapi menanyakan jumlah dan ukuran sekaligus."
+    },
+    {
+     "g": 2,
+     "k1": 2,
+     "k2": 2,
+     "k3": 2,
+     "k4": 1,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 1,
+     "gk": false,
+     "cat": "Harga benar, tetapi daftar panjang dan dua pertanyaan (untuk apa dan berapa zak), bukan klarifikasi ukuran."
+    }
+   ],
+   "R3": [
+    {
+     "g": 1,
+     "k1": 2,
+     "k2": 2,
+     "k3": 2,
+     "k4": 2,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 1,
+     "gk": false,
+     "cat": "Harga benar, tetapi dua pertanyaan dalam satu giliran."
+    },
+    {
+     "g": 2,
+     "k1": 2,
+     "k2": 2,
+     "k3": 2,
+     "k4": 1,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 1,
+     "gk": false,
+     "cat": "Harga benar, tetapi menanyakan jenis pekerjaan, bukan ukuran sak, dan daftarnya panjang."
+    }
+   ],
+   "R4": [
+    {
+     "g": 1,
+     "k1": 2,
+     "k2": 1,
+     "k3": 1,
+     "k4": 0,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 0,
+     "gk": false,
+     "cat": "Kontradiktif: menjawab 'Ada' lalu mengaku belum bisa memastikan stok, dengan janji 'get back' ke 'tim terkait' dan pertanyaan yang tercampur."
+    },
+    {
+     "g": 2,
+     "k1": 2,
+     "k2": 2,
+     "k3": 2,
+     "k4": 2,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 2,
+     "gk": false,
+     "cat": "Harga Tiga Roda sesuai data, jawab langsung, satu pertanyaan jumlah."
+    }
+   ],
+   "R5": [
+    {
+     "g": 1,
+     "k1": 2,
+     "k2": 2,
+     "k3": 2,
+     "k4": 1,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 1,
+     "gk": false,
+     "cat": "Harga benar, tetapi menawarkan pipa Rucika yang tidak relevan dan tidak menanyakan ukuran."
+    },
+    {
+     "g": 2,
+     "k1": 2,
+     "k2": 2,
+     "k3": 2,
+     "k4": 2,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 2,
+     "gk": false,
+     "cat": "Harga dari data dan satu klarifikasi ukuran 40 atau 50 kg, singkat."
+    }
+   ],
+   "R6": [
+    {
+     "g": 1,
+     "k1": 0,
+     "k2": 1,
+     "k3": 1,
+     "k4": 0,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 0,
+     "gk": true,
+     "cat": "Harga Semen Jakarta Rp 55.000 tampak dikarang (data Rp 45.000), lalu kontradiktif dengan 'belum bisa memastikan angka' dan janji 'get back'."
+    },
+    {
+     "g": 2,
+     "k1": 2,
+     "k2": 2,
+     "k3": 2,
+     "k4": 2,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 2,
+     "gk": false,
+     "cat": "Harga Tiga Roda sesuai data, singkat, satu pertanyaan."
+    }
+   ]
+  },
+  "K29": {
+   "R1": [
+    {
+     "g": 1,
+     "k1": 2,
+     "k2": 2,
+     "k3": 2,
+     "k4": 2,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 2,
+     "gk": false,
+     "cat": "Sapaan singkat dan sopan, satu pertanyaan."
+    },
+    {
+     "g": 2,
+     "k1": 1,
+     "k2": 2,
+     "k3": 2,
+     "k4": 0,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 1,
+     "gk": false,
+     "cat": "Harga sesuai data, tetapi Melamine Putih Kilap disebut paling tipis padahal tebalnya tidak ada di katalog (menebak); lalu menyodorkan blokboard 18mm yang tidak diminta."
+    }
+   ],
+   "R2": [
+    {
+     "g": 1,
+     "k1": 2,
+     "k2": 2,
+     "k3": 2,
+     "k4": 2,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 2,
+     "gk": false,
+     "cat": "Sapaan sopan dan satu pertanyaan."
+    },
+    {
+     "g": 2,
+     "k1": 2,
+     "k2": 2,
+     "k3": 2,
+     "k4": 2,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 1,
+     "gk": false,
+     "cat": "Benar menunjuk 6mm sebagai yang paling tipis dan jujur bahwa tebal item lain tidak tercantum; agak panjang tapi hanya satu pertanyaan."
+    }
+   ],
+   "R3": [
+    {
+     "g": 1,
+     "k1": 2,
+     "k2": 2,
+     "k3": 2,
+     "k4": 2,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 1,
+     "gk": false,
+     "cat": "Sapaan menyertakan beberapa harga yang tidak diminta, agak panjang."
+    },
+    {
+     "g": 2,
+     "k1": 2,
+     "k2": 2,
+     "k3": 2,
+     "k4": 2,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 2,
+     "gk": false,
+     "cat": "Menjawab 6mm paling tipis, mengakui tebal item lain belum tercantum, dan hanya satu pertanyaan."
+    }
+   ],
+   "R4": [
+    {
+     "g": 1,
+     "k1": 2,
+     "k2": 2,
+     "k3": 2,
+     "k4": 2,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 2,
+     "gk": false,
+     "cat": "Sapaan singkat dan sopan."
+    },
+    {
+     "g": 2,
+     "k1": 2,
+     "k2": 2,
+     "k3": 2,
+     "k4": 1,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 2,
+     "gk": false,
+     "cat": "Menjawab ada dengan harga sesuai data, tetapi tidak menjawab soal yang paling tipis dan tidak jujur soal tebal yang tidak diketahui."
+    }
+   ],
+   "R5": [
+    {
+     "g": 1,
+     "k1": 2,
+     "k2": 2,
+     "k3": 2,
+     "k4": 2,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 2,
+     "gk": false,
+     "cat": "Sapaan baik."
+    },
+    {
+     "g": 2,
+     "k1": 1,
+     "k2": 2,
+     "k3": 2,
+     "k4": 0,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 1,
+     "gk": false,
+     "cat": "Harga dari data, tetapi mengklaim Kilap paling tipis tanpa dasar tebal dan mengabaikan item 6mm; daftar panjang."
+    }
+   ],
+   "R6": [
+    {
+     "g": 1,
+     "k1": 2,
+     "k2": 2,
+     "k3": 2,
+     "k4": 2,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 2,
+     "gk": false,
+     "cat": "Sapaan baik."
+    },
+    {
+     "g": 2,
+     "k1": 2,
+     "k2": 1,
+     "k3": 1,
+     "k4": 1,
+     "k5": null,
+     "k6": null,
+     "k7": null,
+     "k8": 1,
+     "gk": false,
+     "cat": "Jawaban terputus (hanya satu item doff), tidak menjawab soal yang paling tipis, memakai kata 'get back' dan 'tim terkait', dan janji tindak lanjut agak kosong."
+    }
+   ]
+  }
+ },
+ "biaya": 0.2114
+}

@@ -1,0 +1,64 @@
+{
+ "model": "anthropic/claude-haiku-5.5",
+ "run": 2,
+ "kasus": "K12",
+ "turns": [
+  {
+   "giliran": 1,
+   "customer": "Buka harga brp?",
+   "http": 200,
+   "reply": "Halo kak, saya Agnes dari ESBEJE. Kakak mau cek harga barang apa? Sebut saja nama atau mereknya, misalnya Semen Jakarta, MU 301 Plasterplus, atau cat Penta, nanti saya langsung cekkan harganya.",
+   "error": null,
+   "ms": 5251,
+   "model": "AI model",
+   "usage": {
+    "prompt_tokens": 36671,
+    "completion_tokens": 898,
+    "total_tokens": 37569,
+    "cost": 0.0041161
+   },
+   "uncertainty": null,
+   "departmentQuestions": [],
+   "escalation": null,
+   "product": null
+  },
+  {
+   "giliran": 2,
+   "customer": ".",
+   "http": 200,
+   "reply": "Baik kak. Sebagai contoh, Penta Cat Gypsum 5KG Rp 125.000 per gln, dan yang 25KG Rp 570.000 per pail. Barang lain yang mau dicek, sebut saja namanya.",
+   "error": null,
+   "ms": 3168,
+   "model": "AI model",
+   "usage": {
+    "prompt_tokens": 36144,
+    "completion_tokens": 449,
+    "total_tokens": 36593,
+    "cost": 0.0038389
+   },
+   "uncertainty": null,
+   "departmentQuestions": [],
+   "escalation": null,
+   "product": null
+  },
+  {
+   "giliran": 3,
+   "customer": "Toren",
+   "http": 200,
+   "reply": "Untuk toren, ini pilihannya kak:\n\nPenguin: PENGUIN TQ55 500L HITAM, Rp 2.167.000 per pcs\nMpoin:\n- MPOIN TALL 550L - BLACK, Rp 1.588.000 per pcs\n- MPOIN TALL 550L - BLACK GRANITE, Rp 1.588.000 per pcs\n- MPOIN TALL 600L - BLACK, Rp 1.778.000 per pcs\n- MPOIN DRAIN 600L - BLACK, Rp 2.678.000 per pcs\n- MPOIN DRAIN 800L - BLACK, Rp 3.209.000 per pcs\n- MPOIN DRAIN D1200 1100L - BLACK, Rp 4.074.000 per pcs\n- MPOIN U-GROUND 1200 - BLACK, Rp 3.428.000 per pcs\n\nKira-kira untuk berapa penghuni rumah kakak, supaya saya pilihkan kapasitasnya?",
+   "error": null,
+   "ms": 5886,
+   "model": "AI model",
+   "usage": {
+    "prompt_tokens": 74539,
+    "completion_tokens": 950,
+    "total_tokens": 75489,
+    "cost": 0.007928900000000001
+   },
+   "uncertainty": null,
+   "departmentQuestions": [],
+   "escalation": null,
+   "product": null
+  }
+ ]
+}

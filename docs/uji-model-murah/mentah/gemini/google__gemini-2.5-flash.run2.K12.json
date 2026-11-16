@@ -1,0 +1,64 @@
+{
+ "model": "google/gemini-2.5-flash",
+ "run": 2,
+ "kasus": "K12",
+ "turns": [
+  {
+   "giliran": 1,
+   "customer": "Buka harga brp?",
+   "http": 200,
+   "reply": "Halo kak, saya Agnes dari ESBEJE. Untuk paket Starter harganya Rp99.000, Growth Rp1.900.000, dan Pro Rp3.900.000 per bulan. Ada juga paket Lifetime Rp8.900.000 sekali bayar.\n\nSaat ini chat WhatsApp-nya ditangani berapa orang, kak?",
+   "error": null,
+   "ms": 1304,
+   "model": "Medium-end AI model D",
+   "usage": {
+    "prompt_tokens": 19147,
+    "completion_tokens": 81,
+    "total_tokens": 19228,
+    "cost": 0.00080472
+   },
+   "uncertainty": null,
+   "departmentQuestions": [],
+   "escalation": null,
+   "product": null
+  },
+  {
+   "giliran": 2,
+   "customer": ".",
+   "http": 200,
+   "reply": "Saya bisa bantu cek harga untuk produk yang kakak cari. Boleh tahu produknya apa, kak?",
+   "error": null,
+   "ms": 1903,
+   "model": "Medium-end AI model D",
+   "usage": {
+    "prompt_tokens": 18866,
+    "completion_tokens": 9,
+    "total_tokens": 18875,
+    "cost": 0.00081474
+   },
+   "uncertainty": null,
+   "departmentQuestions": [],
+   "escalation": null,
+   "product": null
+  },
+  {
+   "giliran": 3,
+   "customer": "Toren",
+   "http": 200,
+   "reply": "Baik kak. Untuk toren air, kami ada merek Penguin dan Mpoin.\n\nKakak butuh toren air dengan kapasitas berapa liter dan rencananya mau dipasang di mana?",
+   "error": null,
+   "ms": 1176,
+   "model": "Medium-end AI model D",
+   "usage": {
+    "prompt_tokens": 19179,
+    "completion_tokens": 38,
+    "total_tokens": 19217,
+    "cost": 0.00287438
+   },
+   "uncertainty": null,
+   "departmentQuestions": [],
+   "escalation": null,
+   "product": null
+  }
+ ]
+}

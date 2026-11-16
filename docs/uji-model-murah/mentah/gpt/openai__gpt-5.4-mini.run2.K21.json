@@ -1,0 +1,45 @@
+{
+ "model": "openai/gpt-5.4-mini",
+ "run": 2,
+ "kasus": "K21",
+ "turns": [
+  {
+   "giliran": 1,
+   "customer": "Siang mba\nAda zak semen mba",
+   "http": 200,
+   "reply": "Halo kak, saya Agnes dari ESBEJE. Ada *SEMEN JAKARTA Type PCC 40KG* Rp 45.000 per zak. Sekalian saya saranin *pipa Rucika* buat saluran yang ditanam, kalau dibutuhkan; butuh berapa zak kak?",
+   "error": null,
+   "ms": 3211,
+   "model": "AI model",
+   "usage": {
+    "prompt_tokens": 39046,
+    "completion_tokens": 91,
+    "total_tokens": 39137,
+    "cost": 0.0035148
+   },
+   "uncertainty": null,
+   "departmentQuestions": [],
+   "escalation": null,
+   "product": null
+  },
+  {
+   "giliran": 2,
+   "customer": "Yang tiga roda brp mba",
+   "http": 200,
+   "reply": "Ada kak, *TIGARODA 40KG* Rp 68.900 per zak dan *TIGARODA 50KG* Rp 85.800 per zak. Buat yang 40 kg atau 50 kg kak?",
+   "error": null,
+   "ms": 2835,
+   "model": "AI model",
+   "usage": {
+    "prompt_tokens": 39375,
+    "completion_tokens": 117,
+    "total_tokens": 39492,
+    "cost": 0.00396495
+   },
+   "uncertainty": null,
+   "departmentQuestions": [],
+   "escalation": null,
+   "product": null
+  }
+ ]
+}

@@ -1,0 +1,64 @@
+{
+ "model": "google/gemini-2.5-flash",
+ "run": 1,
+ "kasus": "K12",
+ "turns": [
+  {
+   "giliran": 1,
+   "customer": "Buka harga brp?",
+   "http": 200,
+   "reply": "Halo kak, saya Agnes dari ESBEJE. Untuk paket Agnee ada Starter Rp99.000, Growth Rp1.900.000, dan Pro Rp3.900.000 per bulan. Ada juga Lifetime Rp8.900.000 sekali bayar, dan Enterprise yang disesuaikan.\n\nUntuk kebutuhan WhatsApp-nya, saat ini ditangani berapa orang di tim, kak?",
+   "error": null,
+   "ms": 1125,
+   "model": "Medium-end AI model D",
+   "usage": {
+    "prompt_tokens": 19147,
+    "completion_tokens": 93,
+    "total_tokens": 19240,
+    "cost": 0.00299985
+   },
+   "uncertainty": null,
+   "departmentQuestions": [],
+   "escalation": null,
+   "product": null
+  },
+  {
+   "giliran": 2,
+   "customer": ".",
+   "http": 200,
+   "reply": "Baik. Apakah ada hal lain yang ingin ditanyakan atau ada kebutuhan lain yang bisa saya bantu, kak?",
+   "error": null,
+   "ms": 1180,
+   "model": "Medium-end AI model D",
+   "usage": {
+    "prompt_tokens": 18877,
+    "completion_tokens": 21,
+    "total_tokens": 18898,
+    "cost": 0.0057156
+   },
+   "uncertainty": null,
+   "departmentQuestions": [],
+   "escalation": null,
+   "product": null
+  },
+  {
+   "giliran": 3,
+   "customer": "Toren",
+   "http": 200,
+   "reply": "Toren ada merek Penguin dan Mpoin kak. Butuh kapasitas berapa liter dan untuk berapa orang di rumah?",
+   "error": null,
+   "ms": 1113,
+   "model": "Medium-end AI model D",
+   "usage": {
+    "prompt_tokens": 19191,
+    "completion_tokens": 24,
+    "total_tokens": 19215,
+    "cost": 0.00284271
+   },
+   "uncertainty": null,
+   "departmentQuestions": [],
+   "escalation": null,
+   "product": null
+  }
+ ]
+}

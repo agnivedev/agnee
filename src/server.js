@@ -35,6 +35,7 @@ const {
   normalizeUsage, styleWarnings, judgeReply, enforceReplyContract,
   classifyShortReply, countRecentAckRounds, ensureClosingIsRecognizable, stripLinks, conversationRules, mediaMarker, limitLinks,
 } = require('./reply-style.js');
+const staffContext = require('./staff-context.js');
 const { FollowUpScheduler, withManualGap } = require('./follow-up.js');
 const followUpStages = require('./follow-up-stage.js');
 const {
@@ -388,8 +389,18 @@ function safeEqual(left, right) {
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
+/**
+ * Customer minta nomor/kontak orang ("Minta no admin nya", "kontak CS-nya").
+ * Chat ini sendiri jalur admin, jadi jawabannya bukan nomor lain.
+ */
+function requestsAdminContact(text) {
+  const t = String(text || '');
+  return /\b(?:no|nomor|nomer|kontak|wa|whatsapp)\b[\s\S]{0,12}\b(?:cs|admin|sales|manusia|supervisor|agent|petugas)\b/i.test(t)
+    || /\b(?:cs|admin|sales|manusia|supervisor|agent|petugas)\b[\s\S]{0,12}\b(?:no|nomor|nomer|kontak|wa|whatsapp)\b/i.test(t);
+}
+
 function requestsHumanAgent(text) {
-  return /\b(?:mau|ingin|boleh|bisa|tolong|hubungkan|sambungkan|bicara|ngobrol|talk|speak|connect)\b[\s\S]{0,45}\b(?:cs|agent|manusia|admin|sales|supervisor|human|person)\b/i.test(String(text || ''))
+  return requestsAdminContact(text) || /\b(?:mau|ingin|boleh|bisa|tolong|hubungkan|sambungkan|bicara|ngobrol|talk|speak|connect)\b[\s\S]{0,45}\b(?:cs|agent|manusia|admin|sales|supervisor|human|person)\b/i.test(String(text || ''))
     || /\b(?:cs|agent|manusia|admin|sales|supervisor|human|person)\b[\s\S]{0,45}\b(?:hubungkan|sambungkan|bicara|ngobrol|talk|speak|connect)\b/i.test(String(text || ''));
 }
 
@@ -2052,9 +2063,10 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       const { client: wa } = await waFor(companyId, chatId);
       if (wa) {
         const hiddenTypes = new Set(['e2e_notification', 'protocol', 'notification_template', 'gp2', 'call_log']);
-        const { messages = [] } = await getMessagesForUi(wa, chatId, limit + 6);
+        const { messages: raw = [] } = await getMessagesForUi(wa, chatId, limit + 6);
+        const messages = await withReplyAuthors(companyId, chatId, raw).catch(() => raw);
         const rows = messages.filter((m) => !hiddenTypes.has(m.type) && m.body)
-          .map((m) => ({ role: m.fromMe ? 'assistant' : 'user', content: m.body }));
+          .map((m) => staffContext.historyTurn({ fromMe: Boolean(m.fromMe), authorKind: m.authorKind, content: m.body }));
         if (rows.length) return rows.slice(-limit);
       }
     } catch { /* jatuh ke catatan Agnee */ }
@@ -3023,6 +3035,9 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
         }, companyId);
         createHandoffCard({ companyId, chatId: message.from, customerText: message.body, requestedHuman: true, attach: true })
           .catch((error) => app.log.warn({ err: error }, 'Kartu serah-terima gagal dibuat'));
+        if (requestsAdminContact(message.body)) {
+          return 'Baik kak, admin kami membalas langsung lewat WhatsApp ini, jadi tidak perlu nomor lain. Percakapan sudah saya teruskan ke admin dan akan dibalas langsung di sini.';
+        }
         const looksEnglish = /\b(?:human|person|talk|speak|connect|agent)\b/i.test(message.body)
           && !/\b(?:mau|ingin|boleh|bisa|tolong|hubungkan|bicara|manusia)\b/i.test(message.body);
         return looksEnglish
@@ -3076,14 +3091,18 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       const { client: wa } = await waFor(companyId, message.from);
       if (wa) {
         const hiddenTypes = new Set(['e2e_notification', 'protocol', 'notification_template', 'gp2', 'call_log']);
-        const { messages: recent } = await getMessagesForUi(wa, message.from, 20);
+        const { messages: recentRaw } = await getMessagesForUi(wa, message.from, 20);
+        // Penulis tiap pesan keluar (AI atau staf) dicocokkan dulu: tanpa ini
+        // kalimat staf dibaca AI sebagai kalimatnya sendiri (ESBEJE 9 Nov).
+        const recent = await withReplyAuthors(companyId, message.from, recentRaw).catch(() => recentRaw);
         const currentId = inboundMessageId(message);
         conversationHistory = recent
           .filter(m => !hiddenTypes.has(m.type) && (m.body || mediaMarker(m) || (m.type === 'location' && !m.fromMe))
             && (!currentId || inboundMessageId(m) !== currentId))
           .slice(ctx.ks || ctx.nerva ? -14 : -10)
-          .map(m => ({
-            role: m.fromMe ? 'assistant' : 'user',
+          .map(m => staffContext.historyTurn({
+            fromMe: Boolean(m.fromMe),
+            authorKind: m.authorKind,
             content: (m.fromMe ? m.body : mapsLink.readCustomerTextCached(m))
               || mediaMarkers.get(`${companyId}:${inboundMessageId(m)}`) || mediaMarker(m),
           }));
@@ -3102,6 +3121,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     app.log.info({ companyId, chatId: message.from, riwayat: conversationHistory.length },
       'Riwayat percakapan untuk balasan otomatis');
     seen.history = conversationHistory;
+    ctx.systemPrompt = staffContext.withStaffContext(ctx.systemPrompt, conversationHistory);
 
     const jenisBalasanPendek = classifyShortReply(message.body, conversationHistory);
 
@@ -3936,7 +3956,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
   // termasuk yang dikirim Agnee. Kiriman Agnee dikenali dari id pesannya, atau
   // (kalau id tidak terbaca) dari chat + isi yang sama dalam beberapa menit.
   const AGNEE_SEND_TTL_MS = 10 * 60 * 1000;
-  const PHONE_REPLY_SETTLE_MS = 15_000;
+  const PHONE_REPLY_SETTLE_MS = overrides.phoneReplySettleMs ?? 15_000;
   const agneeSentIds = new Map();
   const agneeSentBodies = new Map();
 
@@ -3991,12 +4011,35 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     const messageId = message.id?._serialized || null;
     if (!chatId || !messageId || !chatImport.isChatPerorangan(chatId)) return;
     if (Database.SYSTEM_MESSAGE_TYPES.includes(message.type)) return;
-    await new Promise((resolve) => { setTimeout(resolve, PHONE_REPLY_SETTLE_MS).unref?.(); });
+    if (PHONE_REPLY_SETTLE_MS > 0) await new Promise((resolve) => { setTimeout(resolve, PHONE_REPLY_SETTLE_MS).unref?.(); });
     if (sentByAgnee(chatId, messageId, message.body)) return;
     scheduleAutoInsight(companyId, chatId);
     const sentAt = Number(message.timestamp) > 0 ? new Date(Number(message.timestamp) * 1000) : new Date();
-    await database.recordPhoneReply({
+    const recorded = await database.recordPhoneReply({
       chatId, messageId, body: message.body || '', messageType: message.type || 'chat', sentAt,
+    }, companyId);
+    // Staf yang membalas dari HP mengambil alih chat itu, sama seperti staf yang
+    // membalas dari Agnee (claimChatForSender). Tanpa ini AI tetap menjawab
+    // customer yang sama di sela-sela staf dan tidak tahu apa yang sudah
+    // dijanjikan. Penyapu mengembalikannya ke AI (dan AI menjawab pesan yang
+    // menunggu) setelah staf diam AUTO_ASSIGN_IDLE_MINUTES.
+    if (recorded && message.type !== 'revoked' && String(message.body || '').trim()) {
+      await claimChatForPhoneReply(companyId, chatId)
+        .catch((error) => app.log.warn({ err: error, chatId }, 'Gagal mengambil alih chat untuk balasan dari HP'));
+    }
+  }
+
+  async function claimChatForPhoneReply(companyId, chatId) {
+    if (!database.enabled || !database.connected) return;
+    const routing = await getRouting(chatId, companyId).catch(() => null);
+    if (!routing || routing.mode === 'human') return;
+    await saveRouting({
+      chatId,
+      mode: 'human',
+      assigneeUserId: null,
+      actorUserId: null,
+      note: 'Diambil alih otomatis karena staf membalas dari HP.',
+      autoAssigned: true,
     }, companyId);
   }
 
@@ -7344,7 +7387,7 @@ Aturan:
       additionalProperties: false,
       required: ['role', 'text'],
       properties: {
-        role: { type: 'string', enum: ['customer', 'agent'] },
+        role: { type: 'string', enum: ['customer', 'agent', 'staff'] },
         text: { type: 'string', minLength: 1, maxLength: 4000 },
       },
     },
@@ -7439,10 +7482,14 @@ Aturan:
       companyId, text: customerRead, chatId: request.body.chatId || null, productId: request.body.productId || null,
       agentMode: request.body.agentMode || 'standard', simulatedQuestions,
     });
+    // role 'staff' = pesan manusia dari tim di tengah percakapan (diketik di
+    // Agnee atau HP); diberi penanda yang sama dengan chat sungguhan.
     const history = transcript.map((turn) => ({
       role: turn.role === 'customer' ? 'user' : 'assistant',
-      content: turn.role === 'customer' ? mapsLink.readCustomerTextCached({ body: turn.text }) : turn.text,
+      content: turn.role === 'customer' ? mapsLink.readCustomerTextCached({ body: turn.text })
+        : (turn.role === 'staff' ? staffContext.labelStaffContent(turn.text) : turn.text),
     }));
+    ctx.systemPrompt = staffContext.withStaffContext(ctx.systemPrompt, history);
 
     let aiReply = null;
     let aiModel = null;
@@ -14998,6 +15045,8 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
   });
   app.decorate('followUpScheduler', followUpScheduler);
   app.decorate('handleInboundMessage', handleInboundMessage);
+  app.decorate('handleOwnMessage', handleOwnMessage);
+  app.decorate('sweepAutoAssigned', sweepAutoAssigned);
 
   const costAlertMonitor = new CostAlertMonitor({
     database,
@@ -15181,27 +15230,33 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
   }
 
   function startAutoAssignSweeper() {
-    const jalankan = async () => {
-      const kembali = await database.returnIdleAutoAssignedToAi(AUTO_ASSIGN_IDLE_MINUTES)
-        .catch((error) => {
-          app.log.warn({ err: error }, 'Penyapu pengambilalihan otomatis gagal');
-          return [];
-        });
-      for (const row of kembali) {
-        // Cache routing di memori harus ikut dibuang, kalau tidak permintaan
-        // berikutnya masih melihat mode 'human' yang sudah tidak berlaku.
-        conversationRouting.delete(`${row.companyId}:${row.chatId}`);
-        broadcastEvent(row.companyId, 'routing', { chatId: row.chatId, mode: 'ai' });
-      }
-      if (kembali.length) {
-        app.log.info({ count: kembali.length, idleMinutes: AUTO_ASSIGN_IDLE_MINUTES },
-          'Percakapan dikembalikan ke AI setelah agent-nya diam');
-      }
-    };
     // Tiap menit, bukan 5: composer menampilkan hitung mundurnya, dan AI yang
     // baru kembali 4 menit setelah angka itu habis membuat angkanya bohong.
-    const timer = setInterval(() => { jalankan().catch(() => {}); }, 60_000);
+    const timer = setInterval(() => { sweepAutoAssigned().catch(() => {}); }, 60_000);
     timer.unref?.();
+  }
+
+  async function sweepAutoAssigned() {
+    const kembali = await database.returnIdleAutoAssignedToAi(AUTO_ASSIGN_IDLE_MINUTES)
+      .catch((error) => {
+        app.log.warn({ err: error }, 'Penyapu pengambilalihan otomatis gagal');
+        return [];
+      });
+    for (const row of kembali) {
+      // Cache routing di memori harus ikut dibuang, kalau tidak permintaan
+      // berikutnya masih melihat mode 'human' yang sudah tidak berlaku.
+      conversationRouting.delete(`${row.companyId}:${row.chatId}`);
+      broadcastEvent(row.companyId, 'routing', { chatId: row.chatId, mode: 'ai' });
+      // Customer yang menulis selagi staf memegang chat tidak boleh dibiarkan:
+      // jalur serah-ke-AI manual sudah menjawabnya, penyapu dulu tidak.
+      answerWaitingCustomer(row.companyId, row.chatId)
+        .catch((error) => app.log.warn({ err: error, chatId: row.chatId },
+          'Pesan customer yang menunggu tidak bisa dijawab AI setelah chat kembali ke AI'));
+    }
+    if (kembali.length) {
+      app.log.info({ count: kembali.length, idleMinutes: AUTO_ASSIGN_IDLE_MINUTES },
+        'Percakapan dikembalikan ke AI setelah agent-nya diam');
+    }
   }
 
   // Pengingat ke departemen yang belum menjawab: 30 mnt, 2 jam, 8 jam, 18 jam

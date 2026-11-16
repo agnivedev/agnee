@@ -16,6 +16,7 @@
  */
 const { findInventedPrices, stripInventedPrices, rupiah: priceGuardRupiah } = require('./price-guard');
 const { findInventedAccounts, stripInventedAccounts } = require('./account-guard');
+const { fixConsistency } = require('./reply-consistency');
 
 const CLAIM_PATTERNS = [
   [/\b(?:di)?jamin(?:kan)?\b/i, 'menjamin hasil'],
@@ -99,6 +100,13 @@ const INTERNAL_LEAK_PATTERNS = [
   [/\b(?:ke|kepada)\s+(?:para\s+)?(?:customer|pelanggan)\b/i, 'berbicara tentang "customer" seolah kepada staf (laporan internal); tulis langsung kepada kakak, jangan menyebut customer'],
   [/\bjangan\s+(?:kirim|kirimkan|sebut|sampaikan|kasih|berikan)\b[^.!?\n]{0,60}\b(?:customer|pelanggan)\b/i, 'instruksi untuk staf ("jangan kirim … ke customer") tertulis di balasan customer'],
   [/\b(?:daftar|data|sistem|katalog)\s+POS\b|\b(?:di|dari|pada)\s+POS\b/i, 'menyebut POS/sistem kasir internal; tulis saja barangnya tidak ada di daftar kami atau kamu pastikan dulu'],
+  // Salah peran: model mengira lawan bicaranya operator/staf (ESBEJE 9 Nov, customer
+  // menulis "Ok skip ya" → "saya lewati alur otomatisnya … draft singkatnya … saya belum mengirimnya").
+  [/\b(?:alur|flow)\s+otomati[sk](?:nya)?\b/i, 'menyebut alur otomatis internal seolah berbicara dengan operator'],
+  [/\b(?:ini|berikut)\s+draft(?:nya)?\b|\bdraft\s+(?:singkat|pesan|balasan)/i, 'menulis "draft" seolah berbicara dengan staf; tulis langsung pesan kepada kakak'],
+  [/\bsaya\s+(?:belum|tidak)\s+(?:mengirim|kirim)(?:kan)?(?:nya)?\b/i, 'bicara soal belum mengirim pesan seolah kepada staf; customer sedang membaca balasan ini'],
+  [/\b(?:tidak|belum)\s+saya\s+proses(?:\s+lebih\s+lanjut)?\s+di\s+sini\b/i, 'menyebut tidak memproses pesanan "di sini" seolah laporan ke staf'],
+  [/\b(?:yang\s+)?(?:sudah\s+)?diberikan\s+(?:oleh\s+)?customer\b/i, 'menyebut "diberikan customer" seolah laporan ke staf'],
   [/\b(?:saya|aku|kami)\s+(?:sudah\s+)?(?:menanyakan|bertanya|tanya|menghubungi)\s+(?:ke|kepada)\s+(?:tim\s+)?(?:Management|Manajemen|departemen|divisi)\b/i, 'menyebut proses internal (bertanya ke Management/departemen); cukup "saya pastikan ke tim"'],
 ];
 
@@ -188,8 +196,12 @@ function stripClaimSentences(text) {
 async function enforceReplyContract(llmService, { text, systemPrompt, userMessage, history = [], expectations = {}, priceSource = null }) {
   // Jumlah barang yang sah disebut ke customer: yang ia tulis sendiri di percakapan ini.
   const quantityText = [userMessage, ...(history || []).map((turn) => turn?.content ?? turn?.text ?? '')].join('\n');
-  const initial = String(text || '').trim();
+  let initial = String(text || '').trim();
   if (!initial) return null;
+  // Menyangkal harga yang AI sebut sendiri, atau mengirim ulang balasan yang
+  // sama persis: diperbaiki dari riwayat, tanpa model (reply-consistency.js).
+  const consistent = fixConsistency(initial, { userMessage, history });
+  if (consistent.applied.length) initial = consistent.text;
 
   // Harga tanpa sumber (lihat price-guard.js): hanya diperiksa bila pemanggil
   // memberi teks sumbernya (prompt + hasil alat + kata customer).

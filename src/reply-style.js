@@ -198,7 +198,9 @@ async function enforceReplyContract(llmService, { text, systemPrompt, userMessag
     const hits = inventedIn(value);
     const byAmount = new Map();
     for (const hit of hits) if (!byAmount.has(hit.amount)) byAmount.set(hit.amount, hit);
-    return [...byAmount.values()].slice(0, 3).map((hit) => (hit.seharusnya?.length
+    return [...byAmount.values()].slice(0, 3).map((hit) => (hit.total
+      ? `menyebut total ${priceGuardRupiah(hit.amount)} yang tidak sama dengan jumlah x harga satuan di balasan ini: hitung ulang dari harga satuan dan jumlah yang disebut customer, atau jangan menyebut total`
+      : hit.seharusnya?.length
       // Angka milik barang lain: harga yang benar ada di daftar, jadi sebut yang benar.
       ? `menyebut ${priceGuardRupiah(hit.amount)} untuk "${hit.barang}", padahal harga barang itu di daftar ${hit.seharusnya.map(priceGuardRupiah).join(' / ')}: ganti dengan harga dari daftar (pilih varian yang sesuai), jangan memakai harga barang lain`
       : `menyebut harga ${priceGuardRupiah(hit.amount)} yang tidak ada di daftar harga, katalog, atau pengetahuan (dikarang): jangan menyebut angka itu; sebut nama barangnya saja dan katakan harganya kamu pastikan dulu`));

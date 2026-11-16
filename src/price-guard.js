@@ -76,6 +76,18 @@ function standaloneIntegers(text) {
   return out;
 }
 
+function combosReach(target, prices, quantities, depth = 0) {
+  if (depth > 3) return false;
+  for (let i = 0; i < prices.length; i += 1) {
+    for (const k of quantities) {
+      const part = prices[i] * k;
+      if (part === target) return true;
+      if (part < target && combosReach(target - part, prices.slice(i + 1), quantities, depth + 1)) return true;
+    }
+  }
+  return false;
+}
+
 /**
  * Apakah angka `amount` punya sumber? Sah bila:
  *  1. ada di sumber (prompt, hasil alat, kata customer), atau
@@ -101,8 +113,13 @@ function explainer(sourceText, { quantityText = '', replyAmounts = [] } = {}) {
     return false;
   };
   const sound = [...new Set(replyAmounts)].filter(basic);
+  const qs = [...new Set([1, ...quantities])].filter((k) => k >= 1 && k <= MAX_MULTIPLIER).sort((a, b) => a - b);
   return (amount) => {
     if (basic(amount)) return true;
+    // Total beberapa barang: jumlah x harga satuan, dijumlahkan ("7 x Rp 193.500 + 7 x Rp 37.000").
+    // Harga satuannya harus angka sah di balasan itu sendiri, bukan sembarang harga di sumber.
+    const parts = sound.filter((a) => a !== amount && a >= MIN_AMOUNT).sort((a, b) => b - a).slice(0, 8);
+    if (parts.length >= 2 && combosReach(amount, parts, qs)) return true;
     for (let i = 0; i < sound.length; i += 1) {
       for (let j = i; j < sound.length; j += 1) {
         if (sound[i] + sound[j] === amount) return true;
@@ -329,6 +346,15 @@ function findMismatchedPrices(reply, sourceText, { quantityText = '' } = {}) {
       // kata lain di kalimat: hanya kata yang benar-benar menunjuk barang.
       if (best < 2) continue;
       const allowed = new Set(matches.map((m) => m.amount));
+      // Nama ditulis terpisah di balasan, rapat di katalog ("Tiga Roda 40KG" vs "TIGARODA 40KG"):
+      // barang itu juga sah dirujuk, jangan menuduh harganya milik barang lain.
+      const order = [...seg.tokens];
+      const joined = order.slice(1).map((t, i) => order[i] + t).filter((t) => t.length >= 5 && /[a-z]/.test(t));
+      if (joined.length) {
+        for (const rec of records) {
+          if (joined.some((j) => rec.tokens.has(j)) && [...seg.tokens].some((t) => /\d/.test(t) && rec.tokens.has(t))) allowed.add(rec.amount);
+        }
+      }
       const fits = [...allowed].some((price) => {
         if (price === seg.amount) return true;
         if (price < MIN_AMOUNT || seg.amount % price !== 0) return false;
@@ -340,6 +366,38 @@ function findMismatchedPrices(reply, sourceText, { quantityText = '' } = {}) {
       out.push({ sentence, amount: seg.amount, barang: label.slice(-80) || [...seg.tokens].join(' '), seharusnya: [...allowed].sort((a, b) => a - b).slice(0, 4) });
     }
     named = null;
+  }
+  return out;
+}
+
+
+/*
+ * Total yang tidak cocok dengan hitungannya sendiri.
+ *
+ * ESBEJE, 5 Nov: "Pipa 4 inci Rp 193.500 per batang dan 3/4 inci Rp 37.000 per
+ * batang ... 7 batang masing-masing ... totalnya Rp 1.508.500" (yang benar Rp
+ * 1.613.500). Angka itu lolos karena 1.508.500 = 7 x Rp 215.500, harga kunci
+ * ring TEKIRO yang kebetulan ada di katalog dalam prompt. Aturan kelipatan
+ * "harga mana pun di sumber" terlalu longgar untuk TOTAL: bila balasan sendiri
+ * memuat harga satuan, totalnya harus bisa dihitung dari harga itu.
+ */
+const TOTAL_WORD = /\b(?:total(?:nya)?|subtotal(?:nya)?|jumlah(?:nya)?|semuanya|keseluruhan|grand)\b/i;
+
+function findBadTotals(reply, sourceText, { quantityText = '' } = {}) {
+  const all = extractAmounts(reply).map((a) => a.amount);
+  if (all.length < 3) return [];
+  const sourceNumbers = extractNumbers(String(sourceText).split(SHIPPING_MARK)[0]);
+  const quantities = [...new Set([1, ...standaloneIntegers(`${quantityText}\n${reply}`)].filter((k) => k >= 1 && k <= 500))].sort((a, b) => a - b);
+  const out = [];
+  for (const sentence of splitSentences(reply)) {
+    if (!TOTAL_WORD.test(sentence) || /ongkir|ongkos|kirim|\bdp\b|uang muka/i.test(sentence)) continue;
+    for (const { amount } of extractAmounts(sentence)) {
+      const others = [...new Set(all.filter((a) => a !== amount))].sort((a, b) => b - a).slice(0, 8);
+      if (others.length < 2 || all.includes(amount) && all.indexOf(amount) !== all.lastIndexOf(amount)) continue;
+      if (sourceNumbers.has(amount)) continue;
+      if (combosReach(amount, others, quantities)) continue;
+      out.push({ sentence, amount, total: true });
+    }
   }
   return out;
 }
@@ -361,6 +419,11 @@ function findInventedPrices(reply, sourceText, { quantityText = '' } = {}) {
   }
   // Angka yang ada di sumber, tapi milik barang lain. Satu kalimat bisa
   // memuat dua harga tertukar: laporkan keduanya supaya model tahu semuanya.
+  for (const hit of findBadTotals(reply, sourceText, { quantityText })) {
+    if (invented.has(hit.amount) || seen.has(hit.sentence)) continue;
+    out.push(hit);
+    seen.add(hit.sentence);
+  }
   for (const hit of findMismatchedPrices(reply, sourceText, { quantityText })) {
     if (invented.has(hit.amount) || seen.has(`${hit.sentence}\u0000${hit.amount}`)) continue;
     out.push(hit);
@@ -378,4 +441,4 @@ function stripInventedPrices(reply, sourceText, options) {
   return splitSentences(reply).filter((s) => !bad.has(s)).join('\n').trim();
 }
 
-module.exports = { SHIPPING_MARK, extractAmounts, extractNumbers, explainer, findInventedPrices, findMismatchedPrices, stripInventedPrices, rupiah };
+module.exports = { SHIPPING_MARK, extractAmounts, extractNumbers, explainer, findInventedPrices, findMismatchedPrices, findBadTotals, stripInventedPrices, rupiah };

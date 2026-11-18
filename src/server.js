@@ -2868,7 +2868,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
         proofMissing: assessment.reasons.some((r) => r.code === 'proof_not_attached'),
         customerText,
       });
-      if (!dryRun) plan = await executeUncertaintyPlan({ plan, assessment, ctx, askTool, companyId, chatId, customerText, finalText });
+      if (!dryRun) plan = await executeUncertaintyPlan({ plan, assessment, ctx, askTool, companyId, chatId, customerText, finalText, history });
       text = uncertainty.compose({ finalText, customerText, assessment, plan });
     }
 
@@ -2895,7 +2895,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
   }
 
   /** Menjalankan tindakan penjaga; gagal berarti turun ke tindakan yang lebih lunak. */
-  async function executeUncertaintyPlan({ plan, assessment, ctx, askTool, companyId, chatId, customerText, finalText }) {
+  async function executeUncertaintyPlan({ plan, assessment, ctx, askTool, companyId, chatId, customerText, finalText, history = [] }) {
     const notify = async () => {
       createHandoffCard({ companyId, chatId, customerText, aiText: finalText, attach: true })
         .catch((error) => app.log.warn({ err: error }, 'Kartu serah-terima (AI tidak yakin) gagal dibuat'));
@@ -2907,9 +2907,11 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       try {
         const out = await askTool.run({
           department: plan.department,
-          question: uncertainty.departmentQuestion({ topic: assessment.topic, customerText, assessment }),
+          question: uncertainty.departmentQuestion({ topic: assessment.topic, customerText, assessment, history }),
           fromGuard: true,
         });
+        // Barang yang sama sudah dijawab departemen dalam 3 jam: pakai jawabannya, jangan menjanjikan "kami kabari".
+        if (out?.status === 'already_asked' && out.previous_answer) return { ...plan, action: 'answered_before', previous: String(out.previous_answer) };
         if (out?.status === 'sent' || out?.status === 'already_asked') return plan;
       } catch (error) {
         app.log.warn({ err: error, companyId }, 'Bertanya ke departemen (AI tidak yakin) gagal');

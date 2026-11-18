@@ -115,6 +115,7 @@ const CLAIM_RULES = [
     /\b(?:diskon|potongan(?:\s+harga)?|gratis\s+ongkir|free\s+ongkir|bonus|cashback)\b|\b\d+(?:[.,]\d+)?\s*%\s*(?:off|diskon|potongan)\b/i, false],
 ];
 
+const MONEY_WORD = /\b(?:transfer(?:an)?|bayar|membayar|pembayaran|dana|uang|rekening|lunas|dp|tagihan|invoice|nominal|saldo|mutasi)(?:nya)?\b/i;
 const HEDGE = /\b(sepertinya|kayaknya|kelihatannya|kira-kira|kemungkinan|mungkin|biasanya|seingat\s+(?:saya|aku)|setahu\s+(?:saya|aku)|perkiraan\s+(?:saya|aku)|saya\s+rasa|rasanya|probably|i\s+think|i\s+guess)\b/i;
 
 function topicOfSentence(sentence) {
@@ -206,6 +207,10 @@ function assess({
       // Syarat bukan klaim: "kalau ready saya proses", "setelah ready kami kirim".
       if (code === 'stock_claim' && /\b(?:kalau|jika|bila|apabila|setelah|sesudah|begitu|sampai|menunggu|menanti|pastikan|cek|cek\s+dulu)\b/i.test(sentence.slice(0, m.index))) continue;
       if (code === 'payment_claim' && /lunas|paid|sudah\s+dibayar|terbayar/i.test(toolText)) continue;
+      // "Pesannya sudah masuk" / "fotonya sudah masuk" = pesan diterima, bukan uang. Tanpa kata uang
+      // di kalimatnya, "sudah masuk" polos bukan klaim pembayaran (ESBEJE 16 Nov: customer "Tes"
+      // membuat Finance ditanya soal transfer yang tak pernah ada).
+      if (code === 'payment_claim' && /^(?:sudah|telah)\s+masuk\b/i.test(m[0]) && !MONEY_WORD.test(sentence)) continue;
       // "setelah transfer masuk saya proses" menyebut syarat, bukan menyatakan dana sudah masuk.
       if (code === 'payment_claim' && /\b(?:setelah|sesudah|kalau|jika|bila|apabila|begitu|sampai|menunggu|menanti)\b/i.test(sentence.slice(0, m.index))) continue;
       if (code === 'delivery_promise') {
@@ -408,6 +413,8 @@ function compose({ finalText = '', customerText = '', assessment, plan }) {
   const kept = splitSentences(finalText).filter((sentence) => !flagged.has(sentence) && !DELAY_SENTENCE.test(sentence));
   // Customer menutup/membatalkan: buang klaim yang meleset, jangan berjanji menyusul.
   if (plan.action === 'acknowledge') return kept.join('\n') || ACK_REPLY[lang];
+  // Departemen sudah menjawab barang yang sama beberapa saat lalu: sampaikan jawabannya, bukan janji baru.
+  if (plan.action === 'answered_before' && plan.previous) return [...kept, String(plan.previous).trim().slice(0, 400)].filter(Boolean).join('\n');
   const topic = assessment.topic || 'harga';
   const follow = plan.action === 'ask_customer' && assessment.reasons.some((r) => r.code === 'proof_not_attached')
     ? FOLLOW[lang].resend_proof
@@ -420,17 +427,34 @@ function compose({ finalText = '', customerText = '', assessment, plan }) {
 }
 
 /** Pertanyaan ke departemen: apa yang perlu dipastikan, dengan kutipan customer. */
-function departmentQuestion({ topic, customerText = '', assessment }) {
+const isTerse = (text) => String(text || '').trim().split(/\s+/).filter(Boolean).length <= 3;
+
+/**
+ * Konteks untuk pesan customer yang terlalu pendek ("Kw1", "Buka harga brp?", "Tes"): beberapa
+ * pesan terakhir percakapan (customer dan AI), supaya departemen tahu barang yang dimaksud.
+ * ESBEJE 10 dan 18 Nov: Management ditanya "Customer menanyakan harga/produk: 'Kw1'" tanpa barang.
+ */
+function contextLines(history = [], customerText = '', max = 3) {
+  const cut = (t) => String(t || '').replace(/\s+/g, ' ').trim().slice(0, 160);
+  const lines = (history || [])
+    .map((turn) => ({ who: turn?.role === 'assistant' ? 'AI' : 'Customer', text: cut(turn?.content ?? turn?.text) }))
+    .filter((l) => l.text && l.text !== cut(customerText));
+  return lines.slice(-max).map((l) => `${l.who}: ${l.text}`);
+}
+
+function departmentQuestion({ topic, customerText = '', assessment, history = [] }) {
   const quote = String(customerText || '').replace(/\s+/g, ' ').trim().slice(0, 300);
   const label = (TOPIC_LABELS[topic] || 'Pertanyaan').toLowerCase();
   const lead = topic === 'transfer'
     ? `Customer menyebut sudah membayar ("${quote}"). Mohon cek apakah dananya sudah masuk dan jumlahnya sesuai.`
     : `Customer menanyakan ${label}: "${quote}". AI tidak punya datanya dan tidak mau menebak; mohon dipastikan jawabannya.`;
   const detail = assessment?.reasons?.length ? ` (Sinyal: ${assessment.reasons.map((r) => REASON_LABELS[r.code]).filter(Boolean).slice(0, 2).join('; ')}.)` : '';
-  return `${lead}${detail}`;
+  const context = isTerse(customerText) ? contextLines(history, customerText) : [];
+  const where = context.length ? ` Konteks percakapan sebelumnya: ${context.join(' | ')}.` : '';
+  return `${lead}${where}${detail}`;
 }
 
 module.exports = {
   MODES, TOPIC_LABELS, REASON_LABELS, PROOF_MARKER,
-  isAckOnly, isClosingOnly, isDeicticOnly, detectTopics, claimsTransfer, toolFailures, assess, pickDepartment, chooseAction, compose, departmentQuestion,
+  contextLines, isTerse, isAckOnly, isClosingOnly, isDeicticOnly, detectTopics, claimsTransfer, toolFailures, assess, pickDepartment, chooseAction, compose, departmentQuestion,
 };

@@ -50,6 +50,25 @@ function looksLikeBotNotice(text) {
     || /^Saya baca pesan tadi sebagai jawaban/i.test(t.trim());
 }
 
+/**
+ * Pertanyaan soal uang masuk ("Customer menyebut sudah membayar … cek apakah dananya sudah masuk").
+ * Grup Finance penuh cek transferan staf lain dengan nominal dan nomor invoice; ESBEJE 17 Nov:
+ * "900.000 yg bener" untuk invoice orang lain dicocokkan ke pertanyaan "Tes" lalu dikirim ke customer.
+ */
+const PAYMENT_QUESTION = /\b(?:transfer(?:an)?|membayar|pembayaran|dana(?:nya)?|bukti\s+(?:bayar|transfer))\b/i;
+const AMOUNT_OR_INVOICE = /\d{3,}|\binv\b|\binvoice\b|\bnominal\b|\brp\b/i;
+
+const isPaymentQuestion = (q) => PAYMENT_QUESTION.test(`${q?.question || ''} ${q?.customerText || ''}`);
+
+/**
+ * Pertanyaan transfer hanya boleh dijawab longgar dengan kata konfirmasi polos ("ada", "belum").
+ * Pesan yang memuat nominal atau nomor invoice milik urusan lain, jadi wajib reply/#kode.
+ */
+function eligibleCandidates(candidates, text) {
+  const hasAmount = AMOUNT_OR_INVOICE.test(String(text || ''));
+  return (candidates || []).filter((q) => !(hasAmount && isPaymentQuestion(q)));
+}
+
 function buildPrompt({ candidates, context, text }) {
   const list = candidates.map((q, i) => {
     const asked = cut(q.question, 280);
@@ -82,7 +101,7 @@ function parseVerdict(raw, count) {
  */
 async function matchLooseAnswer({ ask, candidates, context = [], text, meta = {} }) {
   if (!worthMatching(text)) return null;
-  const pool = (candidates || []).slice(0, MAX_CANDIDATES);
+  const pool = eligibleCandidates(candidates, text).slice(0, MAX_CANDIDATES);
   if (!pool.length) return null;
   let raw;
   try {
@@ -94,4 +113,4 @@ async function matchLooseAnswer({ ask, candidates, context = [], text, meta = {}
   return idx === null ? null : pool[idx];
 }
 
-module.exports = { matchLooseAnswer, looksLikeBotNotice, buildPrompt, parseVerdict, worthMatching, LOOSE_WINDOW_HOURS, MAX_CANDIDATES, CONTEXT_MESSAGES };
+module.exports = { matchLooseAnswer, eligibleCandidates, isPaymentQuestion, looksLikeBotNotice, buildPrompt, parseVerdict, worthMatching, LOOSE_WINDOW_HOURS, MAX_CANDIDATES, CONTEXT_MESSAGES };

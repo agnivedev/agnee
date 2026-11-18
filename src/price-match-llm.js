@@ -49,6 +49,16 @@ function parseJson(text) {
   try { return JSON.parse(raw.slice(start, end + 1)); } catch { return null; }
 }
 
+/**
+ * Barang "keranjang" di POS: satu harga untuk banyak ukuran/motif ("KERAMIK SALE ALL SIZE" Rp 35.800,
+ * "GRANIT ECER LEMBARAN" Rp 25.600). Bukan harga barang tertentu. ESBEJE 12 Nov: customer minta
+ * keramik motif kayu Milan 25x40 dan granit 15x60, AI menawarkan keduanya dengan harga keranjang
+ * itu, Management bilang tak cocok. Hanya ditawarkan bila customer sendiri menyebut sale/obral/ecer.
+ */
+const BUCKET_NAME = /\b(?:all\s*size|sale|obral|cuci\s*gudang)\b|\becer\s+lembaran\b/i;
+const asksForBucket = (text) => /\b(?:sale|obral|cuci\s*gudang|diskon|murah|promo|ecer|all\s*size)\b/i.test(String(text || ''));
+const isBucketItem = (item) => BUCKET_NAME.test(String(item?.name || ''));
+
 /** Kategori yang ada di katalog, terbanyak dulu. */
 function categoriesOf(items) {
   const counts = new Map();
@@ -198,6 +208,9 @@ function createMatcher({ ask, now = () => Date.now() }) {
       candidates.push(item);
       if (candidates.length >= MAX_CANDIDATES + 15 + GLOBAL_CANDIDATES) break;
     }
+    const usable = asksForBucket(text) ? candidates : candidates.filter((item) => !isBucketItem(item));
+    candidates.length = 0;
+    candidates.push(...usable);
     if (!candidates.length) return { matches: [], barang, undecided: true };
     const list = candidates.map((item, idx) => `${idx + 1}. ${item.name}${item.unit ? ` | ${item.unit}` : ''}${item.category ? ` | ${item.category}` : ''}`).join('\n');
     const pickedRaw = await ask(
@@ -218,4 +231,4 @@ function createMatcher({ ask, now = () => Date.now() }) {
   return { resolve, cache };
 }
 
-module.exports = { createMatcher, candidatesFor, globalCandidates, categoriesOf, parseJson, UNDERSTAND_SYSTEM, PICK_SYSTEM };
+module.exports = { createMatcher, isBucketItem, asksForBucket, candidatesFor, globalCandidates, categoriesOf, parseJson, UNDERSTAND_SYSTEM, PICK_SYSTEM };

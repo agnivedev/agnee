@@ -3192,7 +3192,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     let ingatanDb = 0;
     if (canCall('fullConversation')) {
       try {
-        const dbTurns = chatRecall.dropCurrent(await database.fullConversation(companyId, message.from, 150), message.body);
+        const dbTurns = chatRecall.dropCurrent(chatRecall.withMedia(await database.fullConversation(companyId, message.from, 150), mediaMarker), message.body);
         if (!conversationHistory.length && dbTurns.length) {
           conversationHistory = x(dbTurns);
           riwayatSumber = 'db';

@@ -25,6 +25,13 @@ function line(turn, lineMax) {
   return `${LABEL[turn.from] || 'Staf'}: ${clip(turn.body, lineMax)}`;
 }
 
+/** Pesan berkas tanpa caption diganti penanda dari `markerFn`; yang tetap kosong dibuang. */
+function withMedia(turns, markerFn) {
+  return (Array.isArray(turns) ? turns : [])
+    .map((t) => (String(t.body || '').trim() ? t : { ...t, body: (t.type && markerFn({ type: t.type, body: '' })) || '' }))
+    .filter((t) => String(t.body || '').trim());
+}
+
 /** Buang pesan customer terakhir bila itu pesan yang sedang dibalas (sudah tersimpan di DB). */
 function dropCurrent(turns, currentBody) {
   const list = Array.isArray(turns) ? turns : [];
@@ -72,4 +79,4 @@ function buildMemoryBlock(turns, { skipLast = HISTORY_LIMIT, maxChars = 6000, li
   ].join('\n');
 }
 
-module.exports = { HISTORY_LIMIT, buildMemoryBlock, dropCurrent, historyFromTurns };
+module.exports = { HISTORY_LIMIT, buildMemoryBlock, dropCurrent, historyFromTurns, withMedia };

@@ -1793,24 +1793,27 @@ class Database {
   /**
    * Seluruh percakapan satu chat dari DB, lama ke baru: customer, AI, staf dari Agnee,
    * dan balasan yang diketik langsung di HP. Dipakai sebagai ingatan AI saat membalas;
-   * `limit` giliran terbaru.
+   * `limit` giliran terbaru. Pesan customer berupa berkas ikut dengan `type`-nya
+   * (body kosong bila tanpa caption); pemanggil menggantinya dengan penanda.
    */
   async fullConversation(companyId, chatId, limit = 150) {
     if (!this.enabled) return [];
     const n = Math.min(Math.max(Number(limit) || 150, 1), 400);
     const { rows } = await this.pool.query(`
-      SELECT who, body FROM (
-        SELECT 'customer' AS who, body, "timestamp"::bigint AS ts FROM inbound_messages
-          WHERE company_id = $1 AND chat_id = $2 AND message_type IN ('text', 'chat') AND COALESCE(TRIM(body), '') <> ''
+      SELECT who, body, type FROM (
+        SELECT 'customer' AS who, COALESCE(TRIM(body), '') AS body, message_type AS type, "timestamp"::bigint AS ts FROM inbound_messages
+          WHERE company_id = $1 AND chat_id = $2
+            AND ((message_type IN ('text', 'chat') AND COALESCE(TRIM(body), '') <> '')
+              OR message_type IN ('image', 'album', 'video', 'document', 'audio', 'ptt'))
         UNION ALL
-        SELECT CASE WHEN author = 'human' THEN 'staf' ELSE 'ai' END, body, EXTRACT(EPOCH FROM created_at)::bigint
+        SELECT CASE WHEN author = 'human' THEN 'staf' ELSE 'ai' END, body, NULL, EXTRACT(EPOCH FROM created_at)::bigint
           FROM outbound_replies WHERE company_id = $1 AND chat_id = $2 AND COALESCE(TRIM(body), '') <> ''
         UNION ALL
-        SELECT 'staf', body, EXTRACT(EPOCH FROM created_at)::bigint
+        SELECT 'staf', body, NULL, EXTRACT(EPOCH FROM created_at)::bigint
           FROM phone_replies WHERE company_id = $1 AND chat_id = $2 AND COALESCE(TRIM(body), '') <> ''
       ) x ORDER BY ts DESC LIMIT $3
     `, [companyId, chatId, n]);
-    return rows.reverse().map((r) => ({ from: r.who, body: r.body }));
+    return rows.reverse().map((r) => (r.type ? { from: r.who, body: r.body, type: r.type } : { from: r.who, body: r.body }));
   }
 
   /** Percakapan terakhir satu chat dari DB (customer, AI, staf), lama ke baru, plus pesan pertama customer. */

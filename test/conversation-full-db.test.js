@@ -37,18 +37,22 @@ test('fullConversation: customer + AI + staf + balasan HP urut waktu, tanpa boco
     await masuk(db, a, chat, 'minggu depan', t0 + 2);
     await keluar(db, a, chat, 'human', 'stok ready kak', t0 + 3);
     await hp(db, a, chat, 'dikirim Senin ya', t0 + 4, 'm1');
-    await masuk(db, a, chat, '[foto]', t0 + 5, 'image');          // media tanpa teks: tidak masuk
-    await masuk(db, a, chat, '   ', t0 + 6);                        // kosong: tidak masuk
+    await masuk(db, a, chat, '', t0 + 5, 'image');                  // foto tanpa caption: ikut, tipe dibawa
+    await masuk(db, a, chat, 'ini fotonya, yang abu-abu', t0 + 6, 'image'); // foto bercaption: ikut
+    await masuk(db, a, chat, '   ', t0 + 6);                        // teks kosong: tidak masuk
+    await masuk(db, a, chat, 'notif', t0 + 6, 'e2e_notification');   // notifikasi sistem: tidak masuk
     await masuk(db, a, '628222@c.us', 'chat lain', t0 + 7);
     await masuk(db, b, chat, 'company lain', t0 + 8);
 
     const turns = await db.fullConversation(a, chat);
-    assert.deepEqual(turns.map((x) => `${x.from}:${x.body}`), [
-      'customer:butuh semen 60 m2 di Bekasi',
-      'ai:siap kak, kapan dibutuhkan?',
-      'customer:minggu depan',
-      'staf:stok ready kak',
-      'staf:dikirim Senin ya',
+    assert.deepEqual(turns.map((x) => `${x.from}:${x.type || ''}:${x.body}`), [
+      'customer:chat:butuh semen 60 m2 di Bekasi',
+      'ai::siap kak, kapan dibutuhkan?',
+      'customer:chat:minggu depan',
+      'staf::stok ready kak',
+      'staf::dikirim Senin ya',
+      'customer:image:',
+      'customer:image:ini fotonya, yang abu-abu',
     ]);
   });
 });

@@ -77,3 +77,14 @@ test('historyFromTurns: dasar riwayat bila WhatsApp kosong; staf diberi penanda'
   assert.notEqual(h[0].content, 'siap kak', 'balasan staf berpenanda');
   assert.deepEqual(h[1], { role: 'assistant', content: 'ada yang bisa dibantu?' });
 });
+
+test('withMedia: foto tanpa caption jadi penanda, bercaption tetap, kosong tanpa tipe dibuang', () => {
+  const marker = (m) => (m.type === 'image' ? '[Customer mengirim foto]' : null);
+  const out = mem.withMedia([
+    { from: 'customer', type: 'image', body: '' },
+    { from: 'customer', type: 'image', body: 'abu-abu' },
+    { from: 'customer', type: 'chat', body: '' },
+    { from: 'ai', body: 'siap' },
+  ], marker);
+  assert.deepEqual(out.map((t) => t.body), ['[Customer mengirim foto]', 'abu-abu', 'siap']);
+});

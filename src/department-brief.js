@@ -12,16 +12,17 @@
  * Gagal atau tak valid = null, pemanggil jatuh ke format lama (kutipan pesan customer).
  */
 
-const FIELD_MAX = { awal: 160, pemicu: 200, diketahui: 260, putuskan: 220 };
+const FIELD_MAX = { awal: 160, ringkasan: 300, pemicu: 200, diketahui: 260, putuskan: 220 };
 
 const SYSTEM = `Kamu merangkum percakapan WhatsApp toko bahan bangunan untuk tim internal yang akan memutuskan satu hal. Tulis ringkas, bahasa Indonesia, terbaca di HP.
 Aturan:
 - Pakai HANYA isi percakapan dan pertanyaan AI di bawah. Jangan mengarang barang, harga, jumlah, alamat, atau janji. Yang tidak ada di sumber: kosongkan ("").
 - "awal": apa yang pertama ditulis customer di chat ini (kutip pendek, atau ringkas 1 kalimat bila panjang).
+- "ringkasan": 2-3 kalimat jalannya percakapan, sebut siapa yang berkata apa: apa yang customer minta, apa yang sudah dijawab Agnes (AI) atau staf (harga, stok, ongkir), dan apa yang masih menggantung. Hanya dari percakapan; kosongkan bila belum ada jalannya percakapan.
 - "pemicu": pesan customer yang membuat AI bertanya ke tim (kutip pendek).
 - "diketahui": barang, jumlah, alamat, dan harga yang SUDAH jelas dari percakapan atau pertanyaan AI (nama barang persis seperti disebut). Satu baris.
 - "putuskan": SATU kalimat tegas, idealnya pilihan yang dijawab singkat (ada/kosong; harga berapa; boleh/tidak; kendaraan apa). Dilarang "mohon dipastikan" atau "mohon dicek" tanpa objek.
-Jawab HANYA JSON: {"awal": "...", "pemicu": "...", "diketahui": "...", "putuskan": "..."}.`;
+Jawab HANYA JSON: {"awal": "...", "ringkasan": "...", "pemicu": "...", "diketahui": "...", "putuskan": "..."}.`;
 
 const cut = (text, max) => {
   const t = String(text || '').replace(/\s+/g, ' ').trim();
@@ -30,8 +31,8 @@ const cut = (text, max) => {
 
 /** `turns`: [{ from: 'customer' | 'ai' | 'staf', body }] lama ke baru. */
 function buildPrompt({ firstMessage = '', turns = [], customerText = '', question = '' }) {
-  const chat = turns.slice(-12).map((t) => `${t.from === 'customer' ? 'Customer' : (t.from === 'ai' ? 'AI' : 'Staf')}: ${cut(t.body, 220)}`).join('\n');
-  return `Pesan pertama customer di chat ini: "${cut(firstMessage, 220)}"\n\nPercakapan terakhir (lama ke baru):\n${chat || '(kosong)'}\n\nPesan customer yang memicu pertanyaan: "${cut(customerText, 300)}"\n\nPertanyaan AI ke tim: "${cut(question, 600)}"`;
+  const chat = turns.slice(-12).map((t) => `${t.from === 'customer' ? 'Customer' : (t.from === 'ai' ? 'Agnes (AI)' : 'Staf')}: ${cut(t.body, 220)}`).join('\n');
+  return `Pesan pertama customer di chat ini: "${cut(firstMessage, 220)}"\n\nPercakapan terakhir (lama ke baru; Customer = pembeli, Agnes (AI) = asisten digital toko, Staf = manusia toko):\n${chat || '(kosong)'}\n\nPesan customer yang memicu pertanyaan: "${cut(customerText, 300)}"\n\nPertanyaan AI ke tim: "${cut(question, 600)}"`;
 }
 
 function parseBrief(raw) {

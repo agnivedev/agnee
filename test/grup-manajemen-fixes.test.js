@@ -111,7 +111,7 @@ test('customer baru (template silent WhatsApp + teks biasa) tidak dibuang sebaga
 test('ringkasan pertanyaan departemen: parse, format pesan grup, pengingat, dan fallback', async () => {
   const brief = require('../src/department-brief');
   const ask = require('../src/department-ask');
-  const raw = '{"awal":"Mau tanya keramik teras 40x40","pemicu":"Kw1","diketahui":"PLATINUM Kennedy Grey 30x60 Matt","putuskan":"Harga per dus KW1 berapa dan stok ada?"}';
+  const raw = '{"awal":"Mau tanya keramik teras 40x40","ringkasan":"Customer minta harga Kennedy Grey 30x60. Agnes menawarkan KW1. Stok masih menggantung.","pemicu":"Kw1","diketahui":"PLATINUM Kennedy Grey 30x60 Matt","putuskan":"Harga per dus KW1 berapa dan stok ada?"}';
   const b = brief.parseBrief(raw);
   assert.equal(b.putuskan, 'Harga per dus KW1 berapa dan stok ada?');
   assert.equal(brief.parseBrief('{"putuskan":"Mohon dipastikan"}'), null);
@@ -123,6 +123,18 @@ test('ringkasan pertanyaan departemen: parse, format pesan grup, pengingat, dan 
   const notice = ask.buildQuestionNotice({ department: 'Management', question: 'q panjang', customerLabel: 'Shifa (+62895)', code: 'ab12cd', group: true, brief: b });
   assert.match(notice, /Awal chat: "Mau tanya keramik teras 40x40"/);
   assert.match(notice, /Pesan terakhir: "Kw1"/);
+  assert.match(notice, /Ringkasan: Customer minta harga Kennedy Grey/);
+  // Urutan baris: Customer, Awal chat, Ringkasan, Pesan terakhir, Sudah diketahui, Mohon diputuskan.
+  const order = ['Customer:', 'Awal chat:', 'Ringkasan:', 'Pesan terakhir:', 'Sudah diketahui:', 'Mohon diputuskan:'].map((k) => notice.indexOf(k));
+  assert.deepEqual(order, [...order].sort((a, b) => a - b));
+  assert.ok(order.every((i) => i >= 0));
+  // Ringkasan kosong: barisnya dibuang, pertanyaan tetap utuh.
+  const noSum = ask.buildQuestionNotice({ department: 'Management', question: 'q', customerLabel: 'X', code: 'ab12cd', group: true, brief: { ...b, ringkasan: '' } });
+  assert.doesNotMatch(noSum, /Ringkasan:/);
+  assert.match(noSum, /Mohon diputuskan/);
+  assert.equal(brief.parseBrief('{"putuskan":"Harga?"}').ringkasan, '');
+  assert.ok(brief.buildPrompt({ turns: [{ from: 'ai', body: 'a' }, { from: 'staf', body: 'b' }, { from: 'customer', body: 'c' }], question: 'q' }).match(/Agnes \(AI\): a\nStaf: b\nCustomer: c/));
+  assert.match(brief.SYSTEM, /"ringkasan"/);
   assert.match(notice, /Sudah diketahui: PLATINUM Kennedy Grey/);
   assert.match(notice, /\*Mohon diputuskan:\* Harga per dus KW1/);
   assert.match(notice, /#ab12cd/);
@@ -132,6 +144,7 @@ test('ringkasan pertanyaan departemen: parse, format pesan grup, pengingat, dan 
   const rem = ask.buildReminderNotice({ department: 'Management', question: 'q', customerLabel: 'X', reminderCount: 1, final: false, code: 'ab12cd', group: true, brief: b });
   assert.match(rem, /Pengingat 1\/2/);
   assert.match(rem, /Putuskan: Harga per dus KW1/);
+  assert.doesNotMatch(rem, /Ringkasan/);
 });
 
 test('tindak lanjut ke grup: satu pesan, mengutip customer, bukan dianggap jawaban oleh pencocok longgar', () => {

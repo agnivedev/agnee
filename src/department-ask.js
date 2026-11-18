@@ -315,6 +315,7 @@ function buildQuestionNotice({ department, question, customerLabel, askerLabel =
       `*Pertanyaan dari asisten untuk tim ${department}*`,
       askerLabel ? `Penanya: ${askerLabel}` : `Customer: ${customerLabel}`,
       brief.awal ? `Awal chat: "${brief.awal}"` : null,
+      brief.ringkasan ? `Ringkasan: ${brief.ringkasan}` : null,
       brief.pemicu ? `Pesan terakhir: "${brief.pemicu}"` : null,
       brief.diketahui ? `Sudah diketahui: ${brief.diketahui}` : null,
       `*Mohon diputuskan:* ${brief.putuskan}`,

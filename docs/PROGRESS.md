@@ -1,8 +1,32 @@
 # Progress dan Outstanding Agnee (ESBEJE / Agnes)
 
-Diperbarui 10 Nov 2026. Mencatat sesi utama dan semua sub sesi sejak 28 Okt.
+Diperbarui 18 Nov 2026. Mencatat sesi utama dan semua sub sesi sejak 28 Okt.
 Detail teknis per perubahan ada di [`../CHANGELOG.md`](../CHANGELOG.md); catatan
 per fitur ada di memori proyek.
+
+## Skor keyakinan balasan AI: tahap shadow (18 Nov)
+
+LIVE di main sejak a5d9c6b (run 44305691667, migrasi 105). `src/confidence-score.js`
+menghitung skor 0-100 dari sinyal yang bisa dicek kode (skor terlemah menang) dan
+`guardUncertainty` mencatatnya ke tabel `ai_confidence_scores`. Hanya mencatat:
+balasan AI tidak berubah. Zona: `send` 80 ke atas (topik uang 90), `safe` 50-79,
+`hold` di bawah 50. Ambang masih tebakan.
+
+Latar: audit grup ESBEJE 18 Nov (balasan bocor catatan internal, relay salah konteks,
+pertanyaan Management tak terjawab). Uji mundur ke 154 balasan asli 5-18 Nov:
+send 108, safe 30, hold 16; hampir semua `hold` pelanggaran nyata.
+
+**TODO (cek 19 Nov atau setelah data terkumpul):**
+1. Cek sebaran:
+   `ssh root@94.237.73.190 'docker exec agnee-postgres-1 psql -U agnee -d agnee -c "select band, count(*) from ai_confidence_scores group by 1"'`
+2. Baca baris `hold`/`safe` (kolom `signals`, `reply_text`), cari alarm palsu dan balasan salah yang lolos `send`.
+3. Bandingkan dengan koreksi staf dan pertanyaan ulang customer, lalu usul ambang baru.
+   Jangan menahan balasan sebelum ada label benar/salah.
+4. Catat hasil di sini. Status 18 Nov malam: 1 baris tercatat (send), belum cukup.
+
+Belum ada: sinyal "pertanyaan customer terjawab?" dan "relay menjawab pertanyaan yang
+diajukan?" (parameter `coverage` siap, belum diisi model kecil). Kalau barisnya sedikit,
+cek dulu apakah chat ESBEJE terkunci "human" (cache routing).
 
 ## Selesai dan LIVE
 

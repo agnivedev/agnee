@@ -36,6 +36,7 @@ const {
   classifyShortReply, countRecentAckRounds, ensureClosingIsRecognizable, stripLinks, conversationRules, mediaMarker, limitLinks,
 } = require('./reply-style.js');
 const staffContext = require('./staff-context.js');
+const chatRecall = require('./chat-recall.js');
 const { FollowUpScheduler, withManualGap } = require('./follow-up.js');
 const followUpStages = require('./follow-up-stage.js');
 const {
@@ -3183,6 +3184,27 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     app.log.info({ companyId, chatId: message.from, riwayat: conversationHistory.length },
       'Riwayat percakapan untuk balasan otomatis');
     seen.history = conversationHistory;
+    // Ingatan dari DB. WhatsApp hanya memberi ~10-14 pesan terakhir; hal yang
+    // customer sebut lebih awal (lokasi, luas, barang) ditanyakan ulang. Seluruh
+    // percakapan ada di inbound_messages/outbound_replies/phone_replies.
+    // Gagal baca DB tidak boleh menjatuhkan balasan.
+    let riwayatSumber = 'whatsapp';
+    let ingatanDb = 0;
+    if (canCall('fullConversation')) {
+      try {
+        const dbTurns = chatRecall.dropCurrent(await database.fullConversation(companyId, message.from, 150), message.body);
+        if (!conversationHistory.length && dbTurns.length) {
+          conversationHistory = x(dbTurns);
+          riwayatSumber = 'db';
+        }
+        const blok = chatRecall.buildMemoryBlock(dbTurns, { skipLast: conversationHistory.length });
+        if (blok) { ctx.systemPrompt = `${ctx.systemPrompt}\n\n${blok}`; ingatanDb = blok.length; }
+      } catch (error) {
+        app.log.warn({ err: error, chatId: message.from }, 'Ingatan percakapan dari DB gagal dibaca; lanjut dengan riwayat WhatsApp');
+      }
+    }
+    app.log.info({ companyId, chatId: message.from, riwayatSumber, ingatanDb }, 'Ingatan percakapan dari DB');
+
     ctx.systemPrompt = staffContext.withStaffContext(ctx.systemPrompt, conversationHistory);
 
     const jenisBalasanPendek = classifyShortReply(message.body, conversationHistory);
@@ -3207,7 +3229,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
         : `Customer membalas "${message.body}" lagi, dan kamu SUDAH berterima kasih di giliran sebelumnya.\n\nJangan berterima kasih lagi, jangan mengulang kalimat yang sudah kamu kirim, jangan bertanya apa pun, jangan menanyakan maksudnya, jangan menawarkan produk, jangan menyebut harga, jangan mengirim link.\n\nTulis paling banyak DUA kalimat pendek dengan persona kamu yang menambahkan satu keterangan BARU dan berguna tentang apa yang sudah disepakati — misalnya apa yang terjadi berikutnya atau apa yang bisa disiapkan. Ambil keterangannya dari playbook, jangan mengarang. Keluarkan HANYA kalimatnya.`;
 
       const lanjutan = await llmService.generateReply(perintah,
-        { systemPrompt: ctx.systemPrompt, history: conversationHistory, historyLimit: ctx.ks || ctx.nerva ? 12 : undefined, companyId, purpose: 'auto_reply', modelChain: companyAi.modelChain },
+        { systemPrompt: ctx.systemPrompt, history: conversationHistory, historyLimit: chatRecall.HISTORY_LIMIT, companyId, purpose: 'auto_reply', modelChain: companyAi.modelChain },
       ).catch(() => null);
       const teksLanjutan = stripLinks(lanjutan?.text || '');
       app.log.info({ companyId, chatId: message.from, ronde },
@@ -3233,7 +3255,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     if (jenisBalasanPendek === 'ambiguous') {
       const clarification = await llmService.generateReply(
         `Customer membalas "${message.body}". Percakapan sebelumnya tidak memuat pilihan bernomor atau pertanyaan yang dirujuk balasan itu, jadi kamu belum tahu persis maksudnya.\n\nJANGAN menanyakan apa maksudnya, jangan menulis "maksudnya yang mana", jangan memintanya menjelaskan diri. Ditanyai begitu membuat customer merasa disalahkan.\n\nTulis paling banyak DUA kalimat pendek dengan persona kamu: akui dulu balasannya dengan ramah, lalu tawarkan satu langkah lanjutan yang konkret sesuai playbook supaya customer tinggal memilih. Jangan menyebut harga, jangan mengirim link, jangan menebak dia sudah setuju membeli. Keluarkan HANYA kalimatnya.`,
-        { systemPrompt: ctx.systemPrompt, history: conversationHistory, companyId, purpose: 'auto_reply', modelChain: companyAi.modelChain },
+        { systemPrompt: ctx.systemPrompt, history: conversationHistory, historyLimit: chatRecall.HISTORY_LIMIT, companyId, purpose: 'auto_reply', modelChain: companyAi.modelChain },
       ).catch(() => null);
       const asked = stripLinks(clarification?.text || '');
       if (asked) return asked;
@@ -3248,7 +3270,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
         relevantFaqs: ctx.relevantFaqs,
         leadState: ctx.leadState,
         history: conversationHistory,
-        historyLimit: ctx.ks || ctx.nerva ? 12 : undefined,
+        historyLimit: chatRecall.HISTORY_LIMIT,
         companyId,
         purpose: 'auto_reply',
         modelChain: companyAi.modelChain,

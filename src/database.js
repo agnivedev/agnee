@@ -1790,6 +1790,29 @@ class Database {
     `, [id, companyId, String(serial)]);
   }
 
+  /**
+   * Seluruh percakapan satu chat dari DB, lama ke baru: customer, AI, staf dari Agnee,
+   * dan balasan yang diketik langsung di HP. Dipakai sebagai ingatan AI saat membalas;
+   * `limit` giliran terbaru.
+   */
+  async fullConversation(companyId, chatId, limit = 150) {
+    if (!this.enabled) return [];
+    const n = Math.min(Math.max(Number(limit) || 150, 1), 400);
+    const { rows } = await this.pool.query(`
+      SELECT who, body FROM (
+        SELECT 'customer' AS who, body, "timestamp"::bigint AS ts FROM inbound_messages
+          WHERE company_id = $1 AND chat_id = $2 AND message_type IN ('text', 'chat') AND COALESCE(TRIM(body), '') <> ''
+        UNION ALL
+        SELECT CASE WHEN author = 'human' THEN 'staf' ELSE 'ai' END, body, EXTRACT(EPOCH FROM created_at)::bigint
+          FROM outbound_replies WHERE company_id = $1 AND chat_id = $2 AND COALESCE(TRIM(body), '') <> ''
+        UNION ALL
+        SELECT 'staf', body, EXTRACT(EPOCH FROM created_at)::bigint
+          FROM phone_replies WHERE company_id = $1 AND chat_id = $2 AND COALESCE(TRIM(body), '') <> ''
+      ) x ORDER BY ts DESC LIMIT $3
+    `, [companyId, chatId, n]);
+    return rows.reverse().map((r) => ({ from: r.who, body: r.body }));
+  }
+
   /** Percakapan terakhir satu chat dari DB (customer, AI, staf), lama ke baru, plus pesan pertama customer. */
   async recentConversation(companyId, chatId, limit = 12) {
     if (!this.enabled) return { first: '', turns: [] };

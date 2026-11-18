@@ -53,6 +53,9 @@ test('barang keranjang POS tidak ditawarkan untuk motif/ukuran tertentu', async 
   assert.equal(priceMatch.isBucketItem(items[0]), true);
   assert.equal(priceMatch.isBucketItem(items[1]), true);
   assert.equal(priceMatch.isBucketItem(items[2]), false);
+  // Barang sale yang spesifik tetap boleh ditawarkan.
+  for (const name of ['BALL VALVE JANGKAR SALE', 'KUNCI BULAT RRT SALE', 'DYNABOLT 10X65 ECERAN']) assert.equal(priceMatch.isBucketItem({ name }), false, name);
+  for (const name of ['KARPET LANTAI SEMUA MOTIF ECERAN', 'STEPNOSING SALE 8X30 ALL COLOUR']) assert.equal(priceMatch.isBucketItem({ name }), true, name);
   assert.equal(priceMatch.asksForBucket('keramik motif kayu Milan 25x40'), false);
   assert.equal(priceMatch.asksForBucket('ada keramik sale ga?'), true);
 

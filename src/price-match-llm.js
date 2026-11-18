@@ -55,7 +55,7 @@ function parseJson(text) {
  * keramik motif kayu Milan 25x40 dan granit 15x60, AI menawarkan keduanya dengan harga keranjang
  * itu, Management bilang tak cocok. Hanya ditawarkan bila customer sendiri menyebut sale/obral/ecer.
  */
-const BUCKET_NAME = /\b(?:all\s*size|sale|obral|cuci\s*gudang)\b|\becer\s+lembaran\b/i;
+const BUCKET_NAME = /\ball\s*size\b|\bsemua\s+(?:motif|ukuran|warna)\b|\ball\s*colou?r\b|\becer\s+lembaran\b/i;
 const asksForBucket = (text) => /\b(?:sale|obral|cuci\s*gudang|diskon|murah|promo|ecer|all\s*size)\b/i.test(String(text || ''));
 const isBucketItem = (item) => BUCKET_NAME.test(String(item?.name || ''));
 

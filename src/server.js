@@ -77,6 +77,7 @@ const departmentBrief = require('./department-brief.js');
 const nervaTools = require('./nerva-tools.js');
 const nervaProactive = require('./nerva-proactive.js');
 const uncertainty = require('./uncertainty-guard.js');
+const confidenceScore = require('./confidence-score.js');
 const escalationLib = require('./escalation.js');
 const handoffCard = require('./handoff-card.js');
 const supervisorReport = require('./supervisor-report.js');
@@ -2883,6 +2884,16 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     if (mode === 'off' || ctx.agentMode === 'internal_ops' || ctx.ks) return passthrough;
 
     const assessment = assessReply({ ctx, companyId, chatId, customerText, history, rawText, finalText });
+    // Tahap shadow: skor dicatat untuk kalibrasi, tidak mengubah balasan. Gagal mencatat tidak boleh mengganggu balasan.
+    if (!dryRun && finalText && canCall('recordConfidenceScore')) {
+      try {
+        const scored = confidenceScore.score({ customerText, replyText: finalText, assessment, history });
+        database.recordConfidenceScore({
+          chatId, score: scored.score, band: scored.band, signals: scored.signals, topic: scored.topic,
+          guardUnsure: assessment.unsure, customerText, replyText: finalText,
+        }, companyId).catch((error) => app.log.warn({ err: error }, 'Skor keyakinan gagal dicatat'));
+      } catch (error) { app.log.warn({ err: error }, 'Skor keyakinan gagal dihitung'); }
+    }
     if (!assessment.unsure) return passthrough;
 
     const askTool = (ctx.tools || []).find((tool) => tool?.name === 'ask_department' || tool?.spec?.name === 'ask_department');

@@ -4429,6 +4429,17 @@ class Database {
     return result.rows[0] || null;
   }
 
+  /** Skor keyakinan tahap shadow (confidence-score.js): dicatat, tidak dipakai memutuskan. */
+  async recordConfidenceScore({ chatId = null, score, band, signals = [], topic = null, guardUnsure = false, customerText = '', replyText = '' }, companyId) {
+    if (!this.enabled) return null;
+    await this.pool.query(`
+      INSERT INTO ai_confidence_scores (company_id, chat_id, score, band, signals, topic, guard_unsure, customer_text, reply_text)
+      VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9)
+    `, [companyId, chatId, score, band, JSON.stringify(signals || []), topic, Boolean(guardUnsure),
+      String(customerText).slice(0, 1000), String(replyText).slice(0, 2000)]);
+    return true;
+  }
+
   async listUncertaintyEvents(companyId, { limit = 50 } = {}) {
     if (!this.enabled) return [];
     const result = await this.pool.query(`

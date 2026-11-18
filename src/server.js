@@ -73,6 +73,7 @@ const catalog = require('./catalog.js');
 const { createReplyPacer } = require('./reply-delay.js');
 const handoffNotice = require('./handoff-notice.js');
 const departmentAsk = require('./department-ask.js');
+const departmentBrief = require('./department-brief.js');
 const nervaTools = require('./nerva-tools.js');
 const nervaProactive = require('./nerva-proactive.js');
 const uncertainty = require('./uncertainty-guard.js');
@@ -1148,6 +1149,11 @@ async function buildApp(overrides = {}) {
         'Pesan otomatis/tagihan dari akun bisnis, AI tidak membalas');
       return;
     }
+    // Balasan customer pertama setelah jawaban departemen diteruskan: satu tindak lanjut ke grup.
+    if (!message.from.endsWith('@g.us') && canCall('claimQuestionFollowup')) {
+      sendQuestionFollowup(companyId, message)
+        .catch((error) => app.log.warn({ err: error, companyId }, 'Tindak lanjut balasan customer ke grup gagal'));
+    }
     // Foto bukti transfer: dibaca dulu; hasilnya menggantikan isi pesan bagi AI
     // dan staf diberi tahu seperti serah-terima.
     const proofCheck = await checkPaymentProof(companyId, message, meta);
@@ -1663,6 +1669,24 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
    * (lonceng di Agnee + WhatsApp bila nomornya diisi). Satu pertanyaan terbuka
    * per chat per departemen supaya model yang mengulang tidak membanjiri.
    */
+  /** Ringkasan percakapan untuk pertanyaan ke departemen; null bila gagal (format lama dipakai). */
+  async function briefForQuestion({ companyId, chatId, customerText, question }) {
+    if (!canCall('recentConversation') || !chatId) return null;
+    try {
+      const { first, turns } = await database.recentConversation(companyId, chatId, 12);
+      const companyAi = await getCompanyAi(companyId).catch(() => ({}));
+      return await departmentBrief.generateBrief({
+        firstMessage: first, turns, customerText, question,
+        ask: async (prompt, systemPrompt) => (await llmService.generateReply(prompt, {
+          systemPrompt, companyId, purpose: 'department_brief', modelChain: companyAi.modelChain,
+        }))?.text || '',
+      });
+    } catch (error) {
+      app.log.warn({ err: error, companyId }, 'Ringkasan pertanyaan departemen gagal; memakai kutipan customer');
+      return null;
+    }
+  }
+
   async function askDepartment({ companyId, chatId, customerText, departments, args, askerLabel = null, meta = {} }) {
     const dept = departments.find((d) => d.name === args.department);
     const question = String(args.question || '').trim().slice(0, departmentAsk.QUESTION_MAX);
@@ -1708,17 +1732,22 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       meta.dryRun.push({ department: dept.name, question, kind: meta.kind || 'general' });
       return { status: 'sent', department: dept.name };
     }
-    const created = await database.createDepartmentQuestion({ departmentId: dept.id, chatId, customerText, question, kind: meta.kind || 'general', payload: meta.payload || null }, companyId);
+    // Ringkasan percakapan untuk staf (awal chat, pemicu, yang diketahui, yang harus diputuskan). Gagal = format lama.
+    const brief = (!meta.kind || meta.kind === 'general') && !askerLabel ? await briefForQuestion({ companyId, chatId, customerText, question }) : null;
+    const created = await database.createDepartmentQuestion({
+      departmentId: dept.id, chatId, customerText, question, kind: meta.kind || 'general',
+      payload: brief ? { ...(meta.payload || {}), brief } : (meta.payload || null),
+    }, companyId);
     if (!created) return { error: 'Departemen tidak ditemukan.' };
     broadcastEvent(companyId, 'department_question', { id: created.id, department: dept.name });
     const customerLabel = await customerLabelFor(companyId, chatId);
     const notice = departmentAsk.buildQuestionNotice({
-      department: dept.name, question, customerLabel, askerLabel,
+      department: dept.name, question, customerLabel, askerLabel, brief,
       code: departmentAsk.questionCode(created.id), dm: true,
     });
     const groupSent = created.whatsappGroupId
       ? await notifyDepartmentGroup(companyId, created.id, created.whatsappGroupId, departmentAsk.buildQuestionNotice({
-        department: dept.name, question, customerLabel, askerLabel,
+        department: dept.name, question, customerLabel, askerLabel, brief,
         code: departmentAsk.questionCode(created.id), group: true,
       }))
       : false;
@@ -1843,6 +1872,22 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
   }
 
   /**
+   * Management menjawab, jawabannya diteruskan; apa yang customer lakukan sesudahnya (jadi beli, tanya lain,
+   * diam) ikut dikabarkan ke grup SEKALI per pertanyaan, sebagai reply ke pesan pertanyaannya.
+   */
+  async function sendQuestionFollowup(companyId, message) {
+    const text = String(message.body || '').trim() || (message.type && message.type !== 'chat' ? '[mengirim lampiran]' : '');
+    if (!text) return;
+    const hit = await database.claimQuestionFollowup(companyId, message.from, text, 24);
+    if (!hit?.whatsappGroupId) return;
+    const label = await customerLabelFor(companyId, message.from);
+    const notice = departmentBrief.buildFollowupNotice({ customerLabel: label, text });
+    const quoted = hit.payload?.group_msg || null;
+    const sent = await sendOutbound(companyId, hit.whatsappGroupId, notice, quoted ? { quotedMessageId: quoted } : {});
+    await database.recordOutboundReply({ chatId: hit.whatsappGroupId, messageId: sent?.messageId || null, author: 'ai', body: notice }, companyId).catch(() => {});
+  }
+
+  /**
    * Pemberitahuan ke grup WhatsApp departemen. Id pesannya disimpan supaya
    * staf bisa menjawab dengan reply langsung di grup. Gagal kirim tidak
    * menggagalkan pertanyaan: lonceng dan nomor anggota tetap jalan.
@@ -1853,6 +1898,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       await database.recordOutboundReply({ chatId: groupId, messageId: sent?.messageId || null, author: 'ai', body: text }, companyId).catch(() => {});
       const stanza = stanzaIdOf(sent?.messageId);
       if (stanza) await database.addDepartmentQuestionGroupMessage(questionId, stanza, companyId).catch(() => {});
+      if (canCall('rememberDepartmentQuestionGroupSerial')) await database.rememberDepartmentQuestionGroupSerial(questionId, sent?.messageId, companyId).catch(() => {});
       return true;
     } catch (error) {
       app.log.warn({ err: error, companyId }, 'Pertanyaan departemen ke grup WhatsApp gagal');
@@ -2947,7 +2993,8 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     if (String(message.from || '').endsWith('@g.us')) return false;
     if (nonCustomerGuard.isBusinessTemplateType(message.type)) return true;
     if (nonCustomerGuard.isAutomatedNotice(message.body)) return true;
-    if (canCall('hasRecentInboundOfType')) {
+    // Template silent WhatsApp juga menyertai customer baru: hanya teks berbau bot yang ikut dibuang.
+    if (canCall('hasRecentInboundOfType') && nonCustomerGuard.looksLikeBotFollowup(message.body)) {
       return database.hasRecentInboundOfType(companyId, message.from, ['notification_template'], 600)
         .catch(() => false);
     }
@@ -15299,7 +15346,7 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
         const notice = departmentAsk.buildReminderNotice({
           department: row.department, question: row.question,
           customerLabel,
-          reminderCount: row.reminderCount, final: row.final,
+          reminderCount: row.reminderCount, final: row.final, brief: row.payload?.brief || null,
           code: departmentAsk.questionCode(row.id), dm: true,
         });
         // 12 jam tanpa jawaban: customer diberi kabar jujur, bukan dibiarkan menunggu.
@@ -15320,7 +15367,7 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
           await notifyDepartmentGroup(row.companyId, row.id, row.whatsappGroupId, departmentAsk.buildReminderNotice({
             department: row.department, question: row.question,
             customerLabel,
-            reminderCount: row.reminderCount, final: row.final,
+            reminderCount: row.reminderCount, final: row.final, brief: row.payload?.brief || null,
             code: departmentAsk.questionCode(row.id), group: true,
           }));
         }

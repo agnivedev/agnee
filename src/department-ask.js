@@ -121,12 +121,12 @@ function shortAnswerHint({ code, group, dm = false }) {
  * pertama. Di sini cukup siapa customernya, kode #xxxxxx, dan satu baris
  * cuplikan supaya pembaca tahu pertanyaan yang mana.
  */
-function buildReminderNotice({ department, question, customerLabel, reminderCount, final, code = null, group = false, dm = false }) {
+function buildReminderNotice({ department, question, customerLabel, reminderCount, final, code = null, group = false, dm = false, brief = null }) {
   const cut = (v, n) => { const t = String(v || '').replace(/\s+/g, ' ').trim(); return t.length > n ? `${t.slice(0, n - 1)}…` : t; };
   return [
-    final ? `*Pengingat terakhir — tim ${department}*` : `*Pengingat ${reminderCount}/4 — tim ${department}*`,
+    final ? `*Pengingat terakhir — tim ${department}*` : `*Pengingat ${reminderCount}/${REMINDER_MINUTES.length} — tim ${department}*`,
     `${customerLabel}${code ? ` · #${code}` : ''}`,
-    `"${cut(question, 110)}"`,
+    brief?.putuskan ? `Putuskan: ${cut(brief.putuskan, 140)}${brief.diketahui ? ` (${cut(brief.diketahui, 80)})` : ''}` : `"${cut(question, 110)}"`,
     final
       ? `Belum ada yang menjawab selama ${FINAL_HOURS} jam buka. Customer ditandai belum terjawab. ${shortAnswerHint({ code, group, dm })}`
       : `Customer masih menunggu. ${shortAnswerHint({ code, group, dm })}`,
@@ -306,14 +306,28 @@ function compoundProblem(question) {
 }
 
 /** Pesan WhatsApp ke anggota departemen. */
-function buildQuestionNotice({ department, question, customerLabel, askerLabel = null, code = null, group = false, dm = false }) {
+function buildQuestionNotice({ department, question, customerLabel, askerLabel = null, code = null, group = false, dm = false, brief = null }) {
   const cut = (v, n) => { const t = String(v || '').replace(/\s+/g, ' ').trim(); return t.length > n ? `${t.slice(0, n - 1)}…` : t; };
+  const tail = `${answerHint({ code, group, dm })} Jawaban pertama yang masuk akan diteruskan ke ${askerLabel ? 'penanya' : 'customer'}.`;
+  // Ringkasan percakapan (department-brief.js): bisa diputuskan dari HP tanpa membuka chat.
+  if (brief?.putuskan) {
+    return [
+      `*Pertanyaan dari asisten untuk tim ${department}*`,
+      askerLabel ? `Penanya: ${askerLabel}` : `Customer: ${customerLabel}`,
+      brief.awal ? `Awal chat: "${brief.awal}"` : null,
+      brief.pemicu ? `Pesan terakhir: "${brief.pemicu}"` : null,
+      brief.diketahui ? `Sudah diketahui: ${brief.diketahui}` : null,
+      `*Mohon diputuskan:* ${brief.putuskan}`,
+      '',
+      tail,
+    ].filter((x) => x !== null).join('\n');
+  }
   return [
     `*Pertanyaan dari asisten untuk tim ${department}*`,
     askerLabel ? `Penanya: ${askerLabel}` : `Customer: ${customerLabel}`,
     `Pertanyaan: "${cut(question, 650)}"`,
     '',
-    `${answerHint({ code, group, dm })} Jawaban pertama yang masuk akan diteruskan ke ${askerLabel ? 'penanya' : 'customer'}.`,
+    tail,
   ].join('\n');
 }
 

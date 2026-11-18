@@ -104,11 +104,11 @@ test('kabar tunggu dipaksa: balasan tanpa kata tunggu ditambah teks cadangan', (
   assert.equal(departmentAsk.ensureHolding(ok), ok);
 });
 
-test('jadwal pengingat 30 mnt, 2 jam, 8 jam, 18 jam buka dan pengingat terakhir menyebut 18 jam', () => {
-  assert.deepEqual(departmentAsk.REMINDER_MINUTES, [30, 120, 480, 1080]);
-  const last = departmentAsk.buildReminderNotice({ department: 'Product', question: 'q', customerLabel: '+62', reminderCount: 4, final: true });
-  assert.match(last, /18 jam/);
-  assert.match(departmentAsk.buildReminderNotice({ department: 'Product', question: 'q', customerLabel: '+62', reminderCount: 2, final: false }), /2\/4/);
+test('jadwal pengingat 2 jam dan 8 jam buka; pengingat terakhir menyebut 8 jam', () => {
+  assert.deepEqual(departmentAsk.REMINDER_MINUTES, [120, 480]);
+  const last = departmentAsk.buildReminderNotice({ department: 'Product', question: 'q', customerLabel: '+62', reminderCount: 2, final: true });
+  assert.match(last, /8 jam/);
+  assert.match(departmentAsk.buildReminderNotice({ department: 'Product', question: 'q', customerLabel: '+62', reminderCount: 1, final: false }), /1\/2/);
 });
 
 // ---- pihak ketiga -------------------------------------------------------

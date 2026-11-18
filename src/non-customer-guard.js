@@ -40,6 +40,19 @@ function isAutomatedNotice(text) {
   return WEAK_NOTICE.filter((re) => re.test(t)).length >= 2;
 }
 
+/**
+ * Teks yang menyusul sebuah template WhatsApp dan masih berbau bot: memuat sedikitnya
+ * satu pola pemberitahuan. WhatsApp juga mengirim `notification_template` (isi kosong) untuk customer
+ * sungguhan yang baru pertama kali menulis ke nomor bisnis; ESBEJE 11-18 Nov: "Mau nanya keramik teras
+ * 40x40", "Saya mau tanya esbeje punya paving blok gak ya?" ikut dibuang selama 10 menit dan tak pernah
+ * dibalas. Tulisan biasa tanpa pola pemberitahuan = customer.
+ */
+function looksLikeBotFollowup(text) {
+  const t = String(text || '');
+  if (!t.trim()) return false; // foto/stiker customer tanpa teks tidak dibuang
+  return isAutomatedNotice(t) || WEAK_NOTICE.some((re) => re.test(t));
+}
+
 // Jenis pesan yang hanya dikirim akun bisnis lewat template resmi WhatsApp.
 // Customer biasa tidak bisa mengirimnya.
 const BUSINESS_TEMPLATE_TYPES = new Set(['notification_template']);
@@ -109,6 +122,7 @@ function isStuckLoop({ history = [], reply = '', customerText = '', limit = 3 } 
 }
 
 module.exports = {
+  looksLikeBotFollowup,
   isAutomatedNotice,
   isBusinessTemplateType,
   isGenericOffer,

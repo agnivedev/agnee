@@ -12,7 +12,7 @@
  *  - pengingat hanya dikirim saat jam buka; yang jatuh tempo di luar jam buka
  *    menunggu sampai jam buka berikutnya;
  *  - jarak antar pengingat minimal MIN_GAP menit, jadi pengingat yang
- *    menumpuk tidak keluar beruntun; jeda ke-3 dan ke-4 sengaja lama.
+ *    menumpuk tidak keluar beruntun; jeda antar pengingat sengaja lama.
  *
  * Murni: tak menyentuh database dan tak membaca jam sistem.
  */
@@ -20,8 +20,9 @@
 const sla = require('./sla.js');
 const DAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 
-/** Menit jam-buka sejak pertanyaan dibuat untuk pengingat 1/4 … 4/4 (terakhir). */
-const REMINDER_WORK_MINUTES = [30, 120, 480, 1080];
+/** Menit jam-buka sejak pertanyaan dibuat untuk pengingat 1/2 dan 2/2 (terakhir). Dulu 4 pengingat (30 mnt, 2, 8, 18 jam);
+ * grup Management dibaca sekilas dan 4 pengingat per pertanyaan menenggelamkan pesan staf (audit 18 Nov). */
+const REMINDER_WORK_MINUTES = [120, 480];
 /** Teks "N jam" untuk pengingat terakhir. */
 const FINAL_HOURS = REMINDER_WORK_MINUTES[REMINDER_WORK_MINUTES.length - 1] / 60;
 
@@ -96,7 +97,7 @@ function inWorkHours(nowMs, zone, windows = defaultWindows()) {
 
 /**
  * Pengingat ke-(reminderCount+1) sudah jatuh tempo dan boleh dikirim sekarang?
- * `reminderCount` = jumlah pengingat yang sudah terkirim (0–3).
+ * `reminderCount` = jumlah pengingat yang sudah terkirim (0–1).
  */
 function isReminderDue({ createdMs, lastRemindedMs = null, reminderCount, nowMs, zone = 'Asia/Jakarta', windows = defaultWindows() }) {
   const target = REMINDER_WORK_MINUTES[reminderCount];

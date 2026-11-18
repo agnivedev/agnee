@@ -61,8 +61,14 @@ test('tagihan SPayLater tidak dijawab dan model tidak dipanggil', async (t) => {
 
 test('chat yang baru menerima template resmi akun bisnis tidak dijawab', async (t) => {
   const { state, send } = await harness(t, { templateRecently: true });
-  await send('Halo, ada info penting untuk akun Anda');
+  await send('Pelanggan Yth, nomor Anda segera lakukan pembayaran tagihan');
   assert.deepEqual(state.sent, []);
+});
+
+test('customer baru yang pesannya menyusul template silent WhatsApp tetap dijawab', async (t) => {
+  const { state, send } = await harness(t, { templateRecently: true, reply: 'Halo kak, saya Agnes dari ESBEJE.' });
+  await send('Mau nanya keramik teras 40x40');
+  assert.equal(state.sent.length, 1);
 });
 
 test('customer biasa tetap dijawab', async (t) => {

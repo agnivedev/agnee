@@ -92,3 +92,48 @@ test('jawaban departemen untuk barang yang sama dipakai, bukan janji baru', () =
   assert.match(text, /130\.000\/dus/);
   assert.doesNotMatch(text, /get back/);
 });
+
+test('customer baru (template silent WhatsApp + teks biasa) tidak dibuang sebagai bot', () => {
+  const ng = require('../src/non-customer-guard');
+  // 11-18 Nov ESBEJE: pesan pertama customer dibuang 10 menit karena template silent menyertainya.
+  for (const text of ['Mau nanya keramik teras 40x40', 'Esbeje Cisauk ?', 'Sore min', 'Saya mau tanya esbeje punya paving blok gak ya?', '']) {
+    assert.equal(ng.looksLikeBotFollowup(text), false, text);
+  }
+  // Bot tagihan tetap dibuang.
+  for (const text of ['Tagihan SPinjam kamu akan jatuh tempo!', 'Pelanggan Yth, nomor Anda telah terdaftar', 'Segera lakukan pembayaran tagihan']) {
+    assert.equal(ng.looksLikeBotFollowup(text), true, text);
+  }
+});
+
+test('ringkasan pertanyaan departemen: parse, format pesan grup, pengingat, dan fallback', async () => {
+  const brief = require('../src/department-brief');
+  const ask = require('../src/department-ask');
+  const raw = '{"awal":"Mau tanya keramik teras 40x40","pemicu":"Kw1","diketahui":"PLATINUM Kennedy Grey 30x60 Matt","putuskan":"Harga per dus KW1 berapa dan stok ada?"}';
+  const b = brief.parseBrief(raw);
+  assert.equal(b.putuskan, 'Harga per dus KW1 berapa dan stok ada?');
+  assert.equal(brief.parseBrief('{"putuskan":"Mohon dipastikan"}'), null);
+  assert.equal(brief.parseBrief('bukan json'), null);
+  assert.equal(await brief.generateBrief({ ask: async () => { throw new Error('x'); }, question: 'q' }), null);
+  const prompt = brief.buildPrompt({ firstMessage: 'Esbeje Cisauk ?', turns: [{ from: 'customer', body: 'Kw1' }], customerText: 'Kw1', question: 'q' });
+  assert.match(prompt, /Esbeje Cisauk/);
+
+  const notice = ask.buildQuestionNotice({ department: 'Management', question: 'q panjang', customerLabel: 'Shifa (+62895)', code: 'ab12cd', group: true, brief: b });
+  assert.match(notice, /Awal chat: "Mau tanya keramik teras 40x40"/);
+  assert.match(notice, /Pesan terakhir: "Kw1"/);
+  assert.match(notice, /Sudah diketahui: PLATINUM Kennedy Grey/);
+  assert.match(notice, /\*Mohon diputuskan:\* Harga per dus KW1/);
+  assert.match(notice, /#ab12cd/);
+  // Tanpa ringkasan: format lama.
+  assert.match(ask.buildQuestionNotice({ department: 'Management', question: 'q panjang', customerLabel: 'X', code: 'ab12cd', group: true }), /Pertanyaan: "q panjang"/);
+
+  const rem = ask.buildReminderNotice({ department: 'Management', question: 'q', customerLabel: 'X', reminderCount: 1, final: false, code: 'ab12cd', group: true, brief: b });
+  assert.match(rem, /Pengingat 1\/2/);
+  assert.match(rem, /Putuskan: Harga per dus KW1/);
+});
+
+test('tindak lanjut ke grup: satu pesan, mengutip customer, bukan dianggap jawaban oleh pencocok longgar', () => {
+  const brief = require('../src/department-brief');
+  const text = brief.buildFollowupNotice({ customerLabel: 'Shifa (+62895)', text: 'Oke saya ambil 10 dus' });
+  assert.match(text, /^\*Customer membalas\*/);
+  assert.ok(match.looksLikeBotNotice(text));
+});

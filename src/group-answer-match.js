@@ -46,7 +46,7 @@ function looksLikeBotNotice(text) {
   const t = String(text || '');
   if (!t) return false;
   return /#[0-9a-f]{6}\b/i.test(t)
-    || /^\*?(?:Pertanyaan dari asisten|Pengingat(?: terakhir)?\b)/i.test(t.trim())
+    || /^\*?(?:Pertanyaan dari asisten|Pengingat(?: terakhir)?\b|Customer membalas\b)/i.test(t.trim())
     || /^Saya baca pesan tadi sebagai jawaban/i.test(t.trim());
 }
 

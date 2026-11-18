@@ -1780,6 +1780,59 @@ class Database {
     `, [id, companyId, String(stanzaId)]);
   }
 
+  /** Id lengkap pesan pertanyaan di grup (untuk membalas dengan kutipan); hanya yang pertama disimpan. */
+  async rememberDepartmentQuestionGroupSerial(id, serial, companyId) {
+    if (!this.enabled || !serial) return;
+    await this.pool.query(`
+      UPDATE department_questions
+      SET payload = CASE WHEN payload ? 'group_msg' THEN payload ELSE COALESCE(payload, '{}'::jsonb) || jsonb_build_object('group_msg', $3::text) END
+      WHERE id = $1 AND company_id = $2
+    `, [id, companyId, String(serial)]);
+  }
+
+  /** Percakapan terakhir satu chat dari DB (customer, AI, staf), lama ke baru, plus pesan pertama customer. */
+  async recentConversation(companyId, chatId, limit = 12) {
+    if (!this.enabled) return { first: '', turns: [] };
+    const n = Math.min(Math.max(Number(limit) || 12, 1), 40);
+    const turns = await this.pool.query(`
+      SELECT who, body FROM (
+        SELECT 'customer' AS who, body, "timestamp" AS ts FROM inbound_messages
+          WHERE company_id = $1 AND chat_id = $2 AND message_type = 'chat' AND COALESCE(body, '') <> ''
+        UNION ALL
+        SELECT CASE WHEN author = 'human' THEN 'staf' ELSE 'ai' END, body, EXTRACT(EPOCH FROM created_at)::bigint
+          FROM outbound_replies WHERE company_id = $1 AND chat_id = $2
+      ) x ORDER BY ts DESC LIMIT $3
+    `, [companyId, chatId, n]);
+    const first = await this.pool.query(`
+      SELECT body FROM inbound_messages
+      WHERE company_id = $1 AND chat_id = $2 AND message_type = 'chat' AND COALESCE(body, '') <> ''
+      ORDER BY "timestamp" ASC LIMIT 1
+    `, [companyId, chatId]);
+    return { first: first.rows[0]?.body || '', turns: turns.rows.reverse().map((r) => ({ from: r.who, body: r.body })) };
+  }
+
+  /**
+   * Balasan customer pertama setelah jawaban departemen diteruskan (maks 24 jam): dicatat di payload dan
+   * dikembalikan SEKALI saja (klaim atomik), supaya grup menerima satu tindak lanjut per pertanyaan.
+   */
+  async claimQuestionFollowup(companyId, chatId, text, withinHours = 24) {
+    if (!this.enabled || !chatId || !text) return null;
+    const r = await this.pool.query(`
+      UPDATE department_questions q
+      SET payload = COALESCE(q.payload, '{}'::jsonb) || jsonb_build_object('followup', jsonb_build_object('text', $3::text, 'at', NOW()))
+      WHERE q.id = (
+        SELECT id FROM department_questions
+        WHERE company_id = $1 AND chat_id = $2 AND status = 'answered' AND kind = 'general'
+          AND relayed_at IS NOT NULL AND relayed_at > NOW() - make_interval(hours => $4::int)
+          AND (payload IS NULL OR NOT (payload ? 'followup'))
+        ORDER BY relayed_at DESC LIMIT 1
+      )
+      RETURNING q.id, q.question, q.payload, q.department_id AS "departmentId",
+        (SELECT whatsapp_group_id FROM departments d WHERE d.id = q.department_id) AS "whatsappGroupId"
+    `, [companyId, chatId, String(text).slice(0, 500), Math.max(1, Math.floor(withinHours))]);
+    return r.rows[0] || null;
+  }
+
   /**
    * Pertanyaan yang sedang dijawab dari grup WhatsApp departemen: lewat reply
    * ke pemberitahuannya (stanza id), atau lewat kode pendeknya (#ab12cd).
@@ -1935,21 +1988,26 @@ class Database {
 
   /**
    * Pengingat yang jatuh tempo, dihitung dalam JAM KERJA company (lihat
-   * reminder-schedule.js): 30 mnt, 2 jam, 8 jam, 18 jam jam-buka sejak pertanyaan
+   * reminder-schedule.js): 2 jam dan 8 jam jam-buka sejak pertanyaan
    * dibuat, hanya dikirim saat jam buka lokasi, jarak minimal 30 mnt. Jatuh
    * tempo ditentukan di JS; klaimnya (UPDATE ... WHERE reminder_count = lama
-   * RETURNING) atomik, jadi dua penyapu tidak mengirim dobel. Pengingat ke-4
-   * terakhir: pertanyaan menjadi 'unresolved' dan supervisor diberi lonceng.
+   * RETURNING) atomik, jadi dua penyapu tidak mengirim dobel. Pengingat terakhir:
+   * pertanyaan menjadi 'unresolved' dan supervisor diberi lonceng.
    */
   async claimDueDepartmentReminders(nowMs = Date.now()) {
     if (!this.enabled) return [];
+    // Pertanyaan lama yang sudah melewati jumlah pengingat baru (jadwal 4 diperpendek jadi 2): tutup sebagai belum terjawab.
+    await this.pool.query(
+      "UPDATE department_questions SET status = 'unresolved' WHERE status = 'open' AND reminder_count >= $1",
+      [reminderSchedule.REMINDER_WORK_MINUTES.length],
+    ).catch(() => {});
     const open = await this.pool.query(`
       SELECT q.id, q.reminder_count AS "reminderCount", q.created_at AS "createdAt",
              q.last_reminded_at AS "lastRemindedAt", COALESCE(c.timezone, 'Asia/Jakarta') AS timezone,
              q.company_id AS "companyId"
       FROM department_questions q JOIN companies c ON c.id = q.company_id
-      WHERE q.status = 'open' AND q.reminder_count < 4
-    `);
+      WHERE q.status = 'open' AND q.reminder_count < $1
+    `, [reminderSchedule.REMINDER_WORK_MINUTES.length]);
     // Jam buka lokasi per company (Pengaturan > Lokasi), dibaca sekali per putaran.
     const windowsByCompany = new Map();
     for (const companyId of new Set(open.rows.map((q) => q.companyId))) {
@@ -1972,12 +2030,12 @@ class Database {
       const r = await this.pool.query(`
         UPDATE department_questions q
         SET reminder_count = reminder_count + 1, last_reminded_at = NOW(),
-            status = CASE WHEN reminder_count + 1 >= 4 THEN 'unresolved' ELSE status END
+            status = CASE WHEN reminder_count + 1 >= $3 THEN 'unresolved' ELSE status END
         WHERE q.id = $1 AND q.status = 'open' AND q.reminder_count = $2
         RETURNING q.id, q.company_id AS "companyId", q.department_id AS "departmentId", q.third_party_id AS "thirdPartyId", q.chat_id AS "chatId",
-                  q.question, q.reminder_count AS "reminderCount", (q.reminder_count >= 4) AS final,
-                  q.created_at AS "createdAt"
-      `, [q.id, q.reminderCount]);
+                  q.question, q.reminder_count AS "reminderCount", (q.reminder_count >= $3) AS final,
+                  q.created_at AS "createdAt", q.payload
+      `, [q.id, q.reminderCount, reminderSchedule.REMINDER_WORK_MINUTES.length]);
       claimed.rows.push(...r.rows);
     }
     const rows = [];
@@ -1988,7 +2046,7 @@ class Database {
         const name = tp.rows[0]?.name || 'pihak ketiga';
         const body = row.final
           ? `${name} belum membalas setelah ${reminderSchedule.FINAL_HOURS} jam buka; customer ditandai belum terjawab (menunggu pihak ketiga): ${String(row.question).slice(0, 300)}`
-          : `Pengingat ${row.reminderCount}/4: ${name} belum membalas pertanyaan AI: ${String(row.question).slice(0, 300)}`;
+          : `Pengingat ${row.reminderCount}/${reminderSchedule.REMINDER_WORK_MINUTES.length}: ${name} belum membalas pertanyaan AI: ${String(row.question).slice(0, 300)}`;
         await this.pool.query(`
           INSERT INTO notifications (company_id, user_id, kind, chat_id, actor_kind, body)
           SELECT $1, user_id, 'department_question', $2, 'ai', $3 FROM company_members
@@ -2010,7 +2068,7 @@ class Database {
       const people = members.rows.filter((m) => m.userId);
       const body = row.final
         ? `Belum ada jawaban dari ${department} setelah ${reminderSchedule.FINAL_HOURS} jam buka; customer ditandai belum terjawab (menunggu internal): ${String(row.question).slice(0, 300)}`
-        : `Pengingat ${row.reminderCount}/4: pertanyaan AI untuk ${department} belum dijawab: ${String(row.question).slice(0, 300)}`;
+        : `Pengingat ${row.reminderCount}/${reminderSchedule.REMINDER_WORK_MINUTES.length}: pertanyaan AI untuk ${department} belum dijawab: ${String(row.question).slice(0, 300)}`;
       const targets = new Set(people.map((m) => m.userId));
       if (row.final) {
         const sup = await this.pool.query(

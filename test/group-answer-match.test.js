@@ -71,7 +71,7 @@ test('penjaga: "Ok skip ya" dibalas wajar, tanpa janji menyusul', () => {
 
 test('looksLikeBotNotice: pemberitahuan, pengingat, dan balasan pencocokan dikenali', () => {
   assert.ok(match.looksLikeBotNotice('*Pertanyaan dari asisten untuk tim Finance*\nCustomer: X'));
-  assert.ok(match.looksLikeBotNotice('*Pengingat 2/4 — tim Management*'));
+  assert.ok(match.looksLikeBotNotice('*Pengingat 1/2 — tim Management*'));
   assert.ok(match.looksLikeBotNotice('Saya baca pesan tadi sebagai jawaban untuk "x" (#abc123).'));
   assert.ok(match.looksLikeBotNotice('Jawab dengan reply, atau tulis #d87625'));
   assert.ok(!match.looksLikeBotNotice('Ada garansi kah?'));

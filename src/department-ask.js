@@ -306,7 +306,7 @@ function compoundProblem(question) {
 }
 
 /** Pesan WhatsApp ke anggota departemen. */
-function buildQuestionNotice({ department, question, customerLabel, askerLabel = null, code = null, group = false, dm = false, brief = null }) {
+function buildQuestionNotice({ department, question, customerLabel, askerLabel = null, code = null, group = false, dm = false, brief = null, checked = null, stageText = null, suggest = null }) {
   const cut = (v, n) => { const t = String(v || '').replace(/\s+/g, ' ').trim(); return t.length > n ? `${t.slice(0, n - 1)}…` : t; };
   const tail = `${answerHint({ code, group, dm })} Jawaban pertama yang masuk akan diteruskan ke ${askerLabel ? 'penanya' : 'customer'}.`;
   // Ringkasan percakapan (department-brief.js): bisa diputuskan dari HP tanpa membuka chat.
@@ -317,8 +317,11 @@ function buildQuestionNotice({ department, question, customerLabel, askerLabel =
       brief.awal ? `Awal chat: "${brief.awal}"` : null,
       brief.ringkasan ? `Ringkasan: ${brief.ringkasan}` : null,
       brief.pemicu ? `Pesan terakhir: "${brief.pemicu}"` : null,
+      stageText ? `Tahap (asumsi Agnes): ${stageText}` : null,
       brief.diketahui ? `Sudah diketahui: ${brief.diketahui}` : null,
+      checked ? `Sudah dicek: ${checked}` : null,
       `*Mohon diputuskan:* ${brief.putuskan}`,
+      suggest ? `Usul barang berikutnya: ${suggest} (balas 'ganti ...' atau 'tahap N' kalau keliru)` : null,
       '',
       tail,
     ].filter((x) => x !== null).join('\n');
@@ -327,9 +330,10 @@ function buildQuestionNotice({ department, question, customerLabel, askerLabel =
     `*Pertanyaan dari asisten untuk tim ${department}*`,
     askerLabel ? `Penanya: ${askerLabel}` : `Customer: ${customerLabel}`,
     `Pertanyaan: "${cut(question, 650)}"`,
+    checked ? `Sudah dicek: ${checked}` : null,
     '',
     tail,
-  ].join('\n');
+  ].filter((x) => x !== null).join('\n');
 }
 
 /** Pesan WhatsApp ke anggota departemen yang di-mention di komentar samping chat. */
@@ -376,8 +380,9 @@ function historyBlock(history = []) {
 }
 
 /** Perintah ke model untuk menyusun balasan ke customer dari jawaban yang sudah ditinjau. */
-function relayPrompt({ customerText, question, answer, history = [], strict = false, numbersStrict = false }) {
+function relayPrompt({ customerText, question, answer, history = [], strict = false, numbersStrict = false, stageNote = '' }) {
   const notes = [];
+  if (stageNote) notes.push(stageNote);
   if (strict) notes.push('PERHATIAN: percobaan sebelumnya menyebut proses internal. Ulangi tanpa menyebut siapa pun atau proses apa pun, hanya hasilnya.');
   if (numbersStrict) notes.push('PERHATIAN: percobaan sebelumnya memuat angka yang tidak ada di hasil. Tulis hanya angka yang tertulis persis di hasil, tanpa total atau hitungan.');
   return `${historyBlock(history)}Customer sebelumnya menulis: "${customerText}"\nKamu memastikan hal ini: "${question}"\nHasil yang sudah dipastikan: "${answer}"\n\nTulis balasan ke customer berdasarkan hasil itu.\n\n${RELAY_RULES}${notes.length ? `\n\n${notes.join('\n')}` : ''}`;

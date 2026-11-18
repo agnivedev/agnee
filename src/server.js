@@ -75,6 +75,8 @@ const { createReplyPacer } = require('./reply-delay.js');
 const handoffNotice = require('./handoff-notice.js');
 const departmentAsk = require('./department-ask.js');
 const departmentBrief = require('./department-brief.js');
+const toolJournal = require('./tool-journal.js');
+const buildStage = require('./build-stage.js');
 const nervaTools = require('./nerva-tools.js');
 const nervaProactive = require('./nerva-proactive.js');
 const uncertainty = require('./uncertainty-guard.js');
@@ -1302,7 +1304,7 @@ async function buildApp(overrides = {}) {
   });
   // Alasan relay yang berarti jawaban staf memang bukan untuk customer: tidak
   // dijadikan bahan belajar AI.
-  const NOT_FOR_CUSTOMER = new Set(['stop_ai', 'mention']);
+  const NOT_FOR_CUSTOMER = new Set(['stop_ai', 'mention', 'stage_only']);
   const cardCooldown = handoffNotice.createCooldown();
 
   /**
@@ -1672,13 +1674,12 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
    * per chat per departemen supaya model yang mengulang tidak membanjiri.
    */
   /** Ringkasan percakapan untuk pertanyaan ke departemen; null bila gagal (format lama dipakai). */
-  async function briefForQuestion({ companyId, chatId, customerText, question }) {
-    if (!canCall('recentConversation') || !chatId) return null;
+  async function briefForQuestion({ companyId, chatId, customerText, question, conv }) {
+    if (!conv) return null;
     try {
-      const { first, turns } = await database.recentConversation(companyId, chatId, 12);
       const companyAi = await getCompanyAi(companyId).catch(() => ({}));
       return await departmentBrief.generateBrief({
-        firstMessage: first, turns, customerText, question,
+        firstMessage: conv.first, turns: conv.turns, customerText, question,
         ask: async (prompt, systemPrompt) => (await llmService.generateReply(prompt, {
           systemPrompt, companyId, purpose: 'department_brief', modelChain: companyAi.modelChain,
         }))?.text || '',
@@ -1686,6 +1687,33 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     } catch (error) {
       app.log.warn({ err: error, companyId }, 'Ringkasan pertanyaan departemen gagal; memakai kutipan customer');
       return null;
+    }
+  }
+
+  /**
+   * Tahap pembangunan untuk pertanyaan ini + usulan barang berikutnya dari DealPOS. Koreksi Management
+   * yang sudah tersimpan dipakai apa adanya; selain itu ditebak dari chat dan disimpan sebagai tebakan Agnes.
+   */
+  async function stageForQuestion({ companyId, chatId, customerText, question, conv }) {
+    try {
+      let stage = canCall('getBuildStage') ? await database.getBuildStage(companyId, chatId).catch(() => null) : null;
+      if (!(stage?.stage && stage.source === 'management')) {
+        const customerTexts = [...(conv?.turns || []).filter((t) => t.from === 'customer').map((t) => t.body), customerText, question];
+        const guess = buildStage.guessStage(customerTexts);
+        stage = guess ? { stage: guess.n, reason: guess.reason, source: 'agnes' } : null;
+        if (guess && canCall('setBuildStage')) await database.setBuildStage(companyId, chatId, { stage: guess.n, reason: guess.reason, source: 'agnes' }).catch(() => {});
+      }
+      const stageText = stage?.stage ? buildStage.stageLine({ n: stage.stage, reason: stage.reason }) : 'belum jelas';
+      let suggest = null;
+      if (stage?.stage) {
+        const { products = [] } = (await dealposPriceCached(companyId).catch(() => ({ products: [] }))) || {};
+        const items = buildStage.suggestNext(stage.stage, products, 2);
+        if (items.length) suggest = items.map(buildStage.itemText).join('; ');
+      }
+      return { stageText, suggest };
+    } catch (error) {
+      app.log.warn({ err: error, companyId }, 'Tahap pembangunan untuk pertanyaan departemen gagal');
+      return { stageText: null, suggest: null };
     }
   }
 
@@ -1734,22 +1762,33 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       meta.dryRun.push({ department: dept.name, question, kind: meta.kind || 'general' });
       return { status: 'sent', department: dept.name };
     }
+    // Pengecekan alat yang BENAR-BENAR terjadi di chat ini (jurnal), bukan klaim model.
+    const calls = chatId && canCall('recentToolCalls') ? await database.recentToolCalls(companyId, chatId, 24).catch(() => []) : [];
+    // Pertanyaan barang/harga/stok wajib didahului cek_harga: jawabannya kerap sudah ada di DealPOS.
+    if (!args.fromGuard && meta.needPriceCheck && (!meta.kind || meta.kind === 'general') && !askerLabel
+      && /\b(?:harga|stok|stock|ready|tersedia|ketersediaan|barang|produk)\b/i.test(question) && !toolJournal.hasCalled(calls, 'cek_harga')) {
+      return { error: 'Cek dulu barangnya dengan alat cek_harga (DealPOS). Tanya departemen hanya bila alat itu sudah dipanggil dan hasilnya tidak ketemu atau butuh keputusan manusia.' };
+    }
+    const checked = (!meta.kind || meta.kind === 'general') && !askerLabel ? toolJournal.checkedLine(calls) : null;
     // Ringkasan percakapan untuk staf (awal chat, pemicu, yang diketahui, yang harus diputuskan). Gagal = format lama.
-    const brief = (!meta.kind || meta.kind === 'general') && !askerLabel ? await briefForQuestion({ companyId, chatId, customerText, question }) : null;
+    const isCustomerQuestion = (!meta.kind || meta.kind === 'general') && !askerLabel;
+    const conv = isCustomerQuestion && chatId && canCall('recentConversation') ? await database.recentConversation(companyId, chatId, 12).catch(() => null) : null;
+    const brief = isCustomerQuestion ? await briefForQuestion({ companyId, chatId, customerText, question, conv }) : null;
+    const { stageText, suggest } = isCustomerQuestion && brief ? await stageForQuestion({ companyId, chatId, customerText, question, conv }) : { stageText: null, suggest: null };
     const created = await database.createDepartmentQuestion({
       departmentId: dept.id, chatId, customerText, question, kind: meta.kind || 'general',
-      payload: brief ? { ...(meta.payload || {}), brief } : (meta.payload || null),
+      payload: brief ? { ...(meta.payload || {}), brief, ...(checked ? { checked } : {}), ...(stageText ? { stageText } : {}), ...(suggest ? { suggest } : {}) } : (meta.payload || null),
     }, companyId);
     if (!created) return { error: 'Departemen tidak ditemukan.' };
     broadcastEvent(companyId, 'department_question', { id: created.id, department: dept.name });
     const customerLabel = await customerLabelFor(companyId, chatId);
     const notice = departmentAsk.buildQuestionNotice({
-      department: dept.name, question, customerLabel, askerLabel, brief,
+      department: dept.name, question, customerLabel, askerLabel, brief, checked, stageText, suggest,
       code: departmentAsk.questionCode(created.id), dm: true,
     });
     const groupSent = created.whatsappGroupId
       ? await notifyDepartmentGroup(companyId, created.id, created.whatsappGroupId, departmentAsk.buildQuestionNotice({
-        department: dept.name, question, customerLabel, askerLabel, brief,
+        department: dept.name, question, customerLabel, askerLabel, brief, checked, stageText, suggest,
         code: departmentAsk.questionCode(created.id), group: true,
       }))
       : false;
@@ -2013,7 +2052,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       ? 'Terima kasih, jawabannya sudah diteruskan ke customer.'
       : await handleUnrelayedAnswer({ companyId, row, department: hit.department, answer, reason: relay.reason }));
     await sendOutbound(companyId, ackTo, `${ackPrefix}${ack}`).catch(() => {});
-    if (relay.reason !== 'mention') await closeSiblingQuestions(companyId, row, { all: relay.reason === 'stop_ai' });
+    if (relay.reason !== 'mention' && relay.reason !== 'stage_only') await closeSiblingQuestions(companyId, row, { all: relay.reason === 'stop_ai' });
     if (!NOT_FOR_CUSTOMER.has(relay.reason)) trackLearning(learnFromDepartmentAnswer({ companyId, questionId: row.id, channel, groupId }));
     return true;
   }
@@ -2104,6 +2143,36 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
   }
 
   /**
+   * Koreksi Management di jawaban ("tahap 4 lantai, tawarkan perekat MU 380"): tahap diperbarui, barang yang
+   * disebut dicek ke DealPOS, dan potongan koreksi bukan kalimat untuk customer.
+   * Mengembalikan { row, stageNote, extraAck, only } (`only` = hanya koreksi, tak ada jawaban untuk customer).
+   */
+  async function applyAnswerCorrection(row, companyId) {
+    let stageNote = '';
+    const extraAck = [];
+    const correction = buildStage.parseCorrection(row.answer);
+    if (!correction.stage && !correction.offer) return { row, stageNote, extraAck, only: false };
+    if (correction.stage && canCall('setBuildStage')) {
+      await database.setBuildStage(companyId, row.chatId, { stage: correction.stage, reason: 'koreksi Management', source: 'management' }).catch(() => {});
+      extraAck.push(`Tahap dicatat: ${correction.stage} ${buildStage.nameOf(correction.stage)}.`);
+      stageNote = `Catatan internal (jangan disebut ke customer, jangan menulis kata "tahap"): pekerjaan customer ada di fase ${buildStage.nameOf(correction.stage)}; bila menawarkan barang tambahan, sesuaikan dengan fase itu.`;
+    }
+    let offerFact = '';
+    if (correction.offer) {
+      const { products = [] } = (await dealposPriceCached(companyId).catch(() => ({ products: [] }))) || {};
+      const hits = buildStage.matchOffer(products, correction.offer, 2);
+      if (hits.length) {
+        offerFact = `Barang yang boleh ditawarkan (harga dari DealPOS): ${hits.map(buildStage.itemText).join('; ')}`;
+        extraAck.push(`Barang usulan ketemu di DealPOS: ${hits.map((h) => h.name).join(', ')}.`);
+      } else {
+        extraAck.push(`"${correction.offer}" tidak ketemu di DealPOS, jadi tidak ditawarkan.`);
+      }
+    }
+    if (!correction.rest) return { row, stageNote, extraAck, only: true };
+    return { row: { ...row, answer: [correction.rest, offerFact].filter(Boolean).join('. ') }, stageNote, extraAck, only: false };
+  }
+
+  /**
    * Riwayat singkat chat untuk relay: dari WhatsApp bila bisa, selain itu dari
    * catatan Agnee sendiri. Tanpa riwayat, relay 6 Nov menanyakan lagi "butuh
    * berapa batang?" yang sudah dijawab customer sehari sebelumnya.
@@ -2147,6 +2216,14 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       await database.reopenDepartmentQuestion(row.id, companyId).catch(() => {});
       return { relayed: false, reason: 'mention', ackText: 'Pesan yang menyebut rekan belum dianggap jawaban dan tidak dikirim ke customer, jadi pertanyaan masih terbuka. Balas pesan pertanyaan dengan jawaban untuk customer (atau "batal").' };
     }
+    const corrected = await applyAnswerCorrection(row, companyId);
+    const { stageNote, extraAck } = corrected;
+    if (corrected.only) {
+      // Hanya koreksi, tanpa jawaban untuk customer: pertanyaan tetap terbuka.
+      await database.reopenDepartmentQuestion(row.id, companyId).catch(() => {});
+      return { relayed: false, reason: 'stage_only', ackText: `${extraAck.join(' ')} Belum ada jawaban untuk customer, pertanyaan masih terbuka. Balas pesan pertanyaan dengan jawabannya.`.trim() };
+    }
+    row = corrected.row;
     const routing = await getRouting(row.chatId, companyId).catch(() => null);
     if (routing?.mode === 'human') return { relayed: false, reason: 'human' };
     // CS manusia sudah membalas customer sejak pertanyaan dibuat: isi jawabannya
@@ -2187,7 +2264,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     let retry = {};
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const result = await llmService.generateReply(
-        departmentAsk.relayPrompt({ customerText: row.customerText, question: row.question, answer: row.answer, history, ...retry }),
+        departmentAsk.relayPrompt({ customerText: row.customerText, question: row.question, answer: row.answer, history, stageNote, ...retry }),
         { systemPrompt: ctx.systemPrompt, companyId, purpose: 'auto_reply', modelChain: companyAi.modelChain },
       ).catch(() => null);
       verdict = departmentAsk.judgeRelay(stripLinks(result?.text || ''), row.answer);
@@ -2202,7 +2279,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     const sent = await sendOutbound(companyId, row.chatId, text);
     await database.recordOutboundReply({ chatId: row.chatId, messageId: sent?.messageId || null, author: 'ai', body: text, inReplyTo: row.question }, companyId).catch(() => {});
     await database.markDepartmentQuestionRelayed(row.id, companyId);
-    return { relayed: true };
+    return extraAck.length ? { relayed: true, ackText: `Terima kasih, jawabannya sudah diteruskan ke customer. ${extraAck.join(' ')}` } : { relayed: true };
   }
 
   /**
@@ -2474,7 +2551,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
           run: async (args = {}) => {
             const out = await askDepartment({
               companyId, chatId, customerText: text, departments, args, askerLabel: ops ? (sender?.name || 'anggota tim') : null,
-              meta: simulatedQuestions ? { dryRun: simulatedQuestions } : {},
+              meta: simulatedQuestions ? { dryRun: simulatedQuestions, needPriceCheck: false } : { needPriceCheck: priceTools.length > 0 },
             });
             if (out.status === 'sent' || out.status === 'already_asked') departmentAsked.push(out.department);
             return out;
@@ -2555,6 +2632,11 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
           run: async (...args) => {
             const out = await tool.run(...args);
             try { toolOutputs.push(JSON.stringify(out)); } catch { /* hasil tak bisa diserialkan: abaikan */ }
+            // Jurnal panggilan alat di chat nyata: dasar baris "Sudah dicek" di pertanyaan ke departemen.
+            if (allowOrders && chatId && dbLive && canCall('recordToolCall')) {
+              const entry = toolJournal.describe(tool.name || tool.spec?.name, args[0] || {}, out || {});
+              if (entry) await database.recordToolCall({ ...entry, chatId }, companyId);
+            }
             return out;
           },
         })),
@@ -2962,6 +3044,13 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       return { action: 'notify_staff' };
     };
     if (plan.action === 'ask_department') {
+      // Pertanyaan barang/harga/stok: cek_harga harus sudah dipanggil di chat ini. Belum = tanya customer
+      // nama barang yang jelas dulu, jangan membangunkan departemen untuk sesuatu yang belum dicari.
+      if ((assessment.topic === 'harga' || assessment.topic === 'stok') && chatId && canCall('recentToolCalls')
+        && (ctx.tools || []).some((tool) => (tool?.name || tool?.spec?.name) === 'cek_harga')) {
+        const calls = await database.recentToolCalls(companyId, chatId, 24).catch(() => []);
+        if (!toolJournal.hasCalled(calls, 'cek_harga')) return { action: 'ask_customer' };
+      }
       try {
         const out = await askTool.run({
           department: plan.department,
@@ -15129,6 +15218,9 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
   });
   app.decorate('followUpScheduler', followUpScheduler);
   app.decorate('handleInboundMessage', handleInboundMessage);
+  app.decorate('askDepartment', askDepartment);
+  app.decorate('relayDepartmentAnswerForTest', relayDepartmentAnswer);
+  app.decorate('applyAnswerCorrection', applyAnswerCorrection);
   app.decorate('handleOwnMessage', handleOwnMessage);
   app.decorate('sweepAutoAssigned', sweepAutoAssigned);
 

@@ -24,7 +24,10 @@ const DEPTS = {
   none: [],
 };
 
-async function harness(t, { departments = DEPTS.both, mode = 'on', script, addressFound = false } = {}) {
+// Jurnal alat bawaan: cek_harga sudah dipanggil di chat ini (syarat bertanya ke departemen soal barang/harga/stok).
+const CHECKED = [{ tool: 'cek_harga', query: 'barang', result: 'tidak ketemu' }];
+
+async function harness(t, { departments = DEPTS.both, mode = 'on', script, addressFound = false, toolCalls = CHECKED, withCatalog = false } = {}) {
   const state = { questions: [], events: [], cards: [], routing: [], prompts: [] };
   const known = {
     enabled: true, connected: true,
@@ -59,8 +62,9 @@ async function harness(t, { departments = DEPTS.both, mode = 'on', script, addre
     async recordSimulationRun() { return { id: 'r1' }; },
     async recordInboundMessage() { return true; },
     async markFollowUpReplied() {}, async stopFollowUpSequence() {}, async upsertContactName() {},
-    async listCatalogForAi() { return { enabled: false, items: [], tags: [], syncedAt: null }; },
+    async listCatalogForAi() { return withCatalog ? { enabled: true, items: [{ id: 1, name: 'MU 301 PLESTER 40KG', price: 62000, unit: 'sak', category: 'B' }], tags: [], syncedAt: null } : { enabled: false, items: [], tags: [], syncedAt: null }; },
     async getHandoffNotifyNumbers() { return []; },
+    async recentToolCalls() { return toolCalls; },
     async getReplyDelaySettings() { return { replyDelayEnabled: false }; },
   };
   const database = new Proxy(known, {
@@ -105,6 +109,15 @@ async function harness(t, { departments = DEPTS.both, mode = 'on', script, addre
 }
 
 const INTERNAL = /Management|Finance|ask_department|cek_harga|cek_ongkir|cek_alamat|belum diisi|tidak ada di (?:prompt|katalog)|playbook/i;
+
+test('harga dikarang tapi cek_harga belum pernah dipanggil di chat ini: tanya customer, Management tidak dibangunkan', async (t) => {
+  const { state, chat } = await harness(t, { toolCalls: [], withCatalog: true, script: async () => 'Untuk dinding retak pakai MU 100 Base Plester seharga Rp 75.000 per sak ya Kak.' });
+  const reply = await chat('dinding saya retak perlu diperbaiki, pakai apa dan berapa?');
+  assert.doesNotMatch(reply, /75\.000/);
+  assert.equal(state.questions.length, 0, 'departemen tidak ditanya sebelum alat cek barang dipakai');
+  assert.equal(state.events[0].action, 'ask_customer');
+  assert.doesNotMatch(reply, INTERNAL);
+});
 
 test('ESBEJE: barang tak ada di katalog, model mengarang harga -> tidak menebak, tanya Management', async (t) => {
   const { state, chat } = await harness(t, { script: async () => 'Untuk dinding retak pakai MU 100 Base Plester seharga Rp 75.000 per sak ya Kak.' });

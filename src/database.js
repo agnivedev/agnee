@@ -1780,6 +1780,52 @@ class Database {
     `, [id, companyId, String(stanzaId)]);
   }
 
+  /** Satu panggilan alat AI di chat nyata (ringkas). Jurnal lebih dari 14 hari dibuang sesekali. Tak pernah melempar. */
+  async recordToolCall({ chatId, tool, query = null, result = null }, companyId) {
+    if (!this.enabled || !chatId || !tool) return;
+    try {
+      await this.pool.query(
+        'INSERT INTO ai_tool_calls (company_id, chat_id, tool, query, result) VALUES ($1, $2, $3, $4, $5)',
+        [companyId, chatId, String(tool).slice(0, 60), query ? String(query).slice(0, 200) : null, result ? String(result).slice(0, 200) : null],
+      );
+      if (Math.random() < 0.02) {
+        await this.pool.query("DELETE FROM ai_tool_calls WHERE created_at < NOW() - INTERVAL '14 days'");
+      }
+    } catch { /* jurnal tak boleh menggagalkan balasan */ }
+  }
+
+  /** Panggilan alat terbaru di chat ini, lama ke baru. */
+  async recentToolCalls(companyId, chatId, hours = 24, limit = 40) {
+    if (!this.enabled || !chatId) return [];
+    const r = await this.pool.query(`
+      SELECT tool, query, result, created_at AS "at" FROM (
+        SELECT tool, query, result, created_at FROM ai_tool_calls
+        WHERE company_id = $1 AND chat_id = $2 AND created_at > NOW() - make_interval(hours => $3::int)
+        ORDER BY created_at DESC LIMIT $4
+      ) x ORDER BY created_at ASC
+    `, [companyId, chatId, Math.max(1, Math.floor(hours)), Math.min(Math.max(Number(limit) || 40, 1), 200)]);
+    return r.rows;
+  }
+
+  /** Tahap pembangunan satu chat: tebakan Agnes, atau koreksi Management (yang terakhir menang). */
+  async setBuildStage(companyId, chatId, { stage, reason = null, source = 'agnes' }) {
+    if (!this.enabled || !chatId) return null;
+    const n = stage === null || stage === undefined ? null : Number(stage);
+    if (n !== null && !(Number.isInteger(n) && n >= 1 && n <= 6)) return null;
+    const r = await this.pool.query(`
+      INSERT INTO chat_build_stage (company_id, chat_id, stage, reason, source) VALUES ($1, $2, $3, $4, $5)
+      ON CONFLICT (company_id, chat_id) DO UPDATE SET stage = EXCLUDED.stage, reason = EXCLUDED.reason, source = EXCLUDED.source, updated_at = NOW()
+      RETURNING stage, reason, source
+    `, [companyId, chatId, n, reason ? String(reason).slice(0, 160) : null, source === 'management' ? 'management' : 'agnes']);
+    return r.rows[0] || null;
+  }
+
+  async getBuildStage(companyId, chatId) {
+    if (!this.enabled || !chatId) return null;
+    const r = await this.pool.query('SELECT stage, reason, source, updated_at AS "updatedAt" FROM chat_build_stage WHERE company_id = $1 AND chat_id = $2', [companyId, chatId]);
+    return r.rows[0] || null;
+  }
+
   /** Id lengkap pesan pertanyaan di grup (untuk membalas dengan kutipan); hanya yang pertama disimpan. */
   async rememberDepartmentQuestionGroupSerial(id, serial, companyId) {
     if (!this.enabled || !serial) return;

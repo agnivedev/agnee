@@ -12,6 +12,7 @@
 
 const { fetchToken, sleep, PAGE_GAP_MS } = require('./dealpos-sync.js');
 const { MIN_UNIT_PRICE } = require('./dealpos-orders.js');
+const { fetchInventory, stockText } = require('./dealpos-stock.js');
 
 const PAGE_SIZE = 200;
 const MAX_PAGES = 200;
@@ -99,7 +100,15 @@ async function fetchProducts(credentials, { dealposGet, token = null, onRateLimi
       }
     }
   };
-  return fetchVariants(get);
+  const variants = await fetchVariants(get);
+  // Stok opsional: gagal berarti stok tidak diketahui, bukan membatalkan harga.
+  try {
+    const stock = await fetchInventory(get, { gapMs: PAGE_GAP_MS });
+    for (const v of variants) v.stock = stock.has(v.variantId) ? stock.get(v.variantId) : null;
+  } catch {
+    for (const v of variants) v.stock = null;
+  }
+  return variants;
 }
 
 const STOP = new Set([
@@ -254,8 +263,8 @@ function priceSection(matches, syncedAt) {
     : null;
   return [
     `## DAFTAR HARGA DEALPOS (harga jual satuan${when ? `, diperbarui ${when} WIB` : ''})`,
-    'Hanya varian yang cocok dengan percakapan ini. Sebut harga hanya dari daftar ini, apa adanya. Barang atau ukuran yang tidak ada di daftar: jangan menebak harganya. Daftar ini bukan informasi stok.',
-    ...matches.map((p) => `- ${p.name}${p.code ? ` [${p.code}]` : ''}: ${rupiah(p.unitPrice)}${p.unit ? ` per ${p.unit}` : ''}`),
+    'Hanya varian yang cocok dengan percakapan ini. Sebut harga hanya dari daftar ini, apa adanya. Barang atau ukuran yang tidak ada di daftar: jangan menebak harganya. Barang berstatus HABIS atau stok tidak diketahui: jangan bilang ada, ready, atau tersedia.',
+    ...matches.map((p) => `- ${p.name}${p.code ? ` [${p.code}]` : ''}: ${rupiah(p.unitPrice)}${p.unit ? ` per ${p.unit}` : ''} · ${stockText(p)}`),
   ].join('\n');
 }
 

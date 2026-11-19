@@ -63,6 +63,7 @@ const chatMemory = require('./chat-memory.js');
 const attachmentReader = require('./attachment-reader.js');
 const priceGuard = require('./price-guard.js');
 const nonCustomerGuard = require('./non-customer-guard.js');
+const { stockOf } = require('./dealpos-stock.js');
 const storeLocations = require('./store-locations.js');
 const promoRules = require('./promo-rules.js');
 const paymentAccounts = require('./payment-accounts.js');
@@ -2430,7 +2431,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       }
     }
     const priceTools = priceItems.length ? [priceLookup.toolSpec({
-      items: priceItems, tagText: priceTagText,
+      items: priceItems, tagText: priceTagText, serper: {},
       onResults: (rows) => chatMemory.remember(chatMemory.shown, companyId, chatId, rows),
       // LLM memastikan barang yang dimaksud: istilah lapangan ("paralon 4",
       // "siltip") dicocokkan lewat kategori, dan hasil pencarian kata yang
@@ -2615,7 +2616,12 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     const basePrompt = ops ? kb.getInternalOpsPrompt() : kb.getSystemPrompt();
 
     const toolOutputs = [];
+    // Barang dengan stok terbaca (habis atau ada) untuk penjaga "ada padahal habis".
+    // Kosong bila tak satu pun habis, jadi penjaga tidak berjalan sama sekali.
+    const stockKnown = priceItems.filter((i) => (i.source === 'dealpos' || i.unitPrice !== undefined) && stockOf(i).state !== 'tidak_diketahui');
+    const stockItems = stockKnown.some((i) => stockOf(i).state === 'habis') ? stockKnown : null;
     return {
+      stockItems,
       kb,
       relevantFaqs,
       product,
@@ -2915,6 +2921,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       userMessage: customerText,
       history,
       priceSource: priceSourceOf(ctx, { userMessage: customerText, history, companyId, chatId }),
+      stockItems: ctx.stockItems,
       expectations: replyExpectationsOf(ctx),
     });
     const first = await llmService.generateReply(customerText, genContext).catch(() => null);
@@ -3393,6 +3400,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       userMessage: customerText,
       history: conversationHistory,
       priceSource: priceSourceOf(ctx, { userMessage: customerText, history: conversationHistory, companyId, chatId: message.from }),
+      stockItems: ctx.stockItems,
       expectations: replyExpectationsOf(ctx),
     });
     const guarded = await guardUncertainty({
@@ -7712,6 +7720,7 @@ Aturan:
           userMessage: customerRead,
           history,
           priceSource: priceSourceOf(ctx, { userMessage: customerRead, history }),
+          stockItems: ctx.stockItems,
           expectations: replyExpectationsOf(ctx),
         });
         const guardedSim = await guardUncertainty({
@@ -7983,6 +7992,7 @@ Aturan:
       const enforced = await enforceReplyContract(llmService, {
         text: generated.text, systemPrompt: ctx.systemPrompt, userMessage: customerMessage, history,
         priceSource: priceSourceOf(ctx, { userMessage: customerMessage, history }),
+        stockItems: ctx.stockItems,
         expectations: replyExpectationsOf(ctx),
       });
       return enforced ? limitLinks(enforced.text).text : '';
@@ -8236,6 +8246,7 @@ Aturan:
     const enforced = await enforceReplyContract(llmService, {
       text: generated.text, systemPrompt: ctx.systemPrompt, userMessage: text, history: [],
       priceSource: priceSourceOf(ctx, { userMessage: text }),
+      stockItems: ctx.stockItems,
       expectations: replyExpectationsOf(ctx),
     });
     return enforced ? limitLinks(enforced.text).text : null;
@@ -11852,7 +11863,7 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
       const settings = await database.getCatalogSettings(companyId);
       const token = await dealposSync.fetchToken(conn, undefined, { patient: true });
       const now = new Date();
-      const { items, sold, soldError } = await catalog.fetchDealposCatalog(
+      const { items, sold, soldError, stock } = await catalog.fetchDealposCatalog(
         dealposPatientGetter(conn, token, companyId), { now, bestSellerDays: settings.bestSellerDays },
       );
       // Tarikan kosong hampir pasti salah baca respons, bukan toko tanpa barang:
@@ -11863,7 +11874,7 @@ Jawab HANYA JSON satu baris: {"<id>": "<jenis>", ...} untuk setiap id.`,
       });
       const soldQty = new Map(items.map((item) => [item.externalId, catalog.soldQtyFor(item, sold)]));
       const note = soldError ? `Laporan penjualan DealPOS tidak terbaca, Best Seller tidak diperbarui: ${soldError}` : null;
-      const count = await database.syncPosCatalog(companyId, 'dealpos', items, { assignments, soldQty, note });
+      const count = await database.syncPosCatalog(companyId, 'dealpos', items, { assignments, soldQty, note, stock });
       // Merek dan tag bawaan DealPOS hanya untuk Best Seller dan Promo; gagal tidak membatalkan katalog.
       try {
         const targets = catalog.detailTargets(items, assignments);

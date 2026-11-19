@@ -15,6 +15,7 @@
  * harus lolos bersih.
  */
 const { findInventedPrices, stripInventedPrices, rupiah: priceGuardRupiah } = require('./price-guard');
+const { findFalseAvailability, stripFalseAvailability, indexItems: indexStockItems } = require('./stock-guard');
 const { findInventedAccounts, stripInventedAccounts } = require('./account-guard');
 const { fixConsistency } = require('./reply-consistency');
 
@@ -193,7 +194,7 @@ function stripClaimSentences(text) {
  * @returns {Promise<{text: string, rewritten: boolean, stripped: boolean,
  *                    warnings: string[]} | null>}
  */
-async function enforceReplyContract(llmService, { text, systemPrompt, userMessage, history = [], expectations = {}, priceSource = null }) {
+async function enforceReplyContract(llmService, { text, systemPrompt, userMessage, history = [], expectations = {}, priceSource = null, stockItems = null }) {
   // Jumlah barang yang sah disebut ke customer: yang ia tulis sendiri di percakapan ini.
   const quantityText = [userMessage, ...(history || []).map((turn) => turn?.content ?? turn?.text ?? '')].join('\n');
   let initial = String(text || '').trim();
@@ -223,8 +224,13 @@ async function enforceReplyContract(llmService, { text, systemPrompt, userMessag
   const accountWarnings = (value) => (accountsIn(value).length
     ? ['menyebut nomor rekening atau telepon yang tidak ada di pengetahuan (dikarang): jangan menulis nomor itu; katakan rekening resmi dikirim tim']
     : []);
+  // Barang berstok nol yang dinyatakan ada (lihat stock-guard.js).
+  const stockIndex = Array.isArray(stockItems) && stockItems.length ? indexStockItems(stockItems) : null;
+  const falseStock = (value) => (stockIndex ? findFalseAvailability(value, stockIndex) : []);
+  const stockWarnings = (value) => [...new Set(falseStock(value).map((f) => f.name))].slice(0, 3)
+    .map((name) => `menyatakan "${name}" ada/ready/tersedia padahal stoknya HABIS di POS: katakan stok varian itu sedang habis dan tawarkan varian lain yang stoknya ada, atau tanyakan ke tim kapan masuk`);
   const allWarnings = (value) => {
-    const price = priceWarnings(value);
+    const price = [...priceWarnings(value), ...stockWarnings(value)];
     // Saat harga karangan, instruksinya sudah "pastikan dulu": jangan bentrok dengan larangan menunda.
     return [...styleWarnings(value, expectations), ...price, ...accountWarnings(value), ...(price.length ? [] : delayWarnings(value, expectations))];
   };
@@ -255,7 +261,7 @@ ${current}`;
 
   // Klaim hasil/risiko adalah satu-satunya pelanggaran yang tidak boleh lolos.
   // Sisanya (panjang, emoji) jelek tapi tidak berbahaya.
-  if (!findClaimViolations(current).length && !inventedIn(current).length && !accountsIn(current).length) {
+  if (!findClaimViolations(current).length && !inventedIn(current).length && !accountsIn(current).length && !falseStock(current).length) {
     return { text: current, rewritten, stripped: false, warnings };
   }
 
@@ -264,6 +270,7 @@ ${current}`;
     strippedText = stripInventedPrices(strippedText, priceSource, { quantityText });
     strippedText = stripInventedAccounts(strippedText, priceSource);
   }
+  if (stockIndex) strippedText = stripFalseAvailability(strippedText, stockIndex);
   if (strippedText.split(/\s+/).filter(Boolean).length < 5) return null;
   return {
     text: strippedText,

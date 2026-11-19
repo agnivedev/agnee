@@ -12,6 +12,7 @@
  */
 
 const { tokens, matchProducts } = require('./dealpos-prices.js');
+const { fetchInventory, stockText } = require('./dealpos-stock.js');
 
 const PAGE_SIZE = 200;
 const MAX_PAGES = 200;
@@ -182,7 +183,17 @@ async function fetchDealposCatalog(get, { now = new Date(), bestSellerDays = 30,
     if (error?.rateLimited) throw error;
     soldError = error?.message || String(error);
   }
-  return { items: [...byId.values()], sold, soldError };
+  // Stok per varian. Opsional: gagal (hak akses, rate limit) tidak membatalkan
+  // katalog; stok dibiarkan apa adanya (`stock: null`) dan AI tidak boleh
+  // menyatakan ada atau habis untuk barang yang stoknya tak terbaca.
+  let stock = null;
+  let stockError = null;
+  try {
+    stock = await fetchInventory(get, { sleep, gapMs: PAGE_GAP_MS });
+  } catch (error) {
+    stockError = error?.message || String(error);
+  }
+  return { items: [...byId.values()], sold, soldError, stock, stockError };
 }
 
 function defaultSleep(ms) {
@@ -298,6 +309,7 @@ function itemLine(item) {
   if (item.priceNote) price += ` (${item.priceNote})`;
   parts.push(`: ${price}`);
   if (item.tags?.length) parts.push(` · ribbon: ${item.tags.map((t) => t.name).join(', ')}`);
+  if (item.source === 'dealpos') parts.push(` · ${stockText(item)}`);
   if (item.description) parts.push(` — ${item.description.replace(/\s+/g, ' ').slice(0, 240)}`);
   if (item.url) parts.push(` · link: ${item.url}`);
   return parts.join('');
@@ -317,7 +329,7 @@ function catalogSection({ items, tags, syncedAt = null }, { text: message = '', 
 
   const lines = [
     `## KATALOG PRODUK & JASA${when ? ` (data POS diperbarui ${when} WIB)` : ''}`,
-    'Sebut harga hanya dari katalog ini, apa adanya. Barang, ukuran, atau jasa yang tidak ada di sini: jangan menebak harganya. Katalog ini bukan informasi stok.',
+    'Sebut harga hanya dari katalog ini, apa adanya. Barang, ukuran, atau jasa yang tidak ada di sini: jangan menebak harganya. Barang POS berstatus HABIS atau stok tidak diketahui: jangan bilang ada, ready, atau tersedia (lihat aturan CEK HARGA).',
   ];
   if (items.some((i) => i.url)) {
     lines.push('Item yang punya "link" boleh dibagikan linknya persis seperti tertulis, hanya saat customer ingin membeli atau mendaftar; jangan mengarang atau mengubah link.');

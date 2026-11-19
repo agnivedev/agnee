@@ -51,7 +51,7 @@ test('priceSection menulis harga rupiah per satuan dan kosong bila tidak ada yan
   const section = prices.priceSection([catalog[0]], '2026-10-23T03:00:00Z');
   assert.match(section, /DAFTAR HARGA DEALPOS/);
   assert.match(section, /Semen Jakarta 50 kg \[SJ50\]: Rp 68\.000 per sak/);
-  assert.match(section, /bukan informasi stok/);
+  assert.match(section, /HABIS atau stok tidak diketahui/);
   assert.equal(prices.priceSection([], null), '');
 });
 

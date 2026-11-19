@@ -5776,11 +5776,14 @@ class Database {
       for (let i = 0; i < products.length; i += 500) {
         const chunk = products.slice(i, i + 500);
         await client.query(`
-          INSERT INTO dealpos_products (company_id, variant_id, code, name, category, unit, unit_price)
-          SELECT $1, * FROM unnest($2::text[], $3::text[], $4::text[], $5::text[], $6::text[], $7::numeric[])
+          INSERT INTO dealpos_products (company_id, variant_id, code, name, category, unit, unit_price, stock_available, stock_synced_at)
+          SELECT $1, u.variant_id, u.code, u.name, u.category, u.unit, u.unit_price, u.stock, CASE WHEN u.stock IS NULL THEN NULL ELSE NOW() END
+          FROM unnest($2::text[], $3::text[], $4::text[], $5::text[], $6::text[], $7::numeric[], $8::numeric[])
+            AS u(variant_id, code, name, category, unit, unit_price, stock)
           ON CONFLICT (company_id, variant_id) DO NOTHING
         `, [companyId, chunk.map((p) => p.variantId), chunk.map((p) => p.code), chunk.map((p) => p.name),
-          chunk.map((p) => p.category), chunk.map((p) => p.unit), chunk.map((p) => p.unitPrice)]);
+          chunk.map((p) => p.category), chunk.map((p) => p.unit), chunk.map((p) => p.unitPrice),
+          chunk.map((p) => (p.stock === undefined ? null : p.stock))]);
       }
       await client.query('UPDATE dealpos_connections SET products_synced_at = NOW(), products_error = NULL WHERE company_id = $1', [companyId]);
       await client.query('COMMIT');
@@ -5809,6 +5812,7 @@ class Database {
     if (!this.enabled) return { products: [], syncedAt: null };
     const result = await this.pool.query(`
       SELECT p.variant_id AS "variantId", p.code, p.name, p.category, p.unit, p.unit_price::float8 AS "unitPrice",
+             p.stock_available::float8 AS stock, p.stock_synced_at AS "stockSyncedAt",
              d.products_synced_at AS "syncedAt"
       FROM dealpos_products p
       JOIN dealpos_connections d ON d.company_id = p.company_id AND d.enabled
@@ -6448,7 +6452,7 @@ class Database {
    * POS ditandai `missing_from_source`. Ribbon otomatis diganti per aturan;
    * aturan bernilai null (mis. laporan penjualan tidak terbaca) dibiarkan.
    */
-  async syncPosCatalog(companyId, source, items, { assignments = {}, soldQty = new Map(), note = null, touchSettings = true } = {}) {
+  async syncPosCatalog(companyId, source, items, { assignments = {}, soldQty = new Map(), note = null, touchSettings = true, stock = null } = {}) {
     if (!this.enabled) return 0;
     await this.getCatalogSettings(companyId);
     const client = await this.pool.connect();
@@ -6479,6 +6483,18 @@ class Database {
           chunk.map((x) => x.productId || null),
           // Deskripsi hanya mengisi item baru (milik tim Agnee setelah itu, tidak ditimpa sinkron).
           chunk.map((x) => x.description || ''), chunk.map((x) => x.url || null)]);
+      }
+      // Stok hanya ditulis bila tarikan /Inventory berhasil; varian yang tidak
+      // muncul di sana menjadi NULL (tidak diketahui), bukan nol.
+      if (stock instanceof Map) {
+        for (let i = 0; i < items.length; i += 1000) {
+          const chunk = items.slice(i, i + 1000);
+          await client.query(`
+            UPDATE catalog_items c SET stock_available = u.qty, stock_synced_at = NOW()
+            FROM unnest($3::text[], $4::numeric[]) AS u(external_id, qty)
+            WHERE c.company_id = $1 AND c.source = $2 AND c.external_id = u.external_id
+          `, [companyId, source, chunk.map((x) => x.externalId), chunk.map((x) => (stock.has(x.externalId) ? stock.get(x.externalId) : null))]);
+        }
       }
       await client.query(`
         UPDATE catalog_items SET missing_from_source = true, updated_at = NOW()
@@ -6687,6 +6703,7 @@ class Database {
       this.pool.query(`
         SELECT i.id, i.kind, i.name, i.code, i.category, i.unit, i.price::float8 AS price, i.price_note AS "priceNote",
                i.discount_pct::float8 AS "discountPct", i.description, i.source, i.brand, i.url,
+               i.stock_available::float8 AS stock, i.stock_synced_at AS "stockSyncedAt",
                COALESCE((SELECT json_agg(DISTINCT jsonb_build_object('id', t.id, 'name', t.name))
                          FROM catalog_item_tags it JOIN catalog_tags t ON t.id = it.tag_id AND t.active
                          WHERE it.item_id = i.id), '[]'::json) AS tags

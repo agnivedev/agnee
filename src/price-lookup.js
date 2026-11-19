@@ -15,10 +15,13 @@
 
 const { matchProducts, tokens, matchTerms } = require('./dealpos-prices');
 const { rupiah } = require('./price-guard');
+const { stockOf, stockText } = require('./dealpos-stock');
+const serperSearch = require('./serper-search');
 
 const TOOL_NAME = 'cek_harga';
 const MAX_RESULTS = 8;
 const MAX_ITEMS = 10;
+const STOCK_NOTE = 'Harga jual dan stok per varian dari POS pada penarikan terakhir (stok bisa bergeser; untuk pesanan besar staf tetap mengonfirmasi).';
 
 const GUIDE = `## CEK HARGA (alat ${TOOL_NAME})
 - Harga hanya boleh disebut dari daftar harga/katalog di atas atau dari hasil ${TOOL_NAME}. Jangan pernah menyebut angka harga dari ingatan atau perkiraan.
@@ -31,7 +34,10 @@ const GUIDE = `## CEK HARGA (alat ${TOOL_NAME})
 - Permintaan PENAWARAN (customer menyebut beberapa barang + jumlah + syarat, biasanya perusahaan): balas satu pesan yang (1) mengulang tiap barang beserta jumlahnya dengan sopan, (2) memberi kepastian proses: penawaran disiapkan tim dan akan dikabari begitu siap (jangan menjanjikan jam atau harga), (3) mencatat tiap syarat yang diminta (harga inc. PPN, DP, pelunasan setelah kirim, free ongkir) sebagai hal yang sedang dikonfirmasi tim, tanpa menyetujui atau menolaknya sendiri dan tanpa menjanjikan gratis ongkir kecuali aturan promo menyatakannya, dan (4) bila lokasi kirim sudah disebut, hitung ongkirnya dengan alat ongkir. Satu pertanyaan ke tim/Management berisi: nama customer dan perusahaan, semua barang dengan kode dan jumlah persis seperti ditulis customer (yang sudah ada harganya cantumkan), semua syarat yang diminta, dan lokasi kirim; jangan dipecah per barang atau per syarat.
 - Daftar harga tidak menyatakan apakah sudah termasuk PPN. Jangan menghitung atau menyebut "harga include PPN" sendiri; bila customer minta harga inc. PPN, sebut harga dari hasil apa adanya dan katakan PPN/faktur pajak dikonfirmasi staf.
 - Jumlah yang dihitung dari kemasan ("1 dus = 10 keping") hanya boleh memakai satuan yang tertulis di hasil; jangan mengubah satuan harga menjadi per keping atau per m2 bila hasilnya tidak menyebut isi dus.
-- Harga di sini bukan informasi stok.`;
+- STOK: tiap hasil membawa "stok" dan "status_stok" (habis / menipis / tersedia / tidak_diketahui). Jangan pernah menyebut ada, ready, tersedia, atau menawarkan varian yang status_stok-nya "habis". Varian yang habis boleh disebut jujur ("yang warna X sedang habis") dan tawarkan varian lain yang stoknya ada. Kalau SEMUA varian habis, katakan stoknya sedang kosong dan tanyakan ke tim kapan masuk; jangan menawarkan merek lain kecuali customer minta.
+- Status "tidak_diketahui" berarti stok belum bisa dipastikan: jangan bilang ada maupun habis; katakan akan dicek dulu ke tim dan tanyakan ke departemen yang berwenang.
+- Cek stok SETIAP kali customer menyebut varian (warna, ukuran, kemasan): periksa stok varian yang dimaksud, bukan hanya stok barang induknya.
+- Hasil "referensi_google" hanya untuk mengenali nama atau jenis barang lalu mencari ulang di sini. Jangan mengutip harga, stok, atau toko lain dari sana ke customer.`;
 
 function priceOf(item) {
   const value = item.price ?? item.unitPrice;
@@ -52,6 +58,11 @@ function rowOf(item) {
     row.harga_setelah_diskon = `${rupiah(price * (1 - Number(item.discountPct) / 100))}${item.unit ? ` per ${item.unit}` : ''}`;
   }
   if (item.priceNote) row.catatan_harga = String(item.priceNote);
+  if (item.source === 'dealpos' || item.unitPrice !== undefined) {
+    const stock = stockOf(item);
+    row.stok = stockText(item);
+    row.status_stok = stock.state;
+  }
   if (item.tags?.length) row.ribbon = item.tags.map((t) => t.name);
   return row;
 }
@@ -147,7 +158,7 @@ function formatResults(results, onResults) {
     if (!found.matches.length) {
       return { status: 'tidak_ketemu', pesan: `Tidak ada barang yang cocok di daftar harga. ${missingNote(found)}` };
     }
-    const out = { status: 'ok', hasil: hasilOf(text, found), catatan: 'Harga jual dari POS saat ini. Bukan informasi stok.' };
+    const out = { status: 'ok', hasil: hasilOf(text, found), catatan: STOCK_NOTE };
     if (found.via === 'llm') out.pencocokan = matchedNote(text, found);
     return out;
   }
@@ -159,7 +170,7 @@ function formatResults(results, onResults) {
     return row;
   });
   const okCount = per.filter((r) => r.status === 'ok').length;
-  const out = { status: okCount === 0 ? 'tidak_ketemu' : okCount === per.length ? 'ok' : 'sebagian', per_barang: per, catatan: 'Harga jual dari POS saat ini. Bukan informasi stok.' };
+  const out = { status: okCount === 0 ? 'tidak_ketemu' : okCount === per.length ? 'ok' : 'sebagian', per_barang: per, catatan: STOCK_NOTE };
   if (okCount === 0) out.pesan = 'Tidak ada satu pun barang yang cocok di daftar harga. Jangan menyebut harga; tanyakan semuanya ke tim/Management dalam satu pertanyaan; ke customer cukup katakan akan dicek dulu ke tim, jangan bilang tidak terdaftar atau tidak ada di sistem.';
   return out;
 }
@@ -203,7 +214,23 @@ async function lookupAsync(items, args = {}, { tagText, onResults, resolve } = {
   return formatResults(results, onResults);
 }
 
-function toolSpec({ items, tagText, onResults, resolve }) {
+/**
+ * Barang yang tidak ketemu di POS dicari di Google (Serper) hanya untuk
+ * mengenali nama/jenisnya. Tidak pernah melempar dan tidak mengubah status.
+ */
+async function withGoogleReference(result, args, { serper } = {}) {
+  if (!serper || !serperSearch.enabled(serper) || result.status === 'ok' || result.status === 'kueri_kosong') return result;
+  const missing = result.per_barang
+    ? result.per_barang.filter((r) => r.status === 'tidak_ketemu').map((r) => r.dicari)
+    : [args.barang || (Array.isArray(args.daftar) ? args.daftar[0] : '')];
+  const query = cleanQuery(missing.filter(Boolean).slice(0, 2).join(' '));
+  if (!query) return result;
+  const found = await serperSearch.searchWeb(`${query} produk bangunan`, serper).catch(() => null);
+  if (!found) return result;
+  return { ...result, referensi_google: found, catatan_google: 'Hanya untuk mengenali nama/jenis barang, lalu panggil cek_harga lagi dengan nama yang lebih tepat. Bukan harga atau stok toko; jangan dikutip ke customer.' };
+}
+
+function toolSpec({ items, tagText, onResults, resolve, serper = null }) {
   return {
     name: TOOL_NAME,
     description: 'Cari harga barang di katalog/daftar harga toko berdasarkan nama atau kodenya (satu barang lewat "barang", banyak barang sekaligus lewat "daftar"). Wajib dipakai sebelum menyebut harga barang yang belum tertulis di daftar di prompt.',
@@ -215,9 +242,9 @@ function toolSpec({ items, tagText, onResults, resolve }) {
         daftar: { type: 'array', maxItems: MAX_ITEMS, items: { type: 'string', maxLength: 300 }, description: 'Beberapa barang sekaligus (daftar kebutuhan customer), satu teks per barang persis seperti ditulis customer, termasuk kode. Pakai ini bila ada lebih dari satu barang.' },
       },
     },
-    run: (args = {}) => (resolve
+    run: async (args = {}) => withGoogleReference(await (resolve
       ? lookupAsync(items, args, { tagText, onResults, resolve })
-      : lookup(items, args, { tagText, onResults })),
+      : lookup(items, args, { tagText, onResults })), args, { serper }),
   };
 }
 

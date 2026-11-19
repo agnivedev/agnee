@@ -61,7 +61,7 @@ test('kasus 1 (jalur DealPOS): toren Penguin 1050 liter di atas fitting, filter,
 test('kasus 1 (jalur katalog): baris pertama yang cocok adalah toren 1050L dengan harga aslinya', () => {
   const section = catalog.catalogSection({ items: esbeje.catalogItems(), tags: TAGS }, { text: 'toren penguin 1050 liter brp kak' });
   const lines = matchedLines(section);
-  assert.match(lines[0], /^- PENGUIN TB110 1050L BIRU TUA \[1000015169\] \(merek PENGUIN\): Rp 2\.619\.000 per pcs$/);
+  assert.match(lines[0], /^- PENGUIN TB110 1050L BIRU TUA \[1000015169\] \(merek PENGUIN\): Rp 2\.619\.000 per pcs(?: · stok .+)?$/);
   assert.ok(lines.slice(0, 6).every((l) => /1050L/.test(l)));
 });
 
@@ -90,7 +90,7 @@ test('kasus 3: "kak MU 301 ada?" tetap MU 301 di urutan pertama di kedua jalur',
   assert.equal(found[0].name, 'MU 301 PLASTERPLUS 40KG');
   assert.ok(found.every((p) => p.name.startsWith('MU ')));
   const lines = matchedLines(catalog.catalogSection({ items: esbeje.catalogItems(), tags: TAGS }, { text: 'kak MU 301 ada?' }));
-  assert.match(lines[0], /^- MU 301 PLASTERPLUS 40KG \[1000011476\] \(merek MORTAR UTAMA\): Rp 104\.000 per zak$/);
+  assert.match(lines[0], /^- MU 301 PLASTERPLUS 40KG \[1000011476\] \(merek MORTAR UTAMA\): Rp 104\.000 per zak(?: · stok .+)?$/);
   // Ditulis rapat pun sama.
   assert.equal(prices.matchProducts(esbeje.dealposProducts(), { text: 'mu301 ready?' })[0].name, 'MU 301 PLASTERPLUS 40KG');
 });

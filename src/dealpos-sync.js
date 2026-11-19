@@ -59,6 +59,8 @@ function createRateLimiter({ max = RATE_MAX, windowMs = RATE_WINDOW_MS, now = Da
       const state = stateOf(host);
       state.blockedUntil = Math.max(state.blockedUntil, now() + ((seconds || 180) + 5) * 1000);
     },
+    /** Untuk uji: lupakan semua permintaan dan blokir yang tercatat. */
+    reset() { hosts.clear(); },
     /** Untuk uji: berapa permintaan tercatat di jendela saat ini. */
     inWindow(host) {
       const t = now();
@@ -289,5 +291,5 @@ async function fetchCustomerDetail(host, token, id, fetchImpl = fetch) {
   };
 }
 
-module.exports = {
+module.exports = { resetRateLimiter: () => limiter.reset(),
   isLoginWindowError, loginWindowOpen, LOGIN_WINDOW, createRateLimiter, dealposGet, dealposSend, fetchCustomerDetail, otherPhone, cleanText, sleep, PAGE_GAP_MS, normalizeHost, normalizePhone, fetchToken, verifyCredentials, fetchCustomers };

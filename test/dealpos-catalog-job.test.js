@@ -54,6 +54,8 @@ async function setup(t, { aiEnabled }) {
       return async () => (String(prop).startsWith('list') ? [] : null);
     },
   });
+  // Antrean laju DealPOS dipakai bersama seluruh proses; tiap uji mulai dari jendela kosong.
+  require('../src/dealpos-sync.js').resetRateLimiter();
   const realFetch = globalThis.fetch;
   globalThis.fetch = async (url) => {
     const u = String(url);

@@ -604,7 +604,8 @@ class Database {
     const result = await this.pool.query(`
       SELECT u.id, u.email, u.display_name AS "displayName",
              cm.company_id AS "companyId", cm.role, c.name AS "companyName", c.slug AS "companySlug",
-             u.onboarded_at AS "onboardedAt", u.is_platform_admin AS "isPlatformAdmin"
+             u.onboarded_at AS "onboardedAt", u.is_platform_admin AS "isPlatformAdmin",
+             u.sessions_valid_after AS "sessionsValidAfter"
       FROM users u
       JOIN company_members cm ON cm.user_id = u.id AND cm.company_id = $2
       JOIN companies c ON c.id = cm.company_id
@@ -614,6 +615,78 @@ class Database {
         AND c.status = 'active'
     `, [userId, companyId]);
     return result.rows[0] || null;
+  }
+
+  // ── Lupa password (migrasi 108) ──────────────────────────────────────────
+
+  /**
+   * Membuat token reset untuk email yang terdaftar dan aktif. Token lama yang
+   * belum dipakai dibatalkan. Mengembalikan data pengguna untuk email, atau
+   * null bila email tidak dikenal (pemanggil tidak boleh membedakannya ke luar).
+   */
+  async createPasswordResetToken(email, tokenHash, expiresAt) {
+    if (!this.enabled) return null;
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const found = await client.query(
+        `SELECT id, email, display_name AS "displayName" FROM users
+         WHERE LOWER(email) = LOWER($1) AND status = 'active'
+           AND EXISTS (SELECT 1 FROM company_members cm WHERE cm.user_id = users.id AND cm.status = 'active')
+         LIMIT 1`, [email]);
+      const user = found.rows[0];
+      if (!user) { await client.query('ROLLBACK'); return null; }
+      await client.query('UPDATE password_reset_tokens SET used_at = NOW() WHERE user_id = $1 AND used_at IS NULL', [user.id]);
+      await client.query(
+        'INSERT INTO password_reset_tokens (user_id, token_hash, expires_at) VALUES ($1, $2, $3)',
+        [user.id, tokenHash, expiresAt]);
+      await client.query('COMMIT');
+      return user;
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  /** Token masih berlaku (ada, belum dipakai, belum kedaluwarsa)? Tidak mengubah apa pun. */
+  async checkPasswordResetToken(tokenHash) {
+    if (!this.enabled) return false;
+    const result = await this.pool.query(
+      'SELECT 1 FROM password_reset_tokens WHERE token_hash = $1 AND used_at IS NULL AND expires_at > NOW()', [tokenHash]);
+    return result.rowCount > 0;
+  }
+
+  /**
+   * Memakai token: mengganti password, mencabut semua sesi lama
+   * (sessions_valid_after = now), dan menghanguskan semua token pengguna itu.
+   * Atomik; token hanya bisa dipakai sekali. Mengembalikan
+   * { userId, companyIds } atau null bila token tidak berlaku.
+   */
+  async consumePasswordResetToken(tokenHash, newPassword, now = new Date()) {
+    if (!this.enabled) return null;
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const row = await client.query(
+        `SELECT id, user_id AS "userId" FROM password_reset_tokens
+         WHERE token_hash = $1 AND used_at IS NULL AND expires_at > $2 FOR UPDATE`, [tokenHash, now]);
+      const token = row.rows[0];
+      if (!token) { await client.query('ROLLBACK'); return null; }
+      await client.query(
+        'UPDATE users SET password_hash = $2, sessions_valid_after = $3, updated_at = NOW() WHERE id = $1',
+        [token.userId, hashPassword(newPassword), now]);
+      await client.query('UPDATE password_reset_tokens SET used_at = $2 WHERE user_id = $1 AND used_at IS NULL', [token.userId, now]);
+      const companies = await client.query('SELECT company_id AS "companyId" FROM company_members WHERE user_id = $1', [token.userId]);
+      await client.query('COMMIT');
+      return { userId: token.userId, companyIds: companies.rows.map((r) => r.companyId) };
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   async authenticateUser(email, password) {

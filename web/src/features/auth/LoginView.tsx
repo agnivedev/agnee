@@ -6,21 +6,32 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 
-type Mode = 'login' | 'signup';
+type Mode = 'login' | 'signup' | 'forgot' | 'reset';
 type Plan = 'personal' | 'company';
 
 export function LoginView({ onAuthenticated }: { onAuthenticated: () => void }) {
   const { t } = useI18n();
   // Tombol "Coba Gratis" di landing membawa ?signup=1 — langsung ke form daftar.
-  const [mode, setMode] = useState<Mode>(() =>
-    new URLSearchParams(window.location.search).get('signup') === '1' ? 'signup' : 'login');
+  // Tautan dari email reset membawa ?token=... — langsung ke form password baru.
+  const [mode, setMode] = useState<Mode>(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('token')) return 'reset';
+    return params.get('signup') === '1' ? 'signup' : 'login';
+  });
 
   return (
     <main className="grid min-h-dvh grid-rows-[auto_1fr] bg-ink lg:grid-cols-[minmax(0,1.35fr)_minmax(390px,.65fr)] lg:grid-rows-1">
       <Story />
       <section className="m-0 grid place-items-center bg-[#ebe9e2] px-6 py-10 sm:px-12 lg:my-[22px] lg:mr-[22px] lg:py-12 lg:rounded-l-[38px] lg:rounded-r-[14px] lg:shadow-rail">
         {mode === 'login' ? (
-          <LoginForm onAuthenticated={onAuthenticated} onSwitch={() => setMode('signup')} />
+          <LoginForm onAuthenticated={onAuthenticated} onSwitch={() => setMode('signup')} onForgot={() => setMode('forgot')} />
+        ) : mode === 'forgot' ? (
+          <ForgotForm onBack={() => setMode('login')} />
+        ) : mode === 'reset' ? (
+          <ResetForm onDone={() => {
+            window.history.replaceState(null, '', window.location.pathname);
+            setMode('login');
+          }} />
         ) : (
           <SignupForm onAuthenticated={onAuthenticated} onSwitch={() => setMode('login')} />
         )}
@@ -124,7 +135,7 @@ function SubmitButton({ children, pending }: { children: string; pending: boolea
   );
 }
 
-function LoginForm({ onAuthenticated, onSwitch }: { onAuthenticated: () => void; onSwitch: () => void }) {
+function LoginForm({ onAuthenticated, onSwitch, onForgot }: { onAuthenticated: () => void; onSwitch: () => void; onForgot: () => void }) {
   const { t } = useI18n();
   const [error, setError] = useState<string>();
   const [pending, setPending] = useState(false);
@@ -174,6 +185,9 @@ function LoginForm({ onAuthenticated, onSwitch }: { onAuthenticated: () => void;
       </label>
       <FormError>{error}</FormError>
       <SubmitButton pending={pending}>{t('login.submit')}</SubmitButton>
+      <Button variant="link" size="sm" type="button" className="-mt-3 h-auto justify-self-start p-0 text-[13px]" onClick={onForgot}>
+        {t('login.forgot')}
+      </Button>
       <p className="m-0 font-mono text-[11px] leading-[1.5] text-muted">
         {t('login.signupPrompt')}{' '}
         <Button variant="link" size="sm" className="h-auto p-0 text-[11px]" onClick={onSwitch}>
@@ -278,6 +292,100 @@ function SignupForm({ onAuthenticated, onSwitch }: { onAuthenticated: () => void
           {t('signup.login')}
         </Button>
       </p>
+    </form>
+  );
+}
+
+function ForgotForm({ onBack }: { onBack: () => void }) {
+  const { t } = useI18n();
+  const [error, setError] = useState<string>();
+  const [pending, setPending] = useState(false);
+  const [sent, setSent] = useState(false);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    setPending(true);
+    setError(undefined);
+    try {
+      await api('/v1/auth/password-reset/request', { method: 'POST', body: { email: form.get('email') } });
+      setSent(true);
+    } catch (caught) {
+      setError(messageFromError(caught, t('forgot.failed')));
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return (
+    <form onSubmit={submit} className="grid w-[min(100%,390px)] gap-[22px]">
+      <div>
+        <h2 className="m-0 text-[34px] tracking-[-.04em]">{t('forgot.heading')}</h2>
+        <p className="mt-2 text-muted">{t('forgot.subtitle')}</p>
+      </div>
+      {sent ? (
+        <p role="status" className="m-0 text-[14px] leading-[1.5]">{t('forgot.sent')}</p>
+      ) : (
+        <>
+          <Field label={t('login.email')} name="email" type="email" autoComplete="username" required />
+          <FormError>{error}</FormError>
+          <SubmitButton pending={pending}>{t('forgot.submit')}</SubmitButton>
+        </>
+      )}
+      <Button variant="link" size="sm" type="button" className="h-auto justify-self-start p-0 text-[13px]" onClick={onBack}>
+        {t('forgot.back')}
+      </Button>
+    </form>
+  );
+}
+
+function ResetForm({ onDone }: { onDone: () => void }) {
+  const { t } = useI18n();
+  const [error, setError] = useState<string>();
+  const [pending, setPending] = useState(false);
+  const [done, setDone] = useState(false);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    if (form.get('password') !== form.get('confirm')) {
+      setError(t('reset.mismatch'));
+      return;
+    }
+    setPending(true);
+    setError(undefined);
+    try {
+      await api('/v1/auth/password-reset/confirm', {
+        method: 'POST',
+        body: { token: new URLSearchParams(window.location.search).get('token'), password: form.get('password') },
+      });
+      setDone(true);
+    } catch (caught) {
+      setError(messageFromError(caught, t('reset.failed')));
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return (
+    <form onSubmit={submit} className="grid w-[min(100%,390px)] gap-[22px]">
+      <div>
+        <h2 className="m-0 text-[34px] tracking-[-.04em]">{t('reset.heading')}</h2>
+        <p className="mt-2 text-muted">{t('reset.subtitle')}</p>
+      </div>
+      {done ? (
+        <>
+          <p role="status" className="m-0 text-[14px] leading-[1.5]">{t('reset.done')}</p>
+          <Button type="button" size="lg" onClick={onDone}>{t('login.submit')}</Button>
+        </>
+      ) : (
+        <>
+          <PasswordField label={t('reset.newPassword')} name="password" autoComplete="new-password" minLength={8} required />
+          <PasswordField label={t('reset.confirmPassword')} name="confirm" autoComplete="new-password" minLength={8} required />
+          <FormError>{error}</FormError>
+          <SubmitButton pending={pending}>{t('reset.submit')}</SubmitButton>
+        </>
+      )}
     </form>
   );
 }

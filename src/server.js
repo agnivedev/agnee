@@ -5,6 +5,7 @@ const fs = require('node:fs/promises');
 const fsSync = require('node:fs');
 const path = require('node:path');
 const waMediaDecrypt = require('./wa-media-decrypt');
+const passwordReset = require('./password-reset');
 const Fastify = require('fastify');
 const modelTiers = require('./model-tiers');
 const creditPlans = require('./credit-plans');
@@ -438,7 +439,7 @@ const SESSION_TTL_LONG  = 30 * 24 * 60 * 60 * 1000;  // 30 hari
 
 function createSession(user, secret, ttl = SESSION_TTL_SHORT) {
   const identity = typeof user === 'string' ? { email: user } : user;
-  const payload = Buffer.from(JSON.stringify({ ...identity, exp: Date.now() + ttl })).toString('base64url');
+  const payload = Buffer.from(JSON.stringify({ ...identity, iat: Date.now(), exp: Date.now() + ttl })).toString('base64url');
   const signature = crypto.createHmac('sha256', secret).update(payload).digest('base64url');
   return `${payload}.${signature}`;
 }
@@ -5493,6 +5494,91 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
     return { ok: true, user: sessionUser };
   });
 
+  // ── Lupa password ────────────────────────────────────────────────────────
+  // Respons minta-reset SELALU sama (anti-enumerasi akun). Pembatas laju per IP
+  // menjawab 429 (tidak membocorkan apa pun tentang email); pembatas per email
+  // diam-diam melewati pengiriman tapi tetap menjawab sama.
+  const resetIpLimiter = passwordReset.createLimiter({ max: 10, windowMs: 60 * 60 * 1000 });
+  const resetEmailLimiter = passwordReset.createLimiter({ max: 3, windowMs: 60 * 60 * 1000 });
+  const resetConfirmLimiter = passwordReset.createLimiter({ max: 20, windowMs: 15 * 60 * 1000 });
+  app.addHook('onClose', async () => { resetIpLimiter.stop(); resetEmailLimiter.stop(); resetConfirmLimiter.stop(); });
+  const resetMailer = overrides.passwordResetMailer || createMailer(process.env);
+  const RESET_GENERIC = { ok: true, message: 'Jika email itu terdaftar, tautan untuk mengatur ulang password sudah dikirim.' };
+
+  app.post('/v1/auth/password-reset/request', {
+    schema: {
+      body: {
+        type: 'object', additionalProperties: false, required: ['email'],
+        properties: { email: { type: 'string', minLength: 3, maxLength: 200 } },
+      },
+    },
+  }, async (request, reply) => {
+    const ip = request.ip || request.socket.remoteAddress || 'unknown';
+    if (!resetIpLimiter.hit(ip)) {
+      reply.header('retry-after', String(resetIpLimiter.retryAfterSeconds(ip)));
+      return reply.code(429).send({ error: 'Terlalu banyak permintaan. Coba lagi nanti.' });
+    }
+    const email = request.body.email.trim().toLowerCase();
+    if (!resetEmailLimiter.hit(email)) return RESET_GENERIC;
+    if (!database.enabled || !database.status().connected || typeof database.createPasswordResetToken !== 'function') return RESET_GENERIC;
+    try {
+      const token = passwordReset.generateResetToken();
+      const user = await database.createPasswordResetToken(
+        email, passwordReset.hashResetToken(token), new Date(Date.now() + passwordReset.RESET_TTL_MS));
+      if (user) {
+        if (!resetMailer.smtpReady) {
+          // Gagal jelas di log server, tapi pemanggil tetap menerima jawaban yang sama.
+          app.log.error('Reset password diminta tetapi SMTP belum diisi (SMTP_HOST, SMTP_FROM, SMTP_USER, SMTP_PASS) — email tidak terkirim');
+        } else {
+          const mail = passwordReset.buildResetEmail({
+            displayName: user.displayName, link: passwordReset.buildResetLink(config.appBaseUrl, token),
+          });
+          await resetMailer.send({ ...mail, to: user.email });
+        }
+      }
+    } catch (error) {
+      app.log.error({ err: error }, 'Permintaan reset password gagal diproses');
+    }
+    return RESET_GENERIC;
+  });
+
+  app.post('/v1/auth/password-reset/confirm', {
+    schema: {
+      body: {
+        type: 'object', additionalProperties: false, required: ['token', 'password'],
+        properties: {
+          token: { type: 'string', minLength: 20, maxLength: 200 },
+          password: { type: 'string', minLength: passwordReset.MIN_PASSWORD_LENGTH, maxLength: 200 },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    const ip = request.ip || request.socket.remoteAddress || 'unknown';
+    if (!resetConfirmLimiter.hit(ip)) {
+      reply.header('retry-after', String(resetConfirmLimiter.retryAfterSeconds(ip)));
+      return reply.code(429).send({ error: 'Terlalu banyak percobaan. Coba lagi nanti.' });
+    }
+    if (!database.enabled || !database.status().connected || typeof database.consumePasswordResetToken !== 'function') {
+      return reply.code(503).send({ error: 'Layanan sedang bermasalah. Coba lagi sebentar lagi.' });
+    }
+    const result = await database.consumePasswordResetToken(
+      passwordReset.hashResetToken(request.body.token), request.body.password, new Date());
+    if (!result) return reply.code(400).send({ error: 'Tautan tidak valid atau sudah kedaluwarsa. Minta tautan baru.' });
+    // Sesi lama yang sedang di cache pemeriksaan harus ikut dibuang.
+    for (const key of [...sessionCheckCache.keys()]) if (key.startsWith(`${result.userId}:`)) sessionCheckCache.delete(key);
+    // Metadata sengaja kosong: tanpa token, tanpa password.
+    for (const companyId of result.companyIds || []) {
+      try {
+        await database.recordAuditLog({
+          actorUserId: result.userId, action: 'auth.password_reset', entityType: 'user', entityId: result.userId, metadata: {},
+        }, companyId);
+      } catch (error) {
+        app.log.warn({ err: error, companyId }, 'Audit reset password tidak tercatat');
+      }
+    }
+    return { ok: true };
+  });
+
   app.post('/v1/auth/signup', {
     schema: {
       body: {
@@ -5637,7 +5723,7 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
   }
 
   app.addHook('onRequest', async (request, reply) => {
-    if (!request.url.startsWith('/v1/') || request.url.startsWith('/v1/auth/login') || request.url.startsWith('/v1/auth/signup') || request.url.startsWith('/v1/public/')) return;
+    if (!request.url.startsWith('/v1/') || request.url.startsWith('/v1/auth/login') || request.url.startsWith('/v1/auth/signup') || request.url.startsWith('/v1/auth/password-reset') || request.url.startsWith('/v1/public/')) return;
     const suppliedKey = request.headers['x-api-key'];
     const session = verifySession(getCookie(request.headers.cookie, 'agnee_session'), config.sessionSecret);
     if (suppliedKey !== undefined && safeEqual(suppliedKey, config.apiKey)) {
@@ -5659,6 +5745,12 @@ Jawab HANYA satu angka. Jawab 0 kalau pesannya belum cukup menunjukkan topik (mi
       if (!cachedUntil || Date.now() > cachedUntil) {
         const live = await database.getActiveSessionUser(session.userId, session.companyId);
         if (!live) {
+          sessionCheckCache.delete(cacheKey);
+          return reply.code(401).send({ error: 'Sesi tidak valid. Silakan login kembali.' });
+        }
+        // Reset password mencabut semua sesi yang terbit sebelum reset itu.
+        // Cookie lama tanpa `iat` dianggap terbit di masa lalu.
+        if (live.sessionsValidAfter && !(Number(session.iat) >= new Date(live.sessionsValidAfter).getTime())) {
           sessionCheckCache.delete(cacheKey);
           return reply.code(401).send({ error: 'Sesi tidak valid. Silakan login kembali.' });
         }

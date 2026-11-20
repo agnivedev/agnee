@@ -147,6 +147,9 @@ function createMailer(env = process.env, { transport = null } = {}) {
   const host = String(env.SMTP_HOST || '').trim();
   const from = String(env.SMTP_FROM || env.SMTP_USER || '').trim();
   const configured = Boolean(to && from && (transport || host));
+  // Bisa mengirim ke alamat mana pun (email transaksional, mis. reset password),
+  // tidak terikat COST_ALERT_EMAIL_TO.
+  const smtpReady = Boolean(from && (transport || host));
   let cached = transport;
 
   async function getTransport() {
@@ -166,11 +169,13 @@ function createMailer(env = process.env, { transport = null } = {}) {
   return {
     name: 'email',
     configured,
+    smtpReady,
     to,
-    async send({ subject, text }) {
-      if (!configured) throw new Error('Email alert belum dikonfigurasi');
+    async send({ subject, text, to: recipient }) {
+      const target = recipient || to;
+      if (!(recipient ? smtpReady : configured)) throw new Error('Email belum dikonfigurasi (SMTP_HOST/SMTP_FROM)');
       const sender = await getTransport();
-      await sender.sendMail({ from, to, subject, text });
+      await sender.sendMail({ from, to: target, subject, text });
     },
   };
 }

@@ -1,10 +1,9 @@
 import { useEffect, useState } from 'react';
-import { api, messageFromError } from '@/lib/api';
+import { api } from '@/lib/api';
 import { useI18n } from '@/lib/i18n';
-import { Button } from '@/components/ui/button';
-import { useConfirm } from '@/components/ui/confirm';
 import { cn } from '@/lib/utils';
-import { SavedBadge, SettingCard, StatusLine, useSavedFlag } from './parts';
+import { SettingCard, StatusLine } from './parts';
+import { useDirtySection, useFormState } from './dirty';
 import { AVAILABLE_MODELS, MODEL_SLOT_COUNT, findModel } from './models';
 
 /**
@@ -14,54 +13,51 @@ import { AVAILABLE_MODELS, MODEL_SLOT_COUNT, findModel } from './models';
  */
 export function AiSettingsSection() {
   const { t } = useI18n();
-  const confirm = useConfirm();
-  const [enabled, setEnabled] = useState(false);
-  const [identity, setIdentity] = useState<'team_member' | 'chatbot'>('team_member');
-  const [chain, setChain] = useState<string[]>(Array(MODEL_SLOT_COUNT).fill(''));
-  const [readMedia, setReadMedia] = useState(true);
-  const [escalation, setEscalation] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const form = useFormState<{ enabled: boolean; identity: 'team_member' | 'chatbot'; chain: string[]; readMedia: boolean; escalation: boolean }>({
+    enabled: false,
+    identity: 'team_member',
+    chain: Array(MODEL_SLOT_COUNT).fill(''),
+    readMedia: true,
+    escalation: true,
+  });
+  const { enabled, identity, chain, readMedia, escalation } = form.values;
   const [status, setStatus] = useState('');
   // Saklar menyala belum tentu AI berjalan: paket bisa berhenti, atau mesin AI
   // platform mati. Server mengembalikan keduanya terpisah.
   const [blockedReason, setBlockedReason] = useState<string | null>(null);
-  const { saved, flash } = useSavedFlag();
 
   useEffect(() => {
-    void api<{ aiReadMedia?: boolean; aiEscalation?: boolean }>('/v1/admin/company')
-      .then((c) => { setReadMedia(c.aiReadMedia !== false); setEscalation(c.aiEscalation !== false); })
-      .catch(() => { /* tetap hidup */ });
-    void api<{ enabled: boolean; effective?: boolean; reason?: string | null; modelChain: string[]; identity?: 'team_member' | 'chatbot'; defaultModel: string }>('/v1/admin/ai-settings')
-      .then((data) => {
-        setEnabled(data.enabled);
-        setIdentity(data.identity === 'chatbot' ? 'chatbot' : 'team_member');
+    const companyFlags = api<{ aiReadMedia?: boolean; aiEscalation?: boolean }>('/v1/admin/company').catch(() => ({} as { aiReadMedia?: boolean; aiEscalation?: boolean })); // gagal baca: tetap hidup
+    void Promise.all([
+      api<{ enabled: boolean; effective?: boolean; reason?: string | null; modelChain: string[]; identity?: 'team_member' | 'chatbot'; defaultModel: string }>('/v1/admin/ai-settings'),
+      companyFlags,
+    ])
+      .then(([data, c]) => {
         setBlockedReason(data.enabled && data.effective === false ? data.reason || 'off' : null);
         // An empty chain still shows the default in the primary slot, so the
         // page never implies "no model configured" when one is in use.
         const current = data.modelChain.length ? data.modelChain : [data.defaultModel];
-        setChain(Array.from({ length: MODEL_SLOT_COUNT }, (_, index) => current[index] || ''));
+        form.load({
+          enabled: data.enabled,
+          identity: data.identity === 'chatbot' ? 'chatbot' : 'team_member',
+          chain: Array.from({ length: MODEL_SLOT_COUNT }, (_, index) => current[index] || ''),
+          readMedia: c.aiReadMedia !== false,
+          escalation: c.aiEscalation !== false,
+        });
       })
       .catch(() => setStatus(t('admin.loadFailed')));
   }, [t]);
 
   async function save() {
-    setSaving(true);
-    try {
-      await api('/v1/admin/ai-settings', {
-        method: 'PATCH',
-        body: { enabled, modelChain: chain.filter(Boolean), identity },
-      });
-      await api('/v1/admin/company', { method: 'PATCH', body: { aiReadMedia: readMedia, aiEscalation: escalation } });
-      flash();
-    } catch (error) {
-      await confirm.alert({
-        title: t('admin.saveFailedTitle'),
-        message: t('admin.saveFailed', { message: messageFromError(error, '') }),
-      });
-    } finally {
-      setSaving(false);
-    }
+    const snapshot = form.values;
+    await api('/v1/admin/ai-settings', {
+      method: 'PATCH',
+      body: { enabled, modelChain: chain.filter(Boolean), identity },
+    });
+    await api('/v1/admin/company', { method: 'PATCH', body: { aiReadMedia: readMedia, aiEscalation: escalation } });
+    form.commit(snapshot);
   }
+  useDirtySection('ai', t('admin.settingsTitle'), form.dirty, save, form.reset);
 
   return (
     <SettingCard
@@ -77,7 +73,7 @@ export function AiSettingsSection() {
           type="checkbox"
           role="switch"
           checked={enabled}
-          onChange={(event) => setEnabled(event.target.checked)}
+          onChange={(event) => form.set({ enabled: event.target.checked })}
           className="size-4 accent-green"
         />
         <span>{enabled ? t('admin.aiOn') : t('admin.aiOff')}</span>
@@ -97,7 +93,7 @@ export function AiSettingsSection() {
               name="aiIdentity"
               value={option}
               checked={identity === option}
-              onChange={() => setIdentity(option)}
+              onChange={() => form.set({ identity: option })}
               className="mt-0.5 size-4 accent-green"
             />
             <span className="grid gap-0.5">
@@ -109,7 +105,7 @@ export function AiSettingsSection() {
       </fieldset>
 
       <label className="mb-5 flex items-start gap-2.5 text-[13px]">
-        <input type="checkbox" checked={readMedia} onChange={(e) => setReadMedia(e.target.checked)} className="mt-0.5 size-4 accent-green" />
+        <input type="checkbox" checked={readMedia} onChange={(e) => form.set({ readMedia: e.target.checked })} className="mt-0.5 size-4 accent-green" />
         <span className="grid gap-0.5">
           <strong>{t('ai.readMedia.title')}</strong>
           <small className="text-[11px] text-muted">{t('ai.readMedia.hint')}</small>
@@ -117,7 +113,7 @@ export function AiSettingsSection() {
       </label>
 
       <label className="mb-5 flex items-start gap-2.5 text-[13px]">
-        <input type="checkbox" role="switch" checked={escalation} onChange={(e) => setEscalation(e.target.checked)} className="mt-0.5 size-4 accent-green" />
+        <input type="checkbox" role="switch" checked={escalation} onChange={(e) => form.set({ escalation: e.target.checked })} className="mt-0.5 size-4 accent-green" />
         <span className="grid gap-0.5">
           <strong>{t('ai.escalation.title')}</strong>
           <small className="text-[11px] text-muted">{t('ai.escalation.hint')}</small>
@@ -142,7 +138,7 @@ export function AiSettingsSection() {
                 value={known ? known.value : value}
                 aria-label={index === 0 ? t('admin.primary') : t('admin.nextModel', { number: index })}
                 onChange={(event) =>
-                  setChain((current) => current.map((slot, slotIndex) => (slotIndex === index ? event.target.value : slot)))
+                  form.set({ chain: chain.map((slot, slotIndex) => (slotIndex === index ? event.target.value : slot)) })
                 }
                 className="min-w-0 flex-1 rounded-app border border-input bg-white/60 px-3 py-2 text-[13px]"
               >
@@ -161,13 +157,7 @@ export function AiSettingsSection() {
         })}
       </div>
 
-      <div className="mt-4 flex items-center gap-3">
-        <Button size="sm" disabled={saving} onClick={() => void save()}>
-          {t('admin.save')}
-        </Button>
-        <SavedBadge shown={saved} />
-        <StatusLine>{status}</StatusLine>
-      </div>
+      <StatusLine>{status}</StatusLine>
     </SettingCard>
   );
 }

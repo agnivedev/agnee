@@ -3,6 +3,7 @@ import { api, messageFromError } from '@/lib/api';
 import { useI18n } from '@/lib/i18n';
 import { Button } from '@/components/ui/button';
 import { StatusLine } from './parts';
+import { useDirtySection } from './dirty';
 
 type TemplateData = {
   template: string;
@@ -39,9 +40,16 @@ export function ReportTemplateEditor() {
 
   useEffect(() => { void load(); }, [load]);
 
-  if (!data) return error ? <StatusLine tone="error">{error}</StatusLine> : null;
+  const dirty = Boolean(data) && text.replace(/\r\n/g, '\n').trim() !== data!.template.trim();
 
-  const dirty = text.replace(/\r\n/g, '\n').trim() !== data.template.trim();
+  async function saveTemplate() {
+    if (!text.trim()) throw new Error(t('report.tpl.title'));
+    await api('/v1/reports/template', { method: 'PUT', body: { template: text } });
+    await load();
+  }
+  useDirtySection('reportTemplate', t('report.tpl.title'), dirty, saveTemplate, () => { if (data) { setText(data.template); setPreview(''); } });
+
+  if (!data) return error ? <StatusLine tone="error">{error}</StatusLine> : null;
 
   function insert(key: string) {
     const element = field.current;
@@ -58,17 +66,11 @@ export function ReportTemplateEditor() {
     });
   }
 
-  async function run(action: 'save' | 'preview') {
+  async function runPreview() {
     setError(''); setStatus(''); setBusy(true);
     try {
-      if (action === 'preview') {
-        const result = await api<{ text: string }>('/v1/reports/template/preview', { method: 'POST', body: { template: text } });
-        setPreview(result.text);
-      } else {
-        await api('/v1/reports/template', { method: 'PUT', body: { template: text } });
-        setStatus(t('report.tpl.saved'));
-        await load();
-      }
+      const result = await api<{ text: string }>('/v1/reports/template/preview', { method: 'POST', body: { template: text } });
+      setPreview(result.text);
     } catch (failure) {
       setError(messageFromError(failure, ''));
     } finally {
@@ -110,10 +112,7 @@ export function ReportTemplateEditor() {
       />
       <div className="mt-1 text-right font-mono text-[10px] text-muted">{text.length}/{data.maxLength}</div>
       <div className="mt-2 flex flex-wrap items-center gap-2">
-        <Button size="sm" onClick={() => void run('save')} disabled={busy || !dirty || !text.trim()}>
-          {busy ? t('common.loading') : t('common.save')}
-        </Button>
-        <Button size="sm" variant="outline" onClick={() => void run('preview')} disabled={busy || !text.trim()}>
+        <Button size="sm" variant="outline" onClick={() => void runPreview()} disabled={busy || !text.trim()}>
           {t('report.tpl.preview')}
         </Button>
         <Button

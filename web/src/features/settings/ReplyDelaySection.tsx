@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
-import { api, messageFromError } from '@/lib/api';
+import { api } from '@/lib/api';
 import { useI18n } from '@/lib/i18n';
-import { Button } from '@/components/ui/button';
-import { FieldGrid, SavedBadge, SettingCard, StatusLine, TextField, useSavedFlag } from './parts';
+import { FieldGrid, SettingCard, TextField } from './parts';
+import { useDirtySection, useFormState } from './dirty';
 
 type CompanyDelay = {
   replyDelayEnabled?: boolean;
@@ -27,20 +27,18 @@ function toInt(raw: string): number | null {
  */
 export function ReplyDelaySection() {
   const { t } = useI18n();
-  const [enabled, setEnabled] = useState(true);
-  const [min, setMin] = useState('5');
-  const [max, setMax] = useState('60');
+  const form = useFormState({ enabled: true, min: '5', max: '60' });
+  const { enabled, min, max } = form.values;
   const [loaded, setLoaded] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  const { saved, flash } = useSavedFlag();
 
   useEffect(() => {
     api<CompanyDelay>('/v1/admin/company')
       .then((config) => {
-        setEnabled(config?.replyDelayEnabled !== false);
-        if (typeof config?.replyDelayMinSeconds === 'number') setMin(String(config.replyDelayMinSeconds));
-        if (typeof config?.replyDelayMaxSeconds === 'number') setMax(String(config.replyDelayMaxSeconds));
+        form.load({
+          enabled: config?.replyDelayEnabled !== false,
+          min: typeof config?.replyDelayMinSeconds === 'number' ? String(config.replyDelayMinSeconds) : '5',
+          max: typeof config?.replyDelayMaxSeconds === 'number' ? String(config.replyDelayMaxSeconds) : '60',
+        });
       })
       // Gagal membaca bukan alasan menampilkan keadaan palsu: bawaannya tetap
       // yang berlaku di server, dan form tetap bisa dipakai.
@@ -49,34 +47,26 @@ export function ReplyDelaySection() {
   }, []);
 
   async function save() {
-    setError('');
+    const snapshot = form.values;
     const minSeconds = toInt(min);
     const maxSeconds = toInt(max);
     if (minSeconds === null || maxSeconds === null || minSeconds > MIN_LIMIT || maxSeconds < 1 || maxSeconds > MAX_LIMIT) {
-      setError(t('replyDelay.invalid', { minLimit: MIN_LIMIT, maxLimit: MAX_LIMIT }));
-      return;
+      throw new Error(t('replyDelay.invalid', { minLimit: MIN_LIMIT, maxLimit: MAX_LIMIT }));
     }
     if (minSeconds > maxSeconds) {
-      setError(t('replyDelay.order'));
-      return;
+      throw new Error(t('replyDelay.order'));
     }
-    setBusy(true);
-    try {
-      await api('/v1/admin/company', {
-        method: 'PATCH',
-        body: {
-          replyDelayEnabled: enabled,
-          replyDelayMinSeconds: minSeconds,
-          replyDelayMaxSeconds: maxSeconds,
-        },
-      });
-      flash();
-    } catch (failure) {
-      setError(messageFromError(failure, ''));
-    } finally {
-      setBusy(false);
-    }
+    await api('/v1/admin/company', {
+      method: 'PATCH',
+      body: {
+        replyDelayEnabled: enabled,
+        replyDelayMinSeconds: minSeconds,
+        replyDelayMaxSeconds: maxSeconds,
+      },
+    });
+    form.commit(snapshot);
   }
+  useDirtySection('replyDelay', t('replyDelay.title'), form.dirty, save, form.reset);
 
   if (!loaded) return null;
 
@@ -94,7 +84,7 @@ export function ReplyDelaySection() {
         <input
           type="checkbox"
           checked={enabled}
-          onChange={(event) => setEnabled(event.target.checked)}
+          onChange={(event) => form.set({ enabled: event.target.checked })}
           className="size-4 accent-green"
         />
         <span>{t('replyDelay.enable')}</span>
@@ -107,7 +97,7 @@ export function ReplyDelaySection() {
           inputMode="numeric"
           value={min}
           disabled={!enabled}
-          onChange={(event) => setMin(event.target.value)}
+          onChange={(event) => form.set({ min: event.target.value })}
         />
         <TextField
           label={t('replyDelay.max')}
@@ -115,19 +105,12 @@ export function ReplyDelaySection() {
           inputMode="numeric"
           value={max}
           disabled={!enabled}
-          onChange={(event) => setMax(event.target.value)}
+          onChange={(event) => form.set({ max: event.target.value })}
         />
       </FieldGrid>
 
       <p className="mt-3 mb-0 text-[11px] leading-[1.6] text-muted">{t('replyDelay.scope')}</p>
 
-      <div className="mt-4 flex flex-wrap items-center gap-3">
-        <Button onClick={() => void save()} disabled={busy}>
-          {busy ? t('common.loading') : t('common.save')}
-        </Button>
-        <SavedBadge shown={saved} />
-        <StatusLine tone="error">{error}</StatusLine>
-      </div>
     </SettingCard>
   );
 }

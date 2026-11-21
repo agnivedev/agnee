@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { CreditCard, MessageCircle, Sparkles, MapPin, Tag, Database, Users, ScrollText, type LucideIcon } from 'lucide-react';
 import { api, messageFromError } from '@/lib/api';
 import { useI18n, usePageTitle } from '@/lib/i18n';
@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { LanguageSwitch } from '@/components/LanguageSwitch';
 import { AppSidebar } from '@/components/AppSidebar';
 import { cn } from '@/lib/utils';
+import { SaveBar, SettingsDirtyProvider, useSettingsDirty } from './dirty';
 import { PlanAndPayment } from './PlanAndPayment';
 import { FollowUpSection } from './FollowUpSection';
 import { AutomationSection } from './AutomationSection';
@@ -93,7 +94,16 @@ function tabFromHash(): TabId | null {
 }
 
 export function SettingsPage() {
+  return (
+    <SettingsDirtyProvider>
+      <SettingsPageInner />
+    </SettingsDirtyProvider>
+  );
+}
+
+function SettingsPageInner() {
   const { t } = useI18n();
+  const { confirmLeave } = useSettingsDirty();
   const [teamVersion, setTeamVersion] = useState(0);
   const bumpTeam = useCallback(() => setTeamVersion((n) => n + 1), []);
   const { isSupervisor, signOut } = useSession();
@@ -116,6 +126,8 @@ export function SettingsPage() {
   // Tab integrasi tidak ikut bar utama; mereka jadi sub tab di bawah 'data'.
   const tabs: TabId[] = [...baseTabs, ...integrationTabs];
   const [tab, setTab] = useState<TabId>(() => tabFromHash() || 'paket');
+  const tabRef = useRef(tab);
+  tabRef.current = tab;
   // An agent lands on the only tab they have, whatever the hash asked for.
   // Tab integrasi yang belum dinyalakan (mis. dari tautan) jatuh ke Ikhtisar.
   const activeTab = tabs.includes(tab) ? tab : isIntegrationTab(tab) && baseTabs.includes('data') ? 'data' : tabs[0];
@@ -126,8 +138,24 @@ export function SettingsPage() {
   const openHashTarget = useCallback(() => {
     const target = tabFromHash();
     if (!target) return;
-    setTab(target);
     const id = window.location.hash.replace('#', '');
+    // Pindah tab membuang bagian yang sedang diubah; tanya dulu, dan bila
+    // batal kembalikan hash ke tab yang masih terbuka.
+    if (target !== tabRef.current) {
+      void confirmLeave().then((ok) => {
+        if (!ok) {
+          window.history.replaceState({}, '', `${window.location.pathname}#${tabRef.current}`);
+          return;
+        }
+        setTab(target);
+        scrollToSection(id);
+      });
+      return;
+    }
+    scrollToSection(id);
+  }, [confirmLeave]);
+
+  function scrollToSection(id: string) {
     if (!SECTION_TAB[id]) return;
     // The section mounts with its tab, one render after this runs, and its own
     // data arrives later still. Wait for the element rather than scrolling to
@@ -145,7 +173,7 @@ export function SettingsPage() {
       }
     };
     requestAnimationFrame(scroll);
-  }, []);
+  }
 
   useEffect(() => {
     openHashTarget();
@@ -167,7 +195,8 @@ export function SettingsPage() {
     }
   }
 
-  function selectTab(next: TabId) {
+  async function selectTab(next: TabId) {
+    if (next !== activeTab && !(await confirmLeave())) return;
     setTab(next);
     // replaceState, not a hash assignment: a new history entry per tab click
     // would make Back walk the tabs instead of leaving the page.
@@ -206,7 +235,7 @@ export function SettingsPage() {
                   type="button"
                   role="tab"
                   aria-selected={mainActive === id}
-                  onClick={() => selectTab(id)}
+                  onClick={() => void selectTab(id)}
                   className={cn(
                     'flex shrink-0 cursor-pointer items-center gap-1.5 border-0 border-b-2 bg-transparent px-4 py-3 text-[13px] font-medium whitespace-nowrap transition-colors',
                     mainActive === id ? 'border-b-green text-ink' : 'border-b-transparent text-muted hover:text-ink',
@@ -231,7 +260,7 @@ export function SettingsPage() {
                     type="button"
                     role="tab"
                     aria-selected={activeTab === id}
-                    onClick={() => selectTab(id)}
+                    onClick={() => void selectTab(id)}
                     className={cn(
                       'flex cursor-pointer items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-[13px] font-medium whitespace-nowrap transition-colors',
                       activeTab === id ? 'border-green bg-green/10 text-ink' : 'border-border bg-transparent text-muted hover:text-ink',
@@ -287,6 +316,7 @@ export function SettingsPage() {
             </>
           ) : null}
           {activeTab === 'audit' && isSupervisor ? <AuditSection /> : null}
+          <SaveBar />
           {/* Bar bawah di ponsel tidak memuat Keluar (delapan target 44px sudah
               memenuhi lebarnya), jadi tombolnya duduk di sini. */}
           <Button variant="outline" className="mt-6 w-full md:hidden" onClick={() => void signOut()}>

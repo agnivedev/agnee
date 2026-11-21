@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { useI18n } from '@/lib/i18n';
-import { Button } from '@/components/ui/button';
 import { useConfirm } from '@/components/ui/confirm';
-import { FieldGrid, SavedBadge, SettingCard, TextField, useSavedFlag } from './parts';
+import { FieldGrid, SettingCard, TextField } from './parts';
+import { useDirtySection, useFormState } from './dirty';
 
 /** Sama dengan TOGGLEABLE_STAGES di src/follow-up-stage.js. */
 const STAGES = ['inquiry', 'summary', 'proforma', 'payment'] as const;
@@ -41,30 +41,24 @@ function parseDayCaps(raw: string): number[] | null {
 export function FollowUpSection() {
   const { t } = useI18n();
   const confirm = useConfirm();
-  const [enabled, setEnabled] = useState(false);
+  const form = useFormState<{ enabled: boolean; dayCaps: string; minGap: number; fromHour: number; toHour: number; restartAfterDays: number; stages: StageToggles }>({ enabled: false, dayCaps: '', minGap: 120, fromHour: 8, toHour: 21, restartAfterDays: 2, stages: normalizeStages() });
+  const { enabled, dayCaps, minGap, fromHour, toHour, restartAfterDays, stages } = form.values;
   /** Nilai yang tersimpan di server, supaya transisi mati-ke-menyala terdeteksi. */
-  const [wasEnabled, setWasEnabled] = useState(false);
-  const [dayCaps, setDayCaps] = useState('');
-  const [minGap, setMinGap] = useState(120);
-  const [fromHour, setFromHour] = useState(8);
-  const [toHour, setToHour] = useState(21);
-  const [restartAfterDays, setRestartAfterDays] = useState(2);
-  const [stages, setStages] = useState<StageToggles>(normalizeStages());
+  const wasEnabled = Boolean(form.baseline?.enabled);
   const [stats, setStats] = useState<Settings['stats']>();
-  const [saving, setSaving] = useState(false);
-  const { saved, flash } = useSavedFlag();
 
   useEffect(() => {
     void api<Settings>('/v1/follow-up/settings')
       .then((data) => {
-        setEnabled(Boolean(data.enabled));
-        setWasEnabled(Boolean(data.enabled));
-        setDayCaps((data.dayCaps || []).join(','));
-        setMinGap(data.minGapMinutes ?? 120);
-        setFromHour(data.sendFromHour ?? 8);
-        setToHour(data.sendToHour ?? 21);
-        setRestartAfterDays(data.restartAfterDays ?? 2);
-        setStages(normalizeStages(data.stages));
+        form.load({
+          enabled: Boolean(data.enabled),
+          dayCaps: (data.dayCaps || []).join(','),
+          minGap: data.minGapMinutes ?? 120,
+          fromHour: data.sendFromHour ?? 8,
+          toHour: data.sendToHour ?? 21,
+          restartAfterDays: data.restartAfterDays ?? 2,
+          stages: normalizeStages(data.stages),
+        });
         setStats(data.stats);
       })
       .catch(() => {
@@ -74,10 +68,7 @@ export function FollowUpSection() {
 
   async function save() {
     const caps = parseDayCaps(dayCaps);
-    if (!caps) {
-      await confirm.alert({ title: t('fu.capsInvalidTitle'), message: t('fu.capsInvalidCopy') });
-      return;
-    }
+    if (!caps) throw new Error(t('fu.capsInvalidCopy'));
     // Menyalakan fitur ini mulai mengirim pesan ke customer sungguhan. Satu
     // klik yang tidak disengaja pernah berujung insiden, jadi tanyakan dulu —
     // dan sebutkan angkanya, supaya yang disetujui adalah yang benar-benar
@@ -88,10 +79,10 @@ export function FollowUpSection() {
         message: t('fu.enableConfirmCopy', { caps: caps.join(', '), from: fromHour, to: toHour }),
         confirmLabel: t('fu.enableConfirmYes'),
       });
-      if (!ok) return;
+      if (!ok) throw new Error(t('settings.saveSkipped'));
     }
-    setSaving(true);
-    try {
+    const snapshot = form.values;
+    {
       const result = await api<Settings>('/v1/follow-up/settings', {
         method: 'PATCH',
         body: {
@@ -104,16 +95,11 @@ export function FollowUpSection() {
           stages,
         },
       });
-      setEnabled(Boolean(result.enabled));
-      setStages(normalizeStages(result.stages));
-      setWasEnabled(Boolean(result.enabled));
-      flash();
-    } catch (error) {
-      await confirm.error(error);
-    } finally {
-      setSaving(false);
+      form.commit({ ...snapshot, enabled: Boolean(result.enabled), stages: normalizeStages(result.stages) });
+      if (Boolean(result.enabled) !== snapshot.enabled) form.set({ enabled: Boolean(result.enabled) });
     }
   }
+  useDirtySection('followUp', t('fu.title'), form.dirty, save, form.reset);
 
   return (
     <SettingCard
@@ -132,7 +118,7 @@ export function FollowUpSection() {
         <input
           type="checkbox"
           checked={enabled}
-          onChange={(event) => setEnabled(event.target.checked)}
+          onChange={(event) => form.set({ enabled: event.target.checked })}
           className="size-4 accent-green"
         />
         <span>{t('fu.enable')}</span>
@@ -148,7 +134,7 @@ export function FollowUpSection() {
               <input
                 type="checkbox"
                 checked={stages[key]}
-                onChange={(event) => setStages((current) => ({ ...current, [key]: event.target.checked }))}
+                onChange={(event) => form.set({ stages: { ...stages, [key]: event.target.checked } })}
                 className="mt-0.5 size-4 shrink-0 accent-green"
               />
               <span>
@@ -168,7 +154,7 @@ export function FollowUpSection() {
           maxLength={30}
           value={dayCaps}
           placeholder="1,1,1"
-          onChange={(event) => setDayCaps(event.target.value)}
+          onChange={(event) => form.set({ dayCaps: event.target.value })}
         />
         <TextField
           label={t('fu.minGap')}
@@ -178,7 +164,7 @@ export function FollowUpSection() {
           max={1440}
           step={10}
           value={minGap}
-          onChange={(event) => setMinGap(Number(event.target.value))}
+          onChange={(event) => form.set({ minGap: Number(event.target.value) })}
         />
         <TextField
           label={t('fu.fromHour')}
@@ -187,7 +173,7 @@ export function FollowUpSection() {
           min={0}
           max={23}
           value={fromHour}
-          onChange={(event) => setFromHour(Number(event.target.value))}
+          onChange={(event) => form.set({ fromHour: Number(event.target.value) })}
         />
         <TextField
           label={t('fu.toHour')}
@@ -195,7 +181,7 @@ export function FollowUpSection() {
           min={0}
           max={23}
           value={toHour}
-          onChange={(event) => setToHour(Number(event.target.value))}
+          onChange={(event) => form.set({ toHour: Number(event.target.value) })}
         />
         <TextField
           label={t('fu.restartAfterDays')}
@@ -204,7 +190,7 @@ export function FollowUpSection() {
           min={0}
           max={90}
           value={restartAfterDays}
-          onChange={(event) => setRestartAfterDays(Number(event.target.value))}
+          onChange={(event) => form.set({ restartAfterDays: Number(event.target.value) })}
         />
       </FieldGrid>
 
@@ -218,12 +204,6 @@ export function FollowUpSection() {
         </p>
       ) : null}
 
-      <div className="mt-4 flex items-center gap-3">
-        <Button size="sm" disabled={saving} onClick={() => void save()}>
-          {t('fu.save')}
-        </Button>
-        <SavedBadge shown={saved} />
-      </div>
     </SettingCard>
   );
 }

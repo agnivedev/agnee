@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useState } from 'react';
-import { api, messageFromError } from '@/lib/api';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { api } from '@/lib/api';
 import { useI18n } from '@/lib/i18n';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/input';
 import { useConfirm } from '@/components/ui/confirm';
-import { Row, SettingCard, StatusLine } from './parts';
+import { Row, SettingCard } from './parts';
+import { useDirtySection, useFormState } from './dirty';
 
 type Templates = { welcomeId: string; welcomeEn: string; confirmId: string; confirmEn: string };
 type LeadWebhook = {
@@ -56,16 +57,19 @@ export function LeadWebhookSection() {
   const { t } = useI18n();
   const confirm = useConfirm();
   const [state, setState] = useState<LeadWebhook>({ configured: false });
-  const [templates, setTemplates] = useState<Templates>({ welcomeId: '', welcomeEn: '', confirmId: '', confirmEn: '' });
+  const form = useFormState<Templates>({ welcomeId: '', welcomeEn: '', confirmId: '', confirmEn: '' });
+  const templates = form.values;
+  // load() juga jalan setelah buat/putar secret; jangan timpa ketikan yang belum disimpan.
+  const dirtyRef = useRef(false);
+  dirtyRef.current = form.dirty;
   const [fresh, setFresh] = useState<{ kind: Kind; secret: string } | null>(null);
-  const [status, setStatus] = useState('');
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
     try {
       const data = await api<LeadWebhook>('/v1/integrations/lead-webhook');
       setState(data);
-      if (data.templates) setTemplates(data.templates);
+      if (data.templates && !dirtyRef.current) form.load(data.templates);
     } catch {
       setState({ configured: false });
     }
@@ -96,18 +100,11 @@ export function LeadWebhookSection() {
   }
 
   async function saveTemplates() {
-    setBusy(true);
-    setStatus('');
-    try {
-      await api('/v1/integrations/lead-webhook', { method: 'PUT', body: { templates } });
-      setStatus(t('leadHook.saved'));
-      await load();
-    } catch (error) {
-      setStatus(messageFromError(error, ''));
-    } finally {
-      setBusy(false);
-    }
+    const snapshot = form.values;
+    await api('/v1/integrations/lead-webhook', { method: 'PUT', body: { templates: snapshot } });
+    form.commit(snapshot);
   }
+  useDirtySection('leadWebhookTemplates', t('leadHook.templatesTitle'), form.dirty, saveTemplates, form.reset);
 
   const origin = typeof window === 'undefined' ? '' : window.location.origin;
   const endpoints: { kind: Kind; label: string; path?: string; has?: boolean }[] = [
@@ -166,17 +163,13 @@ export function LeadWebhookSection() {
                   {t(label)}
                   <Textarea
                     value={templates[key]}
-                    onChange={(event) => setTemplates({ ...templates, [key]: event.target.value })}
+                    onChange={(event) => form.set({ [key]: event.target.value })}
                     maxLength={1000}
                     placeholder={t('leadHook.templatePlaceholder')}
                     className="min-h-16 py-2.5 font-normal"
                   />
                 </label>
               ))}
-            </div>
-            <div className="mt-3 flex items-center gap-3">
-              <Button size="sm" disabled={busy} onClick={saveTemplates}>{t('common.save')}</Button>
-              <StatusLine>{status}</StatusLine>
             </div>
           </div>
 

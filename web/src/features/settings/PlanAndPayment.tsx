@@ -5,7 +5,8 @@ import { Button } from '@/components/ui/button';
 import { useConfirm } from '@/components/ui/confirm';
 import { QuotaBar } from '@/components/QuotaBar';
 import { planLabel } from '@/lib/plan';
-import { Field, FieldGrid, SavedBadge, SettingCard, TextField, useSavedFlag } from './parts';
+import { Field, FieldGrid, SettingCard, TextField } from './parts';
+import { useDirtySection, useFormState } from './dirty';
 
 type Company = {
   plan?: string;
@@ -163,27 +164,24 @@ function CreditBalance() {
 
 export function PlanAndPayment() {
   const { t } = useI18n();
-  const confirm = useConfirm();
   const [company, setCompany] = useState<Company | null>(null);
-  const [method, setMethod] = useState<PaymentMethod>('none');
-  const [link, setLink] = useState('');
-  const [bankName, setBankName] = useState('');
-  const [bankAccount, setBankAccount] = useState('');
-  const [bankHolder, setBankHolder] = useState('');
-  const [notes, setNotes] = useState('');
-  const [saving, setSaving] = useState(false);
-  const { saved, flash } = useSavedFlag();
+  const form = useFormState<{ method: PaymentMethod; link: string; bankName: string; bankAccount: string; bankHolder: string; notes: string }>({
+    method: 'none', link: '', bankName: '', bankAccount: '', bankHolder: '', notes: '',
+  });
+  const { method, link, bankName, bankAccount, bankHolder, notes } = form.values;
 
   useEffect(() => {
     void api<Company>('/v1/admin/company')
       .then((data) => {
         setCompany(data);
-        setMethod((data.paymentMethod as PaymentMethod) || 'none');
-        setLink(data.paymentLink || '');
-        setBankName(data.bankName || '');
-        setBankAccount(data.bankAccount || '');
-        setBankHolder(data.bankHolder || '');
-        setNotes(data.paymentNotes || '');
+        form.load({
+          method: (data.paymentMethod as PaymentMethod) || 'none',
+          link: data.paymentLink || '',
+          bankName: data.bankName || '',
+          bankAccount: data.bankAccount || '',
+          bankHolder: data.bankHolder || '',
+          notes: data.paymentNotes || '',
+        });
       })
       .catch(() => {
         /* the session guard above already handles a signed-out state */
@@ -205,8 +203,8 @@ export function PlanAndPayment() {
   const usesBank = method === 'bank_transfer' || method === 'both';
 
   async function savePayment() {
-    setSaving(true);
-    try {
+    const snapshot = form.values;
+    {
       await api('/v1/admin/company', {
         method: 'PATCH',
         body: {
@@ -220,13 +218,10 @@ export function PlanAndPayment() {
           paymentNotes: notes.trim(),
         },
       });
-      flash();
-    } catch (error) {
-      await confirm.error(error);
-    } finally {
-      setSaving(false);
+      form.commit(snapshot);
     }
   }
+  useDirtySection('payment', t('settings.paymentTitle'), form.dirty, savePayment, form.reset);
 
   return (
     <>
@@ -265,7 +260,7 @@ export function PlanAndPayment() {
           <Field label={t('settings.paymentMethod')}>
             <select
               value={method}
-              onChange={(event) => setMethod(event.target.value as PaymentMethod)}
+              onChange={(event) => form.set({ method: event.target.value as PaymentMethod })}
               className="w-full rounded-app border border-input bg-white/60 px-3 py-2.5 text-sm outline-none focus:border-green"
             >
               <option value="none">{t('settings.paymentNone')}</option>
@@ -282,7 +277,7 @@ export function PlanAndPayment() {
               maxLength={500}
               value={link}
               placeholder="https://app.mayar.id/pl/..."
-              onChange={(event) => setLink(event.target.value)}
+              onChange={(event) => form.set({ link: event.target.value })}
             />
           ) : null}
 
@@ -293,21 +288,21 @@ export function PlanAndPayment() {
                 maxLength={100}
                 value={bankName}
                 placeholder="BCA / BRI / Mandiri"
-                onChange={(event) => setBankName(event.target.value)}
+                onChange={(event) => form.set({ bankName: event.target.value })}
               />
               <TextField
                 label={t('settings.bankAccount')}
                 maxLength={50}
                 value={bankAccount}
                 placeholder="1234567890"
-                onChange={(event) => setBankAccount(event.target.value)}
+                onChange={(event) => form.set({ bankAccount: event.target.value })}
               />
               <TextField
                 label={t('settings.bankHolder')}
                 maxLength={100}
                 value={bankHolder}
                 placeholder="PT Nama Perusahaan"
-                onChange={(event) => setBankHolder(event.target.value)}
+                onChange={(event) => form.set({ bankHolder: event.target.value })}
               />
             </>
           ) : null}
@@ -317,17 +312,11 @@ export function PlanAndPayment() {
             maxLength={500}
             value={notes}
             placeholder={t('settings.paymentNotesPlaceholder')}
-            onChange={(event) => setNotes(event.target.value)}
+            onChange={(event) => form.set({ notes: event.target.value })}
             className="md:col-span-2"
           />
         </FieldGrid>
 
-        <div className="mt-4 flex items-center gap-3">
-          <Button size="sm" disabled={saving} onClick={() => void savePayment()}>
-            {t('settings.savePayment')}
-          </Button>
-          <SavedBadge shown={saved} />
-        </div>
       </SettingCard>
       <PaymentAccountsCard
         proofCheck={Boolean(company?.paymentProofCheck)}

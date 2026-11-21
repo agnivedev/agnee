@@ -3,6 +3,7 @@ import { api, messageFromError } from '@/lib/api';
 import { useI18n } from '@/lib/i18n';
 import { Button } from '@/components/ui/button';
 import { SelectField, SettingCard, StatusLine, TextField } from './parts';
+import { useDirtySection } from './dirty';
 import { ReportTemplateEditor } from './ReportTemplateEditor';
 import { AgentPerformancePanel } from './AgentPerformancePanel';
 
@@ -46,22 +47,39 @@ export function ReportSection({ reloadKey = 0 }: { reloadKey?: number }) {
     setDrafts((current) => ({ ...current, [userId]: { ...current[userId], ...change } }));
   }
 
-  async function save(row: ReportRow) {
+  const isRowDirty = (row: ReportRow) => {
     const draft = drafts[row.userId];
-    setError(''); setStatus(''); setBusy(row.userId);
-    try {
-      await api(`/v1/reports/supervisors/${row.userId}`, {
-        method: 'PUT',
-        body: { frequency: draft.frequency, whatsappNumber: draft.number.trim() },
-      });
-      setStatus(t('report.saved', { name: row.displayName }));
-      await load();
-    } catch (failure) {
-      setError(messageFromError(failure, ''));
-    } finally {
-      setBusy(null);
+    return Boolean(draft) && (draft.frequency !== row.frequency || draft.number.trim() !== (row.whatsappNumber || ''));
+  };
+  const anyDirty = rows.some(isRowDirty);
+
+  // Simpan semua baris yang berubah. Baris yang berhasil jadi dasar baru di
+  // tempat (tanpa memuat ulang, supaya ketikan baris yang gagal tidak hilang);
+  // kegagalan dikumpulkan dan dilempar sekali di akhir.
+  async function saveAllRows() {
+    const failed: string[] = [];
+    for (const row of rows.filter(isRowDirty)) {
+      const draft = drafts[row.userId];
+      try {
+        await api(`/v1/reports/supervisors/${row.userId}`, {
+          method: 'PUT',
+          body: { frequency: draft.frequency, whatsappNumber: draft.number.trim() },
+        });
+        setRows((current) =>
+          current.map((item) =>
+            item.userId === row.userId ? { ...item, frequency: draft.frequency, whatsappNumber: draft.number.trim() || null } : item,
+          ),
+        );
+      } catch (failure) {
+        failed.push(`${row.displayName}: ${messageFromError(failure, '')}`);
+      }
     }
+    if (failed.length) throw new Error(failed.join('; '));
   }
+  function resetRows() {
+    setDrafts(Object.fromEntries(rows.map((row) => [row.userId, { frequency: row.frequency, number: row.whatsappNumber || '' }])));
+  }
+  useDirtySection('report', t('report.title'), anyDirty, saveAllRows, resetRows);
 
   async function sendSample(row: ReportRow) {
     setError(''); setStatus(''); setBusy(row.userId);
@@ -122,9 +140,6 @@ export function ReportSection({ reloadKey = 0 }: { reloadKey?: number }) {
                 />
               </div>
               <div className="mt-3 flex flex-wrap items-center gap-2">
-                <Button size="sm" onClick={() => void save(row)} disabled={busy === row.userId || !dirty}>
-                  {busy === row.userId ? t('common.loading') : t('common.save')}
-                </Button>
                 <Button
                   size="sm"
                   variant="outline"
